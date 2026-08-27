@@ -40,12 +40,20 @@ const ownerRole = ac.newRole({
   session: ["list", "revoke", "delete"],
 })
 
-// `set-password` stays owner-only: it is the only account-recovery path
-// until password reset by email exists, and letting an admin take over an
-// owner's account would hollow out the single-owner invariant.
+// `admin` gets user list/create/set-role/ban/get/update/delete and full
+// session management — Task 10's user-management screen needs to list,
+// create, edit and remove users. Withheld: `impersonate`/
+// `impersonate-admins` (nobody gets these, see ownerRole above) and
+// `set-password`, which stays owner-only — it is the only account-recovery
+// path until password reset by email exists, and letting an admin take
+// over an owner's account would hollow out the single-owner invariant.
+// Granting `user:delete` here is safe, not a loosening: plugin permissions
+// gate whether the endpoint runs at all, and Task 6's databaseHooks guard
+// independently prevents anyone — including an admin — from touching an
+// owner. Two separate barriers doing two separate jobs.
 const adminRole = ac.newRole({
-  user: ["list", "create", "set-role", "ban"],
-  session: ["revoke"],
+  user: ["list", "create", "set-role", "ban", "get", "update", "delete"],
+  session: ["list", "revoke", "delete"],
 })
 
 const editorRole = ac.newRole({
@@ -79,6 +87,15 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
     ],
   }) satisfies BetterAuthOptions
 
+// better-auth's own publicly-known fallback secret (verified against
+// better-auth@1.6.17's dist/utils/constants.mjs: `DEFAULT_SECRET`). A
+// truthiness check on `options.secret` alone would pass if someone set
+// BETTER_AUTH_SECRET to this exact value, or to a short/low-entropy string
+// — better-auth only warns in both cases, it never throws outside
+// NODE_ENV === "production". Checked explicitly below so misconfiguration
+// fails loudly in every environment, not just production.
+const DEFAULT_BETTER_AUTH_SECRET = "better-auth-secret-12345678901234567890"
+
 // `requireSecret` defaults to true for every request-serving instance
 // (convex/http.ts calls `createAuth` unchanged, so it always gets the
 // default). The one exception is convex/betterAuth/auth.ts, the schema
@@ -103,6 +120,14 @@ export const createAuth = (
     // tokens.
     if (!options.secret) {
       throw new Error("BETTER_AUTH_SECRET is not set on this Convex deployment")
+    }
+    if (options.secret === DEFAULT_BETTER_AUTH_SECRET) {
+      throw new Error(
+        "BETTER_AUTH_SECRET is set to Better Auth's public default — generate a real one with: openssl rand -base64 32",
+      )
+    }
+    if (options.secret.length < 32) {
+      throw new Error("BETTER_AUTH_SECRET must be at least 32 characters")
     }
 
     // Required — unset, better-auth derives the origin per-request from
