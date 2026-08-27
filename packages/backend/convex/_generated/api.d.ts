@@ -11,8 +11,10 @@
 import type * as _registry from "../_registry.js";
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
+import type * as invitations from "../invitations.js";
 import type * as lib_authz from "../lib/authz.js";
 import type * as lib_ownerGuard from "../lib/ownerGuard.js";
+import type * as lib_token from "../lib/token.js";
 import type * as profiles from "../profiles.js";
 import type * as validators from "../validators.js";
 
@@ -26,8 +28,10 @@ declare const fullApi: ApiFromModules<{
   _registry: typeof _registry;
   auth: typeof auth;
   http: typeof http;
+  invitations: typeof invitations;
   "lib/authz": typeof lib_authz;
   "lib/ownerGuard": typeof lib_ownerGuard;
+  "lib/token": typeof lib_token;
   profiles: typeof profiles;
   validators: typeof validators;
 }>;
@@ -60,4 +64,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   betterAuth: import("../betterAuth/_generated/component.js").ComponentApi<"betterAuth">;
+  resend: import("@convex-dev/resend/_generated/component.js").ComponentApi<"resend">;
 };
