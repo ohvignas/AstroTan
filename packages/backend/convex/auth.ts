@@ -5,17 +5,96 @@ import { createAccessControl } from "better-auth/plugins/access"
 import { defaultStatements } from "better-auth/plugins/admin/access"
 import { convex } from "@convex-dev/better-auth/plugins"
 import { createClient, type GenericCtx } from "@convex-dev/better-auth"
-import { components } from "./_generated/api"
+import { components, internal } from "./_generated/api"
 import type { DataModel } from "./_generated/dataModel"
 import authSchema from "./betterAuth/schema"
 import authConfig from "./auth.config"
 import { parseRole } from "./validators"
 import { assertOwnerInvariant, OwnerInvariantError } from "./lib/ownerGuard"
 
-export const authComponent = createClient<DataModel, typeof authSchema>(
+// La synchronisation `profiles` <-> utilisateur Better Auth passe par les
+// `triggers` du composant, pas par une mutation `ensure` appelée à la
+// main : `triggers.user.onCreate/onUpdate/onDelete` ci-dessous, câblés au
+// composant via `authFunctions` (les mêmes `onCreate`/`onUpdate`/`onDelete`
+// que ce module exporte plus bas via `triggersApi()`) et
+// `local.schema.user` (le modèle "user" du schéma Better Auth local).
+// Vérifié contre `@convex-dev/better-auth@0.12.5` installé
+// (`src/client/create-api.ts` et `src/client/adapter.ts`) plutôt qu'écrit
+// de mémoire : le composant n'appelle le handle de trigger que si *les
+// deux* `config.authFunctions.onCreate` et `config.triggers.user.onCreate`
+// sont renseignés (idem update/delete) — omettre `authFunctions` ferait
+// que `triggers` ci-dessous ne se déclenche jamais, silencieusement.
+//
+// `onCreate` (ci-dessous) appelle `authComponent.setUserId(...)`, donc
+// l'initialiseur de `authComponent` se référence lui-même — TS7022
+// (`implicitly has type 'any'` dans sa propre initialisation) sans
+// annotation de type explicite. L'expression d'instanciation
+// `typeof createClient<...>` calcule le type retourné sans réévaluer la
+// valeur, ce qui casse le cycle : le type de `authComponent` ne dépend
+// plus de `authComponent` lui-même.
+type AuthComponent = ReturnType<typeof createClient<DataModel, typeof authSchema>>
+
+export const authComponent: AuthComponent = createClient<DataModel, typeof authSchema>(
   components.betterAuth,
-  { local: { schema: authSchema } },
+  {
+    authFunctions: internal.auth,
+    local: { schema: authSchema },
+    triggers: {
+      user: {
+        // `setUserId` est la liaison officielle *composant -> application*
+        // (le document Better Auth `user` porte désormais `userId` =
+        // l'id du profil applicatif) ; l'index `by_auth_user` sur
+        // `profiles` est la liaison inverse *application -> composant*.
+        // Les deux sont conservées : elles servent des directions
+        // différentes (`requireRole`/la liste des utilisateurs lisent via
+        // l'index ; `setUserId` est ce que Better Auth expose comme
+        // référence croisée officielle), ni l'une ni l'autre ne remplace
+        // l'autre.
+        onCreate: async (ctx, authUser) => {
+          const profileId = await ctx.db.insert("profiles", {
+            authUserId: authUser._id,
+            displayName: authUser.name ?? authUser.email,
+          })
+          await authComponent.setUserId(ctx, authUser._id, profileId)
+        },
+        // Ne resynchronise `displayName` que si le nom (ou, par
+        // cohérence avec le fallback de `onCreate`, l'email) affiché a
+        // réellement changé — évite une écriture `profiles` à chaque
+        // mise à jour Better Auth sans rapport (ban, rôle, mot de passe,
+        // …).
+        onUpdate: async (ctx, newUser, oldUser) => {
+          const nextDisplayName = newUser.name ?? newUser.email
+          const prevDisplayName = oldUser.name ?? oldUser.email
+          if (nextDisplayName === prevDisplayName) return
+          const profile = await ctx.db
+            .query("profiles")
+            .withIndex("by_auth_user", (q) => q.eq("authUserId", newUser._id))
+            .unique()
+          // Pas de profil trouvé : rien à synchroniser (ne devrait pas
+          // arriver si l'invariant tient, mais ce hook ne doit pas faire
+          // échouer la mise à jour Better Auth pour autant).
+          if (!profile) return
+          await ctx.db.patch(profile._id, { displayName: nextDisplayName })
+        },
+        // Le profil suit le cycle de vie de son utilisateur : supprimé
+        // avec lui, jamais orphelin.
+        onDelete: async (ctx, authUser) => {
+          const profile = await ctx.db
+            .query("profiles")
+            .withIndex("by_auth_user", (q) => q.eq("authUserId", authUser._id))
+            .unique()
+          if (profile) await ctx.db.delete(profile._id)
+        },
+      },
+    },
+  },
 )
+
+// Obligatoire : sans cet export, les callbacks `triggers` ci-dessus ne
+// sont jamais câblés à un point d'entrée Convex réel — `authFunctions`
+// pointe vers `internal.auth.onCreate/onUpdate/onDelete`, qui n'existent
+// que parce qu'ils sont exportés ici.
+export const { onCreate, onUpdate, onDelete } = authComponent.triggersApi()
 
 // `defaultStatements` (from better-auth@1.6.17's admin plugin):
 //   user: ["create", "list", "set-role", "ban", "impersonate",

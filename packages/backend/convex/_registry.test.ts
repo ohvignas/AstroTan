@@ -40,8 +40,9 @@ test("toute mutation exportée est déclarée dans le registre", async () => {
   const SKIP_PREFIXES = ["_generated/", "betterAuth/"]
   const SKIP_FILES = new Set(["convex.config.ts", "http.ts"])
   const all = import.meta.glob("./**/*.ts")
-  const declared = new Set(MUTATION_REGISTRY.map((e) => e.name))
-  const missing: string[] = []
+  // Collected as `{file}.{name}` candidates first, *not* filtered against
+  // `declared` inline — see below for why.
+  const publicMutations: string[] = []
   for (const [path, load] of Object.entries(all)) {
     const rel = path.replace(/^\.\//, "")
     if (rel.endsWith(".test.ts") || SKIP_FILES.has(rel)) continue
@@ -55,10 +56,22 @@ test("toute mutation exportée est déclarée dans le registre", async () => {
       // `t.withIdentity(...)` comme la matrice le fait, donc les exiger
       // dans ce registre serait incohérent avec la façon dont elles sont
       // réellement atteintes.
-      if (fn?.isMutation && fn?.isPublic && !declared.has(`${file}.${name}`)) {
-        missing.push(`${file}.${name}`)
+      if (fn?.isMutation && fn?.isPublic) {
+        publicMutations.push(`${file}.${name}`)
       }
     }
   }
+  // Read only *after* every module above has been dynamically `load()`ed,
+  // not before the loop: a module can register its own entries into
+  // `MUTATION_REGISTRY` as an import-time side effect (`profiles.ts`
+  // does, for `profiles.updateMine`), and that side effect only runs once
+  // this test's own `import.meta.glob` loader actually imports the file —
+  // which happens *inside* the loop above. Snapshotting `declared` before
+  // the loop (as this test used to) reads the registry before any such
+  // module has had a chance to register itself, so every mutation's very
+  // first-ever registration would be reported as "missing" regardless of
+  // whether it's correctly declared.
+  const declared = new Set(MUTATION_REGISTRY.map((e) => e.name))
+  const missing = publicMutations.filter((name) => !declared.has(name))
   expect(missing).toEqual([])
 })
