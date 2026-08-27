@@ -17,6 +17,18 @@
 // `_registry.test.ts` passait quand même (l'entrée était bien déclarée,
 // juste jamais exercée par la matrice).
 //
+// Vit HORS de `convex/` (round 2 du fix, comme `betterAuthFixture.ts` —
+// voir son en-tête pour la mesure complète contre un vrai `convex dev
+// --once`) : ce barrel n'a AUCUN rôle en production. `MUTATION_REGISTRY`
+// n'est lu qu'ici, dans les tests ; le runtime Convex réel n'en a jamais
+// besoin pour exécuter une fonction, et `profiles.ts` (importé ci-dessous)
+// est de toute façon chargé normalement par Convex comme point d'entrée
+// réel, avec ou sans ce barrel — son import statique ici ne sert qu'à
+// rendre ce chargement *déterministe au moment de la collecte des tests*,
+// ce qui n'a de sens que côté test. Un fichier sans rôle en production ne
+// devrait jamais avoir eu de raison de vivre sous `convex/` en premier
+// lieu.
+//
 // Ajouter ici chaque nouveau module qui s'enregistre, au fur et à mesure
 // qu'il est écrit (Tasks 8, 10, …).
-import "./profiles"
+import "../convex/profiles"

@@ -1,47 +1,54 @@
-import type { TestConvex } from "convex-test"
-import type schema from "../schema"
-import { createAuth } from "../auth"
-import { components } from "../_generated/api"
+import { convexTest, type TestConvex } from "convex-test"
+import schema from "../convex/schema"
+import betterAuthSchema from "../convex/betterAuth/schema"
+import { createAuth } from "../convex/auth"
+import { components } from "../convex/_generated/api"
 
 // Fixture partagée entre `lib/authz.test.ts` (la matrice de permissions du
-// registre) et `profiles.test.ts` (les triggers Better Auth) : les deux
+// registre), `profiles.test.ts` (les triggers Better Auth) et
+// `auth.ownerInvariant.test.ts` (l'invariant single-owner) : les trois
 // dépendent du même composant `betterAuth` enregistré et de la même façon
 // de construire une identité Convex qui correspond à une *vraie* session
 // plutôt qu'à une identité nue. Dupliquer cette logique dans chaque
-// fichier de test serait la même forme d'erreur que celle que le fix de
-// `_registry.test.ts` vient de corriger : deux copies qui peuvent
-// diverger silencieusement sans qu'aucun test ne le remarque.
+// fichier de test est la même forme d'erreur que celle que le fix de
+// `_registry.test.ts` a corrigée : des copies qui peuvent diverger
+// silencieusement sans qu'aucun test ne le remarque.
 //
-// `convex/` est balayé et bundlé tel quel par le vrai déploiement Convex —
-// vérifié dans `node_modules/convex/dist/cli.bundle.cjs`, la fonction
-// `entryPoints()` du CLI : tout fichier `.ts` dont le nom de base ne
-// contient qu'UN seul point est un point d'entrée candidat (avec
-// `_generated/`, les dotfiles et `schema.ts` comme seules autres
-// exceptions nommées) ; seul un nom à deux points ou plus — comme
-// `*.test.ts` — en est exclu. `betterAuthFixture.ts` n'a qu'un seul point,
-// donc CE fichier serait balayé et bundlé pour de vrai. Il reste donc
-// volontairement sans aucun import *runtime* de `convex-test`/`vitest` :
-// `TestConvex` n'est importé qu'en `import type` (effacé à la
-// compilation, aucune trace dans le bundle), et rien ici n'appelle
-// `expect(...)` — les échecs sont des `throw new Error(...)` ordinaires.
-// `convexTest(...)` lui-même (qui a besoin de la *valeur* du paquet, pas
-// seulement de son type) reste donc en dehors de ce fichier, redéfini à
-// l'identique dans chaque `.test.ts` appelant (ces fichiers-là ont deux
-// points dans leur nom, donc sont déjà exclus du bundle par la même règle).
+// Vit délibérément HORS de `convex/` (round 2 du fix — round 1 l'avait
+// placé sous `convex/testing/`, ce qui était une erreur) : `convex/` est
+// balayé et bundlé tel quel par le vrai déploiement Convex, et le
+// bundler analyse chaque fichier avec son propre runtime, qui n'a pas
+// `import.meta` — `import.meta.glob` (ci-dessous) y échoue avec
+// `Uncaught TypeError: import.meta unsupported`, mesuré avec un vrai
+// `convex dev --once`, pas seulement supposé. `tsc --noEmit` et `vitest`
+// ne voient pas cette différence (Vite/Vitest supportent `import.meta`),
+// donc rien côté typecheck/tests ne l'aurait révélé — round 1 avait déjà
+// vérifié que ce fichier ne porte aucun import *runtime* de test-only
+// package pour rester "safe to deploy" s'il finissait bundlé quand même,
+// mais "safe to deploy" est une propriété qu'il aurait fallu ré-établir à
+// chaque édition future, par le raisonnement seul, sans rien pour
+// prévenir une régression. En dehors de `convex/`, la question ne se
+// pose plus : ce fichier n'est jamais un point d'entrée candidat pour le
+// bundler Convex, donc `import.meta.glob` (et n'importe quel import
+// runtime de `convex-test`) est sans risque ici.
 export const ORIGIN = "http://localhost:3000"
 
-// Simples macros Vite compilées en données statiques à la construction —
-// aucune dépendance runtime à `convex-test` ici non plus, donc sûres à
-// exporter depuis un fichier bundlé pour de vrai.
-export const modules = import.meta.glob("../**/*.ts")
-export const betterAuthModules = import.meta.glob("../betterAuth/**/*.ts")
+// Chemins relatifs à CE fichier (`packages/backend/testing/`), donc
+// remontent d'un niveau puis entrent dans `convex/`.
+export const modules = import.meta.glob("../convex/**/*.ts")
+export const betterAuthModules = import.meta.glob("../convex/betterAuth/**/*.ts")
+
+export function makeTestConvex(): TestConvex<typeof schema> {
+  const t = convexTest(schema, modules)
+  t.registerComponent("betterAuth", betterAuthSchema, betterAuthModules)
+  return t
+}
 
 // Seeding server-side (pas de `headers`/`request`) : l'échappatoire de
 // bootstrap documentée du plugin admin (`if (!session && (ctx.request ||
 // ctx.headers)) throw UNAUTHORIZED` est sautée quand les deux sont
-// absents), pas un contournement de ce fixture — voir
-// `auth.ownerInvariant.test.ts` pour la même construction, écrite en
-// premier là-bas.
+// absents), pas un contournement de ce fixture — écrit en premier dans
+// `auth.ownerInvariant.test.ts` (Task 6), repris ici tel quel.
 export async function seedUser(
   t: TestConvex<typeof schema>,
   user: { email: string; password: string; name: string; role: "owner" | "admin" | "editor" },

@@ -1,9 +1,9 @@
-import { convexTest, type TestConvex } from "convex-test"
+import { type TestConvex } from "convex-test"
 import { afterEach, beforeEach, expect, test } from "vitest"
 import schema from "./schema"
-import betterAuthSchema from "./betterAuth/schema"
 import { createAuth } from "./auth"
 import { components } from "./_generated/api"
+import { ORIGIN, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
 
 // This file drives the *real* HTTP surface (`http.ts` -> `authComponent
 // .registerRoutes` -> better-auth's own router -> the admin() plugin's
@@ -26,11 +26,6 @@ import { components } from "./_generated/api"
 // admin() and omits every table for a plugin we don't install), so
 // registering the wrong one would silently test against a schema this app
 // doesn't actually run.
-const modules = import.meta.glob("./**/*.ts")
-const betterAuthModules = import.meta.glob("./betterAuth/**/*.ts")
-
-const ORIGIN = "http://localhost:3000"
-
 let originalEnv: NodeJS.ProcessEnv
 
 beforeEach(() => {
@@ -43,50 +38,14 @@ afterEach(() => {
   process.env = originalEnv
 })
 
-function makeTestConvex(): TestConvex<typeof schema> {
-  const t = convexTest(schema, modules)
-  t.registerComponent("betterAuth", betterAuthSchema, betterAuthModules)
-  return t
-}
-
-// Seeds a user by calling `auth.api.createUser` *server-side*, i.e. with no
-// `headers`/`request` on the call. That's not a workaround: the admin
-// plugin's own `/admin/create-user` handler explicitly skips its
-// authorization check when both are absent (`if (!session && (ctx.request
-// || ctx.headers)) throw ctx.error("UNAUTHORIZED")` in
-// `better-auth/dist/plugins/admin/routes.mjs`) — it's better-auth's
-// documented bootstrap escape hatch for seeding the first admin/owner
-// account, which the real HTTP endpoints can never reach without one
-// already existing. `emailAndPassword.disableSignUp` doesn't apply here
-// either: it only gates the separate `/sign-up/email` endpoint.
-async function seedUser(
-  t: TestConvex<typeof schema>,
-  user: { email: string; password: string; name: string; role: "owner" | "admin" | "editor" },
-) {
-  const result = await t.run(async (ctx) => {
-    const auth = createAuth(ctx)
-    return auth.api.createUser({ body: user })
-  })
-  return (result as { user: { id: string; role: string } }).user
-}
-
-// Signs in through the real `/api/auth/sign-in/email` endpoint and returns
-// a `Cookie` header value carrying the session token, for use on
-// subsequent `t.fetch` calls as that user.
-async function signIn(t: TestConvex<typeof schema>, email: string, password: string) {
-  const res = await t.fetch("/api/auth/sign-in/email", {
-    method: "POST",
-    headers: { "content-type": "application/json", origin: ORIGIN },
-    body: JSON.stringify({ email, password }),
-  })
-  expect(res.status).toBe(200)
-  const setCookies: string[] = res.headers.getSetCookie()
-  const sessionCookie = setCookies
-    .map((c) => c.split(";")[0] ?? "")
-    .find((c) => c.startsWith("better-auth.session_token="))
-  if (!sessionCookie) throw new Error("sign-in did not set a session cookie")
-  return sessionCookie
-}
+// `makeTestConvex`/`seedUser`/`signIn` come from the shared fixture
+// (`packages/backend/testing/betterAuthFixture.ts`) — written first in
+// this file (Task 6), extracted and shared with `lib/authz.test.ts` and
+// `profiles.test.ts` (round 1 of the Task 7 review), then moved out of
+// `convex/` entirely (round 2 — a file with this shape under `convex/`
+// is a real deploy-bundler entry point, and `import.meta.glob` inside it
+// broke a real `convex dev --once`; see that file's header for the full
+// story). Kept here rather than left duplicated a fourth time.
 
 // Reads a user's *current* role through the real, authenticated
 // `/admin/get-user` endpoint — never by asserting on a mutation response,

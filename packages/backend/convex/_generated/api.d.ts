@@ -14,7 +14,6 @@ import type * as http from "../http.js";
 import type * as lib_authz from "../lib/authz.js";
 import type * as lib_ownerGuard from "../lib/ownerGuard.js";
 import type * as profiles from "../profiles.js";
-import type * as testing_betterAuthFixture from "../testing/betterAuthFixture.js";
 import type * as validators from "../validators.js";
 
 import type {
@@ -30,7 +29,6 @@ declare const fullApi: ApiFromModules<{
   "lib/authz": typeof lib_authz;
   "lib/ownerGuard": typeof lib_ownerGuard;
   profiles: typeof profiles;
-  "testing/betterAuthFixture": typeof testing_betterAuthFixture;
   validators: typeof validators;
 }>;
 

@@ -4,8 +4,10 @@ import { MUTATION_REGISTRY } from "./_registry"
 // que le registre est peuplé indépendamment des détails d'ordre de cette
 // boucle (déjà corrigés une fois plus bas) et fait de ce fichier + son
 // import une seule source de vérité, partagée avec `lib/authz.test.ts`,
-// pour "le registre est prêt avant qu'on le lise".
-import "./_registry.modules"
+// pour "le registre est prêt avant qu'on le lise". Vit sous
+// `packages/backend/testing/` (round 2 du fix), pas `convex/` : ce
+// barrel n'a aucun rôle en production, voir son en-tête.
+import "../testing/registryModules"
 
 // Ce test vit à côté du registre qu'il garde, à la racine de l'arbre
 // balayé — c'est ce qui rend le préfixe qu'il retire de chaque clé de glob

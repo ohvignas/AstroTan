@@ -1,25 +1,23 @@
 import { convexTest, type TestConvex } from "convex-test"
 import { afterEach, beforeEach, expect, test } from "vitest"
 import schema from "./schema"
-import betterAuthSchema from "./betterAuth/schema"
 import { components, internal, api } from "./_generated/api"
 import {
   ORIGIN,
   modules,
-  betterAuthModules,
+  makeTestConvex,
   seedUser,
   signIn,
   identityFor,
-} from "./testing/betterAuthFixture"
+} from "../testing/betterAuthFixture"
 
-// Fixture partagée avec `lib/authz.test.ts` — voir
-// `convex/testing/betterAuthFixture.ts` pour `seedUser`/`signIn`/
-// `identityFor` et pourquoi ils vivent là plutôt que d'être dupliqués ici
-// (comme avant ce fix round) ou dans chaque fichier qui en a besoin.
-// `makeTestConvex` reste défini ici (et dans `authz.test.ts`, à
-// l'identique) : il a besoin de la *valeur* `convexTest`, que le fixture
-// partagé n'importe délibérément pas (voir son en-tête) puisque `convex/`
-// est balayé et bundlé par le vrai déploiement Convex.
+// Fixture partagée avec `lib/authz.test.ts` et `auth.ownerInvariant.test.ts`
+// — voir `packages/backend/testing/betterAuthFixture.ts` (round 2 du fix :
+// pas `convex/testing/`, voir son en-tête pour la mesure contre un vrai
+// `convex dev --once` qui a motivé de sortir tout ceci de `convex/`) pour
+// `makeTestConvex`/`seedUser`/`signIn`/`identityFor` et pourquoi ils
+// vivent là plutôt que d'être dupliqués ici (round 1) ou dans chaque
+// fichier qui en a besoin (avant round 1).
 //
 // Reprend le principe de `auth.ownerInvariant.test.ts` (Task 6) : drive
 // les vraies mutations Better Auth (`auth.api.createUser`,
@@ -46,12 +44,6 @@ beforeEach(() => {
 afterEach(() => {
   process.env = originalEnv
 })
-
-function makeTestConvex(): TestConvex<typeof schema> {
-  const t = convexTest(schema, modules)
-  t.registerComponent("betterAuth", betterAuthSchema, betterAuthModules)
-  return t
-}
 
 async function getProfile(t: TestConvex<typeof schema>, authUserId: string) {
   return t.run(async (ctx) =>

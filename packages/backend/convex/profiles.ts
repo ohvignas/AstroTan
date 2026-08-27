@@ -96,7 +96,8 @@ export const updateMine = mutation({
 // `invoke` appelle la mutation réelle telle quelle. Ce registre est
 // partagé avec `convex/lib/authz.test.ts`, dont la matrice enregistre
 // désormais le composant `betterAuth` et construit une vraie identité de
-// session pour chaque rôle (voir `convex/testing/betterAuthFixture.ts`) —
+// session pour chaque rôle (voir
+// `packages/backend/testing/betterAuthFixture.ts`) —
 // `requireRole` a réellement besoin des deux, donc `invoke` n'a besoin de
 // rien de spécial ici au-delà d'appeler la mutation normalement.
 MUTATION_REGISTRY.push({

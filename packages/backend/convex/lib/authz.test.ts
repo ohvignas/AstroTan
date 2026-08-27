@@ -1,18 +1,21 @@
 import { convexTest } from "convex-test"
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
 import schema from "../schema"
-import betterAuthSchema from "../betterAuth/schema"
 import { MUTATION_REGISTRY } from "../_registry"
 // Import statique : garantit que `MUTATION_REGISTRY` est peuplé avant que
 // la boucle de matrice plus bas ne s'exécute, à la *collecte* des tests
 // (elle construit un `test()` par entrée, donc avant qu'aucun corps de
-// test ne tourne) — voir `_registry.modules.ts` pour le mécanisme complet.
-// Sans cet import, cette boucle tournait sur un registre vide et générait
-// silencieusement zéro test de permission, alors même que
-// `_registry.test.ts` passait quand même (l'entrée y était bien déclarée,
-// juste jamais chargée dans CE fichier). C'est exactement le trou que la
-// review a débusqué.
-import "../_registry.modules"
+// test ne tourne) — voir `packages/backend/testing/registryModules.ts`
+// pour le mécanisme complet. Sans cet import, cette boucle tournait sur
+// un registre vide et générait silencieusement zéro test de permission,
+// alors même que `_registry.test.ts` passait quand même (l'entrée y était
+// bien déclarée, juste jamais chargée dans CE fichier). C'est exactement
+// le trou que la review a débusqué.
+//
+// `packages/backend/testing/` (pas `convex/testing/`, round 2 du fix) :
+// voir l'en-tête de `betterAuthFixture.ts` pour la mesure contre un vrai
+// `convex dev --once` qui a motivé de sortir tout ceci de `convex/`.
+import "../../testing/registryModules"
 import {
   decideAccess,
   isCurrentlyBanned,
@@ -23,12 +26,12 @@ import {
 import type { Role } from "../validators"
 import {
   ORIGIN,
-  betterAuthModules,
   identityFor,
+  makeTestConvex,
   modules,
   seedUser,
   signIn,
-} from "../testing/betterAuthFixture"
+} from "../../testing/betterAuthFixture"
 
 let originalEnv: NodeJS.ProcessEnv
 
@@ -200,7 +203,8 @@ test("requireRole rejette un appel non authentifié avec le code UNAUTHENTICATED
 // identiquement pour un rôle autorisé et un rôle refusé, ce qui est un
 // faux résultat (ni un succès légitime, ni un FORBIDDEN) déguisé en
 // n'importe lequel des deux selon l'assertion. `seedUser`/`signIn`/
-// `identityFor` (`convex/testing/betterAuthFixture.ts`) construisent le
+// `identityFor` (`packages/backend/testing/betterAuthFixture.ts`)
+// construisent le
 // scénario réel : composant enregistré, utilisateur créé avec le rôle
 // testé (ce qui fait aussi tourner `onCreate` pour de vrai, donc son
 // profil existe déjà si la mutation en a besoin), session ouverte,
@@ -229,8 +233,7 @@ describe("matrice de permissions", () => {
     for (const role of ["owner", "admin", "editor"] as const) {
       const allowed = entry.allowedRoles.includes(role)
       test(`${entry.name} — ${role} ${allowed ? "autorisé" : "refusé"}`, async () => {
-        const t = convexTest(schema, modules)
-        t.registerComponent("betterAuth", betterAuthSchema, betterAuthModules)
+        const t = makeTestConvex()
         const email = `${entry.name.replace(/[^a-z0-9]+/gi, "_")}_${role}@example.com`
         const password = "correct horse battery staple 1"
         const user = await seedUser(t, { email, password, name: "Matrix Subject", role })
