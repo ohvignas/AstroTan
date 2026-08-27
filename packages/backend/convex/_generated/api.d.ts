@@ -8,8 +8,11 @@
  * @module
  */
 
+import type * as _registry from "../_registry.js";
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
+import type * as lib_authz from "../lib/authz.js";
+import type * as lib_ownerGuard from "../lib/ownerGuard.js";
 import type * as profiles from "../profiles.js";
 import type * as validators from "../validators.js";
 
@@ -20,8 +23,11 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  _registry: typeof _registry;
   auth: typeof auth;
   http: typeof http;
+  "lib/authz": typeof lib_authz;
+  "lib/ownerGuard": typeof lib_ownerGuard;
   profiles: typeof profiles;
   validators: typeof validators;
 }>;
