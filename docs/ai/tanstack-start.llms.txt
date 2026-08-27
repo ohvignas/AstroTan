@@ -1,0 +1,140 @@
+# TanStack Start docs
+
+> Full-document SSR, Streaming, Server Functions, bundling and more, powered by TanStack Router and Vite - Ready to deploy to your favorite hosting provider.
+
+- [Docs index](https://tanstack.com/start/latest/docs/index.md): This same Markdown index.
+- [LLMs index](https://tanstack.com/start/latest/llms.txt): This same Markdown index.
+- [Library home](https://tanstack.com/start/latest)
+- [GitHub](https://github.com/tanstack/router)
+- Packages: @tanstack/start-client-core.
+- Frameworks: React, Solid.
+
+Use this index as the routing layer for the docs. Fetch one linked Markdown page at a time, and prefer framework-specific pages when the user names a framework.
+
+## Get Started
+
+### Getting Started
+
+- [React: Overview](https://tanstack.com/start/latest/docs/framework/react/overview.md)
+- [React: Getting Started](https://tanstack.com/start/latest/docs/framework/react/getting-started.md)
+- [React: Build from Scratch](https://tanstack.com/start/latest/docs/framework/react/build-from-scratch.md)
+- [React: Comparison](https://tanstack.com/start/latest/docs/framework/react/comparison.md)
+- [React: Start vs Next.js](https://tanstack.com/start/latest/docs/framework/react/start-vs-nextjs.md)
+- [React: Migrate from Next.js](https://tanstack.com/start/latest/docs/framework/react/migrate-from-next-js.md)
+- [Solid: Overview](https://tanstack.com/start/latest/docs/framework/solid/overview.md)
+- [Solid: Getting Started](https://tanstack.com/start/latest/docs/framework/solid/getting-started.md)
+- [Solid: Build from Scratch](https://tanstack.com/start/latest/docs/framework/solid/build-from-scratch.md)
+
+## Tutorial
+
+### Tutorials
+
+- [React: Reading and Writing a File](https://tanstack.com/start/latest/docs/framework/react/tutorial/reading-writing-file.md)
+- [React: Fetching Data from External API](https://tanstack.com/start/latest/docs/framework/react/tutorial/fetching-external-api.md)
+- [Solid: Reading and Writing a File](https://tanstack.com/start/latest/docs/framework/solid/tutorial/reading-writing-file.md)
+- [Solid: Fetching Data from External API](https://tanstack.com/start/latest/docs/framework/solid/tutorial/fetching-external-api.md)
+
+## Guides
+
+### Server & Execution
+
+- [React: Routing](https://tanstack.com/start/latest/docs/framework/react/guide/routing.md)
+- [React: Execution Model](https://tanstack.com/start/latest/docs/framework/react/guide/execution-model.md)
+- [React: Code Execution Patterns](https://tanstack.com/start/latest/docs/framework/react/guide/code-execution-patterns.md)
+- [React: Import Protection](https://tanstack.com/start/latest/docs/framework/react/guide/import-protection.md)
+- [React: Path Aliases](https://tanstack.com/start/latest/docs/framework/react/guide/path-aliases.md)
+- [React: Environment Variables](https://tanstack.com/start/latest/docs/framework/react/guide/environment-variables.md)
+- [React: Server Functions](https://tanstack.com/start/latest/docs/framework/react/guide/server-functions.md)
+- [React: Streaming Data from Server Functions](https://tanstack.com/start/latest/docs/framework/react/guide/streaming-data-from-server-functions.md)
+- [React: Server Components](https://tanstack.com/start/latest/docs/framework/react/guide/server-components.md)
+- [React: Static Server Functions](https://tanstack.com/start/latest/docs/framework/react/guide/static-server-functions.md)
+- [React: Environment Functions](https://tanstack.com/start/latest/docs/framework/react/guide/environment-functions.md)
+- [React: Middleware](https://tanstack.com/start/latest/docs/framework/react/guide/middleware.md)
+- [React: Error Boundaries](https://tanstack.com/start/latest/docs/framework/react/guide/error-boundaries.md)
+- [React: Server Routes](https://tanstack.com/start/latest/docs/framework/react/guide/server-routes.md)
+- [Solid: Routing](https://tanstack.com/start/latest/docs/framework/solid/guide/routing.md)
+- [Solid: Execution Model](https://tanstack.com/start/latest/docs/framework/solid/guide/execution-model.md)
+- [Solid: Code Execution Patterns](https://tanstack.com/start/latest/docs/framework/solid/guide/code-execution-patterns.md)
+- [Solid: Import Protection](https://tanstack.com/start/latest/docs/framework/solid/guide/import-protection.md)
+- [Solid: Path Aliases](https://tanstack.com/start/latest/docs/framework/solid/guide/path-aliases.md)
+- [Solid: Environment Variables](https://tanstack.com/start/latest/docs/framework/solid/guide/environment-variables.md)
+- [Solid: Server Functions](https://tanstack.com/start/latest/docs/framework/solid/guide/server-functions.md)
+- [Solid: Static Server Functions](https://tanstack.com/start/latest/docs/framework/solid/guide/static-server-functions.md)
+- [Solid: Environment Functions](https://tanstack.com/start/latest/docs/framework/solid/guide/environment-functions.md)
+- [Solid: Middleware](https://tanstack.com/start/latest/docs/framework/solid/guide/middleware.md)
+- [Solid: Error Boundaries](https://tanstack.com/start/latest/docs/framework/solid/guide/error-boundaries.md)
+- [Solid: Server Routes](https://tanstack.com/start/latest/docs/framework/solid/guide/server-routes.md)
+### Rendering
+
+- [React: Hydration Errors](https://tanstack.com/start/latest/docs/framework/react/guide/hydration-errors.md)
+- [React: Deferred Hydration](https://tanstack.com/start/latest/docs/framework/react/guide/deferred-hydration.md)
+- [React: Selective SSR](https://tanstack.com/start/latest/docs/framework/react/guide/selective-ssr.md)
+- [React: SPA Mode](https://tanstack.com/start/latest/docs/framework/react/guide/spa-mode.md)
+- [React: Static Prerendering](https://tanstack.com/start/latest/docs/framework/react/guide/static-prerendering.md)
+- [React: Incremental Static Regeneration (ISR)](https://tanstack.com/start/latest/docs/framework/react/guide/isr.md)
+- [React: Server Entry Point](https://tanstack.com/start/latest/docs/framework/react/guide/server-entry-point.md)
+- [React: Client Entry Point](https://tanstack.com/start/latest/docs/framework/react/guide/client-entry-point.md)
+- [React: Early Hints](https://tanstack.com/start/latest/docs/framework/react/guide/early-hints.md)
+- [React: CDN Asset URLs](https://tanstack.com/start/latest/docs/framework/react/guide/cdn-asset-urls.md)
+- [Solid: Hydration Errors](https://tanstack.com/start/latest/docs/framework/solid/guide/hydration-errors.md)
+- [Solid: Deferred Hydration](https://tanstack.com/start/latest/docs/framework/solid/guide/deferred-hydration.md)
+- [Solid: Selective SSR](https://tanstack.com/start/latest/docs/framework/solid/guide/selective-ssr.md)
+- [Solid: SPA Mode](https://tanstack.com/start/latest/docs/framework/solid/guide/spa-mode.md)
+- [Solid: Static Prerendering](https://tanstack.com/start/latest/docs/framework/solid/guide/static-prerendering.md)
+- [Solid: Server Entry Point](https://tanstack.com/start/latest/docs/framework/solid/guide/server-entry-point.md)
+- [Solid: Client Entry Point](https://tanstack.com/start/latest/docs/framework/solid/guide/client-entry-point.md)
+- [Solid: Early Hints](https://tanstack.com/start/latest/docs/framework/solid/guide/early-hints.md)
+### Deployment & Operations
+
+- [React: Hosting](https://tanstack.com/start/latest/docs/framework/react/guide/hosting.md)
+- [React: Observability](https://tanstack.com/start/latest/docs/framework/react/guide/observability.md)
+- [Solid: Hosting](https://tanstack.com/start/latest/docs/framework/solid/guide/hosting.md)
+- [Solid: Observability](https://tanstack.com/start/latest/docs/framework/solid/guide/observability.md)
+### Authentication & Data
+
+- [React: Authentication Overview](https://tanstack.com/start/latest/docs/framework/react/guide/authentication-overview.md)
+- [React: Authentication Server Primitives](https://tanstack.com/start/latest/docs/framework/react/guide/authentication-server-primitives.md)
+- [React: Authentication](https://tanstack.com/start/latest/docs/framework/react/guide/authentication.md)
+- [React: Databases](https://tanstack.com/start/latest/docs/framework/react/guide/databases.md)
+- [Solid: Authentication Overview](https://tanstack.com/start/latest/docs/framework/solid/guide/authentication-overview.md)
+- [Solid: Authentication Server Primitives](https://tanstack.com/start/latest/docs/framework/solid/guide/authentication-server-primitives.md)
+- [Solid: Authentication](https://tanstack.com/start/latest/docs/framework/solid/guide/authentication.md)
+- [Solid: Databases](https://tanstack.com/start/latest/docs/framework/solid/guide/databases.md)
+### Styling & Metadata
+
+- [React: CSS Styling](https://tanstack.com/start/latest/docs/framework/react/guide/css-styling.md)
+- [React: Tailwind CSS Integration](https://tanstack.com/start/latest/docs/framework/react/guide/tailwind-integration.md)
+- [React: Rendering Markdown](https://tanstack.com/start/latest/docs/framework/react/guide/rendering-markdown.md)
+- [React: SEO](https://tanstack.com/start/latest/docs/framework/react/guide/seo.md)
+- [React: Generative Engine Optimization (GEO)](https://tanstack.com/start/latest/docs/framework/react/guide/geo.md)
+- [Solid: CSS Styling](https://tanstack.com/start/latest/docs/framework/solid/guide/css-styling.md)
+- [Solid: Tailwind CSS Integration](https://tanstack.com/start/latest/docs/framework/solid/guide/tailwind-integration.md)
+- [Solid: SEO](https://tanstack.com/start/latest/docs/framework/solid/guide/seo.md)
+- [Solid: Generative Engine Optimization (GEO)](https://tanstack.com/start/latest/docs/framework/solid/guide/geo.md)
+
+## Examples
+
+### Examples
+
+- [React: Basic](https://tanstack.com/start/latest/docs/framework/react/examples/start-basic.md)
+- [React: Basic + React Query](https://tanstack.com/start/latest/docs/framework/react/examples/start-basic-react-query.md)
+- [React: Basic + Clerk Auth](https://tanstack.com/start/latest/docs/framework/react/examples/start-clerk-basic.md)
+- [React: Basic + DIY Auth](https://tanstack.com/start/latest/docs/framework/react/examples/start-basic-auth.md)
+- [React: Basic + Supabase Auth](https://tanstack.com/start/latest/docs/framework/react/examples/start-supabase-basic.md)
+- [React: Trellaux + Convex](https://tanstack.com/start/latest/docs/framework/react/examples/start-convex-trellaux.md)
+- [React: Trellaux](https://tanstack.com/start/latest/docs/framework/react/examples/start-trellaux.md)
+- [React: WorkOS](https://tanstack.com/start/latest/docs/framework/react/examples/start-workos.md)
+- [React: Material UI](https://tanstack.com/start/latest/docs/framework/react/examples/start-material-ui.md)
+- [React: Basic + Auth.js](https://tanstack.com/start/latest/docs/framework/react/examples/start-basic-authjs.md)
+- [React: Basic + Static rendering](https://tanstack.com/start/latest/docs/framework/react/examples/start-basic-static.md)
+- [React: Cloudflare Vite Plugin](https://tanstack.com/start/latest/docs/framework/react/examples/start-basic-cloudflare.md)
+- [Solid: Basic](https://tanstack.com/start/latest/docs/framework/solid/examples/start-basic.md)
+- [Solid: Basic + Solid Query](https://tanstack.com/start/latest/docs/framework/solid/examples/start-basic-solid-query.md)
+- [Solid: Basic + DIY Auth](https://tanstack.com/start/latest/docs/framework/solid/examples/start-basic-auth.md)
+- [Solid: Basic + Supabase Auth](https://tanstack.com/start/latest/docs/framework/solid/examples/start-supabase-basic.md)
+- [Solid: Basic + Convex + Better Auth](https://tanstack.com/start/latest/docs/framework/solid/examples/start-convex-better-auth.md)
+- [Solid: Basic + Auth.js](https://tanstack.com/start/latest/docs/framework/solid/examples/start-basic-authjs.md)
+- [Solid: Basic + Static rendering](https://tanstack.com/start/latest/docs/framework/solid/examples/start-basic-static.md)
+- [Solid: Cloudflare Vite Plugin](https://tanstack.com/start/latest/docs/framework/solid/examples/start-basic-cloudflare.md)
+- [Solid: Netlify Vite Plugin](https://tanstack.com/start/latest/docs/framework/solid/examples/start-basic-netlify.md)
+- [Solid: Nitro Vite Plugin](https://tanstack.com/start/latest/docs/framework/solid/examples/start-basic-nitro.md)
