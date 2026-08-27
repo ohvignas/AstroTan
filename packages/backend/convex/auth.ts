@@ -79,21 +79,38 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
     ],
   }) satisfies BetterAuthOptions
 
-export const createAuth = (ctx: GenericCtx<DataModel>) => {
+// `requireSecret` defaults to true for every request-serving instance
+// (convex/http.ts calls `createAuth` unchanged, so it always gets the
+// default). The one exception is convex/betterAuth/auth.ts, the schema
+// generator's introspection-only shim: it is never reachable as a Convex
+// function and never serves a request, so demanding a deployment secret
+// from it buys no security and only breaks component analysis at deploy
+// time (Convex components have an isolated environment — see auth.ts's
+// git history for the failure this caused). The real invariant is "no
+// auth instance that serves HTTP requests may run on the library's
+// fallback secret," not "every call site must have a secret" — this flag
+// keeps that invariant precise instead of over-applying it.
+export const createAuth = (
+  ctx: GenericCtx<DataModel>,
+  { requireSecret = true }: { requireSecret?: boolean } = {},
+) => {
   const options = createAuthOptions(ctx)
 
-  // Required — without an explicit secret, better-auth falls back to a
-  // publicly-known default constant outside NODE_ENV === "production", and
-  // this secret signs cookies and derives verification/state tokens.
-  if (!options.secret) {
-    throw new Error("BETTER_AUTH_SECRET is not set on this Convex deployment")
-  }
+  if (requireSecret) {
+    // Required — without an explicit secret, better-auth falls back to a
+    // publicly-known default constant outside NODE_ENV === "production",
+    // and this secret signs cookies and derives verification/state
+    // tokens.
+    if (!options.secret) {
+      throw new Error("BETTER_AUTH_SECRET is not set on this Convex deployment")
+    }
 
-  // Required — unset, better-auth derives the origin per-request from
-  // request headers, so `trustedOrigins` becomes whatever host the
-  // incoming request claims.
-  if (!options.baseURL) {
-    throw new Error("SITE_URL is not set on this Convex deployment")
+    // Required — unset, better-auth derives the origin per-request from
+    // request headers, so `trustedOrigins` becomes whatever host the
+    // incoming request claims.
+    if (!options.baseURL) {
+      throw new Error("SITE_URL is not set on this Convex deployment")
+    }
   }
 
   return betterAuth(options)
