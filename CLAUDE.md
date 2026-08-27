@@ -36,6 +36,29 @@ pnpm workspaces + Turborepo. Les types viennent de la codegen Convex : lancer
 6. **Aucun changement de schéma destructif dans un seul déploiement.** Discipline
    expand / migrate / contract (spec §7) — c'est ce qui rend le rollback sûr.
 
+## Règles du backend Convex — apprises à la dure
+
+**Tout fichier à nom simple sous `packages/backend/convex/` est un point d'entrée de
+déploiement.** Le bundler Convex l'analyse au push. Seuls les noms à deux points
+(`*.test.ts`) en sont exclus.
+
+Conséquences, chacune payée une fois :
+
+1. **Les helpers de test vivent hors de `convex/`**, dans `packages/backend/testing/`.
+   Une fixture placée sous `convex/` a cassé le déploiement avec
+   `TypeError: import.meta unsupported` — supporté par vitest, refusé par le runtime
+   Convex. Les tests étaient verts et le typecheck propre.
+2. **`tsc` et vitest ne voient pas ce que le runtime Convex refuse.** Après toute
+   modification de `convex/`, lancer un `npx convex dev --once` réel avant de
+   considérer la tâche finie.
+3. **`convex/_generated/` est committé et doit être régénéré, jamais édité à la main.**
+   Il avait dérivé de trois modules avant qu'on s'en aperçoive. Une édition manuelle
+   qui « a l'air juste » diverge en silence.
+4. **Les composants Convex ont un environnement isolé.** Les variables posées sur le
+   déploiement de l'app ne sont pas visibles depuis un composant.
+5. **`convex dev` exige un terminal interactif.** Le mode anonyme local
+   (« Start without an account ») évite toute authentification de compte.
+
 ## Outillage
 
 ### Serveurs MCP (`.mcp.json`)
