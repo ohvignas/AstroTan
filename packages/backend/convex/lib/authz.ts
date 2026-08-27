@@ -3,18 +3,12 @@ import type { GenericCtx } from "@convex-dev/better-auth"
 import { authComponent } from "../auth"
 import type { DataModel } from "../_generated/dataModel"
 import type { Role } from "../validators"
+import { parseRole } from "../validators"
 
-const ROLES: readonly Role[] = ["owner", "admin", "editor"]
-
-// `role` arrive en `string | null | undefined` : le schéma Better Auth ne le
-// contraint pas (`v.optional(v.union(v.null(), v.string()))`). On valide
-// explicitement plutôt que de caster — un cast (`authUser.role as Role`)
-// mentirait sur ce que la donnée garantit réellement.
-export function parseRole(raw: unknown): Role | null {
-  return typeof raw === "string" && (ROLES as readonly string[]).includes(raw)
-    ? (raw as Role)
-    : null
-}
+// Re-exported for backward compatibility (existing imports of `parseRole`
+// from this module, e.g. `authz.test.ts`) — the implementation itself now
+// lives in `../validators`, see the comment there for why.
+export { parseRole }
 
 // Le plugin `admin()` pose `banned`/`banReason`/`banExpires` sur
 // l'utilisateur Better Auth, et les endpoints de ban sont ouverts à owner

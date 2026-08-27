@@ -1,5 +1,6 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal"
 import { admin } from "better-auth/plugins"
+import { APIError, createAuthMiddleware } from "better-auth/api"
 import { createAccessControl } from "better-auth/plugins/access"
 import { defaultStatements } from "better-auth/plugins/admin/access"
 import { convex } from "@convex-dev/better-auth/plugins"
@@ -8,9 +9,8 @@ import { components } from "./_generated/api"
 import type { DataModel } from "./_generated/dataModel"
 import authSchema from "./betterAuth/schema"
 import authConfig from "./auth.config"
-import { parseRole } from "./lib/authz"
-import { assertOwnerInvariant } from "./lib/ownerGuard"
-import type { Role } from "./validators"
+import { parseRole } from "./validators"
+import { assertOwnerInvariant, OwnerInvariantError } from "./lib/ownerGuard"
 
 export const authComponent = createClient<DataModel, typeof authSchema>(
   components.betterAuth,
@@ -91,11 +91,12 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
     // Enforces the single-owner invariant (see `lib/ownerGuard.ts`) at the
     // one layer every write to the `user` table traverses. The admin()
     // plugin exposes its own HTTP endpoints (`/admin/set-role`,
-    // `/admin/update-user`, `/admin/ban-user`, `/admin/remove-user`, …)
-    // that write directly through better-auth's internal adapter — none of
-    // them go through a Convex mutation of ours, so a guard placed in
-    // application code would be trivially bypassable. `databaseHooks` runs
-    // inside better-auth's own `updateWithHooks`/`deleteWithHooks`
+    // `/admin/create-user`, `/admin/update-user`, `/admin/ban-user`,
+    // `/admin/remove-user`, …) that write directly through better-auth's
+    // internal adapter — none of them go through a Convex mutation of
+    // ours, so a guard placed in application code would be trivially
+    // bypassable. `databaseHooks` runs inside better-auth's own
+    // `createWithHooks`/`updateWithHooks`/`deleteWithHooks`
     // (`node_modules/better-auth/dist/db/with-hooks.mjs`), which every one
     // of those endpoints calls via `ctx.context.internalAdapter`, so this
     // is the one choke point that can't be routed around.
@@ -121,6 +122,12 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
     //     entity: `deleteWithHooks` fetches it via `findMany` before
     //     calling the hook specifically so `delete.before` hooks can see
     //     the row being removed.
+    //   - `create.before` sees the *resolved* role, not the caller's raw
+    //     input: `/admin/create-user`'s own handler already computes
+    //     `role: requestedRole ?? opts.defaultRole` before ever calling
+    //     `internalAdapter.createUser(...)`, so by the time any
+    //     `create.before` hook runs, `data.role` is whatever the row will
+    //     actually be created with.
     // Coexistence with the admin() plugin's own `databaseHooks.user.create
     // .before` (which applies `defaultRole`) verified in
     // `dist/context/helpers.mjs`'s `runPluginInit`: each plugin's `init()`
@@ -128,12 +135,10 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
     // found is pushed onto a `dbHooks` array tagged `source:
     // "plugin:<id>"`; *after* every plugin has run, `options.databaseHooks`
     // (ours, i.e. what's written here) is pushed last, tagged `source:
-    // "user"`. `db/with-hooks.mjs`'s `updateWithHooks`/`deleteWithHooks`
-    // then iterate that whole array in order — plugin hooks first, ours
-    // last — so this is additive, never a replacement of admin()'s own
-    // hook. In practice there's no ordering interaction to worry about
-    // either way: admin() only hooks `create`, this only hooks
-    // `update`/`delete`.
+    // "user"`. `db/with-hooks.mjs`'s `createWithHooks`/`updateWithHooks`/
+    // `deleteWithHooks` then iterate that whole array in order — plugin
+    // hooks first, ours last — so this is additive, never a replacement of
+    // admin()'s own hook.
     //
     // `context` is typed `GenericEndpointContext | null` and its shape
     // isn't precise enough to typecheck property access against (the
@@ -143,58 +148,186 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
     // scattered through the body.
     databaseHooks: {
       user: {
+        // C2: `/admin/create-user` honours an explicit `role` in its body
+        // as long as the caller holds the `set-role` permission — which
+        // `adminRole` above does — and performs no owner check of its
+        // own. Without this, an authenticated `admin` (not `owner`) could
+        // call it directly with `role: "owner"` and mint a second owner
+        // outright, entirely bypassing the `update`/`delete` guards below
+        // (they only ever see a row that already exists).
+        create: {
+          before: guardOwnerInvariant(async (data, context) => {
+            const raw = (data as Record<string, unknown>).role
+            if (raw === undefined) return
+            // Mirrors better-auth's own `parseRoles`: an array role is
+            // joined into one comma-separated string before it ever
+            // reaches a hook, so a plain string is the only shape to
+            // expect here — checked defensively all the same.
+            const parts = (Array.isArray(raw) ? raw.join(",") : String(raw))
+              .split(",")
+              .map((r) => parseRole(r.trim()))
+            if (!parts.includes("owner")) return
+
+            const internalAdapter = (context as OwnerHookEndpointContext | null)?.context
+              ?.internalAdapter
+            if (!internalAdapter) {
+              throw new OwnerInvariantError(
+                "CANNOT_VERIFY_OWNER_INVARIANT: création avec rôle owner sans contexte suffisant pour vérifier l'absence d'un owner existant",
+              )
+            }
+
+            // `owners === 0` *is* the bootstrap condition — checking it
+            // directly is safer than trying to infer "this is the very
+            // first admin setup" from *how* the caller authenticated
+            // (e.g. "no session at all"): a legitimate bootstrap script
+            // and an attacker replaying a stolen admin session can look
+            // identical under that heuristic. Exactly one owner, ever,
+            // regardless of who's asking.
+            const owners = await internalAdapter.countTotalUsers([
+              { field: "role", operator: "eq", value: "owner" },
+            ])
+            if (owners > 0) {
+              throw new OwnerInvariantError(
+                "OWNER_ALREADY_EXISTS: un seul owner est autorisé, la création est refusée",
+              )
+            }
+          }),
+        },
         update: {
-          before: async (data, context) => {
+          before: guardOwnerInvariant(async (data, context) => {
             const ctx = context as OwnerHookEndpointContext | null
             const internalAdapter = ctx?.context?.internalAdapter
             // Self-service updates (e.g. a user editing their own name)
             // don't carry `userId` in the body — the session's own id is
             // the target in that case.
             const targetId = ctx?.body?.userId ?? ctx?.context?.session?.user?.id
-            if (typeof targetId !== "string" || !internalAdapter) return
+            const rawNextRole = (data as Record<string, unknown>).role
+
+            if (typeof targetId !== "string" || !internalAdapter) {
+              // M1: fail *closed*, not open. An update that touches
+              // `role` with no identifiable target and/or no adapter to
+              // check against must never be let through unchecked — role
+              // is the one field this whole task exists to guard. Updates
+              // that don't touch `role` at all (the overwhelming
+              // majority — name/image/etc edits) aren't this invariant's
+              // concern and are let through unexamined, same as before.
+              if (rawNextRole !== undefined) {
+                throw new OwnerInvariantError(
+                  "CANNOT_VERIFY_OWNER_INVARIANT: changement de rôle sans contexte suffisant pour vérifier l'invariant",
+                )
+              }
+              return
+            }
 
             const targetUser = await internalAdapter.findUserById(targetId)
-            const targetRole = parseRole(targetUser?.role) ?? "editor"
-
-            const rawNextRole = (data as Record<string, unknown>).role
-            const nextRole: Role | null =
-              rawNextRole === undefined
-                ? targetRole // role isn't part of this update: unchanged
-                : parseRole(Array.isArray(rawNextRole) ? rawNextRole.join(",") : rawNextRole)
+            if (!targetUser) return // NOT_FOUND is the endpoint's own concern
 
             assertOwnerInvariant({
+              operation: "update",
               // Missing session -> `""`, which can never equal a real id,
               // so an unidentifiable actor fails closed against an owner
               // target (Check 1) exactly like a known-wrong actor would.
               actorId: ctx?.context?.session?.user?.id ?? "",
-              actorRole: parseRole(ctx?.context?.session?.user?.role) ?? "editor",
+              actorRole: ctx?.context?.session?.user?.role,
               targetId,
-              targetRole,
-              nextRole,
-              ownerCount: await countOwners(internalAdapter, targetRole),
+              targetRole: targetUser.role,
+              nextRole: rawNextRole === undefined ? targetUser.role : rawNextRole,
+              // M2/C1: computed unconditionally, not gated on a local
+              // "does this look like an owner?" pre-check. A gate here
+              // has to reach the same role classification
+              // `assertOwnerInvariant` reaches internally, and keeping
+              // two independent classifications in sync is exactly how
+              // the C1 bug happened — a comma-joined multi-role value
+              // parsed to `null` at the gate (so the count was skipped
+              // *and* the row was treated as non-owner) while
+              // better-auth's own `hasPermission` still granted owner
+              // permissions on the strength of the same string. This
+              // endpoint isn't high-QPS; the extra query is worth not
+              // having a second place to get the classification wrong.
+              ownerCount: await internalAdapter.countTotalUsers([
+                { field: "role", operator: "eq", value: "owner" },
+              ]),
             })
-          },
+          }),
         },
         delete: {
-          before: async (user, context) => {
+          before: guardOwnerInvariant(async (user, context) => {
             const ctx = context as OwnerHookEndpointContext | null
             const target = user as { id?: string; role?: string | null }
-            if (typeof target.id !== "string") return
-
-            const targetRole = parseRole(target.role) ?? "editor"
             const internalAdapter = ctx?.context?.internalAdapter
 
+            if (typeof target.id !== "string" || !internalAdapter) {
+              // Same fail-closed posture as the update path (M1):
+              // better-auth's own `deleteWithHooks` only calls this hook
+              // once it has already fetched the row being removed (see
+              // the signature note above), so a missing id/adapter here
+              // means something is wrong with the call, not that there's
+              // nothing to check.
+              throw new OwnerInvariantError(
+                "CANNOT_VERIFY_OWNER_INVARIANT: suppression sans contexte suffisant pour vérifier l'invariant",
+              )
+            }
+
             assertOwnerInvariant({
+              operation: "delete",
               actorId: ctx?.context?.session?.user?.id ?? "",
-              actorRole: parseRole(ctx?.context?.session?.user?.role) ?? "editor",
+              actorRole: ctx?.context?.session?.user?.role,
               targetId: target.id,
-              targetRole,
-              nextRole: null, // suppression
-              ownerCount: internalAdapter ? await countOwners(internalAdapter, targetRole) : 0,
+              targetRole: target.role,
+              nextRole: undefined, // ignored for delete — see ownerGuard.ts
+              ownerCount: await internalAdapter.countTotalUsers([
+                { field: "role", operator: "eq", value: "owner" },
+              ]),
             })
-          },
+          }),
         },
       },
+    },
+    // C3: `/admin/remove-user`'s handler calls
+    // `internalAdapter.deleteUserSessions(userId)`, and
+    // `internalAdapter.deleteUser` itself further deletes the target's
+    // `account` rows via a separate `deleteManyWithHooks` — both *before*
+    // it ever reaches `deleteWithHooks` on `"user"`, the one call the
+    // `databaseHooks.user.delete.before` guard above actually sees. So a
+    // refused deletion, guarded only there, still destroys the target's
+    // sessions and credential account as an unblockable side effect: the
+    // owner's row survives with `role: "owner"` intact, but they can no
+    // longer sign in. Any admin can repeat this at will, and with
+    // `set-password` reserved to `owner` and no email-based reset, that is
+    // an unrecoverable denial-of-service against the very account this
+    // task protects.
+    //
+    // Fixed at the door instead: this runs inside `dispatchAuthEndpoint`
+    // before the `/admin/remove-user` endpoint body executes at all
+    // (`getHooks`/`runBeforeHooks` in `dist/api/dispatch.mjs` run ahead of
+    // `endpoint(internalContext)`), so nothing in the destructive cascade
+    // starts. The `databaseHooks.user.delete.before` guard above stays as
+    // defence in depth for whatever other delete-user path this app grows
+    // — it's what would actually protect the row the day this stops being
+    // the only one.
+    //
+    // `options.hooks.before` is a single middleware, not a list of
+    // `{matcher, handler}` pairs the way a plugin's own hooks are —
+    // `getHooks` wraps it with `matcher: () => true` and runs it on
+    // *every* endpoint, so the path check has to happen inside the
+    // handler itself rather than as a matcher.
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== "/admin/remove-user") return
+        const body = ctx.body as Record<string, unknown> | undefined
+        const userId = body?.userId
+        if (typeof userId !== "string") return
+
+        const internalAdapter = (ctx.context as OwnerHookEndpointContext["context"])
+          ?.internalAdapter
+        const target = await internalAdapter?.findUserById(userId)
+        if (parseRole(target?.role) === "owner") {
+          throw APIError.from("FORBIDDEN", {
+            code: "OWNER_INVARIANT",
+            message: "OWNER_PROTECTED: impossible de supprimer le compte owner",
+          })
+        }
+      }),
     },
   }) satisfies BetterAuthOptions
 
@@ -217,16 +350,27 @@ type OwnerHookEndpointContext = {
   }
 }
 
-// `ownerCount` only ever gates a decision when the *target* is an owner
-// (see `assertOwnerInvariant`'s third check) — skip the extra round trip
-// on every other write, which is the overwhelming majority of calls
-// through this hook.
-async function countOwners(
-  internalAdapter: NonNullable<OwnerHookEndpointContext["context"]>["internalAdapter"],
-  targetRole: Role,
-): Promise<number> {
-  if (targetRole !== "owner" || !internalAdapter) return 0
-  return internalAdapter.countTotalUsers([{ field: "role", operator: "eq", value: "owner" }])
+// I2: translates the pure layer's `OwnerInvariantError` into a real
+// `APIError` at the one place better-auth's dispatcher actually inspects
+// for one (`isAPIError` in `dist/api/dispatch.mjs`). Left as a plain
+// thrown `Error`, it propagates past that check and the router answers a
+// bare 500 with an **empty** body — indistinguishable from an unrelated
+// crash, and useless to an admin UI trying to explain the refusal to an
+// operator. `ownerGuard.ts` itself stays HTTP-free; only this wiring layer
+// knows about `APIError`.
+function guardOwnerInvariant<Args extends unknown[]>(
+  fn: (...args: Args) => Promise<void>,
+): (...args: Args) => Promise<void> {
+  return async (...args) => {
+    try {
+      await fn(...args)
+    } catch (err) {
+      if (err instanceof OwnerInvariantError) {
+        throw APIError.from("FORBIDDEN", { code: "OWNER_INVARIANT", message: err.message })
+      }
+      throw err
+    }
+  }
 }
 
 // better-auth's own publicly-known fallback secret (verified against

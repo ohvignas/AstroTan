@@ -7,11 +7,12 @@ import { createAuth } from "./auth"
 // This file drives the *real* HTTP surface (`http.ts` -> `authComponent
 // .registerRoutes` -> better-auth's own router -> the admin() plugin's
 // endpoints), not our application code. That's deliberate: `/admin/set
-// -role`, `/admin/update-user`, `/admin/ban-user` and `/admin/remove-user`
-// write straight through better-auth's internal adapter and never touch a
-// Convex mutation of ours, so this is the path an attacker (or a
-// misbehaving admin UI) would actually use. Testing only through our own
-// mutations would prove nothing about whether the invariant holds.
+// -role`, `/admin/create-user`, `/admin/update-user`, `/admin/ban-user` and
+// `/admin/remove-user` write straight through better-auth's internal
+// adapter and never touch a Convex mutation of ours, so this is the path an
+// attacker (or a misbehaving admin UI) would actually use. Testing only
+// through our own mutations would prove nothing about whether the
+// invariant holds.
 //
 // `betterAuth` is registered as a convex-test *component* with our own
 // local-install schema/modules (`convex/betterAuth/**`) rather than
@@ -88,10 +89,14 @@ async function signIn(t: TestConvex<typeof schema>, email: string, password: str
 
 // Reads a user's *current* role through the real, authenticated
 // `/admin/get-user` endpoint — never by asserting on a mutation response,
-// per the first measured pitfall: when `databaseHooks` throws, better-auth
-// returns 500 with an **empty body**, so checking the failing response for
-// an error message is a false negative. The only trustworthy signal is
-// whether the row actually changed.
+// per the first measured pitfall: when a hook throws an ordinary `Error`,
+// better-auth answers 500 with an **empty body**, so checking the failing
+// response for an error message is a false negative. The only trustworthy
+// signal is whether the row actually changed. (I2 made refusals from *our*
+// guard assertable via a structured `APIError` — see `expectRefused` below
+// — but this helper still checks final state, both because it's the
+// stronger proof and because it also covers refusals that come from
+// better-auth itself, e.g. permission checks, which never carry our code.)
 async function getRole(t: TestConvex<typeof schema>, asCookie: string, userId: string) {
   const res = await t.fetch(`/api/auth/admin/get-user?id=${userId}`, {
     headers: { origin: ORIGIN, cookie: asCookie },
@@ -101,9 +106,25 @@ async function getRole(t: TestConvex<typeof schema>, asCookie: string, userId: s
   return body.role
 }
 
+// I2: a refusal from `assertOwnerInvariant`, translated at the `auth.ts`
+// wiring boundary into `APIError.from("FORBIDDEN", { code: "OWNER_INVARIANT",
+// message })`, is a structured 403 — not the opaque, empty-bodied 500 an
+// ordinary thrown `Error` produces. Checked here so a refusal test can
+// distinguish "the guard refused this, on purpose" from "something else
+// entirely crashed", which a bare status-code-plus-final-state check
+// cannot: a hook replaced by `throw new TypeError("boom")` would produce
+// the same 500 and the same unchanged row that used to be this suite's
+// only signal.
+async function expectRefused(res: Response) {
+  expect(res.status).toBe(403)
+  const body = (await res.clone().json()) as { code?: string; message?: string }
+  expect(body.code).toBe("OWNER_INVARIANT")
+  return body
+}
+
 test("contrôle : un owner promeut légitimement un editor en admin via /admin/set-role (chemin réel)", async () => {
   const t = makeTestConvex()
-  const owner = await seedUser(t, {
+  await seedUser(t, {
     email: "owner@example.com",
     password: "correct horse battery staple 1",
     name: "Owner",
@@ -127,9 +148,41 @@ test("contrôle : un owner promeut légitimement un editor en admin via /admin/s
   expect(await getRole(t, ownerCookie, editor.id)).toBe("admin")
 })
 
+// I1: a delete hook that refused *everything* would still pass every other
+// test in this file (they only ever try to delete the owner). This proves
+// the guard lets a legitimate deletion through.
+test("contrôle : un admin supprime légitimement un editor via /admin/remove-user (chemin réel)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "admin@example.com",
+    password: "correct horse battery staple 3",
+    name: "Admin",
+    role: "admin",
+  })
+  const editor = await seedUser(t, {
+    email: "editor@example.com",
+    password: "correct horse battery staple 2",
+    name: "Editor",
+    role: "editor",
+  })
+  const adminCookie = await signIn(t, "admin@example.com", "correct horse battery staple 3")
+
+  const res = await t.fetch("/api/auth/admin/remove-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+    body: JSON.stringify({ userId: editor.id }),
+  })
+  expect(res.status).toBe(200)
+
+  const getRes = await t.fetch(`/api/auth/admin/get-user?id=${editor.id}`, {
+    headers: { origin: ORIGIN, cookie: adminCookie },
+  })
+  expect(getRes.status).toBe(404)
+})
+
 test("refuse un second owner via /admin/set-role (chemin réel)", async () => {
   const t = makeTestConvex()
-  const owner = await seedUser(t, {
+  await seedUser(t, {
     email: "owner@example.com",
     password: "correct horse battery staple 1",
     name: "Owner",
@@ -149,9 +202,8 @@ test("refuse un second owner via /admin/set-role (chemin réel)", async () => {
     body: JSON.stringify({ userId: editor.id, role: "owner" }),
   })
 
-  // Pitfall #1: on a thrown hook, better-auth answers 500 with an empty
-  // body. Assert on final state, never on this response.
-  expect(res.status).toBe(500)
+  const body = await expectRefused(res)
+  expect(body.message).toMatch(/OWNER_ALREADY_EXISTS/)
   expect(await getRole(t, ownerCookie, editor.id)).toBe("editor")
 })
 
@@ -176,7 +228,8 @@ test("refuse de rétrograder le dernier owner via /admin/set-role (chemin réel)
     body: JSON.stringify({ userId: owner.id, role: "admin" }),
   })
 
-  expect(res.status).toBe(500)
+  const body = await expectRefused(res)
+  expect(body.message).toMatch(/LAST_OWNER/)
   expect(await getRole(t, ownerCookie, owner.id)).toBe("owner")
 })
 
@@ -188,7 +241,7 @@ test("refuse qu'un admin modifie un owner via /admin/set-role (chemin réel)", a
     name: "Owner",
     role: "owner",
   })
-  const admin = await seedUser(t, {
+  await seedUser(t, {
     email: "admin@example.com",
     password: "correct horse battery staple 3",
     name: "Admin",
@@ -203,11 +256,125 @@ test("refuse qu'un admin modifie un owner via /admin/set-role (chemin réel)", a
     body: JSON.stringify({ userId: owner.id, role: "editor" }),
   })
 
-  expect(res.status).toBe(500)
+  const body = await expectRefused(res)
+  expect(body.message).toMatch(/FORBIDDEN/)
   expect(await getRole(t, ownerCookie, owner.id)).toBe("owner")
 })
 
-test("refuse qu'un admin supprime l'owner via /admin/remove-user (chemin réel)", async () => {
+// C1: the actual measured exploit. `/admin/set-role`'s body schema is
+// `z.union([z.string(), z.array(z.string())])`, and better-auth's own
+// `hasPermission` grants access if *any* component of a comma-joined role
+// string authorizes — so a naive guard that fails to classify
+// `"owner,editor"` (and, worse, treats "unclassifiable" as "no role
+// change") lets the target keep every `owner` permission, including
+// `set-password`, while never being recorded as `role: "owner"` at all.
+// This doesn't just assert the guard throws — it proves the exploit's
+// actual payoff (silently gaining owner permissions, then using them to
+// take over the real owner's account) never lands.
+test("C1: refuse un rôle multiple (\"owner,editor\") — et l'exploit qu'il permettait ne passe pas", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple 1",
+    name: "Owner",
+    role: "owner",
+  })
+  const editor = await seedUser(t, {
+    email: "editor@example.com",
+    password: "correct horse battery staple 2",
+    name: "Editor",
+    role: "editor",
+  })
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
+
+  const setRoleRes = await t.fetch("/api/auth/admin/set-role", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
+    body: JSON.stringify({ userId: editor.id, role: ["owner", "editor"] }),
+  })
+  const body = await expectRefused(setRoleRes)
+  expect(body.message).toMatch(/INVALID_ROLE/)
+
+  // The row was never touched: still plainly "editor", not
+  // "owner,editor" and not "owner".
+  expect(await getRole(t, ownerCookie, editor.id)).toBe("editor")
+
+  // The payoff test: sign in as the target with their *own* (unchanged)
+  // credentials, then try to exercise the `set-password` permission that
+  // the exploit would have granted them. A plain `editor` (our RBAC
+  // grants `editorRole` zero user permissions) is refused this
+  // regardless — the point is that the refusal proves the row never
+  // actually became "owner,editor" in a way `hasPermission`'s
+  // comma-split reading would have honoured.
+  const editorCookie = await signIn(t, "editor@example.com", "correct horse battery staple 2")
+  const setPasswordRes = await t.fetch("/api/auth/admin/set-user-password", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: editorCookie },
+    body: JSON.stringify({ userId: editor.id, newPassword: "attacker chosen password 123" }),
+  })
+  expect(setPasswordRes.status).not.toBe(200)
+
+  // And the real owner's original password still works — the second half
+  // of the two-request exploit (use the pseudo-owner session to reset the
+  // real owner's password) never had anything to reset.
+  await signIn(t, "owner@example.com", "correct horse battery staple 1")
+})
+
+// C2: `/admin/create-user` honours an explicit `role` behind the
+// `set-role` permission — which `adminRole` holds — and, unlike
+// `/admin/set-role`, there is no pre-existing row for `update.before` to
+// ever see: the second owner is minted outright on creation, bypassing the
+// `update`/`delete` guards entirely.
+test("C2: refuse qu'un admin crée un second owner via /admin/create-user (chemin réel)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple 1",
+    name: "Owner",
+    role: "owner",
+  })
+  await seedUser(t, {
+    email: "admin@example.com",
+    password: "correct horse battery staple 3",
+    name: "Admin",
+    role: "admin",
+  })
+  const adminCookie = await signIn(t, "admin@example.com", "correct horse battery staple 3")
+
+  const res = await t.fetch("/api/auth/admin/create-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+    body: JSON.stringify({
+      email: "second-owner@example.com",
+      password: "another owner password 456",
+      name: "Second Owner",
+      role: "owner",
+    }),
+  })
+
+  const body = await expectRefused(res)
+  expect(body.message).toMatch(/OWNER_ALREADY_EXISTS/)
+
+  // No row was created for that email at all — not as "owner", not as
+  // anything.
+  const signInAttempt = await t.fetch("/api/auth/sign-in/email", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN },
+    body: JSON.stringify({
+      email: "second-owner@example.com",
+      password: "another owner password 456",
+    }),
+  })
+  expect(signInAttempt.status).not.toBe(200)
+})
+
+// C3: `/admin/remove-user`'s handler deletes the target's sessions and
+// credential account *before* the row delete our `databaseHooks` guard —
+// so, before this fix, a *refused* deletion of the owner still logged them
+// out and destroyed their password irrecoverably. This is the regression
+// test for that: the owner must not just still exist with `role: "owner"`
+// after a refused deletion, they must still be able to *sign in*.
+test("C3: refuse qu'un admin supprime l'owner via /admin/remove-user, et l'owner reste connectable (chemin réel)", async () => {
   const t = makeTestConvex()
   const owner = await seedUser(t, {
     email: "owner@example.com",
@@ -215,13 +382,12 @@ test("refuse qu'un admin supprime l'owner via /admin/remove-user (chemin réel)"
     name: "Owner",
     role: "owner",
   })
-  const admin = await seedUser(t, {
+  await seedUser(t, {
     email: "admin@example.com",
     password: "correct horse battery staple 3",
     name: "Admin",
     role: "admin",
   })
-  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
   const adminCookie = await signIn(t, "admin@example.com", "correct horse battery staple 3")
 
   const res = await t.fetch("/api/auth/admin/remove-user", {
@@ -230,28 +396,21 @@ test("refuse qu'un admin supprime l'owner via /admin/remove-user (chemin réel)"
     body: JSON.stringify({ userId: owner.id }),
   })
 
-  // Reached via the FORBIDDEN branch (admin !== owner, targetRole ===
-  // "owner"): better-auth's own `/admin/remove-user` already refuses
-  // *self*-deletion before our hook ever runs (`YOU_CANNOT_REMOVE_YOURSELF`
-  // in `routes.mjs`), so the LAST_OWNER branch on delete is not reachable
-  // through this endpoint at all — there is no other enabled delete-user
-  // path in this app's current auth config. Both branches live in the same
-  // `delete.before` wiring; this still proves that wiring intercepts the
-  // real endpoint. See the task report for the detail.
-  expect(res.status).toBe(500)
+  // Refused at the door by the `hooks.before` matcher on
+  // `/admin/remove-user`, before better-auth's own handler ever runs
+  // `deleteUserSessions`/`deleteUser` — so this is a plain `APIError`
+  // thrown directly in that middleware, not a translated
+  // `OwnerInvariantError` from `databaseHooks` (that guard never gets a
+  // chance to run here; it stays as defence in depth for any other
+  // delete-user path). Same structured shape either way.
+  await expectRefused(res)
 
-  // The row survives — but not painlessly. `internalAdapter.deleteUser`
-  // (`better-auth/dist/db/internal-adapter.mjs`) unconditionally deletes
-  // the target's `session` *and `account`* rows (via `deleteManyWithHooks`
-  // on those models, which we don't hook) before it ever calls
-  // `deleteWithHooks` on `"user"` — the one call our `delete.before` hook
-  // actually guards. So this blocked delete still destroys the owner's
-  // credential account and session as a side effect: the row keeps
-  // `role: "owner"`, but that owner can no longer sign in with their
-  // password. Checking via a fresh owner sign-in (the obvious way to
-  // assert "final state") would itself fail here — not because the
-  // invariant broke, but because of this side effect — so this checks
-  // through the admin's still-live session instead. See the task report:
-  // this is a real gap in what Task 6 covers, not a test artifact.
-  expect(await getRole(t, adminCookie, owner.id)).toBe("owner")
+  // The regression check that matters: no side effect. The owner's
+  // session from before this attempt is untouched, *and* they can sign in
+  // fresh with their original password — proving the credential account
+  // was never touched either.
+  const stillGetRole = await getRole(t, adminCookie, owner.id)
+  expect(stillGetRole).toBe("owner")
+  const freshOwnerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
+  expect(await getRole(t, freshOwnerCookie, owner.id)).toBe("owner")
 })
