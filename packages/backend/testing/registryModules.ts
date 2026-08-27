@@ -33,3 +33,4 @@
 // qu'il est écrit (Tasks 8, 10, …).
 import "../convex/profiles"
 import "../convex/invitations"
+import "../convex/users"
