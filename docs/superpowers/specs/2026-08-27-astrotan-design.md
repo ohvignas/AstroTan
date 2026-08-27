@@ -45,7 +45,10 @@ astrotan/
 └─ .github/workflows/
 ```
 
-pnpm workspaces + Turborepo. `packages/backend` exporte `api`, `Doc`, `Id` depuis
+pnpm workspaces + Turborepo. `packages/backend` déclare `convex-helpers` en
+**dépendance directe** — c'est une transitive de `@convex-dev/better-auth`, et pnpm
+strict ne la hisse pas ; son absence casse la génération de schéma Better Auth avec
+un `MODULE_NOT_FOUND` opaque. `packages/backend` exporte `api`, `Doc`, `Id` depuis
 `convex/_generated`. **Aucun package intermédiaire à builder** : les types viennent
 de la codegen Convex (`convex dev` / `convex codegen`), qui doit donc avoir tourné
 avant un typecheck à froid — la CI lance `convex codegen` avant `turbo typecheck`.
@@ -290,8 +293,10 @@ runtime minimal, utilisateur non-root.
 
 - `web` → `node ./dist/server/entry.mjs`, port 4321. `PUBLIC_CONVEX_URL` passé en
   **build-arg** : les pages prérendues lisent Convex au build.
-- `admin` → serveur Node de TanStack Start, port 3000. Le chemin exact du bundle
-  serveur dépend du preset et sera confirmé au premier build (§9).
+- `admin` → `node serve.mjs`, port 3000. Le build produit `dist/server/server.js`
+  (handler `fetch`, **pas** un serveur) et `dist/client/` ; `serve.mjs` est le
+  wrapper `srvx` donné en §9. L'image doit embarquer les deux répertoires et le
+  wrapper.
 
 `docker-compose.yml` : Traefik v3 (80/443, résolveur ACME Let's Encrypt), `web` sur
 `Host(illith.com)`, `admin` sur `Host(admin.illith.com)`, réseau interne,
@@ -372,36 +377,74 @@ c'est là qu'est la sécurité :
 page → ajout et réordonnancement de blocs → preview, en vérifiant que l'URL publique
 renvoie encore 404 → publication → page en ligne en moins de 5 secondes.
 
-## 9. Versions — à figer après validation
+## 9. Versions — figées par le spike du 2026-08-27
 
-Les versions ci-dessous sont **candidates**, relevées le 2026-08-27. Elles ne sont
-pas épinglées tant que le spike d'intégration (première tâche du plan) n'a pas validé
-la combinaison TanStack Start / SSR / Better Auth / Convex de bout en bout :
-connexion, session en SSR, `getAuthUser` dans une query, rôle lu par `requireRole`.
+Combinaison validée de bout en bout : `tsc --noEmit` à 0 erreur, `vite build` OK,
+connexion, session SSR, lecture du rôle depuis une query Convex.
 
-| Paquet | Candidate |
-|---|---|
-| `astro` | 7.2.8 |
-| `@astrojs/node` | 11.1.4 |
-| `@astrojs/react` | 6.0.4 |
-| `@tanstack/react-start` | 1.168.49 |
-| `convex` | 1.45.0 |
-| `better-auth` | 1.7.2 |
-| `@convex-dev/better-auth` | 0.12.5 |
-| `@convex-dev/migrations` | 0.3.6 |
-| `@convex-dev/resend` | 0.2.7 |
-| `tailwindcss` | 4.3.3 |
+| Paquet | Version | Contrainte |
+|---|---|---|
+| `astro` | 7.2.8 | |
+| `@astrojs/node` | 11.1.4 | |
+| `@astrojs/react` | 6.0.4 | |
+| `@tanstack/react-start` | 1.168.49 | |
+| `convex` | 1.45.0 | peer `^1.25.0` |
+| `better-auth` | **1.6.17 (exact)** | voir ci-dessous |
+| `@convex-dev/better-auth` | **0.12.5 (exact)** | peer `better-auth >=1.6.11 <1.7.0` |
+| `convex-helpers` | 0.1.123 | **dépendance directe obligatoire** |
+| `srvx` | 0.12.7 | wrapper serveur du dashboard |
+| `@convex-dev/migrations` | 0.3.6 | |
+| `@convex-dev/resend` | 0.2.7 | |
+| `tailwindcss` | 4.3.3 | |
+| `react` / `react-dom` | 19.2.8 | |
 
-Le couple `better-auth` / `@convex-dev/better-auth` est le plus sensible : le second
-suit le premier avec un décalage. Une fois le spike vert, les deux sont épinglés en
-version exacte (sans `^`) et le lockfile fait foi.
+**`better-auth` est épinglé en 1.6.17, sans `^` ni `~`.** À partir de 1.6.18, le
+typage de `ConvexBetterAuthProvider` casse (`TS2322` sur la prop `authClient`),
+indépendamment des plugins déclarés — l'erreur apparaît même avec un client sans
+aucun plugin. La 1.7.x est hors de la plage de peer dependencies : aucune version
+de `@convex-dev/better-auth` ne la supporte.
 
-Points à confirmer pendant le spike :
+Le guide officiel recommande `better-auth@~1.6.15`, ce qui résout aujourd'hui en
+1.6.30 et **produit une base cassée**. Ne pas suivre cette plage.
 
-1. Typage des références d'id à travers la frontière du composant Better Auth local.
-2. Chemin du bundle serveur de TanStack Start (`.output/server/index.mjs` ou
-   `dist/server/index.js`) selon le preset.
-3. Comportement de `databaseHooks` sur les endpoints du plugin `admin()`.
+Vérification à refaire avant toute montée de version : `pnpm typecheck` doit
+rendre 0 erreur.
+
+### Réponses aux questions du spike
+
+**Références d'id à travers la frontière du composant.** Stockées en `v.string()`,
+comme prévu. Liaison officielle par `authComponent.setUserId(ctx, authUser._id,
+appUserId)` dans `triggers.user.onCreate`, relue en `authUser.userId as Id<'users'>`.
+Convex ne type pas les références inter-composants ; `v.id()` est impossible ici.
+
+**Bundle serveur de TanStack Start.** `dist/server/server.js`, assets client dans
+`dist/client/`. **Ce n'est pas un serveur** : il exporte `default = { fetch }`.
+`node dist/server/server.js` sort immédiatement sans écouter. Un wrapper est requis :
+
+```js
+// serve.mjs — livrable du lot 5
+import { serve } from "srvx"
+import handler from "./dist/server/server.js"
+serve({ fetch: handler.fetch, port: Number(process.env.PORT ?? 3000), hostname: "0.0.0.0" })
+```
+
+Vérifié : HTTP 200 sur `/sign-in`.
+
+**`databaseHooks` face aux endpoints du plugin `admin()`.** **Confirmé.** Mesuré sur
+un déploiement réel :
+
+- un `update-user` ordinaire déclenche `databaseHooks.user.update.before` ;
+- un appel HTTP direct à `/api/auth/admin/set-role` avec `role: "owner"` déclenche
+  le hook, l'exception remonte, et **le rôle n'est pas écrit** ;
+- un changement légitime (`user` → `editor`) par le même endpoint passe.
+
+L'ancrage de §5 est donc correct : c'est bien le seul point que tous les chemins
+d'écriture traversent. À noter, défense en profondeur gratuite : le plugin `admin()`
+filtre déjà ses propres endpoints par rôle, et accepte une option `adminUserIds`
+qui court-circuite ce filtre — **ne jamais l'utiliser en production**.
+
+L'erreur remonte en 500 avec un corps vide : les tests doivent asserter sur l'état
+final (le rôle inchangé), pas sur le contenu de la réponse.
 
 ## 10. Découpage en lots
 
