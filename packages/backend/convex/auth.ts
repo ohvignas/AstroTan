@@ -126,18 +126,28 @@ const ac = createAccessControl(defaultStatements)
 // every role, owner included: a CMS back-office has no legitimate need to
 // mint a session as another user, and granting it to any admin role would
 // let that admin become the owner in all but name.
+// `user:create` withheld here too (Task 8 review round 2, item 4), not
+// just on `adminRole` (round 1, I4): `/admin/create-user` has no password
+// floor of its own on this version of better-auth — `createUserBodySchema`
+// declares `password: z.string().optional()` with no length bound, and the
+// password is handled entirely *outside* `internalAdapter.createUser`
+// (`routes.mjs`'s handler links the credential account itself, via
+// `ctx.context.password.hash` + `internalAdapter.linkAccount`, *after*
+// `createUser` returns), so `databaseHooks.user.create.before` — which
+// only ever sees the arguments `createUser` itself receives — never even
+// observes `password` and cannot validate it. With `adminRole` alone
+// closed, the owner was still the one principal who could reach this
+// route directly, with the exact C1 failure `invitations.accept` guards
+// against (an empty password silently skips linking a credential account
+// at all; a one-character password creates a fully working account).
+// Patching a floor onto better-auth's own route isn't available without
+// forking it; removing the permission is. `invitations.accept` is
+// unaffected — verified in round 1's I4 note above: it calls
+// `auth.api.createUser` with neither `headers` nor `request`, which skips
+// every `hasPermission` check in that endpoint regardless of what any role
+// grants. The owner now invites like everyone else.
 const ownerRole = ac.newRole({
-  user: [
-    "create",
-    "list",
-    "set-role",
-    "ban",
-    "delete",
-    "set-password",
-    "set-email",
-    "get",
-    "update",
-  ],
+  user: ["list", "set-role", "ban", "delete", "set-password", "set-email", "get", "update"],
   session: ["list", "revoke", "delete"],
 })
 

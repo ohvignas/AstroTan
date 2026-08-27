@@ -52,6 +52,19 @@ export const create = mutation({
     // `createUser` finira par créer avec l'email normalisé.
     const email = args.email.trim().toLowerCase()
 
+    // Round 2 (review, item 5): `email` was `v.string()` — unbounded.
+    // `accept` defaults `displayName` to `invite.email` whenever no `name`
+    // argument is given (the common case), so a very long but otherwise
+    // syntactically valid address became a `profiles.displayName` past the
+    // 100-character limit `MAX_DISPLAY_NAME_LENGTH` enforces everywhere
+    // else it's set (`profiles.updateMine`, and `accept`'s own explicit
+    // `name` argument). Bounding `email` here closes that specific
+    // inconsistency at its source rather than special-casing the fallback
+    // in `accept`.
+    if (email.length === 0 || email.length > MAX_DISPLAY_NAME_LENGTH) {
+      throw new ConvexError({ code: "INVALID_EMAIL" })
+    }
+
     const { token, hash } = await generateToken()
     const invitationId = await ctx.db.insert("invitations", {
       email,
@@ -84,10 +97,25 @@ export const create = mutation({
     // function in the deployment and visible in the Convex dashboard —
     // an unredactable, uncontrolled place for a secret to sit for days.
     // `pendingToken`, staged above in a row *we* control, is what
-    // `sendInvitationEmail` reads instead — and it clears that field
-    // before ever attempting to send, bounding the exposure to the time
-    // between scheduling and that claim (milliseconds, normally) rather
-    // than the job record's full retention.
+    // `sendInvitationEmail` reads instead.
+    //
+    // Round 2 (review, item 3) — the actual bound, not the happy-path one:
+    // `claimPendingToken` clears the field before ever attempting to send,
+    // and `accept` clears it again defensively on successful acceptance
+    // (see there) — so on every path this project actually exercises, the
+    // exposure is milliseconds (scheduling to claim) or the time until
+    // acceptance, never the job record's full retention. But if the
+    // scheduled action fails *before* `claimPendingToken`'s own
+    // `ctx.runMutation` call returns (an infrastructure error, not a send
+    // failure — a send failure happens *after* the claim, see there), and
+    // the invitation is then neither accepted nor revoked, Convex does not
+    // retry scheduled functions, so `pendingToken` is never cleared and
+    // sits on the row indefinitely — past `expiresAt`, until an operator
+    // revokes it (which deletes the whole row) or something else touches
+    // it. Narrow, not client-reachable (no query returns this field — see
+    // `list`), and not the same shape as the original problem this staging
+    // replaced, but a real residual, stated plainly rather than papered
+    // over.
     const scheduledEmailId = await ctx.scheduler.runAfter(
       0,
       internal.invitations.sendInvitationEmail,
@@ -252,7 +280,17 @@ export const accept = mutation({
       },
     })
 
-    await ctx.db.patch(invite._id, { acceptedAt: Date.now() })
+    // Round 2 (review, item 3): also clear `pendingToken` here, defensively
+    // — not only relying on `claimPendingToken` having already done it.
+    // Normally it has (the scheduled action runs `runAfter(0)`, long before
+    // a human accepts an invitation), but if that action failed *before*
+    // `claimPendingToken` ever returned (its own `ctx.runMutation` call
+    // throwing, an infrastructure error, …), Convex does not retry
+    // scheduled functions, so the field would otherwise sit on the row
+    // — past its 7-day `expiresAt` — until something else touches this
+    // row. This patch is that something, on the by-far-most-common path
+    // out of "invitation exists": it gets accepted.
+    await ctx.db.patch(invite._id, { acceptedAt: Date.now(), pendingToken: undefined })
     return { email: invite.email, role: invite.role }
   },
 })
@@ -270,10 +308,26 @@ export const revoke = mutation({
     // M8 (review) : annule l'envoi programmé s'il n'a pas encore tourné —
     // sans ça, une invitation révoquée juste avant l'exécution du job
     // laissait quand même partir l'email d'invitation, un lien mort mais
-    // trompeur pour qui le reçoit. `ctx.scheduler.cancel` est un no-op sûr
-    // si le job a déjà tourné ou n'existe plus.
+    // trompeur pour qui le reçoit.
+    //
+    // Round 2 (review) : `ctx.scheduler.cancel` n'est PAS un no-op sûr sur
+    // un job déjà terminé — pour une `action` (ce que `sendInvitationEmail`
+    // est depuis le round 1), le typedoc de Convex 1.45 dit explicitement
+    // l'inverse : "If it had already completed, canceling will throw an
+    // error." Un job planifié en `runAfter(0)` a, dans l'immense majorité
+    // des cas, déjà fini d'exécuter (avec succès ou en échec) bien avant
+    // qu'un opérateur ne songe à révoquer l'invitation — c'est le cas
+    // *normal*, pas un cas limite. Lire l'état du job avant d'annuler,
+    // et n'annuler que s'il est encore `pending`/`inProgress`, est ce qui
+    // rend `revoke` utilisable sur le chemin de récupération que I5/M8
+    // sont censés fournir, au lieu de le faire lever sur pratiquement
+    // toute invitation dont l'email a déjà été envoyé (avec succès ou en
+    // échec).
     if (invite.scheduledEmailId) {
-      await ctx.scheduler.cancel(invite.scheduledEmailId)
+      const job = await ctx.db.system.get(invite.scheduledEmailId)
+      if (job && (job.state.kind === "pending" || job.state.kind === "inProgress")) {
+        await ctx.scheduler.cancel(invite.scheduledEmailId)
+      }
     }
     await ctx.db.delete(args.invitationId)
   },

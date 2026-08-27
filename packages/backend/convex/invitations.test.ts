@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
-import { api } from "./_generated/api"
+import { api, internal } from "./_generated/api"
 import { generateToken, hashToken } from "./lib/token"
+import { MAX_DISPLAY_NAME_LENGTH } from "./profiles"
 import { ORIGIN, identityFor, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
 
 // This suite drives `invitations.create`/`accept`/`revoke` — the *only*
@@ -109,6 +110,33 @@ test("le token en clair n'est mis en scène que transitoirement, effacé dès la
 
   const afterScheduledRun = await t.run(async (ctx) => ctx.db.query("invitations").first())
   expect(afterScheduledRun?.pendingToken).toBeUndefined()
+})
+
+// Round 2 (review, item 3): `accept` clears `pendingToken` defensively on
+// its own, not only relying on `claimPendingToken` having already done
+// it — this is what keeps the field from surviving indefinitely if the
+// scheduled action fails *before* its own claim-and-clear mutation call
+// returns (Convex doesn't retry scheduled functions). Isolated here by
+// accepting *before* the scheduled send ever runs at all — so this proves
+// `accept`'s own clear specifically, independent of `claimPendingToken`.
+test("accept efface pendingToken lui-même, même avant que l'envoi programmé n'ait tourné", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  const beforeAnythingRuns = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(beforeAnythingRuns?.pendingToken).toBe(token)
+
+  await t.mutation(api.invitations.accept, {
+    token,
+    password: "correct horse battery staple pending1",
+  })
+
+  const afterAccept = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(afterAccept?.pendingToken).toBeUndefined()
 })
 
 // --- Step 2/3 du brief : expiration et non-rejouabilité ------------------
@@ -228,6 +256,50 @@ test("un owner ne peut pas non plus inviter un owner", async () => {
   await expect(
     asOwner.mutation(api.invitations.create, { email: "invitee@example.com", role: "owner" }),
   ).rejects.toThrow(/FORBIDDEN/)
+})
+
+// --- Round 2 (review, item 5) : l'email est borné dans create -----------
+
+// `accept` defaults `displayName` to `invite.email` whenever no `name`
+// argument is given — the common case — so an unbounded `email` on
+// `create` let a syntactically-fine-but-very-long address become a
+// `profiles.displayName` past the 100-character limit enforced everywhere
+// else it's set. Bounded to the same `MAX_DISPLAY_NAME_LENGTH` `profiles`
+// already exports and enforces, reused rather than a second magic number.
+test("create refuse un email de plus de 100 caractères", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const tooLong = `${"x".repeat(MAX_DISPLAY_NAME_LENGTH - 11)}@example.com` // > 100 chars total
+
+  await expect(
+    asAdmin.mutation(api.invitations.create, { email: tooLong, role: "editor" }),
+  ).rejects.toThrow(/INVALID_EMAIL/)
+
+  const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
+  expect(rows).toHaveLength(0)
+})
+
+test("create refuse un email vide", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+
+  await expect(
+    asAdmin.mutation(api.invitations.create, { email: "   ", role: "editor" }),
+  ).rejects.toThrow(/INVALID_EMAIL/)
+})
+
+test("create accepte un email de exactement 100 caractères", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const local = "x".repeat(MAX_DISPLAY_NAME_LENGTH - "@example.com".length)
+  const exactly100 = `${local}@example.com`
+  expect(exactly100.length).toBe(MAX_DISPLAY_NAME_LENGTH)
+
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: exactly100,
+    role: "editor",
+  })
+  expect(typeof token).toBe("string")
 })
 
 // --- Le deuxième verrou : même une invitation "owner" fabriquée hors de --
@@ -680,7 +752,28 @@ test("un échec d'envoi de l'email n'invalide pas l'invitation : le token reste 
 // a *failed* scheduled function (visible in the dashboard), not a quiet
 // no-op — checked directly against the scheduled function's own recorded
 // state, not just "did this test's own call throw".
-test("l'absence de SITE_URL fait échouer visiblement le job programmé, pas un retour silencieux", async () => {
+// Round 2 (review, item 2): the original version of this test only
+// asserted `state.kind === "failed"` after going through the real
+// `create` -> scheduler -> `sendInvitationEmail` pipeline — but no test in
+// this file ever sets `RESEND_API_KEY`, so `resend.sendEmail` throws "API
+// key is not set" regardless of `SITE_URL`. That made the assertion true
+// whether or not the `SITE_URL` guard existed at all: deleting the guard
+// entirely still leaves the job "failed", for the unrelated downstream
+// reason. Non-discriminating — it couldn't have caught the guard being
+// removed.
+//
+// Fixed by invoking `sendInvitationEmail` directly (bypassing the
+// scheduler, which discards the thrown message — convex-test's own
+// `_scheduled_functions` state never records more than `{kind: "failed"}`,
+// no error text) and asserting the *specific* rejection message. This
+// discriminates for real: `sendInvitationEmail` checks `SITE_URL` before
+// ever calling `resend.sendEmail`, so if that check were removed, the
+// exact same setup (no `RESEND_API_KEY`, no `SITE_URL`) would instead
+// reject with "API key is not set" — a different message, failing this
+// assertion. No `RESEND_API_KEY` is needed for that reason: the guard this
+// test targets runs, and the function throws, before `resend.sendEmail`
+// (and any risk of a real network call) is ever reached.
+test("l'absence de SITE_URL fait échouer sendInvitationEmail avec un message explicite, pas un retour silencieux", async () => {
   const t = makeTestConvex()
   const asAdmin = await seedAdmin(t)
   delete process.env.SITE_URL
@@ -689,13 +782,11 @@ test("l'absence de SITE_URL fait échouer visiblement le job programmé, pas un 
     email: "invitee@example.com",
     role: "editor",
   })
-  await runScheduledFunctions(t)
+  const invitationId = await t.run(async (ctx) => (await ctx.db.query("invitations").first())!._id)
 
-  const scheduled = await t.run(async (ctx) =>
-    ctx.db.system.query("_scheduled_functions").collect(),
-  )
-  expect(scheduled).toHaveLength(1)
-  expect(scheduled[0]?.state.kind).toBe("failed")
+  await expect(
+    t.action(internal.invitations.sendInvitationEmail, { invitationId }),
+  ).rejects.toThrow(/SITE_URL is not set/)
 })
 
 // --- L'entropie du token : deux invitations n'ont jamais le même --------
@@ -870,6 +961,53 @@ test("revoke annule l'envoi programmé s'il n'a pas encore tourné", async () =>
   // Letting scheduled functions run to completion afterward must not
   // resurrect anything — the job is gone, not merely delayed.
   await runScheduledFunctions(t)
+  const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
+  expect(rows).toHaveLength(0)
+})
+
+// Round 2 (review, item 1): `ctx.scheduler.cancel` is not a safe no-op on
+// an already-*completed* action — Convex 1.45's own typedoc: "If it had
+// already completed, canceling will throw an error." `sendInvitationEmail`
+// is scheduled `runAfter(0)`, so by the time an operator actually revokes
+// an invitation, its send job has almost always already finished (with
+// `state.kind` `"failed"` or `"success"`) — the *normal* case, not an edge
+// case. `revoke` now reads the job's state first and only calls `cancel`
+// while it's still `pending`/`inProgress`.
+//
+// IMPORTANT, stated plainly rather than implied: this test does NOT, and
+// cannot, discriminate between the fixed and unfixed code in this harness.
+// convex-test's own `cancel` implementation (`dist/index.js`,
+// `"1.0/cancel_job"`) unconditionally patches state to `{kind:
+// "canceled"}` with no check of the job's current state at all, and never
+// throws — so calling `revoke` after the job has completed would resolve
+// here regardless of whether the state-check this fix adds exists. What
+// this test *does* verify: `revoke`'s own logic (reading the job via
+// `ctx.db.system.get`, branching on its state) doesn't itself throw or
+// misbehave once a job has genuinely completed, and that the invitation
+// row is still correctly deleted either way. Proving the actual
+// throw-on-completed-cancel bug is fixed requires the real deployment —
+// which is exactly what's being confirmed there, not here.
+test("revoke réussit même après que l'envoi programmé a déjà terminé (ne peut pas discriminer dans ce harnais — voir commentaire)", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+  const invitationId = await t.run(async (ctx) => (await ctx.db.query("invitations").first())!._id)
+
+  // Let the send job run to completion (it fails — no RESEND_API_KEY — but
+  // "completed" here means any terminal state, failed or succeeded).
+  await runScheduledFunctions(t)
+  const completed = await t.run(async (ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect(),
+  )
+  expect(completed[0]?.state.kind).toBe("failed")
+
+  await expect(
+    asAdmin.mutation(api.invitations.revoke, { invitationId }),
+  ).resolves.not.toThrow()
+
   const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
   expect(rows).toHaveLength(0)
 })

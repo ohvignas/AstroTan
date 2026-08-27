@@ -387,9 +387,23 @@ test("un admin ne peut pas non plus créer un simple editor via /admin/create-us
   expect(body.code).toBe("YOU_ARE_NOT_ALLOWED_TO_CREATE_USERS")
 })
 
-// Control: the owner keeps `user:create` and can still use this endpoint —
-// the fix removes the permission from `adminRole` only.
-test("contrôle : l'owner peut toujours créer un utilisateur via /admin/create-user (chemin réel)", async () => {
+// Round 2 (review, item 4): the owner loses `user:create` too, not just
+// `adminRole` (round 1, I4). Round 1's version of this test proved the
+// opposite — that the owner *kept* the permission — which was the
+// deliberate choice at the time, but round 2's reviewer pointed out that
+// `/admin/create-user` has no password floor of its own on this version of
+// better-auth (`password` is linked *outside* `internalAdapter.createUser`,
+// so `databaseHooks.user.create.before` never even sees it and cannot
+// validate it) — so as long as the owner could still reach this route,
+// the exact C1 failure `invitations.accept` guards against (empty
+// password -> credential-less zombie; one-character password -> a working
+// account) was still live for the one principal who could reach it.
+// `ownerRole`'s comment in `auth.ts` records the two options weighed and
+// why removing the permission (rather than trying to patch a floor onto a
+// route this app doesn't own) was chosen. This test replaces the old
+// control with the new reality: the owner is refused identically to the
+// admin.
+test("l'owner ne peut plus non plus appeler /admin/create-user (chemin réel)", async () => {
   const t = makeTestConvex()
   await seedUser(t, {
     email: "owner@example.com",
@@ -410,7 +424,62 @@ test("contrôle : l'owner peut toujours créer un utilisateur via /admin/create-
     }),
   })
 
-  expect(res.status).toBe(200)
+  expect(res.status).toBe(403)
+  const body = (await res.json()) as { code?: string }
+  expect(body.code).toBe("YOU_ARE_NOT_ALLOWED_TO_CREATE_USERS")
+})
+
+// Round 2, item 5: the reviewer asked for a test of the owner — "the one
+// principal still holding `user:create`" — attempting a second owner
+// through `/admin/create-user`, since the `create.before` hook's
+// `role:"owner"` refusal was otherwise only ever exercised through
+// `invitations.test.ts`. Choosing to close `user:create` on `ownerRole`
+// too (item 4, above) makes the *literal* request moot: nobody reaches
+// `/admin/create-user` at all anymore, owner included, so there is no
+// HTTP route left where this specific scenario can be driven end-to-end.
+//
+// What's still true, and still worth pinning directly in *this* file
+// rather than only in `invitations.test.ts`: the `create.before` hook
+// itself doesn't care how `createUser` was reached, and the one path that
+// still *can* reach it — a session-less call, exactly the shape
+// `invitations.accept` uses, and the only shape left now that both RBAC
+// roles are closed — must still be refused for `role: "owner"` once a
+// real owner exists. Driven directly here (not through `invitations.ts`,
+// and not through HTTP) so this file's own coverage of the hook doesn't
+// depend on a second module's test suite for a scenario that belongs to
+// the invariant this file exists to guard.
+test("round 2, item 5 : un createUser sans session refuse un second owner, même une fois les deux rôles RBAC fermés (chemin réel)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple 1",
+    name: "Owner",
+    role: "owner",
+  })
+
+  await expect(
+    t.run(async (ctx) => {
+      const auth = createAuth(ctx)
+      return auth.api.createUser({
+        body: {
+          email: "second-owner@example.com",
+          password: "another owner password 456",
+          name: "Second Owner",
+          role: "owner",
+        },
+      })
+    }),
+  ).rejects.toThrow(/OWNER_ALREADY_EXISTS/)
+
+  const signInAttempt = await t.fetch("/api/auth/sign-in/email", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN },
+    body: JSON.stringify({
+      email: "second-owner@example.com",
+      password: "another owner password 456",
+    }),
+  })
+  expect(signInAttempt.status).not.toBe(200)
 })
 
 // C3: `/admin/remove-user`'s handler deletes the target's sessions and
