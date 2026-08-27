@@ -9,18 +9,23 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, ShieldIcon } from "lucide-react"
+import { LayoutDashboardIcon, ShieldIcon, UsersIcon } from "lucide-react"
 
-// A single "Tableau de bord" entry today. Task 10 adds "Utilisateurs" here
-// once the user-management screen exists — this file is intentionally left
-// easy to extend rather than built out further, per this task's scope.
-const navMain = [
-  {
-    title: "Tableau de bord",
-    url: "/",
-    icon: <LayoutDashboardIcon />,
-  },
-]
+const DASHBOARD_ITEM = {
+  title: "Tableau de bord",
+  url: "/",
+  icon: <LayoutDashboardIcon />,
+}
+
+// "Utilisateurs" is added only for owner/admin — a courtesy, per Task 10's
+// property: `/users` itself (`routes/_authed/users.tsx`) refuses an editor
+// server-side regardless of whether this link is rendered, so hiding it is
+// not what makes the screen safe.
+const USERS_ITEM = {
+  title: "Utilisateurs",
+  url: "/users",
+  icon: <UsersIcon />,
+}
 
 export function AppSidebar({
   profile,
@@ -28,6 +33,11 @@ export function AppSidebar({
 }: React.ComponentProps<typeof Sidebar> & {
   profile: FunctionReturnType<typeof api.profiles.me> | undefined
 }) {
+  const navMain =
+    profile?.role === "owner" || profile?.role === "admin"
+      ? [DASHBOARD_ITEM, USERS_ITEM]
+      : [DASHBOARD_ITEM]
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
