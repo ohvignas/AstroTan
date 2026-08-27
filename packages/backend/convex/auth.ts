@@ -1,6 +1,6 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal"
 import { admin } from "better-auth/plugins"
-import { APIError } from "better-auth/api"
+import { APIError, createAuthMiddleware } from "better-auth/api"
 import { createAccessControl } from "better-auth/plugins/access"
 import { defaultStatements } from "better-auth/plugins/admin/access"
 import { convex } from "@convex-dev/better-auth/plugins"
@@ -282,6 +282,52 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
           }),
         },
       },
+    },
+    // C3: `/admin/remove-user`'s handler calls
+    // `internalAdapter.deleteUserSessions(userId)`, and
+    // `internalAdapter.deleteUser` itself further deletes the target's
+    // `account` rows via a separate `deleteManyWithHooks` — both *before*
+    // it ever reaches `deleteWithHooks` on `"user"`, the one call the
+    // `databaseHooks.user.delete.before` guard above actually sees. So a
+    // refused deletion, guarded only there, still destroys the target's
+    // sessions and credential account as an unblockable side effect: the
+    // owner's row survives with `role: "owner"` intact, but they can no
+    // longer sign in. Any admin can repeat this at will, and with
+    // `set-password` reserved to `owner` and no email-based reset, that is
+    // an unrecoverable denial-of-service against the very account this
+    // task protects.
+    //
+    // Fixed at the door instead: this runs inside `dispatchAuthEndpoint`
+    // before the `/admin/remove-user` endpoint body executes at all
+    // (`getHooks`/`runBeforeHooks` in `dist/api/dispatch.mjs` run ahead of
+    // `endpoint(internalContext)`), so nothing in the destructive cascade
+    // starts. The `databaseHooks.user.delete.before` guard above stays as
+    // defence in depth for whatever other delete-user path this app grows
+    // — it's what would actually protect the row the day this stops being
+    // the only one.
+    //
+    // `options.hooks.before` is a single middleware, not a list of
+    // `{matcher, handler}` pairs the way a plugin's own hooks are —
+    // `getHooks` wraps it with `matcher: () => true` and runs it on
+    // *every* endpoint, so the path check has to happen inside the
+    // handler itself rather than as a matcher.
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== "/admin/remove-user") return
+        const body = ctx.body as Record<string, unknown> | undefined
+        const userId = body?.userId
+        if (typeof userId !== "string") return
+
+        const internalAdapter = (ctx.context as OwnerHookEndpointContext["context"])
+          ?.internalAdapter
+        const target = await internalAdapter?.findUserById(userId)
+        if (parseRole(target?.role) === "owner") {
+          throw APIError.from("FORBIDDEN", {
+            code: "OWNER_INVARIANT",
+            message: "OWNER_PROTECTED: impossible de supprimer le compte owner",
+          })
+        }
+      }),
     },
   }) satisfies BetterAuthOptions
 
