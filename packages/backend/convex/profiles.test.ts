@@ -2,22 +2,38 @@ import { convexTest, type TestConvex } from "convex-test"
 import { afterEach, beforeEach, expect, test } from "vitest"
 import schema from "./schema"
 import betterAuthSchema from "./betterAuth/schema"
-import { createAuth } from "./auth"
 import { components, internal, api } from "./_generated/api"
+import {
+  ORIGIN,
+  modules,
+  betterAuthModules,
+  seedUser,
+  signIn,
+  identityFor,
+} from "./testing/betterAuthFixture"
 
-// Fixture reprise telle quelle de `auth.ownerInvariant.test.ts` (Task 6) :
-// enregistre le composant `betterAuth` avec le schéma de *ce* Local
-// Install (pas le schéma par défaut du paquet) et drive les vraies
-// mutations Better Auth (`auth.api.createUser`, `/admin/update-user`,
-// `/admin/remove-user`), pas un appel direct au corps du trigger. C'est
-// la seule façon de prouver que le composant *appelle réellement*
-// `onCreate`/`onUpdate`/`onDelete` — un test qui invoque directement la
-// fonction exportée par `auth.ts` ne prouve que le corps de la fonction,
-// jamais le câblage `triggers`/`authFunctions` qui la relie au composant.
-const modules = import.meta.glob("./**/*.ts")
-const betterAuthModules = import.meta.glob("./betterAuth/**/*.ts")
-
-const ORIGIN = "http://localhost:3000"
+// Fixture partagée avec `lib/authz.test.ts` — voir
+// `convex/testing/betterAuthFixture.ts` pour `seedUser`/`signIn`/
+// `identityFor` et pourquoi ils vivent là plutôt que d'être dupliqués ici
+// (comme avant ce fix round) ou dans chaque fichier qui en a besoin.
+// `makeTestConvex` reste défini ici (et dans `authz.test.ts`, à
+// l'identique) : il a besoin de la *valeur* `convexTest`, que le fixture
+// partagé n'importe délibérément pas (voir son en-tête) puisque `convex/`
+// est balayé et bundlé par le vrai déploiement Convex.
+//
+// Reprend le principe de `auth.ownerInvariant.test.ts` (Task 6) : drive
+// les vraies mutations Better Auth (`auth.api.createUser`,
+// `/admin/update-user`, `/admin/remove-user`, …), jamais un appel direct
+// au corps d'un trigger, pour prouver que le composant *appelle
+// réellement* `onCreate`/`onUpdate`/`onDelete` — un test qui invoque
+// directement la fonction exportée par `auth.ts` ne prouve que le corps
+// de la fonction, jamais le câblage `triggers`/`authFunctions` qui la
+// relie au composant. Les deux tests de rejeu (I3 plus bas) sont
+// l'exception délibérée : ils invoquent `internal.auth.onCreate`/
+// `onDelete` directement, parce que ce qu'ils prouvent — l'idempotence du
+// *corps* du trigger sous rejeu — est une propriété de ce corps, pas du
+// câblage, et le câblage lui-même est déjà prouvé ailleurs dans ce
+// fichier sans jamais appeler un trigger à la main.
 
 let originalEnv: NodeJS.ProcessEnv
 
@@ -37,35 +53,6 @@ function makeTestConvex(): TestConvex<typeof schema> {
   return t
 }
 
-// Seeding server-side (pas de `headers`/`request`), comme dans
-// `auth.ownerInvariant.test.ts` : c'est l'échappatoire de bootstrap
-// documentée du plugin admin, pas un contournement de ce test.
-async function seedUser(
-  t: TestConvex<typeof schema>,
-  user: { email: string; password: string; name: string; role: "owner" | "admin" | "editor" },
-) {
-  const result = await t.run(async (ctx) => {
-    const auth = createAuth(ctx)
-    return auth.api.createUser({ body: user })
-  })
-  return (result as { user: { id: string; role: string } }).user
-}
-
-async function signIn(t: TestConvex<typeof schema>, email: string, password: string) {
-  const res = await t.fetch("/api/auth/sign-in/email", {
-    method: "POST",
-    headers: { "content-type": "application/json", origin: ORIGIN },
-    body: JSON.stringify({ email, password }),
-  })
-  expect(res.status).toBe(200)
-  const setCookies: string[] = res.headers.getSetCookie()
-  const sessionCookie = setCookies
-    .map((c) => c.split(";")[0] ?? "")
-    .find((c) => c.startsWith("better-auth.session_token="))
-  if (!sessionCookie) throw new Error("sign-in did not set a session cookie")
-  return sessionCookie
-}
-
 async function getProfile(t: TestConvex<typeof schema>, authUserId: string) {
   return t.run(async (ctx) =>
     ctx.db
@@ -73,31 +60,6 @@ async function getProfile(t: TestConvex<typeof schema>, authUserId: string) {
       .withIndex("by_auth_user", (q) => q.eq("authUserId", authUserId))
       .unique(),
   )
-}
-
-// Construit une identité Convex de test qui correspond à une *vraie*
-// session Better Auth : `authComponent.safeGetAuthUser` (donc
-// `requireRole`, donc `profiles.me`/`profiles.updateMine`) lit
-// `identity.subject` comme l'id utilisateur Better Auth et
-// `identity.sessionId` comme l'`_id` du document `session` du composant —
-// vérifié dans `@convex-dev/better-auth@0.12.5`'s
-// `src/client/create-client.ts` (`safeGetAuthUser`) et
-// `src/plugins/convex/index.ts` (`definePayload` pose `sessionId:
-// session.id`, où `session.id` est l'`_id` Convex de la session, mappé par
-// l'adaptateur). Une identité Convex "nue" (`t.withIdentity({subject:
-// ...})`, sans session réelle derrière) ne peut pas exercer ce chemin —
-// c'est pour ça que ce fichier construit une session pour de vrai plutôt
-// que de fabriquer ces deux champs.
-async function identityFor(t: TestConvex<typeof schema>, userId: string) {
-  const sessionDoc = await t.run(async (ctx) =>
-    ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: "session",
-      where: [{ field: "userId", operator: "eq", value: userId }],
-    }),
-  )
-  const sessionId = (sessionDoc as { _id?: string; id?: string } | null)?._id
-  if (!sessionId) throw new Error("no session found for user " + userId)
-  return t.withIdentity({ subject: userId, sessionId })
 }
 
 // --- Step 1 du brief : `ensure` en isolation, sans le composant --------
@@ -139,10 +101,10 @@ test("créer un utilisateur via le composant Better Auth (chemin réel) crée so
   expect(profile).not.toHaveProperty("role")
 })
 
-// Preuve des DEUX liaisons (M2 du brief) : `by_auth_user` (application ->
-// composant) ET `setUserId` (composant -> application). Une seule des deux
-// prouvée ne suffit pas — c'est exactement le genre de trou qu'une tâche
-// précédente a laissé passer en ne vérifiant qu'une liste de fichiers.
+// Preuve des DEUX liaisons : `by_auth_user` (application -> composant) ET
+// `setUserId` (composant -> application). Une seule des deux prouvée ne
+// suffit pas — c'est exactement le genre de trou qu'une tâche précédente a
+// laissé passer en ne vérifiant qu'une liste de fichiers.
 test("onCreate pose les deux liaisons : by_auth_user ET setUserId (chemin réel)", async () => {
   const t = makeTestConvex()
   const user = await seedUser(t, {
@@ -163,10 +125,10 @@ test("onCreate pose les deux liaisons : by_auth_user ET setUserId (chemin réel)
   expect((componentUser as { userId?: string } | null)?.userId).toBe(profile?._id)
 })
 
-// Rejeu du hook : `onCreate` doit rester idempotent même quand il est
-// atteint par le vrai chemin composant, pas seulement quand `ensure` est
-// appelé deux fois à la main (ce que le test "ensure est idempotent"
-// ci-dessus couvre déjà séparément).
+// Rejeu du hook : `ensure` doit rester idempotent même appelé après le
+// vrai chemin composant, pas seulement quand on l'appelle deux fois de
+// suite en isolation (ce que "ensure est idempotent" ci-dessus couvre
+// déjà séparément).
 test("un utilisateur Better Auth ne produit jamais deux profils, même si ensure est rejoué (chemin réel + rejeu)", async () => {
   const t = makeTestConvex()
   const user = await seedUser(t, {
@@ -180,9 +142,47 @@ test("un utilisateur Better Auth ne produit jamais deux profils, même si ensure
   expect(all).toHaveLength(1)
 })
 
-// --- onUpdate : le profil suit son utilisateur --------------------------
+// I3 : `onCreate` lui-même (pas seulement `ensure` appelée à la main) doit
+// être idempotent — le brief le dit explicitement, "le hook peut rejouer".
+// Invoque `internal.auth.onCreate` directement une seconde fois avec le
+// document réel du composant (pas un document synthétique : `setUserId`
+// dans `onCreate` a besoin d'une ligne "user" du composant qui existe
+// vraiment, sinon le composant lève "Failed to update user"). C'est un
+// test légitime du corps du trigger en isolation, distinct de la preuve
+// de câblage ci-dessus : celle-ci n'invoque jamais un trigger à la main,
+// celui-ci le fait exprès, pour une propriété différente.
+test("un rejeu direct de onCreate sur un utilisateur déjà connu ne crée pas de second profil", async () => {
+  const t = makeTestConvex()
+  const user = await seedUser(t, {
+    email: "flo@example.com",
+    password: "correct horse battery staple 1",
+    name: "Flo",
+    role: "owner",
+  })
+  const componentUser = await t.run(async (ctx) =>
+    ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user",
+      where: [{ field: "_id", value: user.id }],
+    }),
+  )
+  await t.mutation(internal.auth.onCreate, { model: "user", doc: componentUser })
 
-test("renommer un utilisateur via /admin/update-user resynchronise displayName (chemin réel)", async () => {
+  const all = await t.run(async (ctx) =>
+    ctx.db
+      .query("profiles")
+      .withIndex("by_auth_user", (q) => q.eq("authUserId", user.id))
+      .collect(),
+  )
+  expect(all).toHaveLength(1)
+})
+
+// --- onUpdate : chemin de réparation, plus de resynchronisation --------
+
+// M3/I2 : `onUpdate` ne recopie plus `user.name` dans `displayName` — une
+// fois que l'utilisateur a choisi son nom affiché via `updateMine`, c'est
+// son choix, pas celui de Better Auth ; un admin qui renomme quelqu'un ne
+// doit pas l'écraser silencieusement.
+test("renommer un utilisateur via /admin/update-user ne touche plus displayName (chemin réel)", async () => {
   const t = makeTestConvex()
   const owner = await seedUser(t, {
     email: "flo@example.com",
@@ -200,13 +200,36 @@ test("renommer un utilisateur via /admin/update-user resynchronise displayName (
   expect(res.status).toBe(200)
 
   const profile = await getProfile(t, owner.id)
-  expect(profile?.displayName).toBe("Florence")
+  expect(profile?.displayName).toBe("Flo")
 })
 
-// Une mise à jour Better Auth sans rapport avec le nom (ici : un ban) ne
-// doit pas être ignorée par le trigger au point de faire échouer
-// silencieusement — mais ne doit pas non plus réécrire `displayName`
-// inutilement. On vérifie surtout que le profil survit intact.
+// Le pendant positif du test précédent : un choix fait via `updateMine`
+// survit à un renommage administratif ultérieur — pas seulement "le nom
+// Better Auth d'origine n'est pas écrasé", mais "un choix explicite de
+// l'utilisateur ne l'est pas non plus".
+test("un displayName choisi via updateMine survit à un renommage administratif (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "flo@example.com",
+    password: "correct horse battery staple 1",
+    name: "Flo",
+    role: "owner",
+  })
+  const ownerCookie = await signIn(t, "flo@example.com", "correct horse battery staple 1")
+  const identity = await identityFor(t, owner.id)
+  await identity.mutation(api.profiles.updateMine, { displayName: "Choix de Flo" })
+
+  const res = await t.fetch("/api/auth/admin/update-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
+    body: JSON.stringify({ userId: owner.id, data: { name: "Florence" } }),
+  })
+  expect(res.status).toBe(200)
+
+  const profile = await getProfile(t, owner.id)
+  expect(profile?.displayName).toBe("Choix de Flo")
+})
+
 test("bannir un utilisateur via /admin/ban-user laisse son profil intact (chemin réel)", async () => {
   const t = makeTestConvex()
   const owner = await seedUser(t, {
@@ -232,6 +255,50 @@ test("bannir un utilisateur via /admin/ban-user laisse son profil intact (chemin
 
   const profile = await getProfile(t, editor.id)
   expect(profile?.displayName).toBe("Editor")
+})
+
+// I2 : `onUpdate` est désormais le chemin de réparation — il recrée un
+// profil manquant à la prochaine écriture Better Auth sur cet utilisateur,
+// plutôt que de rester silencieux (`if (!profile) return`, avant ce fix).
+// Simule l'invariant rompu en supprimant la ligne `profiles` directement
+// (sans passer par `onDelete`), puis déclenche n'importe quelle écriture
+// admin sur ce même utilisateur.
+test("onUpdate recrée un profil manquant (chemin de réparation, chemin réel)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "flo@example.com",
+    password: "correct horse battery staple 1",
+    name: "Flo",
+    role: "owner",
+  })
+  const ownerCookie = await signIn(t, "flo@example.com", "correct horse battery staple 1")
+
+  const before = await getProfile(t, owner.id)
+  expect(before).not.toBeNull()
+  await t.run(async (ctx) => ctx.db.delete(before!._id))
+  expect(await getProfile(t, owner.id)).toBeNull()
+
+  const res = await t.fetch("/api/auth/admin/update-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
+    body: JSON.stringify({ userId: owner.id, data: { name: "Florence" } }),
+  })
+  expect(res.status).toBe(200)
+
+  const repaired = await getProfile(t, owner.id)
+  expect(repaired).not.toBeNull()
+  expect(repaired?.displayName).toBe("Florence")
+
+  // La réparation pose aussi `setUserId`, exactement comme `onCreate` —
+  // sinon la liaison composant -> application resterait cassée après une
+  // réparation qui ne répare qu'à moitié.
+  const componentUser = await t.run(async (ctx) =>
+    ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user",
+      where: [{ field: "_id", value: owner.id }],
+    }),
+  )
+  expect((componentUser as { userId?: string } | null)?.userId).toBe(repaired?._id)
 })
 
 // --- onDelete : le profil ne survit jamais à son utilisateur -----------
@@ -264,6 +331,29 @@ test("supprimer un utilisateur via /admin/remove-user supprime son profil (chemi
   expect(await getProfile(t, editor.id)).toBeNull()
 })
 
+// M7 : `onDelete` ne doit pas lever si le profil est déjà absent (rejeu du
+// hook, ou utilisateur dont le profil n'a jamais existé) — le comportement
+// était déjà correct (`if (profile) await ctx.db.delete(...)`), mais
+// rien ne le vérifiait.
+test("onDelete ne lève pas si le profil est déjà absent (idempotence de la suppression)", async () => {
+  const t = convexTest(schema, modules)
+  const now = Date.now()
+  await expect(
+    t.mutation(internal.auth.onDelete, {
+      model: "user",
+      doc: {
+        _id: "u_never_had_a_profile",
+        _creationTime: now,
+        name: "Ghost",
+        email: "ghost@example.com",
+        emailVerified: false,
+        createdAt: now,
+        updatedAt: now,
+      },
+    }),
+  ).resolves.not.toThrow()
+})
+
 // --- profiles.me : recompose le rôle à la lecture -----------------------
 
 test("profiles.me renvoie le rôle et l'email composés depuis Better Auth, jamais stockés sur le profil (chemin réel)", async () => {
@@ -274,7 +364,7 @@ test("profiles.me renvoie le rôle et l'email composés depuis Better Auth, jama
     name: "Flo",
     role: "owner",
   })
-  const ownerCookie = await signIn(t, "flo@example.com", "correct horse battery staple 1")
+  await signIn(t, "flo@example.com", "correct horse battery staple 1")
   const identity = await identityFor(t, owner.id)
 
   const me = await identity.query(api.profiles.me, {})
@@ -290,6 +380,32 @@ test("profiles.me refuse un appel non authentifié", async () => {
   const t = makeTestConvex()
   await expect(t.query(api.profiles.me, {})).rejects.toMatchObject({
     data: { code: "UNAUTHENTICATED" },
+  })
+})
+
+// I1 : `{ ...profile, role, email }` avec `profile === null` vaut
+// `{ role, email }` — JS étale `null` silencieusement en objet vide — donc
+// sans garde explicite, un utilisateur dont le profil manque recevait un
+// 200 qui rapporte l'invariant "un profil par utilisateur" comme respecté
+// alors qu'il ne l'est pas. Supprime le profil directement (sans passer
+// par `onDelete`) pour simuler l'invariant rompu sans qu'aucune écriture
+// Better Auth n'ait eu la chance de le réparer via `onUpdate` entre temps.
+test("profiles.me lève NOT_FOUND plutôt que de renvoyer un profil partiel quand le profil manque", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "flo@example.com",
+    password: "correct horse battery staple 1",
+    name: "Flo",
+    role: "owner",
+  })
+  await signIn(t, "flo@example.com", "correct horse battery staple 1")
+  const identity = await identityFor(t, owner.id)
+
+  const profile = await getProfile(t, owner.id)
+  await t.run(async (ctx) => ctx.db.delete(profile!._id))
+
+  await expect(identity.query(api.profiles.me, {})).rejects.toMatchObject({
+    data: { code: "NOT_FOUND" },
   })
 })
 
@@ -321,7 +437,7 @@ for (const role of ["owner", "admin", "editor"] as const) {
             name: role === "admin" ? "Admin" : "Editor",
             role,
           })
-    const cookie = await signIn(t, subjectEmail, subjectPassword)
+    await signIn(t, subjectEmail, subjectPassword)
     const identity = await identityFor(t, subject.id)
 
     await identity.mutation(api.profiles.updateMine, { displayName: "Nouveau nom" })
@@ -350,7 +466,7 @@ test("profiles.updateMine ne touche jamais qu'au profil de l'appelant, jamais à
     name: "Editor",
     role: "editor",
   })
-  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
+  await signIn(t, "owner@example.com", "correct horse battery staple 1")
   const ownerIdentity = await identityFor(t, owner.id)
 
   await ownerIdentity.mutation(api.profiles.updateMine, { displayName: "Owner Renamed" })
@@ -368,4 +484,58 @@ test("profiles.updateMine refuse un appel non authentifié", async () => {
   ).rejects.toMatchObject({
     data: { code: "UNAUTHENTICATED" },
   })
+})
+
+// M2 : `displayName` n'est ni illimité ni brut — vide après trim, ou plus
+// de 100 caractères, est refusé ; les espaces superflus sont retirés.
+test("profiles.updateMine refuse un displayName vide après trim", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "flo@example.com",
+    password: "correct horse battery staple 1",
+    name: "Flo",
+    role: "owner",
+  })
+  await signIn(t, "flo@example.com", "correct horse battery staple 1")
+  const identity = await identityFor(t, owner.id)
+
+  await expect(
+    identity.mutation(api.profiles.updateMine, { displayName: "   " }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_DISPLAY_NAME" } })
+
+  const profile = await getProfile(t, owner.id)
+  expect(profile?.displayName).toBe("Flo")
+})
+
+test("profiles.updateMine refuse un displayName de plus de 100 caractères", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "flo@example.com",
+    password: "correct horse battery staple 1",
+    name: "Flo",
+    role: "owner",
+  })
+  await signIn(t, "flo@example.com", "correct horse battery staple 1")
+  const identity = await identityFor(t, owner.id)
+
+  await expect(
+    identity.mutation(api.profiles.updateMine, { displayName: "x".repeat(101) }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_DISPLAY_NAME" } })
+})
+
+test("profiles.updateMine retire les espaces superflus d'un displayName valide", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "flo@example.com",
+    password: "correct horse battery staple 1",
+    name: "Flo",
+    role: "owner",
+  })
+  await signIn(t, "flo@example.com", "correct horse battery staple 1")
+  const identity = await identityFor(t, owner.id)
+
+  await identity.mutation(api.profiles.updateMine, { displayName: "  Florence  " })
+
+  const profile = await getProfile(t, owner.id)
+  expect(profile?.displayName).toBe("Florence")
 })

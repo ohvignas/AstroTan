@@ -1,5 +1,11 @@
 import { expect, test } from "vitest"
 import { MUTATION_REGISTRY } from "./_registry"
+// Import statique, pas seulement la boucle de scan ci-dessous : garantit
+// que le registre est peuplé indépendamment des détails d'ordre de cette
+// boucle (déjà corrigés une fois plus bas) et fait de ce fichier + son
+// import une seule source de vérité, partagée avec `lib/authz.test.ts`,
+// pour "le registre est prêt avant qu'on le lise".
+import "./_registry.modules"
 
 // Ce test vit à côté du registre qu'il garde, à la racine de l'arbre
 // balayé — c'est ce qui rend le préfixe qu'il retire de chaque clé de glob
@@ -74,4 +80,22 @@ test("toute mutation exportée est déclarée dans le registre", async () => {
   const declared = new Set(MUTATION_REGISTRY.map((e) => e.name))
   const missing = publicMutations.filter((name) => !declared.has(name))
   expect(missing).toEqual([])
+
+  // Canari dans l'autre sens : `missing` seul ne prouve que "toute
+  // mutation publique est déclarée" (public ⊆ declared) — pas l'inverse.
+  // Une entrée orpheline (mutation renommée/supprimée mais laissée dans
+  // `MUTATION_REGISTRY`) passerait `missing` silencieusement. Tailles
+  // égales + `missing` vide, sur des ensembles finis, entraîne
+  // `declared === public` exactement.
+  expect(declared.size).toBe(new Set(publicMutations).size)
+})
+
+// Canari séparé, delta minimal exprès : si `MUTATION_REGISTRY` retombe à
+// zéro (barrel cassé, import supprimé par erreur, régression du genre de
+// celle que ce fichier vient de révéler dans `lib/authz.test.ts`), ce
+// test échoue *ici*, avec un message qui pointe directement vers la bonne
+// cause, plutôt que de laisser `lib/authz.test.ts` générer silencieusement
+// zéro test de permission pendant que celui-ci continue de passer.
+test("le registre n'est jamais vide dès qu'une mutation s'y déclare (canari anti-régression)", () => {
+  expect(MUTATION_REGISTRY.length).toBeGreaterThan(0)
 })

@@ -50,31 +50,50 @@ export const authComponent: AuthComponent = createClient<DataModel, typeof authS
         // l'index ; `setUserId` est ce que Better Auth expose comme
         // référence croisée officielle), ni l'une ni l'autre ne remplace
         // l'autre.
+        //
+        // Délègue la création à `internal.profiles.ensure` plutôt que
+        // d'insérer directement : le brief le dit explicitement, "le hook
+        // peut rejouer", et un `ctx.db.insert` nu ici ne serait pas
+        // idempotent — `by_auth_user` est un index ordinaire, pas unique,
+        // donc rien au niveau stockage n'empêcherait un doublon, et un
+        // doublon fait lever `.unique()` dans `me`/`updateMine`/`onUpdate`/
+        // `onDelete`, ce qui briquerait cet utilisateur. `ensure` fait le
+        // lookup-avant-insert une seule fois ; `onCreate` ne le duplique
+        // pas.
         onCreate: async (ctx, authUser) => {
-          const profileId = await ctx.db.insert("profiles", {
+          const profileId = await ctx.runMutation(internal.profiles.ensure, {
             authUserId: authUser._id,
             displayName: authUser.name ?? authUser.email,
           })
           await authComponent.setUserId(ctx, authUser._id, profileId)
         },
-        // Ne resynchronise `displayName` que si le nom (ou, par
-        // cohérence avec le fallback de `onCreate`, l'email) affiché a
-        // réellement changé — évite une écriture `profiles` à chaque
-        // mise à jour Better Auth sans rapport (ban, rôle, mot de passe,
-        // …).
-        onUpdate: async (ctx, newUser, oldUser) => {
-          const nextDisplayName = newUser.name ?? newUser.email
-          const prevDisplayName = oldUser.name ?? oldUser.email
-          if (nextDisplayName === prevDisplayName) return
-          const profile = await ctx.db
+        // Ne synchronise plus `displayName` depuis `user.name` : une fois
+        // qu'un utilisateur choisit son nom affiché via `updateMine`,
+        // c'est *son* choix, pas celui de Better Auth — les laisser
+        // diverger est correct, pas un oubli. Un admin qui renomme
+        // quelqu'un via `/admin/update-user` ne doit pas écraser
+        // silencieusement ce que cette personne a choisi d'afficher.
+        //
+        // À la place, `onUpdate` est le chemin de réparation : c'est le
+        // hook qui se déclenche à *chaque* écriture Better Auth sur cet
+        // utilisateur (rôle, ban, mot de passe, nom, tout), donc c'est
+        // l'endroit naturel pour recréer un profil manquant si l'invariant
+        // "un profil par utilisateur" a été rompu (ligne supprimée
+        // manuellement, bug d'un chemin futur, …) — plutôt que de laisser
+        // ça invisible jusqu'à ce que `me`/`updateMine` lève NOT_FOUND.
+        // Corps identique à `onCreate` : même lookup-via-`ensure`, même
+        // `setUserId`.
+        onUpdate: async (ctx, newUser, _oldUser) => {
+          const existing = await ctx.db
             .query("profiles")
             .withIndex("by_auth_user", (q) => q.eq("authUserId", newUser._id))
             .unique()
-          // Pas de profil trouvé : rien à synchroniser (ne devrait pas
-          // arriver si l'invariant tient, mais ce hook ne doit pas faire
-          // échouer la mise à jour Better Auth pour autant).
-          if (!profile) return
-          await ctx.db.patch(profile._id, { displayName: nextDisplayName })
+          if (existing) return
+          const profileId = await ctx.runMutation(internal.profiles.ensure, {
+            authUserId: newUser._id,
+            displayName: newUser.name ?? newUser.email,
+          })
+          await authComponent.setUserId(ctx, newUser._id, profileId)
         },
         // Le profil suit le cycle de vie de son utilisateur : supprimé
         // avec lui, jamais orphelin.

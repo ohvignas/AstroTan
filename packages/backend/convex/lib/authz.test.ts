@@ -1,7 +1,18 @@
 import { convexTest } from "convex-test"
-import { describe, expect, test } from "vitest"
+import { afterEach, beforeEach, describe, expect, test } from "vitest"
 import schema from "../schema"
+import betterAuthSchema from "../betterAuth/schema"
 import { MUTATION_REGISTRY } from "../_registry"
+// Import statique : garantit que `MUTATION_REGISTRY` est peuplé avant que
+// la boucle de matrice plus bas ne s'exécute, à la *collecte* des tests
+// (elle construit un `test()` par entrée, donc avant qu'aucun corps de
+// test ne tourne) — voir `_registry.modules.ts` pour le mécanisme complet.
+// Sans cet import, cette boucle tournait sur un registre vide et générait
+// silencieusement zéro test de permission, alors même que
+// `_registry.test.ts` passait quand même (l'entrée y était bien déclarée,
+// juste jamais chargée dans CE fichier). C'est exactement le trou que la
+// review a débusqué.
+import "../_registry.modules"
 import {
   decideAccess,
   isCurrentlyBanned,
@@ -10,8 +21,32 @@ import {
   requireRole,
 } from "./authz"
 import type { Role } from "../validators"
+import {
+  ORIGIN,
+  betterAuthModules,
+  identityFor,
+  modules,
+  seedUser,
+  signIn,
+} from "../testing/betterAuthFixture"
 
-const modules = import.meta.glob("../**/*.ts")
+let originalEnv: NodeJS.ProcessEnv
+
+// Requis dès que la matrice plus bas seed un vrai utilisateur Better
+// Auth : `createAuth` (appelé par `seedUser`) exige `BETTER_AUTH_SECRET`/
+// `SITE_URL` par défaut (`requireSecret: true`). Les tests purs
+// (`decideAccess`, `parseRole`, …) et le rejet non-authentifié plus bas
+// n'en ont pas besoin, mais les poser inconditionnellement dans
+// `beforeEach` ne leur nuit pas.
+beforeEach(() => {
+  originalEnv = { ...process.env }
+  process.env.BETTER_AUTH_SECRET = "test-secret-please-do-not-use-in-prod-x"
+  process.env.SITE_URL = ORIGIN
+})
+
+afterEach(() => {
+  process.env = originalEnv
+})
 
 // requireOwnDocument est une fonction pure : elle se teste sans Convex.
 test("un editor ne peut écrire que ses propres documents", () => {
@@ -155,13 +190,21 @@ test("requireRole rejette un appel non authentifié avec le code UNAUTHENTICATED
   })
 })
 
-// À la Task 5 le registre est vide : la boucle de matrice ne produit aucun
-// test de permission. C'est volontaire — les entrées arrivent avec les
-// mutations qu'elles décrivent (Tasks 7, 8, 10), et le test d'exhaustivité
-// de `convex/_registry.test.ts` empêche d'en oublier. Le test "bien
-// formée" ci-dessous garde la suite non vide en attendant, pour que ce
-// fichier reste un signal fiable en CI (un describe totalement vide
-// masquerait un filtre cassé).
+// Chaque entrée du registre est exercée contre une *vraie* session Better
+// Auth pour chacun des trois rôles — pas contre une identité Convex nue
+// (`t.withIdentity({subject: ...})` sans rien derrière). Toute mutation
+// déclarée ici passe par `requireRole`, donc par
+// `authComponent.safeGetAuthUser`, qui a besoin à la fois du composant
+// `betterAuth` enregistré et d'un document `session` réel — une identité
+// nue fait échouer l'appel avec "Component betterAuth is not registered",
+// identiquement pour un rôle autorisé et un rôle refusé, ce qui est un
+// faux résultat (ni un succès légitime, ni un FORBIDDEN) déguisé en
+// n'importe lequel des deux selon l'assertion. `seedUser`/`signIn`/
+// `identityFor` (`convex/testing/betterAuthFixture.ts`) construisent le
+// scénario réel : composant enregistré, utilisateur créé avec le rôle
+// testé (ce qui fait aussi tourner `onCreate` pour de vrai, donc son
+// profil existe déjà si la mutation en a besoin), session ouverte,
+// identité Convex qui pointe vers cette session.
 describe("matrice de permissions", () => {
   test("chaque entrée du registre est bien formée", () => {
     for (const e of MUTATION_REGISTRY) {
@@ -171,12 +214,29 @@ describe("matrice de permissions", () => {
     }
   })
 
+  // Canari anti-régression : si `MUTATION_REGISTRY` retombe à zéro (barrel
+  // cassé, import statique retiré par erreur ailleurs), CE test échoue
+  // bruyamment — plutôt que la boucle `for (const entry of
+  // MUTATION_REGISTRY)` ci-dessous ne génère silencieusement aucun test,
+  // ce qui est précisément le trou que la review a débusqué : un registre
+  // vide fait passer `_registry.test.ts` (rien à comparer) tout en ne
+  // produisant aucun test de permission ici.
+  test("le registre n'est pas vide (sinon cette matrice ne teste rien)", () => {
+    expect(MUTATION_REGISTRY.length).toBeGreaterThan(0)
+  })
+
   for (const entry of MUTATION_REGISTRY) {
     for (const role of ["owner", "admin", "editor"] as const) {
       const allowed = entry.allowedRoles.includes(role)
       test(`${entry.name} — ${role} ${allowed ? "autorisé" : "refusé"}`, async () => {
         const t = convexTest(schema, modules)
-        const call = () => entry.invoke(t.withIdentity({ subject: `u_${role}` }))
+        t.registerComponent("betterAuth", betterAuthSchema, betterAuthModules)
+        const email = `${entry.name.replace(/[^a-z0-9]+/gi, "_")}_${role}@example.com`
+        const password = "correct horse battery staple 1"
+        const user = await seedUser(t, { email, password, name: "Matrix Subject", role })
+        await signIn(t, email, password)
+        const identity = await identityFor(t, user.id)
+        const call = () => entry.invoke(identity)
         if (allowed) {
           await call()
         } else {

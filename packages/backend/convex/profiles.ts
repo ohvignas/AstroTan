@@ -4,13 +4,16 @@ import { api } from "./_generated/api"
 import { requireRole } from "./lib/authz"
 import { MUTATION_REGISTRY } from "./_registry"
 
-// Chemin de secours pour un profil manquant (composant rejoué, réparation
-// manuelle) et cible directe des tests d'idempotence — le chemin nominal
-// pour créer un profil est le trigger `onCreate` de `auth.ts`, pas cette
-// mutation appelée à la main. Idempotente par construction : `.unique()`
-// sur `by_auth_user` lèverait si un doublon existait déjà, donc "déjà
-// présent -> ne rien refaire" est aussi ce qui empêche ce doublon d'exister
-// en premier lieu, y compris si le hook Better Auth rejoue l'opération.
+const MAX_DISPLAY_NAME_LENGTH = 100
+
+// Seule source de vérité pour "un profil par utilisateur, jamais deux" :
+// idempotente par construction (`.unique()` sur `by_auth_user` lèverait si
+// un doublon existait déjà, donc "déjà présent -> ne rien refaire" est
+// aussi ce qui empêche ce doublon d'exister en premier lieu). `onCreate`
+// (`auth.ts`) délègue ici plutôt que de réinsérer directement, pour ne pas
+// dupliquer cette logique dans deux endroits qui pourraient diverger — le
+// hook peut rejouer, et c'est exactement le scénario que cette fonction
+// doit absorber sans jamais produire un second profil.
 export const ensure = internalMutation({
   args: { authUserId: v.string(), displayName: v.string() },
   handler: async (ctx, args) => {
@@ -27,6 +30,15 @@ export const ensure = internalMutation({
 // recomposé ici, à la lecture, depuis l'utilisateur Better Auth authentifié
 // via `requireRole`. `profiles` ne porte que ce que Better Auth ne porte
 // pas déjà (displayName, avatarId).
+//
+// Lève NOT_FOUND si le profil est introuvable plutôt que de renvoyer un
+// objet partiel : `{ ...null, role, email }` vaut `{ role, email }` (JS
+// autorise l'étalement de `null`, silencieusement), donc sans ce garde un
+// utilisateur dont le profil manque recevrait un 200 qui rapporte
+// l'invariant "un profil par utilisateur" comme respecté alors qu'il ne
+// l'est pas. `onUpdate` (`auth.ts`) répare un profil manquant à la
+// prochaine écriture Better Auth sur cet utilisateur ; ce garde couvre la
+// fenêtre avant cette réparation.
 export const me = query({
   args: {},
   handler: async (ctx) => {
@@ -35,21 +47,19 @@ export const me = query({
       .query("profiles")
       .withIndex("by_auth_user", (q) => q.eq("authUserId", authUser._id))
       .unique()
+    if (!profile) throw new ConvexError({ code: "NOT_FOUND" })
     return { ...profile, role: authUser.role, email: authUser.email }
   },
 })
 
 // Modifie uniquement le profil de l'appelant : aucun paramètre ne désigne
 // un profil ou un utilisateur cible, donc il n'existe structurellement
-// aucune façon de passer l'id de quelqu'un d'autre ici. Le profil à
+// aucune façon de passer l'id de quelqu'un d'autre ici — le profil à
 // modifier est systématiquement recherché via l'`authUserId` de
-// l'appelant, jamais reçu en argument. La vérification explicite ci
-// -dessous (`profile.authUserId === authUser._id`) est redondante avec la
-// recherche indexée qui la précède — elle documente et fait respecter cet
-// invariant plutôt que de faire confiance implicitement à la requête, dans
-// le même esprit défensif que le reste de `convex/lib/`. Un admin qui veut
-// éditer le profil de quelqu'un d'autre passe par l'écran de gestion des
-// utilisateurs (Task 10), pas par ici.
+// l'appelant, jamais reçu en argument. C'est cette absence de paramètre
+// cible, pas une vérification a posteriori, qui garantit qu'un admin ne
+// peut pas éditer le profil de quelqu'un d'autre par ce chemin (il passe
+// par l'écran de gestion des utilisateurs, Task 10, à la place).
 export const updateMine = mutation({
   args: {
     displayName: v.optional(v.string()),
@@ -61,12 +71,16 @@ export const updateMine = mutation({
       .query("profiles")
       .withIndex("by_auth_user", (q) => q.eq("authUserId", authUser._id))
       .unique()
-    if (!profile || profile.authUserId !== authUser._id) {
-      throw new ConvexError({ code: "NOT_FOUND" })
-    }
+    if (!profile) throw new ConvexError({ code: "NOT_FOUND" })
 
     const patch: { displayName?: string; avatarId?: typeof args.avatarId } = {}
-    if (args.displayName !== undefined) patch.displayName = args.displayName
+    if (args.displayName !== undefined) {
+      const trimmed = args.displayName.trim()
+      if (trimmed.length === 0 || trimmed.length > MAX_DISPLAY_NAME_LENGTH) {
+        throw new ConvexError({ code: "INVALID_DISPLAY_NAME" })
+      }
+      patch.displayName = trimmed
+    }
     if (args.avatarId !== undefined) patch.avatarId = args.avatarId
     await ctx.db.patch(profile._id, patch)
     return profile._id
@@ -79,17 +93,12 @@ export const updateMine = mutation({
 // ci-dessus qui l'impose, pas ce registre, mais le registre doit le
 // refléter.
 //
-// `invoke` appelle la mutation réelle telle quelle : ce registre est
-// partagé avec `convex/lib/authz.test.ts`, dont la matrice construit `t`
-// avec une identité Convex nue (`t.withIdentity({ subject: "u_<role>" })`),
-// sans enregistrer le composant `betterAuth` ni créer de session — hors
-// de portée de `requireRole`, qui a besoin des deux. Ce harnais-là ne
-// peut donc pas exercer une mutation qui passe par `authComponent`
-// (aucune mutation de cette tâche ne le peut) ; la couverture réelle
-// (owner/admin/editor via une vraie session Better Auth, et la preuve que
-// `updateMine` ne touche jamais qu'au profil de l'appelant) vit dans
-// `profiles.test.ts`, à côté du reste des tests qui dépendent du même
-// fixture `betterAuth` enregistré.
+// `invoke` appelle la mutation réelle telle quelle. Ce registre est
+// partagé avec `convex/lib/authz.test.ts`, dont la matrice enregistre
+// désormais le composant `betterAuth` et construit une vraie identité de
+// session pour chaque rôle (voir `convex/testing/betterAuthFixture.ts`) —
+// `requireRole` a réellement besoin des deux, donc `invoke` n'a besoin de
+// rien de spécial ici au-delà d'appeler la mutation normalement.
 MUTATION_REGISTRY.push({
   name: "profiles.updateMine",
   allowedRoles: ["owner", "admin", "editor"],
