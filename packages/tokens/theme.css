@@ -1,0 +1,10 @@
+/* packages/tokens/theme.css — importé par apps/web et apps/admin */
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50:  oklch(0.97 0.02 265);
+  --color-brand-500: oklch(0.62 0.19 265);
+  --color-brand-900: oklch(0.32 0.11 265);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --radius-card: 0.75rem;
+}

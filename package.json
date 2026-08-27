@@ -1,0 +1,19 @@
+{
+  "name": "astrotan",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "codegen": "turbo run codegen"
+  },
+  "devDependencies": {
+    "turbo": "2.10.12"
+  }
+}
