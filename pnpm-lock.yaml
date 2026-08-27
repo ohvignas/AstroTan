@@ -12,7 +12,11 @@ importers:
         specifier: 2.10.12
         version: 2.10.12
 
-  packages/tokens: {}
+  packages/tokens:
+    devDependencies:
+      tailwindcss:
+        specifier: 4.3.3
+        version: 4.3.3
 
 packages:
 
@@ -46,6 +50,9 @@ packages:
     cpu: [arm64]
     os: [win32]
 
+  tailwindcss@4.3.3:
+    resolution: {integrity: sha512-gOhV3P7ufE62QDGg1zVaTgCR+EtPv92k2nIhVcVKcLmxT1sUBsQGhnZj175j+MqRt4zLF7ic+sCYjfhxMxj7YQ==}
+
   turbo@2.10.12:
     resolution: {integrity: sha512-AswgMPnpOoaVZHrrSBejETzEbuIA69OVGwfkHwfrY0A23VjWXBANzgq9+OymWOHAIArB7D1+1z498WY8fGg1Jw==}
     hasBin: true
@@ -69,6 +76,8 @@ snapshots:
 
   '@turbo/windows-arm64@2.10.12':
     optional: true
+
+  tailwindcss@4.3.3: {}
 
   turbo@2.10.12:
     optionalDependencies:
