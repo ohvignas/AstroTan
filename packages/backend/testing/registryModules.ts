@@ -32,3 +32,4 @@
 // Ajouter ici chaque nouveau module qui s'enregistre, au fur et à mesure
 // qu'il est écrit (Tasks 8, 10, …).
 import "../convex/profiles"
+import "../convex/invitations"

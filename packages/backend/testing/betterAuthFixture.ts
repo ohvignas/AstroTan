@@ -3,6 +3,7 @@ import schema from "../convex/schema"
 import betterAuthSchema from "../convex/betterAuth/schema"
 import { createAuth } from "../convex/auth"
 import { components } from "../convex/_generated/api"
+import resendTest from "@convex-dev/resend/test"
 
 // Fixture partagée entre `lib/authz.test.ts` (la matrice de permissions du
 // registre), `profiles.test.ts` (les triggers Better Auth) et
@@ -41,6 +42,16 @@ export const betterAuthModules = import.meta.glob("../convex/betterAuth/**/*.ts"
 export function makeTestConvex(): TestConvex<typeof schema> {
   const t = convexTest(schema, modules)
   t.registerComponent("betterAuth", betterAuthSchema, betterAuthModules)
+  // `@convex-dev/resend` ships its own convex-test registration helper
+  // (`@convex-dev/resend/test`'s `register`) rather than a Local Install
+  // vendored into this repo the way `betterAuth` is — it's a genuine
+  // third-party component, used as published, so its own official helper
+  // is the right way to wire it into the mock backend rather than
+  // hand-rolling a second registration mechanism here. Registers under the
+  // name `"resend"`, matching `app.use(resend)` in `convex/convex.config.ts`
+  // (the default name both the helper and `defineComponent("resend")`
+  // agree on).
+  resendTest.register(t)
   return t
 }
 
