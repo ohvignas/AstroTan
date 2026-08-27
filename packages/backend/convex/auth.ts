@@ -53,26 +53,19 @@ const editorRole = ac.newRole({
   session: [],
 })
 
-export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
-  // Required — without an explicit secret, better-auth falls back to a
-  // publicly-known default constant outside NODE_ENV === "production", and
-  // this secret signs cookies and derives verification/state tokens.
-  const secret = process.env.BETTER_AUTH_SECRET
-  if (!secret) {
-    throw new Error("BETTER_AUTH_SECRET is not set on this Convex deployment")
-  }
-
-  // Required — unset, better-auth derives the origin per-request from
-  // request headers, so `trustedOrigins` becomes whatever host the
-  // incoming request claims.
-  const baseURL = process.env.SITE_URL
-  if (!baseURL) {
-    throw new Error("SITE_URL is not set on this Convex deployment")
-  }
-
-  return {
-    secret,
-    baseURL,
+// Reads `secret`/`baseURL` plainly, with no guard: `createApi` (the
+// component-side adapter, see betterAuth/adapter.ts) calls this at module
+// load inside the betterAuth component's own isolated environment, which
+// never sees the app deployment's env vars. The adapter only needs the
+// *shape* of the options — schema and plugin list — never the secret, so
+// it must tolerate an absent one. The guard lives in `createAuth` below,
+// the actual auth server, mounted in http.ts on the app side where the
+// vars do exist and where a missing secret would otherwise silently fall
+// back to a publicly-known default constant.
+export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
+  ({
+    secret: process.env.BETTER_AUTH_SECRET,
+    baseURL: process.env.SITE_URL,
     database: authComponent.adapter(ctx), // requis — omis, rien ne persiste
     emailAndPassword: { enabled: true, disableSignUp: true },
     plugins: [
@@ -84,8 +77,24 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         defaultRole: "editor",
       }),
     ],
-  } satisfies BetterAuthOptions
-}
+  }) satisfies BetterAuthOptions
 
-export const createAuth = (ctx: GenericCtx<DataModel>) =>
-  betterAuth(createAuthOptions(ctx))
+export const createAuth = (ctx: GenericCtx<DataModel>) => {
+  const options = createAuthOptions(ctx)
+
+  // Required — without an explicit secret, better-auth falls back to a
+  // publicly-known default constant outside NODE_ENV === "production", and
+  // this secret signs cookies and derives verification/state tokens.
+  if (!options.secret) {
+    throw new Error("BETTER_AUTH_SECRET is not set on this Convex deployment")
+  }
+
+  // Required — unset, better-auth derives the origin per-request from
+  // request headers, so `trustedOrigins` becomes whatever host the
+  // incoming request claims.
+  if (!options.baseURL) {
+    throw new Error("SITE_URL is not set on this Convex deployment")
+  }
+
+  return betterAuth(options)
+}
