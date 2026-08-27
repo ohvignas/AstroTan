@@ -273,7 +273,7 @@ test("refuse qu'un admin modifie un owner via /admin/set-role (chemin réel)", a
 // take over the real owner's account) never lands.
 test("C1: refuse un rôle multiple (\"owner,editor\") — et l'exploit qu'il permettait ne passe pas", async () => {
   const t = makeTestConvex()
-  await seedUser(t, {
+  const owner = await seedUser(t, {
     email: "owner@example.com",
     password: "correct horse battery staple 1",
     name: "Owner",
@@ -300,23 +300,37 @@ test("C1: refuse un rôle multiple (\"owner,editor\") — et l'exploit qu'il per
   expect(await getRole(t, ownerCookie, editor.id)).toBe("editor")
 
   // The payoff test: sign in as the target with their *own* (unchanged)
-  // credentials, then try to exercise the `set-password` permission that
-  // the exploit would have granted them. A plain `editor` (our RBAC
-  // grants `editorRole` zero user permissions) is refused this
-  // regardless — the point is that the refusal proves the row never
-  // actually became "owner,editor" in a way `hasPermission`'s
-  // comma-split reading would have honoured.
+  // credentials, then attempt the actual two-request exploit — use the
+  // `set-password` permission the exploit would have granted to reset the
+  // *real owner's* password (not the pseudo-owner's own; resetting your
+  // own password proves nothing about whether you gained owner
+  // permissions). A plain `editor` (our RBAC grants `editorRole` zero
+  // user permissions) is refused this regardless — the point is that the
+  // refusal comes with better-auth's own permission-check code, and the
+  // owner's password is provably untouched afterward, not just "some
+  // non-200 status for some reason".
   const editorCookie = await signIn(t, "editor@example.com", "correct horse battery staple 2")
   const setPasswordRes = await t.fetch("/api/auth/admin/set-user-password", {
     method: "POST",
     headers: { "content-type": "application/json", origin: ORIGIN, cookie: editorCookie },
-    body: JSON.stringify({ userId: editor.id, newPassword: "attacker chosen password 123" }),
+    body: JSON.stringify({ userId: owner.id, newPassword: "attacker chosen password 123" }),
   })
-  expect(setPasswordRes.status).not.toBe(200)
+  expect(setPasswordRes.status).toBe(403)
+  const setPasswordBody = (await setPasswordRes.json()) as { code?: string }
+  expect(setPasswordBody.code).toBe("YOU_ARE_NOT_ALLOWED_TO_SET_USERS_PASSWORD")
 
-  // And the real owner's original password still works — the second half
-  // of the two-request exploit (use the pseudo-owner session to reset the
-  // real owner's password) never had anything to reset.
+  // The attacker-chosen password was never set...
+  const hijackAttempt = await t.fetch("/api/auth/sign-in/email", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN },
+    body: JSON.stringify({
+      email: "owner@example.com",
+      password: "attacker chosen password 123",
+    }),
+  })
+  expect(hijackAttempt.status).not.toBe(200)
+
+  // ...and the real owner's original password still works.
   await signIn(t, "owner@example.com", "correct horse battery staple 1")
 })
 
@@ -413,4 +427,114 @@ test("C3: refuse qu'un admin supprime l'owner via /admin/remove-user, et l'owner
   expect(stillGetRole).toBe("owner")
   const freshOwnerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
   expect(await getRole(t, freshOwnerCookie, owner.id)).toBe("owner")
+})
+
+// Round 2: the C3 fix from the previous round turned out to still be
+// bypassable, and this is why. `router.mjs` builds `ctx.body` straight
+// from `request.json()`, untouched; a *global* `hooks.before` middleware
+// (like the round-1 fix for `/admin/remove-user`) runs ahead of the
+// endpoint's own zod body validation, so it sees that raw, unvalidated
+// body. zod 4.4.3 coerces a single-element array to its one element as a
+// string (`z.coerce.string()` on `["<id>"]` yields `"<id>"`), so
+// `{"userId": ["<ownerId>"]}` makes the endpoint later act on the real
+// owner id while a guard that reads the *raw* body and does
+// `if (typeof userId !== "string") return` sees an array and allows it
+// through. Measured (not assumed) against this same codebase: this
+// reproduces for `/admin/remove-user` — the row survives (its own
+// `delete.before` hook is unaffected, since it reads the already-fetched
+// document rather than this raw shape, and still throws once the
+// exploited request reaches it) but the owner's sessions and credential
+// account are destroyed *before* that throw, because `deleteUserSessions`
+// runs earlier, in the endpoint handler itself, gated only by the
+// global hook this bypasses.
+//
+// It does *not* reproduce the same way for `/admin/update-user` or
+// `/admin/ban-user`, and it's worth recording precisely why: both call
+// `internalAdapter.updateUser(...)`, which runs `databaseHooks.user
+// .update.before` — but that hook fires from *inside* the endpoint's own
+// handler execution, which better-call re-enters through
+// `createInternalContext` with the endpoint's *own* body schema
+// (`context.mjs`'s `createInternalContext` sets `body: data.body`, the
+// validated result). That re-entry opens a *nested* `AsyncLocalStorage`
+// scope, so `getCurrentAuthContext()` — what `databaseHooks` reads —
+// resolves to the endpoint-validated body, already coerced to a string,
+// not the raw one the earlier global hook saw. So the specific bypass
+// mechanism is real for one endpoint and not reproducible for the other
+// two on this version of better-auth — confirmed by adding a temporary
+// probe and reading the actual `assertOwnerInvariant` FORBIDDEN message
+// coming back with the *resolved* owner id, before removing the probe.
+//
+// These three tests are kept together anyway: `update-user`/`ban-user`
+// are legitimate regression coverage (the fix below adds an *endpoint*
+// -level guard for all three as defence in depth, on top of the
+// `databaseHooks` layer that already protects the latter two), and
+// pinning "does the owner survive" rather than "does this specific
+// request 500" is the right shape of test regardless of which layer is
+// doing the protecting.
+const ARRAY_USER_ID_TARGETS: readonly [path: string, extraBody: Record<string, unknown>][] = [
+  ["/api/auth/admin/remove-user", {}],
+  ["/api/auth/admin/update-user", { data: { banned: true } }],
+  ["/api/auth/admin/ban-user", {}],
+]
+
+for (const [path, extraBody] of ARRAY_USER_ID_TARGETS) {
+  test(`round 2: refuse un userId de forme tableau ciblant l'owner via ${path} (chemin réel)`, async () => {
+    const t = makeTestConvex()
+    const owner = await seedUser(t, {
+      email: "owner@example.com",
+      password: "correct horse battery staple 1",
+      name: "Owner",
+      role: "owner",
+    })
+    await seedUser(t, {
+      email: "admin@example.com",
+      password: "correct horse battery staple 3",
+      name: "Admin",
+      role: "admin",
+    })
+    const adminCookie = await signIn(t, "admin@example.com", "correct horse battery staple 3")
+
+    const res = await t.fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+      body: JSON.stringify({ userId: [owner.id], ...extraBody }),
+    })
+    expect(res.status).not.toBe(200)
+
+    // The regression check that actually discriminates: the owner's
+    // credential account and sessions survive, proven by a *fresh*
+    // sign-in with the *original* password — not by the row still
+    // reading `role: "owner"`, which survives even when the account
+    // underneath it has already been destroyed.
+    const freshOwnerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
+    expect(await getRole(t, freshOwnerCookie, owner.id)).toBe("owner")
+  })
+}
+
+// Control for the endpoint guard's self-action carve-out: the owner must
+// still be able to edit their own profile through `/admin/update-user`.
+// `/admin/remove-user` and `/admin/ban-user` don't need this same care
+// (both already refuse a self-targeted call downstream, so the endpoint
+// guard blocking them unconditionally changes nothing observable for the
+// legitimate case), but `/admin/update-user` has no such restriction, so
+// an endpoint guard that didn't resolve the caller would make the owner
+// unable to use it on themselves at all — a real regression the fix
+// avoids by calling `getSessionFromCtx`.
+test("contrôle : l'owner peut toujours éditer son propre profil via /admin/update-user (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple 1",
+    name: "Owner",
+    role: "owner",
+  })
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
+
+  const res = await t.fetch("/api/auth/admin/update-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
+    body: JSON.stringify({ userId: owner.id, data: { name: "Owner Renamed" } }),
+  })
+
+  expect(res.status).toBe(200)
 })

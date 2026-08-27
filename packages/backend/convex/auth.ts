@@ -1,6 +1,6 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal"
 import { admin } from "better-auth/plugins"
-import { APIError, createAuthMiddleware } from "better-auth/api"
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api"
 import { createAccessControl } from "better-auth/plugins/access"
 import { defaultStatements } from "better-auth/plugins/admin/access"
 import { convex } from "@convex-dev/better-auth/plugins"
@@ -158,15 +158,40 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
         create: {
           before: guardOwnerInvariant(async (data, context) => {
             const raw = (data as Record<string, unknown>).role
-            if (raw === undefined) return
-            // Mirrors better-auth's own `parseRoles`: an array role is
-            // joined into one comma-separated string before it ever
-            // reaches a hook, so a plain string is the only shape to
-            // expect here — checked defensively all the same.
-            const parts = (Array.isArray(raw) ? raw.join(",") : String(raw))
-              .split(",")
-              .map((r) => parseRole(r.trim()))
-            if (!parts.includes("owner")) return
+            if (raw === undefined) return // no role requested: defaultRole applies, not this invariant's concern
+
+            // C1 sub-requirement, round 2: reuses `parseRole` directly —
+            // the exact rule the update path enforces on `nextRole` —
+            // instead of the hand-rolled splitter this used to have
+            // (`parts.includes("owner")`), which only refused a value
+            // when one of its comma-joined components happened to parse
+            // to "owner". `parseRole` only accepts a plain string that IS
+            // one of the three known roles, so anything else — not a
+            // string, multiple roles, an unknown role — is refused
+            // *unconditionally* here, not just when it might contain
+            // "owner". Two reasons that matters beyond the owner case
+            // specifically:
+            //  - `countOwners`'s `{field:"role", operator:"eq",
+            //    value:"owner"}` filter is an exact match, blind to a
+            //    stored `"owner,editor"` — the old splitter could let
+            //    such a value through during the bootstrap window
+            //    (`owners === 0`), and that row would then be invisible
+            //    to every future owner-count check while still holding
+            //    every `owner` permission via better-auth's own
+            //    comma-split `hasPermission`.
+            //  - any multi-role value at all (e.g. `role:
+            //    ["admin","editor"]`, joined to `"admin,editor"` before
+            //    this hook sees it) creates a row that `update`/
+            //    `delete.before` can never classify again
+            //    (`UNCLASSIFIABLE_TARGET_ROLE`) — a permanent zombie,
+            //    unmodifiable and undeletable through the admin API.
+            const role = parseRole(raw)
+            if (role === null) {
+              throw new OwnerInvariantError(
+                "INVALID_ROLE: le rôle demandé n'est pas exactement un rôle connu",
+              )
+            }
+            if (role !== "owner") return
 
             const internalAdapter = (context as OwnerHookEndpointContext | null)?.context
               ?.internalAdapter
@@ -183,6 +208,21 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
             // and an attacker replaying a stolen admin session can look
             // identical under that heuristic. Exactly one owner, ever,
             // regardless of who's asking.
+            //
+            // NOT airtight, and no longer described as such (M3): this
+            // read and the row creation that follows it, if this check
+            // passes, are two separate Convex calls issued from an HTTP
+            // action (a query here, then whatever `internalAdapter
+            // .createUser` does after this hook returns) — not one atomic
+            // transaction, so Convex's optimistic-concurrency control
+            // doesn't span them. Two concurrent `/admin/create-user`
+            // calls with `role: "owner"` during the bootstrap window
+            // could both read `owners === 0` and both succeed, minting
+            // two owners. Narrow — it only matters in the window before
+            // any owner exists at all — and not closed by this hook;
+            // closing it would mean not routing this check through
+            // better-auth's per-operation adapter calls, which is a
+            // bigger change than this fix round.
             const owners = await internalAdapter.countTotalUsers([
               { field: "role", operator: "eq", value: "owner" },
             ])
@@ -203,20 +243,22 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
             const targetId = ctx?.body?.userId ?? ctx?.context?.session?.user?.id
             const rawNextRole = (data as Record<string, unknown>).role
 
+            // M1, round 2: fail *closed* unconditionally, not just when
+            // `role` is part of the delta. Round 1's version only threw
+            // here when `rawNextRole !== undefined`, which missed exactly
+            // the shape that matters: an admin banning the owner via
+            // `/admin/update-user` sends `data: {banned: true}` — no
+            // `role` field at all — so the round-1 code silently
+            // `return`ed (allowed) on an unresolvable target, and the ban
+            // (and the session wipe it triggers) went through unchecked.
+            // Check 1 ("only the owner may modify the owner") applies to
+            // *every* update, not just role changes, so this can never be
+            // conditional on what's in the delta: if we can't identify
+            // the target at all, we cannot rule out that it's the owner.
             if (typeof targetId !== "string" || !internalAdapter) {
-              // M1: fail *closed*, not open. An update that touches
-              // `role` with no identifiable target and/or no adapter to
-              // check against must never be let through unchecked — role
-              // is the one field this whole task exists to guard. Updates
-              // that don't touch `role` at all (the overwhelming
-              // majority — name/image/etc edits) aren't this invariant's
-              // concern and are let through unexamined, same as before.
-              if (rawNextRole !== undefined) {
-                throw new OwnerInvariantError(
-                  "CANNOT_VERIFY_OWNER_INVARIANT: changement de rôle sans contexte suffisant pour vérifier l'invariant",
-                )
-              }
-              return
+              throw new OwnerInvariantError(
+                "CANNOT_VERIFY_OWNER_INVARIANT: cible ou contexte non interprétable, mise à jour refusée par prudence",
+              )
             }
 
             const targetUser = await internalAdapter.findUserById(targetId)
@@ -283,53 +325,108 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
         },
       },
     },
-    // C3: `/admin/remove-user`'s handler calls
-    // `internalAdapter.deleteUserSessions(userId)`, and
-    // `internalAdapter.deleteUser` itself further deletes the target's
-    // `account` rows via a separate `deleteManyWithHooks` — both *before*
-    // it ever reaches `deleteWithHooks` on `"user"`, the one call the
-    // `databaseHooks.user.delete.before` guard above actually sees. So a
-    // refused deletion, guarded only there, still destroys the target's
-    // sessions and credential account as an unblockable side effect: the
-    // owner's row survives with `role: "owner"` intact, but they can no
-    // longer sign in. Any admin can repeat this at will, and with
-    // `set-password` reserved to `owner` and no email-based reset, that is
-    // an unrecoverable denial-of-service against the very account this
-    // task protects.
+    // C3, round 2: the round-1 fix above only guarded `/admin/remove
+    // -user`, and it read `ctx.body.userId` *raw* — `router.mjs` builds
+    // `ctx.body` from `request.json()` untouched, and this middleware
+    // (via `createAuthMiddleware`) runs in `dist/api/dispatch.mjs`'s
+    // `runBeforeHooks`, *ahead of* the endpoint's own zod body validation
+    // (`removeUserBodySchema`'s `userId: z.coerce.string()`, which only
+    // runs once the endpoint handler itself is invoked). zod 4.4.3
+    // coerces a single-element array to its one element as a string
+    // (`z.coerce.string()` on `["<id>"]` yields `"<id>"`), so
+    // `{"userId": ["<ownerId>"]}` made the endpoint act on the real owner
+    // id while `typeof userId !== "string"` saw an array and *returned*
+    // (allowed). Measured: this let the whole destructive cascade run —
+    // `deleteUserSessions` then `deleteUser`'s account deletion — before
+    // `databaseHooks.user.delete.before` (which reads the *already
+    // -fetched* row, not this raw body, so it's unaffected by the bug
+    // itself) got a chance to throw on the row delete; by then the
+    // damage was already done. Never re-implement zod's coercion to
+    // match it here — that's a second representation of the same value
+    // with its own chance to diverge from the first. Refuse instead of
+    // guessing: any shape that isn't already a plain string is refused
+    // outright, for every path this guards.
     //
-    // Fixed at the door instead: this runs inside `dispatchAuthEndpoint`
-    // before the `/admin/remove-user` endpoint body executes at all
-    // (`getHooks`/`runBeforeHooks` in `dist/api/dispatch.mjs` run ahead of
-    // `endpoint(internalContext)`), so nothing in the destructive cascade
-    // starts. The `databaseHooks.user.delete.before` guard above stays as
-    // defence in depth for whatever other delete-user path this app grows
-    // — it's what would actually protect the row the day this stops being
-    // the only one.
+    // Extended past `/admin/remove-user` to `/admin/update-user` and
+    // `/admin/ban-user`: both take the same `userId: z.coerce.string()`
+    // body shape, so the identical bypass applies to them, and both call
+    // `internalAdapter.deleteUserSessions` (`update-user` only when
+    // `data.banned === true`; `ban-user` unconditionally, it exists for
+    // exactly that). `databaseHooks.user.update.before` above
+    // independently protects these two already — both call
+    // `internalAdapter.updateUser` before the session-wiping call, and
+    // that hook now fails closed on *any* unidentifiable target,
+    // regardless of what's in the delta (see M1's comment there) — but
+    // this stays as an *earlier*, independently-resolved layer rather
+    // than relying on that alone: it reads the target from the database
+    // fresh, not from a second parse of the same raw body a hook deeper
+    // in the call stack already had to interpret.
     //
     // `options.hooks.before` is a single middleware, not a list of
     // `{matcher, handler}` pairs the way a plugin's own hooks are —
     // `getHooks` wraps it with `matcher: () => true` and runs it on
-    // *every* endpoint, so the path check has to happen inside the
-    // handler itself rather than as a matcher.
+    // *every* endpoint, so the path check happens inside the handler.
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path !== "/admin/remove-user") return
+        if (!OWNER_PROTECTED_PATHS.has(ctx.path)) return
+
         const body = ctx.body as Record<string, unknown> | undefined
         const userId = body?.userId
-        if (typeof userId !== "string") return
+        if (typeof userId !== "string") {
+          throw APIError.from("FORBIDDEN", {
+            code: "OWNER_INVARIANT",
+            message:
+              "OWNER_PROTECTED: forme de requête non reconnue pour un champ ciblant potentiellement l'owner",
+          })
+        }
 
         const internalAdapter = (ctx.context as OwnerHookEndpointContext["context"])
           ?.internalAdapter
-        const target = await internalAdapter?.findUserById(userId)
-        if (parseRole(target?.role) === "owner") {
+        if (!internalAdapter) {
           throw APIError.from("FORBIDDEN", {
             code: "OWNER_INVARIANT",
-            message: "OWNER_PROTECTED: impossible de supprimer le compte owner",
+            message: "CANNOT_VERIFY_OWNER_INVARIANT: contexte insuffisant pour vérifier l'invariant",
           })
         }
+        const target = await internalAdapter.findUserById(userId)
+        if (parseRole(target?.role) !== "owner") return
+
+        // The target is the owner. `/admin/remove-user` and `/admin/ban
+        // -user` already refuse a *self*-targeted call downstream
+        // (`YOU_CANNOT_REMOVE_YOURSELF` / `YOU_CANNOT_BAN_YOURSELF` in
+        // `routes.mjs`) before their destructive calls run, so resolving
+        // the caller here and letting a genuine self-action through
+        // changes nothing for either — the endpoint's own check still
+        // catches it, just with a different message. `/admin/update
+        // -user` has no such restriction — an owner legitimately self
+        // -edits through it — so resolving the caller is what keeps that
+        // endpoint usable for its legitimate case instead of also
+        // blocking the owner from editing their own profile.
+        // `getSessionFromCtx` is the same function `adminMiddleware`
+        // itself calls later in the pipeline; safe to call again here,
+        // it caches its result onto `ctx.context.session`.
+        const session = await getSessionFromCtx(ctx).catch(() => null)
+        if (session?.user?.id === userId && parseRole(session.user.role) === "owner") {
+          return
+        }
+
+        throw APIError.from("FORBIDDEN", {
+          code: "OWNER_INVARIANT",
+          message: "OWNER_PROTECTED: seul l'owner peut modifier ou supprimer son propre compte",
+        })
       }),
     },
   }) satisfies BetterAuthOptions
+
+// Paths where better-auth can destroy the owner's sessions and/or
+// credential account before `databaseHooks` gets a chance to run — see
+// the big comment on `hooks.before` above for the exact mechanism and
+// why each of these three needs it.
+const OWNER_PROTECTED_PATHS = new Set([
+  "/admin/remove-user",
+  "/admin/update-user",
+  "/admin/ban-user",
+])
 
 // Narrow shape for the pieces of `GenericEndpointContext` the hooks above
 // actually read. `body`/`context.session`/`context.internalAdapter` are
