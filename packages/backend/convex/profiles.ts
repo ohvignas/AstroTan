@@ -4,7 +4,7 @@ import { api } from "./_generated/api"
 import { requireRole } from "./lib/authz"
 import { MUTATION_REGISTRY } from "./_registry"
 
-const MAX_DISPLAY_NAME_LENGTH = 100
+export const MAX_DISPLAY_NAME_LENGTH = 100
 
 // Seule source de vérité pour "un profil par utilisateur, jamais deux" :
 // idempotente par construction (`.unique()` sur `by_auth_user` lèverait si

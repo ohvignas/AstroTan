@@ -294,12 +294,24 @@ test("C1: refuse un rôle multiple (\"owner,editor\") — et l'exploit qu'il per
   await signIn(t, "owner@example.com", "correct horse battery staple 1")
 })
 
-// C2: `/admin/create-user` honours an explicit `role` behind the
-// `set-role` permission — which `adminRole` holds — and, unlike
-// `/admin/set-role`, there is no pre-existing row for `update.before` to
-// ever see: the second owner is minted outright on creation, bypassing the
-// `update`/`delete` guards entirely.
-test("C2: refuse qu'un admin crée un second owner via /admin/create-user (chemin réel)", async () => {
+// C2, revised by Task 8's review (I4): `/admin/create-user` used to honour
+// an explicit `role` behind the `set-role` permission while `adminRole`
+// also held `create`, so an admin could mint a second owner outright on
+// creation — no pre-existing row for `update.before` to ever see, unlike
+// `/admin/set-role`, bypassing the `update`/`delete` guards entirely. The
+// fix removed `user:create` from `adminRole` altogether (Task 8's own
+// invitation flow is meant to be the only way an account is created — a
+// second, uninvited creation path was the real defect, not just its
+// owner-role special case), so an admin is now refused at the permission
+// check itself, for *any* requested role, before the request body's
+// `role` field is even inspected — not specifically because it said
+// "owner". `ownerRole` still holds `create` and is unaffected; the
+// databaseHooks guard exercised by the original C2 stays in place as
+// defense-in-depth for the path that still *can* reach `createUser` with
+// an attacker-influenced `role: "owner"` — a rogue `invitations` row
+// accepted through `invitations.accept`, covered in
+// `invitations.test.ts`, not this file.
+test("C2 (révisé) : un admin ne peut plus appeler /admin/create-user du tout, propre ou owner (chemin réel)", async () => {
   const t = makeTestConvex()
   await seedUser(t, {
     email: "owner@example.com",
@@ -326,8 +338,11 @@ test("C2: refuse qu'un admin crée un second owner via /admin/create-user (chemi
     }),
   })
 
-  const body = await expectRefused(res)
-  expect(body.message).toMatch(/OWNER_ALREADY_EXISTS/)
+  // Refused by better-auth's own permission check now — not our
+  // `OWNER_INVARIANT` guard, which this request never reaches at all.
+  expect(res.status).toBe(403)
+  const body = (await res.json()) as { code?: string }
+  expect(body.code).toBe("YOU_ARE_NOT_ALLOWED_TO_CREATE_USERS")
 
   // No row was created for that email at all — not as "owner", not as
   // anything.
@@ -340,6 +355,62 @@ test("C2: refuse qu'un admin crée un second owner via /admin/create-user (chemi
     }),
   })
   expect(signInAttempt.status).not.toBe(200)
+})
+
+// The non-owner case, exercised separately: the fix isn't "admin can't
+// create an owner", it's "admin can't create anyone" — an admin trying to
+// create a perfectly ordinary editor through this endpoint must be
+// refused identically.
+test("un admin ne peut pas non plus créer un simple editor via /admin/create-user (chemin réel)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "admin@example.com",
+    password: "correct horse battery staple 3",
+    name: "Admin",
+    role: "admin",
+  })
+  const adminCookie = await signIn(t, "admin@example.com", "correct horse battery staple 3")
+
+  const res = await t.fetch("/api/auth/admin/create-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+    body: JSON.stringify({
+      email: "new-editor@example.com",
+      password: "some editor password 789",
+      name: "New Editor",
+      role: "editor",
+    }),
+  })
+
+  expect(res.status).toBe(403)
+  const body = (await res.json()) as { code?: string }
+  expect(body.code).toBe("YOU_ARE_NOT_ALLOWED_TO_CREATE_USERS")
+})
+
+// Control: the owner keeps `user:create` and can still use this endpoint —
+// the fix removes the permission from `adminRole` only.
+test("contrôle : l'owner peut toujours créer un utilisateur via /admin/create-user (chemin réel)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple 1",
+    name: "Owner",
+    role: "owner",
+  })
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
+
+  const res = await t.fetch("/api/auth/admin/create-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
+    body: JSON.stringify({
+      email: "new-editor@example.com",
+      password: "some editor password 789",
+      name: "New Editor",
+      role: "editor",
+    }),
+  })
+
+  expect(res.status).toBe(200)
 })
 
 // C3: `/admin/remove-user`'s handler deletes the target's sessions and

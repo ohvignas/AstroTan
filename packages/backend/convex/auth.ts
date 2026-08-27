@@ -141,17 +141,33 @@ const ownerRole = ac.newRole({
   session: ["list", "revoke", "delete"],
 })
 
-// `admin` gets user list/create/set-role/ban/get/update/delete —
-// Task 10's user-management screen needs to list, create, edit and
-// remove users. Withheld: `impersonate`/`impersonate-admins` (nobody
-// gets these, see ownerRole above) and `set-password`, which stays
-// owner-only — it is the only account-recovery path until password reset
-// by email exists, and letting an admin take over an owner's account
-// would hollow out the single-owner invariant. Granting `user:delete`
-// here is safe, not a loosening: plugin permissions gate whether the
-// endpoint runs at all, and Task 6's databaseHooks guard independently
-// prevents anyone — including an admin — from touching an owner. Two
-// separate barriers doing two separate jobs.
+// `admin` gets user list/set-role/ban/get/update/delete — Task 10's
+// user-management screen needs to list, edit and remove users, and
+// `set-role` is what lets an admin change (never to `owner`) an existing
+// user's role. Withheld: `impersonate`/`impersonate-admins` (nobody gets
+// these, see ownerRole above) and `set-password`, which stays owner-only —
+// it is the only account-recovery path until password reset by email
+// exists, and letting an admin take over an owner's account would hollow
+// out the single-owner invariant. Granting `user:delete` here is safe, not
+// a loosening: plugin permissions gate whether the endpoint runs at all,
+// and Task 6's databaseHooks guard independently prevents anyone —
+// including an admin — from touching an owner. Two separate barriers doing
+// two separate jobs.
+//
+// `user:create` is deliberately absent (Task 8 review, I4): granting it
+// made `/admin/create-user` a second, parallel account-creation path open
+// to every admin — no invitation token, no expiry, no `invitations` row,
+// no `invitedBy`, and a password the admin picks themselves — which made
+// Task 8's stated invariant ("an invitation is the *only* way an account
+// comes into existence") simply false, restated by the databaseHooks
+// owner-check rather than actually true. `ownerRole` keeps `user:create`;
+// `invitations.accept` (Task 8) still works without it on `adminRole`
+// because it calls `auth.api.createUser` with neither `headers` nor
+// `request` — `routes.mjs`'s own `if (!session && (ctx.request ||
+// ctx.headers)) throw UNAUTHORIZED` is skipped when both are absent, and
+// every `hasPermission` check inside that endpoint is itself gated on
+// `if (session) {...}`, so a session-less call never consults `adminRole`
+// (or any role) at all. Task 10 invites rather than creates, from here on.
 //
 // `session: ["list"]` is deliberately *not* granted here (round 4, item
 // B), unlike the rest of this role's otherwise-full CRUD-ish surface.
@@ -180,7 +196,7 @@ const ownerRole = ac.newRole({
 // sessions when the caller is an `admin` (only `owner` can). Deliberate
 // loss, not an oversight — the alternative is this takeover.
 const adminRole = ac.newRole({
-  user: ["list", "create", "set-role", "ban", "get", "update", "delete"],
+  user: ["list", "set-role", "ban", "get", "update", "delete"],
   session: ["revoke", "delete"],
 })
 
@@ -188,6 +204,23 @@ const editorRole = ac.newRole({
   user: [],
   session: [],
 })
+
+// Task 8 review, C1: better-auth's own default (`minPasswordLength`
+// undefined -> its `8`/`128` default) was never made explicit, and the one
+// route that matters most — `/admin/create-user`, verified in
+// `routes.mjs`'s `createUserBodySchema` — declares `password:
+// z.string().optional()` with *no length bound at all*; the shared
+// `minPasswordLength`/`maxPasswordLength` option is only ever consulted by
+// sign-up, `/update-user`'s own password change, and password reset, none
+// of which `invitations.accept` goes through. An explicit policy here
+// (rather than an inherited, easy-to-miss default) is what
+// `invitations.ts`'s own check against these same two constants enforces
+// on the one route that otherwise has no floor at all — see its comment
+// for the two concrete exploits that gap allowed (an empty password
+// leaves a permanently credential-less zombie account; a one-character
+// password is a working admin account).
+export const MIN_PASSWORD_LENGTH = 8
+export const MAX_PASSWORD_LENGTH = 128
 
 // Reads `secret`/`baseURL` plainly, with no guard: `createApi` (the
 // component-side adapter, see betterAuth/adapter.ts) calls this at module
@@ -203,7 +236,12 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
     secret: process.env.BETTER_AUTH_SECRET,
     baseURL: process.env.SITE_URL,
     database: authComponent.adapter(ctx), // requis — omis, rien ne persiste
-    emailAndPassword: { enabled: true, disableSignUp: true },
+    emailAndPassword: {
+      enabled: true,
+      disableSignUp: true,
+      minPasswordLength: MIN_PASSWORD_LENGTH,
+      maxPasswordLength: MAX_PASSWORD_LENGTH,
+    },
     plugins: [
       convex({ authConfig }),
       admin({
@@ -274,12 +312,28 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
     databaseHooks: {
       user: {
         // C2: `/admin/create-user` honours an explicit `role` in its body
-        // as long as the caller holds the `set-role` permission — which
-        // `adminRole` above does — and performs no owner check of its
-        // own. Without this, an authenticated `admin` (not `owner`) could
-        // call it directly with `role: "owner"` and mint a second owner
-        // outright, entirely bypassing the `update`/`delete` guards below
-        // (they only ever see a row that already exists).
+        // and performs no owner check of its own. Originally written
+        // because an authenticated `admin` held the plugin's own `create`
+        // permission and could call it directly with `role: "owner"` to
+        // mint a second owner outright, entirely bypassing the
+        // `update`/`delete` guards below (they only ever see a row that
+        // already exists). Task 8's review (I4) removed `user:create` from
+        // `adminRole` for a different reason (closing a parallel,
+        // uninvited account-creation path), which incidentally closes that
+        // *specific* route for `admin` too — but this hook is not made
+        // redundant by that: `ownerRole` still holds `create`, and
+        // `invitations.accept` (Task 8) calls `auth.api.createUser` with
+        // neither `headers` nor `request`, which skips every
+        // `hasPermission` check in that endpoint entirely (`if (session)
+        // {...}` — see `adminRole`'s comment above) regardless of what any
+        // role grants. A row inserted directly into the `invitations`
+        // table with `role: "owner"` — bypassing `invitations.create`'s
+        // own refusal, e.g. by a bug or a future write path — reaches
+        // `createUser` with `role: "owner"` through exactly that
+        // session-less call, and this hook is the only thing that still
+        // stops it. `invitations.test.ts` seeds a real owner before
+        // exercising that case, so the barrier looks unconditional there;
+        // it is not — see the `owners > 0` check a few lines down.
         create: {
           before: guardOwnerInvariant(async (data, context) => {
             const raw = (data as Record<string, unknown>).role

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "vitest"
+import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { api } from "./_generated/api"
 import { generateToken, hashToken } from "./lib/token"
 import { ORIGIN, identityFor, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
@@ -30,6 +30,30 @@ afterEach(() => {
   process.env = originalEnv
 })
 
+// `t.finishInProgressScheduledFunctions()` only drains jobs already in the
+// "inProgress" state — a `runAfter(0, ...)` job can still be "pending"
+// (its backing timer hasn't fired yet) at the moment that's called,
+// especially for an *action* like `sendInvitationEmail`, which schedules
+// no work of its own for that helper to wait on the way a mutation's
+// nested `ctx.runMutation` calls do. Measured directly: two tests written
+// with `finishInProgressScheduledFunctions()` here left the job "pending"
+// and `pendingToken` unchanged even though the send had genuinely already
+// failed by the time the assertion ran — a timing race, not a bug in
+// `invitations.ts`. `finishAllScheduledFunctions` with fake timers is the
+// combination convex-test's own doc comment recommends for this
+// (`vi.useFakeTimers()` only needs to be active for this one call — jobs
+// scheduled under real timers are still drained "as long as their
+// scheduled time has already passed on the real clock", which
+// `runAfter(0, ...)` always satisfies).
+async function runScheduledFunctions(t: ReturnType<typeof makeTestConvex>) {
+  vi.useFakeTimers()
+  try {
+    await t.finishAllScheduledFunctions(vi.runAllTimers)
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
 async function seedAdmin(t: ReturnType<typeof makeTestConvex>) {
   const admin = await seedUser(t, {
     email: "admin@example.com",
@@ -41,9 +65,9 @@ async function seedAdmin(t: ReturnType<typeof makeTestConvex>) {
   return identityFor(t, admin.id)
 }
 
-// --- Step 1 du brief : seul le hash du token est stocké -----------------
+// --- Step 1 du brief : seul le hash du token est stocké durablement -------
 
-test("seul le hash du token est stocké", async () => {
+test("le hash durable du token est correct, et ce n'est jamais un champ 'token'", async () => {
   const t = makeTestConvex()
   const asAdmin = await seedAdmin(t)
 
@@ -60,6 +84,31 @@ test("seul le hash du token est stocké", async () => {
   // row up, so if the two ever drifted apart (different algorithm, wrong
   // input), every invitation would silently become unacceptable.
   expect(row?.tokenHash).toBe(await hashToken(token))
+})
+
+// Review round 1, I1: the plaintext is genuinely staged in `pendingToken`
+// right after `create` — this test says so honestly, rather than the
+// previous version's implicit (and, once `pendingToken` existed, false)
+// claim that nothing but the hash was ever present. What actually matters
+// is bounding *how long* that staging lasts: cleared the moment the
+// scheduled send is claimed, regardless of whether the send that follows
+// succeeds — proven here by never setting a usable `RESEND_API_KEY`, so
+// the send itself fails, and checking the field is gone anyway.
+test("le token en clair n'est mis en scène que transitoirement, effacé dès la réclamation programmée même si l'envoi échoue ensuite", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+  const justAfterCreate = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(justAfterCreate?.pendingToken).toBe(token)
+
+  await runScheduledFunctions(t)
+
+  const afterScheduledRun = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(afterScheduledRun?.pendingToken).toBeUndefined()
 })
 
 // --- Step 2/3 du brief : expiration et non-rejouabilité ------------------
@@ -199,6 +248,17 @@ test("une invitation 'owner' fabriquée hors de create échoue quand même à l'
     name: "Owner",
     role: "owner",
   })
+  // A real, currently-valid issuer — not the placeholder `"test-setup"`
+  // string this test used before I2 (review round 1): `accept` now
+  // re-verifies `invitedBy` against a live Better Auth user, so an
+  // unresolvable issuer would throw UNAUTHENTICATED *before* ever reaching
+  // the databaseHooks barrier this test exists to prove.
+  const issuer = await seedUser(t, {
+    email: "issuer-admin@example.com",
+    password: "correct horse battery staple 4b",
+    name: "Issuer Admin",
+    role: "admin",
+  })
 
   const { token, hash } = await generateToken()
   await t.run(async (ctx) =>
@@ -207,7 +267,7 @@ test("une invitation 'owner' fabriquée hors de create échoue quand même à l'
       role: "owner",
       tokenHash: hash,
       expiresAt: Date.now() + 1000 * 60 * 60,
-      invitedBy: "test-setup",
+      invitedBy: issuer.id,
     }),
   )
 
@@ -303,6 +363,252 @@ test("accept crée un compte Better Auth avec le rôle porté par l'invitation, 
   expect(row?.acceptedAt).toBeDefined()
 })
 
+// --- C1 (review, critical) : un mot de passe faible ne grante rien -------
+
+// `/admin/create-user` itself has no length floor on `password` at all
+// (verified in `routes.mjs`: `password: z.string().optional()`), and an
+// empty string is falsy there, so `createUser` used to skip linking a
+// credential account entirely — a permanently locked-out, credential-less
+// account, burning the invitation for good (`USER_ALREADY_EXISTS` on any
+// re-invite attempt). Both cases must be refused *before* `createUser` is
+// ever called, and the invitation must survive the rejected attempt so a
+// legitimate retry with a real password still works.
+test("accept refuse un mot de passe vide, et l'invitation reste utilisable", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  await expect(t.mutation(api.invitations.accept, { token, password: "" })).rejects.toThrow(
+    /WEAK_PASSWORD/,
+  )
+
+  const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(row?.acceptedAt).toBeUndefined()
+
+  // The invitation is genuinely still good: a real password succeeds.
+  const result = await t.mutation(api.invitations.accept, {
+    token,
+    password: "correct horse battery staple weak1",
+  })
+  expect(result).toEqual({ email: "invitee@example.com", role: "editor" })
+})
+
+test("accept refuse un mot de passe d'un seul caractère, et l'invitation reste utilisable", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "admin",
+  })
+
+  await expect(t.mutation(api.invitations.accept, { token, password: "a" })).rejects.toThrow(
+    /WEAK_PASSWORD/,
+  )
+
+  const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(row?.acceptedAt).toBeUndefined()
+
+  // No credential account was created for that email either — a fresh
+  // accept with a real password must still work, not collide with a
+  // half-created zombie.
+  const result = await t.mutation(api.invitations.accept, {
+    token,
+    password: "correct horse battery staple weak2",
+  })
+  expect(result).toEqual({ email: "invitee@example.com", role: "admin" })
+})
+
+// --- I2 (review) : l'invitation ne survit pas à la perte d'autorité de ---
+// --- son émetteur ----------------------------------------------------------
+
+test("accept refuse si l'émetteur de l'invitation a été banni depuis (BANNED)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple i2a",
+    name: "Owner",
+    role: "owner",
+  })
+  const issuer = await seedUser(t, {
+    email: "issuer@example.com",
+    password: "correct horse battery staple i2b",
+    name: "Issuer",
+    role: "admin",
+  })
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple i2a")
+  await signIn(t, "issuer@example.com", "correct horse battery staple i2b")
+  const asIssuer = await identityFor(t, issuer.id)
+
+  const { token } = await asIssuer.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "admin",
+  })
+
+  const banRes = await t.fetch("/api/auth/admin/ban-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
+    body: JSON.stringify({ userId: issuer.id }),
+  })
+  expect(banRes.status).toBe(200)
+
+  await expect(
+    t.mutation(api.invitations.accept, {
+      token,
+      password: "correct horse battery staple i2c",
+    }),
+  ).rejects.toThrow(/BANNED/)
+
+  const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(row?.acceptedAt).toBeUndefined()
+})
+
+test("accept refuse si l'émetteur a été rétrogradé en editor depuis (FORBIDDEN)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple i2d",
+    name: "Owner",
+    role: "owner",
+  })
+  const issuer = await seedUser(t, {
+    email: "issuer@example.com",
+    password: "correct horse battery staple i2e",
+    name: "Issuer",
+    role: "admin",
+  })
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple i2d")
+  await signIn(t, "issuer@example.com", "correct horse battery staple i2e")
+  const asIssuer = await identityFor(t, issuer.id)
+
+  const { token } = await asIssuer.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "admin",
+  })
+
+  const demoteRes = await t.fetch("/api/auth/admin/set-role", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
+    body: JSON.stringify({ userId: issuer.id, role: "editor" }),
+  })
+  expect(demoteRes.status).toBe(200)
+
+  await expect(
+    t.mutation(api.invitations.accept, {
+      token,
+      password: "correct horse battery staple i2f",
+    }),
+  ).rejects.toThrow(/FORBIDDEN/)
+
+  const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(row?.acceptedAt).toBeUndefined()
+})
+
+test("accept refuse si l'émetteur a été supprimé depuis (UNAUTHENTICATED)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple i2g",
+    name: "Owner",
+    role: "owner",
+  })
+  const issuer = await seedUser(t, {
+    email: "issuer@example.com",
+    password: "correct horse battery staple i2h",
+    name: "Issuer",
+    role: "admin",
+  })
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple i2g")
+  await signIn(t, "issuer@example.com", "correct horse battery staple i2h")
+  const asIssuer = await identityFor(t, issuer.id)
+
+  const { token } = await asIssuer.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "admin",
+  })
+
+  const removeRes = await t.fetch("/api/auth/admin/remove-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
+    body: JSON.stringify({ userId: issuer.id }),
+  })
+  expect(removeRes.status).toBe(200)
+
+  await expect(
+    t.mutation(api.invitations.accept, {
+      token,
+      password: "correct horse battery staple i2i",
+    }),
+  ).rejects.toThrow(/UNAUTHENTICATED/)
+
+  const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(row?.acceptedAt).toBeUndefined()
+})
+
+// Control: an issuer whose authority hasn't changed still works — the
+// three tests above prove refusal, this proves the check isn't refusing
+// everything.
+test("contrôle : accept réussit quand l'émetteur est toujours owner ou admin (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const issuer = await seedUser(t, {
+    email: "issuer@example.com",
+    password: "correct horse battery staple i2j",
+    name: "Issuer",
+    role: "admin",
+  })
+  await signIn(t, "issuer@example.com", "correct horse battery staple i2j")
+  const asIssuer = await identityFor(t, issuer.id)
+
+  const { token } = await asIssuer.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  const result = await t.mutation(api.invitations.accept, {
+    token,
+    password: "correct horse battery staple i2k",
+  })
+  expect(result).toEqual({ email: "invitee@example.com", role: "editor" })
+})
+
+// --- M5 (review) : `name` est borné comme `profiles.displayName` ---------
+
+test("accept refuse un name vide après trim", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  await expect(
+    t.mutation(api.invitations.accept, {
+      token,
+      password: "correct horse battery staple m5a",
+      name: "   ",
+    }),
+  ).rejects.toThrow(/INVALID_NAME/)
+})
+
+test("accept refuse un name de plus de 100 caractères", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  await expect(
+    t.mutation(api.invitations.accept, {
+      token,
+      password: "correct horse battery staple m5b",
+      name: "x".repeat(101),
+    }),
+  ).rejects.toThrow(/INVALID_NAME/)
+})
+
 // --- Un email déjà utilisé ne peut pas être granté deux fois --------------
 
 // "exactement une fois" — a second invitation to an email that already has
@@ -344,10 +650,10 @@ test("une invitation vers un email déjà pourvu d'un compte échoue, l'invitati
 // Ruling 4: the send is scheduled, not inline — so whatever happens inside
 // it (missing RESEND_API_KEY here, since these tests never set one; a
 // Resend outage in real life) must never roll back the invitation itself.
-// `finishInProgressScheduledFunctions` explicitly tolerates the scheduled
-// function failing (see its doc comment in convex-test) — the point of
-// this test is that its failure never reaches the caller of `create`, and
-// the token it returned is still good afterward.
+// `finishAllScheduledFunctions` (see `runScheduledFunctions` above)
+// explicitly tolerates the scheduled function failing — the point of this
+// test is that its failure never reaches the caller of `create`, and the
+// token it returned is still good afterward.
 test("un échec d'envoi de l'email n'invalide pas l'invitation : le token reste utilisable", async () => {
   const t = makeTestConvex()
   const asAdmin = await seedAdmin(t)
@@ -359,13 +665,106 @@ test("un échec d'envoi de l'email n'invalide pas l'invitation : le token reste 
 
   // Let the scheduled send run (and fail — no RESEND_API_KEY is set in
   // this test environment) without that failure propagating here.
-  await t.finishInProgressScheduledFunctions()
+  await runScheduledFunctions(t)
 
   const result = await t.mutation(api.invitations.accept, {
     token,
     password: "correct horse battery staple 11",
   })
   expect(result).toEqual({ email: "invitee@example.com", role: "editor" })
+})
+
+// I3 (review): a missing `SITE_URL` used to make `sendInvitationEmail`
+// return silently — no email, no error, no log, indistinguishable from a
+// successful send anywhere an operator would look. It must now surface as
+// a *failed* scheduled function (visible in the dashboard), not a quiet
+// no-op — checked directly against the scheduled function's own recorded
+// state, not just "did this test's own call throw".
+test("l'absence de SITE_URL fait échouer visiblement le job programmé, pas un retour silencieux", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  delete process.env.SITE_URL
+
+  await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+  await runScheduledFunctions(t)
+
+  const scheduled = await t.run(async (ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect(),
+  )
+  expect(scheduled).toHaveLength(1)
+  expect(scheduled[0]?.state.kind).toBe("failed")
+})
+
+// --- L'entropie du token : deux invitations n'ont jamais le même --------
+
+// The available, cheap check (see `lib/token.ts`'s header for what this
+// does and does not prove about the underlying entropy source): two
+// separate `create` calls must never produce the same plaintext token.
+// This alone can't distinguish real entropy from Convex's documented
+// per-call-varying-but-replay-identical seeding of `Math.random()` — it
+// would pass either way — but a *failure* here would be an immediate,
+// unambiguous stop signal.
+test("deux invitations créées séparément n'ont jamais le même token", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+
+  const { token: first } = await asAdmin.mutation(api.invitations.create, {
+    email: "first@example.com",
+    role: "editor",
+  })
+  const { token: second } = await asAdmin.mutation(api.invitations.create, {
+    email: "second@example.com",
+    role: "editor",
+  })
+
+  expect(first).not.toBe(second)
+})
+
+// --- I5 (review) : list, pour retrouver et administrer les invitations ---
+
+test("list renvoie les invitations sans jamais exposer tokenHash ou pendingToken", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  const rows = await asAdmin.query(api.invitations.list, {})
+  expect(rows).toHaveLength(1)
+  const row = rows[0]!
+  expect(row.email).toBe("invitee@example.com")
+  expect(row.role).toBe("editor")
+  expect(row.acceptedAt).toBeUndefined()
+  expect(typeof row.expiresAt).toBe("number")
+  expect(typeof row.invitedBy).toBe("string")
+  expect(row).not.toHaveProperty("tokenHash")
+  expect(row).not.toHaveProperty("pendingToken")
+  expect(row).not.toHaveProperty("scheduledEmailId")
+})
+
+test("un editor ne peut pas lister les invitations", async () => {
+  const t = makeTestConvex()
+  const editor = await seedUser(t, {
+    email: "editor@example.com",
+    password: "correct horse battery staple list1",
+    name: "Editor",
+    role: "editor",
+  })
+  await signIn(t, "editor@example.com", "correct horse battery staple list1")
+  const asEditor = await identityFor(t, editor.id)
+
+  await expect(asEditor.query(api.invitations.list, {})).rejects.toThrow(/FORBIDDEN/)
+})
+
+test("list refuse un appel non authentifié", async () => {
+  const t = makeTestConvex()
+  await expect(t.query(api.invitations.list, {})).rejects.toMatchObject({
+    data: { code: "UNAUTHENTICATED" },
+  })
 })
 
 // --- revoke : retirer une invitation avant qu'elle ne soit acceptée ------
@@ -443,4 +842,34 @@ test("un editor ne peut pas revoke une invitation", async () => {
   )
   const row = await t.run(async (ctx) => ctx.db.get(invitationId))
   expect(row).not.toBeNull()
+})
+
+// M8 (review): revoking before the scheduled send has run must cancel that
+// job, not just delete the row — otherwise an invitee (or anyone who still
+// has the email in their inbox) gets a link to an invitation that no
+// longer exists, silently misleading rather than cleanly gone. Checked
+// against the scheduled function's own recorded state, not just "no error
+// was thrown".
+test("revoke annule l'envoi programmé s'il n'a pas encore tourné", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+  const invitationId = await t.run(async (ctx) => (await ctx.db.query("invitations").first())!._id)
+
+  await asAdmin.mutation(api.invitations.revoke, { invitationId })
+
+  const scheduled = await t.run(async (ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect(),
+  )
+  expect(scheduled).toHaveLength(1)
+  expect(scheduled[0]?.state.kind).toBe("canceled")
+
+  // Letting scheduled functions run to completion afterward must not
+  // resurrect anything — the job is gone, not merely delayed.
+  await runScheduledFunctions(t)
+  const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
+  expect(rows).toHaveLength(0)
 })
