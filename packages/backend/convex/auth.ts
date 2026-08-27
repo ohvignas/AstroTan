@@ -43,20 +43,47 @@ const ownerRole = ac.newRole({
   session: ["list", "revoke", "delete"],
 })
 
-// `admin` gets user list/create/set-role/ban/get/update/delete and full
-// session management — Task 10's user-management screen needs to list,
-// create, edit and remove users. Withheld: `impersonate`/
-// `impersonate-admins` (nobody gets these, see ownerRole above) and
-// `set-password`, which stays owner-only — it is the only account-recovery
-// path until password reset by email exists, and letting an admin take
-// over an owner's account would hollow out the single-owner invariant.
-// Granting `user:delete` here is safe, not a loosening: plugin permissions
-// gate whether the endpoint runs at all, and Task 6's databaseHooks guard
-// independently prevents anyone — including an admin — from touching an
-// owner. Two separate barriers doing two separate jobs.
+// `admin` gets user list/create/set-role/ban/get/update/delete —
+// Task 10's user-management screen needs to list, create, edit and
+// remove users. Withheld: `impersonate`/`impersonate-admins` (nobody
+// gets these, see ownerRole above) and `set-password`, which stays
+// owner-only — it is the only account-recovery path until password reset
+// by email exists, and letting an admin take over an owner's account
+// would hollow out the single-owner invariant. Granting `user:delete`
+// here is safe, not a loosening: plugin permissions gate whether the
+// endpoint runs at all, and Task 6's databaseHooks guard independently
+// prevents anyone — including an admin — from touching an owner. Two
+// separate barriers doing two separate jobs.
+//
+// `session: ["list"]` is deliberately *not* granted here (round 4, item
+// B), unlike the rest of this role's otherwise-full CRUD-ish surface.
+// `/admin/list-user-sessions` returns each session's raw `token`
+// (`parseSessionOutput` doesn't strip it — nothing in this schema marks
+// it output:false), and the bearer plugin this app installs
+// (`plugins/convex/index.ts`, via `convex()`) is constructed with no
+// `requireSignature` option, so it accepts an unsigned bearer token and
+// signs it with the server secret on the caller's behalf. Measured
+// end-to-end: an admin lists the owner's sessions, takes the raw token,
+// authenticates as the owner with `Authorization: Bearer <token>`, and
+// from there calls `/admin/set-user-password` — an owner-only permission
+// — successfully. That's a full account takeover through a different
+// door than `impersonate`, which is exactly why `impersonate` is withheld
+// above; withholding one and granting the other was withholding nothing.
+// `bearer({ requireSignature: true })` isn't reachable from app code
+// here (the plugin is installed by `convex()`, not directly by us), so
+// the only lever available is this permission. `session: ["revoke"]` and
+// `["delete"]` stay: `revokeUserSession(s)` only ever *accept* a token or
+// userId as input and return `{success: boolean}`, never a token, and no
+// admin route in this plugin checks `session: ["delete"]` at all — there
+// is nothing to leak either way.
+//
+// Consequence, stated plainly rather than left to be discovered: Task
+// 10's admin-facing user-management screen cannot list a user's active
+// sessions when the caller is an `admin` (only `owner` can). Deliberate
+// loss, not an oversight — the alternative is this takeover.
 const adminRole = ac.newRole({
   user: ["list", "create", "set-role", "ban", "get", "update", "delete"],
-  session: ["list", "revoke", "delete"],
+  session: ["revoke", "delete"],
 })
 
 const editorRole = ac.newRole({
@@ -417,28 +444,68 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
     // returns early; `null` (found, but unclassifiable) throws, same as
     // a genuine owner would.
     //
-    // Also fixed this round: this used to resolve the *target* before
-    // checking whether the *caller* was even authenticated, so an
-    // unauthenticated request got `403 OWNER_PROTECTED` when the id
-    // happened to be the owner's and would have gotten `401` from
-    // `adminMiddleware` for any other id — a pre-auth oracle for which id
-    // is the owner, on top of an unauthenticated database read on every
-    // request to one of these paths. `getSessionFromCtx` now runs first;
-    // an unauthenticated caller falls straight through to the endpoint's
-    // own `401`, exactly as before this guard existed at all.
+    // Round 4, item A: round 3's "check the session first" fix — meant to
+    // close a pre-auth oracle — opened a full account takeover instead,
+    // and it was my own instruction that caused it, so the correction
+    // matters as much as the fix.
     //
-    // `options.hooks.before` is a single middleware, not a list of
-    // `{matcher, handler}` pairs the way a plugin's own hooks are —
-    // `getHooks` wraps it with `matcher: () => true` and runs it on
-    // *every* endpoint, so the path check happens inside the handler.
+    // `options.hooks.before` is pushed onto the `beforeHooks` list *ahead
+    // of* every plugin's own before-hooks (`getHooks` in
+    // `dist/api/dispatch.mjs:139-162` pushes ours first, then iterates
+    // `plugins` appending each plugin's `hooks.before`) — and the
+    // `convex()` plugin (`plugins/convex/index.ts`, wired above)
+    // unconditionally installs the bearer plugin, whose before-hook is
+    // what turns an `Authorization: Bearer <token>` header into the
+    // request session `adminMiddleware` later reads. So when *this*
+    // middleware ran `getSessionFromCtx(ctx)` first, for a
+    // bearer-authenticated caller that call always resolved to `null` —
+    // the cookie it looks for doesn't exist yet — and the round-3 code's
+    // `if (!session?.user) return` treated that as "unauthenticated,
+    // let the endpoint's own 401 handle it" and let the request straight
+    // through. `adminMiddleware` then authenticated the *same* caller
+    // normally, moments later, once its own session resolution ran. Two
+    // full takeovers measured this way: revoking the owner's sessions,
+    // and destroying the owner's credential account via
+    // `/admin/remove-user` — both via `Authorization: Bearer`, both
+    // refused via a cookie on the identical request.
+    //
+    // The fix is the ordering round 2 already had, restored deliberately
+    // rather than reinvented: resolve the *target* first, independent of
+    // any session — `internalAdapter.findUserById`/`findSession` don't
+    // care how (or whether) the caller authenticated — and decide the
+    // *target* side of the check before ever touching `getSessionFromCtx`.
+    // Session is consulted *only* once the target is confirmed to be the
+    // owner, and *only* for the self-action carve-out — and there, an
+    // unresolvable session now refuses rather than allows. A
+    // bearer-authenticated owner editing their own profile will get a
+    // 403 instead of succeeding; that's an accepted, deliberate
+    // regression in the fail-*safe* direction, not a bug — better an
+    // owner has to switch to a cookie-authenticated session for that one
+    // action than an admin being able to use the exact same gap to take
+    // the account over.
+    //
+    // Do not try to resolve the bearer token here to reconstruct the
+    // session ourselves — that would be a second representation of the
+    // same authentication decision `adminMiddleware`/the bearer plugin
+    // already make, with its own chance to diverge from theirs, which is
+    // the precise anti-pattern (a guard reading a different
+    // representation of the request than the code it guards) that
+    // produced the original C3.
+    //
+    // The pre-auth oracle this reintroduces is accepted, not overlooked:
+    // an unauthenticated caller who already knows a user id can learn
+    // whether that id is the owner's, by whether this middleware answers
+    // 403 (target resolved to owner) or lets the request fall through to
+    // the endpoint's own 401 (target resolved to anyone else, or wasn't
+    // found). That is a minor information leak. What round 3's ordering
+    // allowed — a full account takeover over an authenticated but
+    // not-yet-session-resolved request — is not one. If a future change
+    // moves the session check back ahead of target resolution to close
+    // the oracle again, it reopens this: don't.
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         const isRevokeSingle = ctx.path === "/admin/revoke-user-session"
         if (!OWNER_PROTECTED_PATHS.has(ctx.path) && !isRevokeSingle) return
-
-        // Session first — see the comment above on why.
-        const session = await getSessionFromCtx(ctx).catch(() => null)
-        if (!session?.user) return // let the endpoint's own auth check answer with 401
 
         const internalAdapter = (ctx.context as OwnerHookEndpointContext["context"])
           ?.internalAdapter
@@ -451,10 +518,11 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
 
         const body = ctx.body as Record<string, unknown> | undefined
 
-        // Resolve the target user id and their raw (unparsed) role.
-        // `/admin/revoke-user-session` (singular) is the odd one out —
-        // its body names a *session*, so the target user is whoever that
-        // session belongs to, not a field read directly off the body.
+        // Resolve the target user id and their raw (unparsed) role —
+        // *before* touching the session. `/admin/revoke-user-session`
+        // (singular) is the odd one out — its body names a *session*, so
+        // the target user is whoever that session belongs to, not a
+        // field read directly off the body.
         let targetUserId: string
         let targetRoleRaw: string | null | undefined
         if (isRevokeSingle) {
@@ -485,24 +553,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
           targetRoleRaw = target.role
         }
 
-        // `/admin/remove-user` and `/admin/ban-user` already refuse a
-        // *self*-targeted call downstream (`YOU_CANNOT_REMOVE_YOURSELF` /
-        // `YOU_CANNOT_BAN_YOURSELF` in `routes.mjs`) before their
-        // destructive calls run, so letting a genuine self-action through
-        // here changes nothing for either — the endpoint's own check
-        // still catches it, just with a different message.
-        // `/admin/update-user` and both revoke paths have no such
-        // restriction — an owner legitimately edits their own profile, or
-        // revokes their own other sessions, through them — so this
-        // resolution is what keeps those usable for their legitimate
-        // case instead of also blocking the owner from acting on
-        // themselves. Both sides of this comparison come from the signed
-        // session and the already-string-typed target id, never from an
-        // unvalidated body field.
-        if (session.user.id === targetUserId && parseRole(session.user.role) === "owner") {
-          return
-        }
-
+        // Round 3, item 2 (unchanged): classify once, refuse the
+        // unclassifiable. A role that doesn't parse to exactly one known
+        // value is never treated as "safely not the owner".
         const targetRole = parseRole(targetRoleRaw)
         if (targetRole === null) {
           throw APIError.from("FORBIDDEN", {
@@ -510,8 +563,31 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
             message: "OWNER_PROTECTED: rôle de la cible non classifiable, refusé par prudence",
           })
         }
-        if (targetRole !== "owner") return
+        if (targetRole !== "owner") return // positively not the owner: nothing to guard
 
+        // The target IS the owner. Only *now* — with the target side of
+        // the decision already made independent of any session — consult
+        // the session, and only for the self-action carve-out.
+        // `/admin/remove-user` and `/admin/ban-user` already refuse a
+        // *self*-targeted call downstream (`YOU_CANNOT_REMOVE_YOURSELF` /
+        // `YOU_CANNOT_BAN_YOURSELF` in `routes.mjs`) before their
+        // destructive calls run, so letting a genuine self-action through
+        // here changes nothing for either. `/admin/update-user` and both
+        // revoke paths have no such restriction — an owner legitimately
+        // edits their own profile, or revokes their own other sessions,
+        // through them — so this is what keeps those usable for their
+        // legitimate case. Both sides of the comparison come from the
+        // signed session and the already-string-typed target id, never
+        // from an unvalidated body field.
+        const session = await getSessionFromCtx(ctx).catch(() => null)
+        if (session?.user?.id === targetUserId && parseRole(session.user.role) === "owner") {
+          return
+        }
+
+        // Unresolvable session (see the big comment above — this is the
+        // expected outcome for a bearer-authenticated caller at this
+        // pipeline stage) or a real non-owner actor: refuse either way.
+        // Never `return` here — that's exactly the round-3 mistake.
         throw APIError.from("FORBIDDEN", {
           code: "OWNER_INVARIANT",
           message: "OWNER_PROTECTED: seul l'owner peut modifier ou supprimer son propre compte",
@@ -519,6 +595,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
       }),
     },
   }) satisfies BetterAuthOptions
+
 
 // Paths where better-auth can destroy the owner's sessions and/or
 // credential account before `databaseHooks` gets a chance to run — see

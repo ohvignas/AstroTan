@@ -727,13 +727,19 @@ test("round 3, item 3 : un admin ne peut pas révoquer les sessions de l'owner (
   expect(await getRole(t, ownerCookie, owner.id)).toBe("owner")
 
   // Singular: revoke one specific session by token. Fetch a real token
-  // for the owner through the admin's own `list-user-sessions` (the
-  // legitimate way an admin UI would get one), so this drives the actual
-  // shape an attacker — or a careless admin panel — would send, not a
-  // fabricated one.
+  // for the owner through the *owner's own* `list-user-sessions` call —
+  // not the admin's. Round 4, item B removed `session: ["list"]` from
+  // `adminRole` (see the comment there): `/admin/list-user-sessions`
+  // returns raw session tokens, and this app's bearer plugin signs an
+  // unsigned bearer token with the server secret on request, so an admin
+  // able to list the owner's sessions could authenticate *as* the owner
+  // outright — a full takeover through a different door than
+  // `impersonate`. So the admin genuinely cannot fetch this token
+  // anymore; the owner fetching their own is the only legitimate way
+  // left, which is also exactly what this sub-test needs.
   const listRes = await t.fetch("/api/auth/admin/list-user-sessions", {
     method: "POST",
-    headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
     body: JSON.stringify({ userId: owner.id }),
   })
   expect(listRes.status).toBe(200)
@@ -749,4 +755,144 @@ test("round 3, item 3 : un admin ne peut pas révoquer les sessions de l'owner (
   })
   await expectRefused(revokeOneRes)
   expect(await getRole(t, ownerCookie, owner.id)).toBe("owner")
+})
+
+// Round 4.
+
+// Item A: round 3's fix for the pre-auth oracle — check the session
+// *first* — opened a full account takeover instead. `options.hooks
+// .before` runs *ahead of* every plugin's own before-hooks
+// (`api/dispatch.mjs:139-162` pushes ours first), and the `convex()`
+// plugin unconditionally installs the bearer plugin, whose before-hook is
+// what turns `Authorization: Bearer <token>` into the session
+// `adminMiddleware` reads. So for a bearer-authenticated caller,
+// `getSessionFromCtx` at *our* pipeline stage always resolved `null` —
+// the round-3 code read that as "unauthenticated, let it through" — and
+// `adminMiddleware`, moments later, authenticated the same caller
+// normally. This drives the exact same requests the review measured
+// end-to-end: an admin's own credentials, presented as a bearer token
+// instead of a cookie, against the owner.
+test("round 4, item A : le bypass bearer est fermé — revoke-user-sessions et remove-user via Authorization: Bearer sur l'owner (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple 1",
+    name: "Owner",
+    role: "owner",
+  })
+  await seedUser(t, {
+    email: "admin@example.com",
+    password: "correct horse battery staple 3",
+    name: "Admin",
+    role: "admin",
+  })
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
+
+  // Sign in as admin and keep the raw session *token* from the response
+  // body (not the cookie) — that's what an `Authorization: Bearer`
+  // caller presents.
+  const adminSignInRes = await t.fetch("/api/auth/sign-in/email", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN },
+    body: JSON.stringify({
+      email: "admin@example.com",
+      password: "correct horse battery staple 3",
+    }),
+  })
+  expect(adminSignInRes.status).toBe(200)
+  const { token: adminBearerToken } = (await adminSignInRes.json()) as { token: string }
+  expect(typeof adminBearerToken).toBe("string")
+
+  const revokeRes = await t.fetch("/api/auth/admin/revoke-user-sessions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: ORIGIN,
+      authorization: `Bearer ${adminBearerToken}`,
+    },
+    body: JSON.stringify({ userId: owner.id }),
+  })
+  expect(revokeRes.status).toBe(403)
+  // The owner's pre-existing session is still live — not revoked out
+  // from under them by the attempt above.
+  expect(await getRole(t, ownerCookie, owner.id)).toBe("owner")
+
+  const removeRes = await t.fetch("/api/auth/admin/remove-user", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: ORIGIN,
+      authorization: `Bearer ${adminBearerToken}`,
+    },
+    body: JSON.stringify({ userId: owner.id }),
+  })
+  expect(removeRes.status).toBe(403)
+  // The strongest proof: a *fresh* sign-in with the owner's original
+  // password still works, meaning the credential account was never
+  // touched.
+  const freshOwnerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
+  expect(await getRole(t, freshOwnerCookie, owner.id)).toBe("owner")
+})
+
+// Item B: `session: ["list"]` used to be granted to `adminRole`.
+// `/admin/list-user-sessions` returns raw session tokens, and this app's
+// bearer plugin (installed by `convex()` with no `requireSignature`
+// option) accepts and signs an unsigned bearer token on request — so an
+// admin able to list the owner's sessions could authenticate as the owner
+// outright. Removed from `adminRole`, kept on `ownerRole`.
+test("round 4, item B : list-user-sessions refusé pour un admin, autorisé pour l'owner (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple 1",
+    name: "Owner",
+    role: "owner",
+  })
+  await seedUser(t, {
+    email: "admin@example.com",
+    password: "correct horse battery staple 3",
+    name: "Admin",
+    role: "admin",
+  })
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
+  const adminCookie = await signIn(t, "admin@example.com", "correct horse battery staple 3")
+
+  const adminListRes = await t.fetch("/api/auth/admin/list-user-sessions", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+    body: JSON.stringify({ userId: owner.id }),
+  })
+  expect(adminListRes.status).not.toBe(200)
+
+  const ownerListRes = await t.fetch("/api/auth/admin/list-user-sessions", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
+    body: JSON.stringify({ userId: owner.id }),
+  })
+  expect(ownerListRes.status).toBe(200)
+})
+
+// Round 3 flows, reconfirmed after this round's ordering change — an
+// editor self-editing through the *plain* `/update-user` (not
+// `/admin/update-user`, which is a different endpoint entirely and isn't
+// in `OWNER_PROTECTED_PATHS` at all) never touches `hooks.before`, so it
+// was never at risk from either round's changes to it — this is the
+// regression check confirming that.
+test("round 3 reconfirmé : un editor peut s'auto-éditer via /update-user (non-admin) (chemin réel)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "editor@example.com",
+    password: "correct horse battery staple 2",
+    name: "Editor",
+    role: "editor",
+  })
+  const editorCookie = await signIn(t, "editor@example.com", "correct horse battery staple 2")
+
+  const res = await t.fetch("/api/auth/update-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: editorCookie },
+    body: JSON.stringify({ name: "Editor Renamed" }),
+  })
+
+  expect(res.status).toBe(200)
 })
