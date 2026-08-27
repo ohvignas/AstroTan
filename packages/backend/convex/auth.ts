@@ -8,6 +8,9 @@ import { components } from "./_generated/api"
 import type { DataModel } from "./_generated/dataModel"
 import authSchema from "./betterAuth/schema"
 import authConfig from "./auth.config"
+import { parseRole } from "./lib/authz"
+import { assertOwnerInvariant } from "./lib/ownerGuard"
+import type { Role } from "./validators"
 
 export const authComponent = createClient<DataModel, typeof authSchema>(
   components.betterAuth,
@@ -85,7 +88,146 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
         defaultRole: "editor",
       }),
     ],
+    // Enforces the single-owner invariant (see `lib/ownerGuard.ts`) at the
+    // one layer every write to the `user` table traverses. The admin()
+    // plugin exposes its own HTTP endpoints (`/admin/set-role`,
+    // `/admin/update-user`, `/admin/ban-user`, `/admin/remove-user`, …)
+    // that write directly through better-auth's internal adapter — none of
+    // them go through a Convex mutation of ours, so a guard placed in
+    // application code would be trivially bypassable. `databaseHooks` runs
+    // inside better-auth's own `updateWithHooks`/`deleteWithHooks`
+    // (`node_modules/better-auth/dist/db/with-hooks.mjs`), which every one
+    // of those endpoints calls via `ctx.context.internalAdapter`, so this
+    // is the one choke point that can't be routed around.
+    //
+    // Signature verified against the installed better-auth@1.6.17 (not
+    // written from memory, per the task's instruction):
+    // `@better-auth/core`'s `src/types/init-options.ts` declares
+    // `user.update.before?: (user: Partial<User> & Record<string, unknown>,
+    // context: GenericEndpointContext | null) => Promise<boolean | void |
+    // { data: … }>` and `user.delete.before?: (user: User & Record<string,
+    // unknown>, context: GenericEndpointContext | null) => Promise<boolean
+    // | void>`. Two details only the *implementation*
+    // (`dist/db/with-hooks.mjs`) reveals, and that the type alone doesn't:
+    //   - `update.before`'s first argument is the raw **update delta**
+    //     (e.g. `{ role: "owner" }`), never the full row and never the
+    //     target id — `updateWithHooks(data, where, model)` passes `data`
+    //     straight through, `where` never reaches the hook. The target id
+    //     has to come from `context.body.userId` (every admin route that
+    //     calls `internalAdapter.updateUser(userId, …)` puts it there)
+    //     instead, with a session-id fallback for self-service updates
+    //     that don't carry a `userId` body field.
+    //   - `delete.before`, unlike `update.before`, DOES receive the full
+    //     entity: `deleteWithHooks` fetches it via `findMany` before
+    //     calling the hook specifically so `delete.before` hooks can see
+    //     the row being removed.
+    // Coexistence with the admin() plugin's own `databaseHooks.user.create
+    // .before` (which applies `defaultRole`) verified in
+    // `dist/context/helpers.mjs`'s `runPluginInit`: each plugin's `init()`
+    // result can return `{ options: { databaseHooks } }`, and every one
+    // found is pushed onto a `dbHooks` array tagged `source:
+    // "plugin:<id>"`; *after* every plugin has run, `options.databaseHooks`
+    // (ours, i.e. what's written here) is pushed last, tagged `source:
+    // "user"`. `db/with-hooks.mjs`'s `updateWithHooks`/`deleteWithHooks`
+    // then iterate that whole array in order — plugin hooks first, ours
+    // last — so this is additive, never a replacement of admin()'s own
+    // hook. In practice there's no ordering interaction to worry about
+    // either way: admin() only hooks `create`, this only hooks
+    // `update`/`delete`.
+    //
+    // `context` is typed `GenericEndpointContext | null` and its shape
+    // isn't precise enough to typecheck property access against (the
+    // admin-plugin fields — `body.userId`, `context.session`,
+    // `context.internalAdapter` — aren't part of the base `User`/context
+    // types), so this reads through a narrow local shape instead of `any`
+    // scattered through the body.
+    databaseHooks: {
+      user: {
+        update: {
+          before: async (data, context) => {
+            const ctx = context as OwnerHookEndpointContext | null
+            const internalAdapter = ctx?.context?.internalAdapter
+            // Self-service updates (e.g. a user editing their own name)
+            // don't carry `userId` in the body — the session's own id is
+            // the target in that case.
+            const targetId = ctx?.body?.userId ?? ctx?.context?.session?.user?.id
+            if (typeof targetId !== "string" || !internalAdapter) return
+
+            const targetUser = await internalAdapter.findUserById(targetId)
+            const targetRole = parseRole(targetUser?.role) ?? "editor"
+
+            const rawNextRole = (data as Record<string, unknown>).role
+            const nextRole: Role | null =
+              rawNextRole === undefined
+                ? targetRole // role isn't part of this update: unchanged
+                : parseRole(Array.isArray(rawNextRole) ? rawNextRole.join(",") : rawNextRole)
+
+            assertOwnerInvariant({
+              // Missing session -> `""`, which can never equal a real id,
+              // so an unidentifiable actor fails closed against an owner
+              // target (Check 1) exactly like a known-wrong actor would.
+              actorId: ctx?.context?.session?.user?.id ?? "",
+              actorRole: parseRole(ctx?.context?.session?.user?.role) ?? "editor",
+              targetId,
+              targetRole,
+              nextRole,
+              ownerCount: await countOwners(internalAdapter, targetRole),
+            })
+          },
+        },
+        delete: {
+          before: async (user, context) => {
+            const ctx = context as OwnerHookEndpointContext | null
+            const target = user as { id?: string; role?: string | null }
+            if (typeof target.id !== "string") return
+
+            const targetRole = parseRole(target.role) ?? "editor"
+            const internalAdapter = ctx?.context?.internalAdapter
+
+            assertOwnerInvariant({
+              actorId: ctx?.context?.session?.user?.id ?? "",
+              actorRole: parseRole(ctx?.context?.session?.user?.role) ?? "editor",
+              targetId: target.id,
+              targetRole,
+              nextRole: null, // suppression
+              ownerCount: internalAdapter ? await countOwners(internalAdapter, targetRole) : 0,
+            })
+          },
+        },
+      },
+    },
   }) satisfies BetterAuthOptions
+
+// Narrow shape for the pieces of `GenericEndpointContext` the hooks above
+// actually read. `body`/`context.session`/`context.internalAdapter` are
+// all present at runtime (verified empirically — see
+// `auth.ownerInvariant.test.ts`) but aren't part of the statically-typed
+// `GenericEndpointContext`, which is generic over the endpoint and doesn't
+// know about admin-plugin fields.
+type OwnerHookEndpointContext = {
+  body?: { userId?: string }
+  context?: {
+    session?: { user?: { id?: string; role?: string | null } } | null
+    internalAdapter?: {
+      findUserById: (id: string) => Promise<{ id: string; role?: string | null } | null>
+      countTotalUsers: (
+        where?: { field: string; operator?: string; value: unknown }[],
+      ) => Promise<number>
+    }
+  }
+}
+
+// `ownerCount` only ever gates a decision when the *target* is an owner
+// (see `assertOwnerInvariant`'s third check) — skip the extra round trip
+// on every other write, which is the overwhelming majority of calls
+// through this hook.
+async function countOwners(
+  internalAdapter: NonNullable<OwnerHookEndpointContext["context"]>["internalAdapter"],
+  targetRole: Role,
+): Promise<number> {
+  if (targetRole !== "owner" || !internalAdapter) return 0
+  return internalAdapter.countTotalUsers([{ field: "role", operator: "eq", value: "owner" }])
+}
 
 // better-auth's own publicly-known fallback secret (verified against
 // better-auth@1.6.17's dist/utils/constants.mjs: `DEFAULT_SECRET`). A
