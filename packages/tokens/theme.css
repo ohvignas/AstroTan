@@ -1,10 +1,37 @@
-/* packages/tokens/theme.css — importé par apps/web et apps/admin */
+/* packages/tokens/theme.css
+ *
+ * Point de personnalisation du SITE PUBLIC (apps/web).
+ *
+ * Ce fichier est volontairement neutre : c'est une toile de départ, pas une
+ * identité. Qui reprend ce template remplace ces valeurs par les siennes —
+ * c'est le seul fichier à toucher pour changer l'apparence du site.
+ *
+ * Il ne pilote PAS le dashboard admin. shadcn/ui y gère ses propres variables
+ * CSS ; superposer deux systèmes de tokens donnerait deux sources de vérité
+ * pour les mêmes couleurs.
+ */
 @import "tailwindcss";
 
 @theme {
-  --color-brand-50:  oklch(0.97 0.02 265);
-  --color-brand-500: oklch(0.62 0.19 265);
-  --color-brand-900: oklch(0.32 0.11 265);
-  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  --radius-card: 0.75rem;
+  /* Couleur d'accent — la seule teinte du site. Neutre par défaut : à remplacer.
+     Format oklch(clarté chroma teinte). Monter le chroma pour plus de saturation,
+     changer la teinte (0-360) pour changer de couleur. */
+  --color-accent-50:  oklch(0.97 0.005 250);
+  --color-accent-500: oklch(0.55 0.02  250);
+  --color-accent-900: oklch(0.25 0.015 250);
+
+  /* Neutres. Légèrement biaisés vers la teinte d'accent : régler la même teinte
+     que ci-dessus pour que les gris s'accordent au reste. */
+  --color-ink:     oklch(0.20 0.01 250);
+  --color-ink-mid: oklch(0.50 0.01 250);
+  --color-paper:   oklch(0.99 0.003 250);
+  --color-rule:    oklch(0.90 0.005 250);
+
+  /* Typographie — piles système par défaut, aucune police à télécharger.
+     Remplacer par la police du projet et charger la fonte dans le layout. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: ui-serif, Georgia, "Times New Roman", serif;
+
+  /* Rythme */
+  --radius-card: 0.5rem;
 }
