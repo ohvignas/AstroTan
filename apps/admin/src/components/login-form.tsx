@@ -1,0 +1,119 @@
+import { useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { authClient } from "@/lib/auth-client"
+
+// Adapted from shadcn's `login-03` block: dropped the OAuth buttons (the
+// backend only enables `emailAndPassword` — packages/backend/convex/auth.ts
+// — so those buttons would go nowhere), the "Forgot your password?" link
+// (no reset flow exists yet — a link nobody can complete is worse than no
+// link), and "Don't have an account? Sign up" (`disableSignUp: true` on the
+// server; accounts only ever come from an invitation). What's left is the
+// one thing this screen actually does.
+export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
+  const navigate = useNavigate()
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError(null)
+    setSubmitting(true)
+    const result = await authClient.signIn.email({ email, password })
+    setSubmitting(false)
+    if (result.error) {
+      setError(describeSignInError(result.error))
+      return
+    }
+    await navigate({ to: "/" })
+  }
+
+  return (
+    <div className={cn("flex flex-col gap-6", className)} {...props}>
+      <Card>
+        <CardHeader className="text-center">
+          <CardTitle className="text-xl">Administration AstroTan</CardTitle>
+          <CardDescription>Connectez-vous avec votre compte</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} noValidate>
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="email">Email</FieldLabel>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="password">Mot de passe</FieldLabel>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </Field>
+              {error && <FieldError>{error}</FieldError>}
+              <Field>
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? "Connexion…" : "Se connecter"}
+                </Button>
+                <FieldDescription className="text-center">
+                  L'accès se fait uniquement sur invitation.
+                </FieldDescription>
+              </Field>
+            </FieldGroup>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// The UI only ever *reflects* what the server decided — it does not decide
+// anything itself. `BANNED_USER` (packages/backend/convex/auth.ts's
+// `admin()` plugin config, `bannedUserMessage`) is the one better-auth
+// sign-in error worth naming specifically here; every other *business*
+// failure (wrong password, unknown email, ...) collapses to one message on
+// purpose, so a login attempt can't be used to enumerate which emails have
+// accounts.
+//
+// A `status >= 500` (or no status at all — better-fetch reports a network
+// failure the same shapeless way) is a different kind of thing and is
+// called out separately: verified live, with the local Convex backend
+// down, that this proxy answers `sign-in/email` with a bare `{status:500,
+// message:"HTTPError"}` and no `code` — collapsing that into "wrong
+// password" would tell a locked-out operator to double-check credentials
+// that were never actually checked.
+function describeSignInError(error: {
+  code?: string
+  status?: number
+  message?: string | null
+}): string {
+  if (error.code === "BANNED_USER") {
+    return "Votre compte a été suspendu. Contactez un administrateur."
+  }
+  if (error.status === undefined || error.status >= 500) {
+    return "Impossible de contacter le serveur. Réessayez dans un instant."
+  }
+  return "Email ou mot de passe incorrect."
+}
