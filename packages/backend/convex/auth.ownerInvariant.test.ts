@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test } from "vitest"
 import schema from "./schema"
 import betterAuthSchema from "./betterAuth/schema"
 import { createAuth } from "./auth"
+import { components } from "./_generated/api"
 
 // This file drives the *real* HTTP surface (`http.ts` -> `authComponent
 // .registerRoutes` -> better-auth's own router -> the admin() plugin's
@@ -537,4 +538,215 @@ test("contrôle : l'owner peut toujours éditer son propre profil via /admin/upd
   })
 
   expect(res.status).toBe(200)
+})
+
+// Round 3.
+
+// Item 1: round 2's "fail closed unconditionally" instruction broke a
+// legitimate flow — admin()'s own `databaseHooks.session.create.before`
+// (`admin.mjs`) clears an expired ban at sign-in by calling
+// `internalAdapter.updateUser(session.userId, {banned: false, ...})`. At
+// that point the sign-in request's body is `{email, password}` (no
+// `userId`) and `context.context.session` is still `null` (the session is
+// mid-creation), so the guard's `targetId` resolves to `undefined` — an
+// internal write that never named a target, not an unresolvable one. The
+// corrected `databaseHooks.user.update.before` (see `auth.ts`) now
+// distinguishes the two; this test is the regression proof.
+test("round 3, item 1 : un ban expiré est levé à la connexion, pas de verrouillage permanent (chemin réel)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "admin@example.com",
+    password: "correct horse battery staple 3",
+    name: "Admin",
+    role: "admin",
+  })
+  const adminCookie = await signIn(t, "admin@example.com", "correct horse battery staple 3")
+
+  const pastBanExpiry = Date.now() - 1000 * 60 * 60 // one hour ago
+  const user = await t.run(async (ctx) => {
+    const auth = createAuth(ctx)
+    return auth.api.createUser({
+      body: {
+        email: "expired-ban@example.com",
+        password: "correct horse battery staple 9",
+        name: "Formerly Banned",
+        role: "editor",
+        data: {
+          banned: true,
+          banReason: "test setup",
+          banExpires: pastBanExpiry,
+        },
+      },
+    })
+  })
+  const userId = (user as { user: { id: string } }).user.id
+
+  const res = await t.fetch("/api/auth/sign-in/email", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN },
+    body: JSON.stringify({
+      email: "expired-ban@example.com",
+      password: "correct horse battery staple 9",
+    }),
+  })
+
+  // The sign-in itself must succeed — this is the actual lockout proof.
+  // The response body's own `user.banned` is *not* checked here: better
+  // -auth's `signInEmail` (`sign-in.mjs`) fetches the user once, before
+  // `internalAdapter.createSession` — which is what triggers the ban
+  // -clearing hook — so the response reflects pre-clear state by design,
+  // not a bug in this fix. The row itself is checked separately, through
+  // an admin's `/admin/get-user`, which reads fresh.
+  expect(res.status).toBe(200)
+
+  const getRes = await t.fetch(`/api/auth/admin/get-user?id=${userId}`, {
+    headers: { origin: ORIGIN, cookie: adminCookie },
+  })
+  expect(getRes.status).toBe(200)
+  const getBody = (await getRes.json()) as { banned: boolean | null }
+  expect(getBody.banned).toBe(false)
+})
+
+// Item 2: the endpoint guard's terminal check used to be
+// `if (parseRole(target?.role) !== "owner") return` — a `return` (allow)
+// on *any* role that failed to parse, not just a genuine non-owner. A row
+// already sitting in the database with `role: "owner,editor"` (this
+// commit's `create.before` fix stops the API from *manufacturing* one,
+// but says nothing about rows written before this fix, or written
+// directly into the component's own tables — e.g. an import, a migration,
+// a bug in a future feature) holds every owner permission through
+// `has-permission.mjs`'s comma-split reading, so a plain string `userId`
+// targeting it used to sail through this guard and reproduce the original
+// C3. Seeded here through the component adapter directly (`components
+// .betterAuth.adapter.create`), bypassing our own `create.before`
+// entirely, precisely to prove the guard doesn't rely on the API being
+// the only way such a row can exist.
+test("round 3, item 2 : refuse une cible au rôle non classifiable (\"owner,editor\") même via un userId simple (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const now = Date.now()
+  const rogue = await t.run(async (ctx) =>
+    ctx.runMutation(components.betterAuth.adapter.create, {
+      input: {
+        model: "user",
+        data: {
+          email: "rogue@example.com",
+          name: "Rogue",
+          emailVerified: false,
+          role: "owner,editor",
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+    }),
+  )
+  const rogueId = (rogue as { id: string })?.id ?? (rogue as { _id: string })?._id
+  await t.run(async (ctx) =>
+    ctx.runMutation(components.betterAuth.adapter.create, {
+      input: {
+        model: "account",
+        data: {
+          accountId: rogueId,
+          providerId: "credential",
+          userId: rogueId,
+          password: "not-a-real-hash-just-needs-to-exist",
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+    }),
+  )
+
+  await seedUser(t, {
+    email: "admin@example.com",
+    password: "correct horse battery staple 3",
+    name: "Admin",
+    role: "admin",
+  })
+  const adminCookie = await signIn(t, "admin@example.com", "correct horse battery staple 3")
+
+  const res = await t.fetch("/api/auth/admin/remove-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+    body: JSON.stringify({ userId: rogueId }),
+  })
+  await expectRefused(res)
+
+  // The row survives: `/admin/get-user` still finds it.
+  const getRes = await t.fetch(`/api/auth/admin/get-user?id=${rogueId}`, {
+    headers: { origin: ORIGIN, cookie: adminCookie },
+  })
+  expect(getRes.status).toBe(200)
+
+  // The credential account survives too — checked directly through the
+  // component adapter, the same way it was seeded, since this row was
+  // never signed into and has no password we could sign in with to prove
+  // the same thing indirectly.
+  const account = await t.run(async (ctx) =>
+    ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "account",
+      where: [{ field: "userId", operator: "eq", value: rogueId }],
+    }),
+  )
+  expect(account).not.toBeNull()
+})
+
+// Item 3: `/admin/revoke-user-sessions` and `/admin/revoke-user-session`
+// both call session-deletion directly (`deleteUserSessions`/
+// `deleteSession`) with no `databaseHooks` on the `session` model to
+// catch it — before this fix, `OWNER_PROTECTED_PATHS` didn't cover either,
+// so any admin (`adminRole` holds `session: ["revoke"]`) could wipe the
+// owner's sessions on a loop, unguarded. Credentials survive this one (no
+// account/user row is touched), so it's a repeatable annoyance rather than
+// a lockout — still fixed, since the whole point of `OWNER_PROTECTED_PATHS`
+// is to cover every path that can do this.
+test("round 3, item 3 : un admin ne peut pas révoquer les sessions de l'owner (les deux endpoints) (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple 1",
+    name: "Owner",
+    role: "owner",
+  })
+  await seedUser(t, {
+    email: "admin@example.com",
+    password: "correct horse battery staple 3",
+    name: "Admin",
+    role: "admin",
+  })
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple 1")
+  const adminCookie = await signIn(t, "admin@example.com", "correct horse battery staple 3")
+
+  // Plural: revoke *all* of the owner's sessions by userId.
+  const revokeAllRes = await t.fetch("/api/auth/admin/revoke-user-sessions", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+    body: JSON.stringify({ userId: owner.id }),
+  })
+  await expectRefused(revokeAllRes)
+  // The owner's existing session is still live.
+  expect(await getRole(t, ownerCookie, owner.id)).toBe("owner")
+
+  // Singular: revoke one specific session by token. Fetch a real token
+  // for the owner through the admin's own `list-user-sessions` (the
+  // legitimate way an admin UI would get one), so this drives the actual
+  // shape an attacker — or a careless admin panel — would send, not a
+  // fabricated one.
+  const listRes = await t.fetch("/api/auth/admin/list-user-sessions", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+    body: JSON.stringify({ userId: owner.id }),
+  })
+  expect(listRes.status).toBe(200)
+  const { sessions } = (await listRes.json()) as { sessions: { token: string }[] }
+  expect(sessions.length).toBeGreaterThan(0)
+  const ownerSessionToken = sessions[0]?.token
+  expect(typeof ownerSessionToken).toBe("string")
+
+  const revokeOneRes = await t.fetch("/api/auth/admin/revoke-user-session", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+    body: JSON.stringify({ sessionToken: ownerSessionToken }),
+  })
+  await expectRefused(revokeOneRes)
+  expect(await getRole(t, ownerCookie, owner.id)).toBe("owner")
 })
