@@ -34,3 +34,4 @@
 import "../convex/profiles"
 import "../convex/invitations"
 import "../convex/users"
+import "../convex/pages"

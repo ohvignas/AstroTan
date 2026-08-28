@@ -38,3 +38,16 @@ export function parseRole(raw: unknown): Role | null {
 // wouldn't recognize.
 export const pageStatusValidator = v.union(v.literal("draft"), v.literal("published"))
 export type PageStatus = "draft" | "published"
+
+// `revalidationOutbox.status` (Lot 2, Task 3; design spec §6.2). Same
+// closed-union discipline as the two validators above: `drain`
+// (`convex/revalidate.ts`) filters on this with a plain `.eq` via the
+// `by_status_next_attempt` index, so a value outside these three literals
+// would either silently never match that filter or — worse — match it by
+// accident if the index clause were ever loosened to a variable.
+export const outboxStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("done"),
+  v.literal("failed"),
+)
+export type OutboxStatus = "pending" | "done" | "failed"

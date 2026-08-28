@@ -1,6 +1,10 @@
 import { ConvexError, v } from "convex/values"
-import { query } from "./_generated/server"
+import { mutation, query } from "./_generated/server"
+import { api, internal } from "./_generated/api"
 import { verifyPreviewToken } from "./lib/previewToken"
+import { requireRole } from "./lib/authz"
+import { insertOutboxRow } from "./revalidate"
+import { MUTATION_REGISTRY } from "./_registry"
 
 // This task's own brief, verbatim: "the security-critical task of the
 // whole lot — the boundary between what the public internet can read and
@@ -101,5 +105,64 @@ export const previewPage = query({
       throw new ConvexError({ code: "INVALID_PREVIEW_TOKEN" })
     }
     return ctx.db.get(args.id)
+  },
+})
+
+// Lot 2, Task 3; design spec §6.2. The lot's third rule after "no draft
+// leaks through a public query" and "a preview token is verified twice":
+// publishing is `owner`/`admin` only, enforced here — not by the
+// dashboard hiding a button, which an `editor` calling this mutation
+// directly would simply bypass. This is the *only* write mutation on
+// `pages` this task adds; there is no `createPage`/`updatePage` yet (a
+// later task's job), so this always flips an existing draft-or-published
+// row to `published` — never creates one.
+//
+// The outbox insert and the scheduled `drain` call both happen inside
+// this same handler, after the `status`/`publishedAt` patch: `insertOutboxRow`
+// (`revalidate.ts`) is a plain `ctx.db.insert`, not a nested mutation
+// call, so it commits atomically with the page write — see that module's
+// header comment for why that's the whole point of an outbox. Republishing
+// an already-published page (no separate "unpublish" exists in this lot)
+// still writes a fresh outbox row each time: every publish is a signal
+// that whatever is live may be stale and needs invalidating again, even if
+// `status` itself doesn't change.
+export const publishPage = mutation({
+  args: { id: v.id("pages") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin"])
+    const page = await ctx.db.get(args.id)
+    if (!page) throw new ConvexError({ code: "NOT_FOUND" })
+
+    await ctx.db.patch(args.id, { status: "published", publishedAt: Date.now() })
+    await insertOutboxRow(ctx, ["pages", `page:${page.slug}`])
+    // The fast path (design spec §6.2, step 2): don't wait for the next
+    // 60s cron sweep (`crons.ts`) when nothing is wrong. `runAfter(0, ...)`
+    // schedules `drain` to run essentially immediately, once this
+    // mutation's own transaction has committed — the cron is the recovery
+    // path for when this specific call is lost, not the primary path.
+    await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+  },
+})
+
+// Required by `_registry.test.ts`'s exhaustiveness check: every public
+// mutation must be declared here. `publishPage` is the first mutation
+// `pages.ts` exports — `owner`/`admin` only, `editor` refused with
+// FORBIDDEN, exercised by `lib/authz.test.ts`'s per-role matrix against a
+// real Better Auth session for all three roles.
+MUTATION_REGISTRY.push({
+  name: "pages.publishPage",
+  allowedRoles: ["owner", "admin"],
+  invoke: async (t) => {
+    const id = await t.run((ctx: any) =>
+      ctx.db.insert("pages", {
+        slug: `registry-publish-${Date.now()}-${Math.random()}`,
+        title: "Registry Check",
+        status: "draft",
+        blocks: [],
+        createdBy: "registry-check",
+        updatedBy: "registry-check",
+      }),
+    )
+    return t.mutation(api.pages.publishPage, { id })
   },
 })

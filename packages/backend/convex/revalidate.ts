@@ -1,0 +1,203 @@
+import { v } from "convex/values"
+import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server"
+import { internal } from "./_generated/api"
+
+// Design spec §6.2 — the outbox drain loop. Convex does not retry
+// scheduled actions, so `publishPage` (`convex/pages.ts`) writes a
+// `revalidationOutbox` row in the *same* mutation that flips a page's
+// status (see `schema.ts`'s comment on the table). This module is
+// everything downstream of that row: the atomic insert helper the
+// mutation calls, and the drain loop — scheduled immediately by
+// `publishPage` for the fast path, and swept every 60s by `crons.ts` as
+// the recovery path for a job that never ran at all.
+
+// ---------------------------------------------------------------------
+// Backoff schedule (design spec §6.2, verbatim): 1s, 5s, 25s, 2min,
+// 10min — indexed by `attempts` *after* increment, so the first failure
+// (attempts: 0 -> 1) waits 1s, the second (1 -> 2) waits 5s, and so on.
+// The 6th failure (attempts: 5 -> 6) has no entry left: that's the
+// terminal "failed" case, not a 6th backoff.
+// ---------------------------------------------------------------------
+const BACKOFF_MS = [1_000, 5_000, 25_000, 2 * 60_000, 10 * 60_000]
+const MAX_ATTEMPTS = 6
+
+// An HMAC-strength secret is table stakes for a header a public endpoint
+// trusts unconditionally (`apps/web`'s `/api/revalidate`, Task 7) — same
+// floor as `lib/previewToken.ts`'s `PREVIEW_SECRET`. Read at the point of
+// use, not cached at module load or threaded in from a caller: the only
+// realistic caller is `drain` itself, so there is no "shape now, guard
+// later" split worth making (same reasoning as `previewToken.ts`'s own
+// `getPreviewSecret`).
+const MIN_REVALIDATE_SECRET_LENGTH = 32
+
+function getRevalidateSecret(): string {
+  const secret = process.env.REVALIDATE_SECRET
+  if (!secret) {
+    throw new Error("REVALIDATE_SECRET is not set on this Convex deployment")
+  }
+  if (secret.length < MIN_REVALIDATE_SECRET_LENGTH) {
+    throw new Error(`REVALIDATE_SECRET must be at least ${MIN_REVALIDATE_SECRET_LENGTH} characters`)
+  }
+  return secret
+}
+
+// `WEB_SITE_URL` is `apps/web`'s own public origin — deliberately a
+// *different* variable from `SITE_URL` (`auth.ts`'s `baseURL`,
+// `invitations.ts`'s accept-invite link): that one is already load-bearing
+// for Better Auth and is documented (`.env.example`) as "the site that
+// owns the Better Auth session", i.e. `apps/admin`. `/api/revalidate`
+// (Task 7) lives on `apps/web`, a different origin entirely — reusing
+// `SITE_URL` for this would make either Better Auth's `baseURL` or this
+// POST target the wrong app, silently, depending on which origin an
+// operator happened to configure it with. Same discipline as every other
+// secret/URL in this codebase either way: absence must throw, never
+// silently no-op. Read inside `drain`, not here, since it's only needed
+// once per invocation and the failure needs to surface as *that action's*
+// failure.
+
+// ---------------------------------------------------------------------
+// Called from `pages.publishPage`'s own mutation body — a plain
+// `ctx.db.insert`, not a separate mutation of its own, so it runs inside
+// the caller's transaction. That's what makes the outbox row impossible
+// to lose: either it commits alongside the page's `status` write, or
+// neither commits at all. `nextAttemptAt: now` means the row is
+// immediately due — `publishPage` also schedules `drain` for `now`
+// itself (the fast path), but the row would still be picked up by the
+// next cron sweep even if that scheduled call were somehow lost.
+// ---------------------------------------------------------------------
+export async function insertOutboxRow(ctx: MutationCtx, tags: string[]): Promise<void> {
+  const now = Date.now()
+  await ctx.db.insert("revalidationOutbox", {
+    tags,
+    status: "pending",
+    attempts: 0,
+    nextAttemptAt: now,
+    createdAt: now,
+  })
+}
+
+// Read-only half of "claim the due rows": an index range scan on
+// `by_status_next_attempt`, not a full-table `.filter` — the row count
+// here is expected to stay small (one per publish, cleared to `done`
+// within seconds), but the shape is what makes that true rather than
+// merely convenient once it isn't.
+export const listDueRows = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    return ctx.db
+      .query("revalidationOutbox")
+      .withIndex("by_status_next_attempt", (q) => q.eq("status", "pending").lte("nextAttemptAt", now))
+      .collect()
+  },
+})
+
+// `if (!row) return` / `if (row.status !== "pending") return`: both are
+// "nothing to do", not "something went wrong" — a row can vanish (none of
+// this lot's mutations delete one, but nothing here should assume that
+// stays true forever) or have already reached a terminal state by the
+// time this runs. Neither case should resurrect a `done`/`failed` row or
+// throw over something that isn't actually an error from the caller's
+// point of view.
+export const markDone = internalMutation({
+  args: { id: v.id("revalidationOutbox") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.id)
+    if (!row || row.status !== "pending") return
+    await ctx.db.patch(args.id, { status: "done" })
+  },
+})
+
+// Same "nothing to do, not an error" guard as `markDone` above. The
+// backoff/terminal decision itself: `attempts` is read *before* this
+// call's own increment, so `BACKOFF_MS[attempts]` (0-indexed, matching
+// this module's own header comment: attempts 0->1 is the first failure)
+// is the delay for the failure this call is recording. Once `attempts`
+// reaches `MAX_ATTEMPTS` (6), there is no further backoff — the row
+// becomes `failed`, the terminal state design spec §6.2 defines for "six
+// échecs".
+export const markAttemptFailed = internalMutation({
+  args: { id: v.id("revalidationOutbox"), error: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.id)
+    if (!row || row.status !== "pending") return
+    const attempts = row.attempts + 1
+    if (attempts >= MAX_ATTEMPTS) {
+      await ctx.db.patch(args.id, { status: "failed", attempts, lastError: args.error })
+      return
+    }
+    // `attempts` is always 1..(MAX_ATTEMPTS - 1) here (the `>= MAX_ATTEMPTS`
+    // branch above already returned), so `attempts - 1` is always a valid
+    // `BACKOFF_MS` index in practice — the `?? 600_000` fallback exists
+    // only to satisfy `noUncheckedIndexedAccess`, not because this path is
+    // reachable; `600_000` mirrors `BACKOFF_MS`'s own last entry (10min)
+    // rather than inventing an unrelated number.
+    const delay = BACKOFF_MS[attempts - 1] ?? 600_000
+    await ctx.db.patch(args.id, {
+      attempts,
+      nextAttemptAt: Date.now() + delay,
+      lastError: args.error,
+    })
+  },
+})
+
+// The drain loop itself. An `internalAction`, not a mutation: it performs
+// real network I/O (`fetch`), which mutations cannot do at all — so its
+// reads and writes go through `ctx.runQuery`/`ctx.runMutation` instead of
+// `ctx.db` directly, each its own separate transaction. That means a
+// single `drain` call claiming several due rows is not one atomic unit —
+// a crash partway through leaves the rows already processed `done`/
+// backed-off and the rest still `pending`, which is exactly the recovery
+// shape this whole design accepts: the next scheduled or cron-swept
+// `drain` call picks up whatever is still due, because claiming is a
+// query on `status`/`nextAttemptAt`, not tied to which invocation
+// scheduled it (see `crons.ts`'s own header for the "lost job" case this
+// is built to survive).
+//
+// `WEB_SITE_URL`/`REVALIDATE_SECRET` are both checked *before* touching
+// any row: a deployment missing either is a configuration error, not
+// something any individual outbox row did wrong, so it must surface as
+// this action failing outright (visible as a failed scheduled function in
+// the Convex dashboard — same shape as `invitations.ts`'s own `SITE_URL`
+// guard) rather than silently burning through a row's 6-attempt budget on
+// every sweep until someone notices.
+export const drain = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const siteUrl = process.env.WEB_SITE_URL
+    if (!siteUrl) throw new Error("WEB_SITE_URL is not set on this Convex deployment")
+    const secret = getRevalidateSecret()
+
+    const rows = await ctx.runQuery(internal.revalidate.listDueRows, {})
+
+    for (const row of rows) {
+      try {
+        const response = await fetch(`${siteUrl}/api/revalidate`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-revalidate-secret": secret,
+          },
+          body: JSON.stringify({ tags: row.tags }),
+        })
+        if (!response.ok) {
+          await ctx.runMutation(internal.revalidate.markAttemptFailed, {
+            id: row._id,
+            error: `HTTP ${response.status}`,
+          })
+          continue
+        }
+        await ctx.runMutation(internal.revalidate.markDone, { id: row._id })
+      } catch (err) {
+        // A thrown `fetch` (network error, DNS failure, ...) is exactly
+        // as much "the invalidation didn't happen" as a non-2xx response
+        // — both must increment `attempts` and reschedule, never leave
+        // the row silently `pending` with no error and no next attempt.
+        await ctx.runMutation(internal.revalidate.markAttemptFailed, {
+          id: row._id,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+  },
+})

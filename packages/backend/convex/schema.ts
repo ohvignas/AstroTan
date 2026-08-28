@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
-import { roleValidator, pageStatusValidator } from "./validators"
+import { roleValidator, pageStatusValidator, outboxStatusValidator } from "./validators"
 import { blockValidator } from "./blocks"
 
 // Mirrors design spec §6.5 ("Champs SEO par page"). All optional: a page
@@ -86,4 +86,26 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_status", ["status"])
     .index("by_created_by", ["createdBy"]),
+
+  // Lot 2, Task 3; design spec §6.2 ("Boucle de publication — outbox
+  // durable"). Convex does not retry scheduled actions, so a lost
+  // invalidation would otherwise leave a page whose `status` says
+  // published invisible until its cache `maxAge` expires — with nothing
+  // for an operator to look at. `publishPage` inserts a row here in the
+  // *same* mutation that flips `pages.status`, which is what makes the
+  // row impossible to lose: either both writes land (one Convex
+  // transaction) or neither does.
+  //
+  // `by_status_next_attempt` (compound, in that order) is what lets
+  // `revalidate.ts`'s `listDueRows` ask for exactly "pending rows due
+  // now" — `.eq("status", "pending").lte("nextAttemptAt", now)` — as a
+  // single index range scan, not a full table scan filtered in memory.
+  revalidationOutbox: defineTable({
+    tags: v.array(v.string()),
+    status: outboxStatusValidator,
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_status_next_attempt", ["status", "nextAttemptAt"]),
 })
