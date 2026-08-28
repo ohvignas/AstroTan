@@ -1,5 +1,5 @@
 {
-  "projectName": "start-app",
+  "projectName": "admin",
   "mode": "file-router",
   "typescript": true,
   "packageManager": "pnpm",

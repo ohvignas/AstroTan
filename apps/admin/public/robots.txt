@@ -1,3 +1,4 @@
-# https://www.robotstxt.org/robotstxt.html
+# This is the admin dashboard's own origin, not the public site
+# (apps/web) — nothing here should ever be crawled or indexed.
 User-agent: *
-Disallow:
+Disallow: /

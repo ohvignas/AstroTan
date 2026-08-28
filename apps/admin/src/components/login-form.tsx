@@ -90,12 +90,16 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 }
 
 // The UI only ever *reflects* what the server decided — it does not decide
-// anything itself. `BANNED_USER` (packages/backend/convex/auth.ts's
-// `admin()` plugin config, `bannedUserMessage`) is the one better-auth
-// sign-in error worth naming specifically here; every other *business*
-// failure (wrong password, unknown email, ...) collapses to one message on
-// purpose, so a login attempt can't be used to enumerate which emails have
-// accounts.
+// anything itself. `BANNED_USER` is better-auth's own built-in error code
+// (`admin()` plugin, `error-codes.mjs`), raised automatically for a banned
+// user's sign-in attempt — not something `packages/backend/convex/auth.ts`
+// configures itself (it never sets the plugin's `bannedUserMessage`
+// option, so the library's own default message applies server-side; this
+// screen only ever branches on the *code*, never renders that message).
+// It's the one better-auth sign-in error worth naming specifically here;
+// every other *business* failure (wrong password, unknown email, ...)
+// collapses to one message on purpose, so a login attempt can't be used to
+// enumerate which emails have accounts.
 //
 // `SIGN_IN_RATE_LIMITED` (packages/backend/convex/auth.ts's `hooks.before`,
 // via `lib/signInRateLimit.ts`) is named here for the same reason

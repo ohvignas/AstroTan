@@ -77,17 +77,28 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <ConvexBetterAuthProvider client={convexClient} authClient={authClient} initialToken={token}>
           {children}
         </ConvexBetterAuthProvider>
-        <TanStackDevtools
-          config={{
-            position: "bottom-right",
-          }}
-          plugins={[
-            {
-              name: "Tanstack Router",
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
+        {/* Minor (Lot 1 final review): `@tanstack/devtools-vite`'s own Vite
+            plugin (`vite.config.ts`) already strips this out of a real
+            `vite build` — confirmed live, the build log prints "Removed
+            devtools code from: /src/routes/__root.tsx" — but that's a
+            build-time transform, not a guard in the source itself. Gated
+            here too, defense-in-depth: correct even if that plugin were
+            ever removed, misconfigured, or bypassed by a code path the
+            transform doesn't cover (e.g. `vite preview`, SSR rendering a
+            module the plugin didn't touch). */}
+        {import.meta.env.DEV && (
+          <TanStackDevtools
+            config={{
+              position: "bottom-right",
+            }}
+            plugins={[
+              {
+                name: "Tanstack Router",
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+            ]}
+          />
+        )}
         <Scripts />
       </body>
     </html>
