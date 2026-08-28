@@ -322,6 +322,8 @@ provenance — et la marche à suivre pour les poser à la main.
 | `VITE_CONVEX_URL` | La même URL, pour le build de l'image `admin` (`src/router.tsx` construit son `ConvexReactClient` avec). Non secrète, même raison. |
 | `VITE_CONVEX_SITE_URL` | URL `https://<deployment>.convex.site` — l'origine HTTP du déploiement, celle que Better Auth interroge. Non secrète. |
 | `VITE_WEB_SITE_URL` | Origine publique du site Astro (`https://example.com`), à laquelle le dashboard ajoute `/{slug}?t={token}` — l'aperçu s'ouvre à la vraie URL de la page, le jeton signant le slug (CLAUDE.md, invariant 2). Non secrète : seul le jeton l'est, et il est frappé par Convex. |
+| `PUBLIC_UMAMI_URL` | `https://<UMAMI_DOMAIN>` — l'adresse du script de mesure. **Pas un secret** : elle est dans le source de chaque page. Elle est ici parce qu'Astro la fige dans le bundle au build, donc elle doit exister au moment du `docker build`, pas au démarrage du conteneur. **Facultative** : sans elle, le site ne mesure rien et n'émet aucune requête vers un tiers. |
+| `PUBLIC_UMAMI_WEBSITE_ID` | L'identifiant rendu par Umami après *Add website* (13.1). Non secret, même raison, et facultatif de la même façon : il faut les deux ou aucune. |
 | `VPS_HOST` | Nom d'hôte ou IP du VPS. |
 | `VPS_USER` | L'utilisateur non-root de la section 1. |
 | `VPS_SSH_KEY` | Clé **privée** de déploiement, au format OpenSSH, en entier (`-----BEGIN…` à `-----END…` compris). La générer dédiée à cet usage — `ssh-keygen -t ed25519 -C deploy@astrotan -f ~/.ssh/astrotan_deploy` — et poser la publique dans `~/.ssh/authorized_keys` du VPS. Jamais une clé personnelle : elle n'est ni révocable ni traçable séparément. |
@@ -601,12 +603,52 @@ erreur. C'est voulu — **un template livré sans Umami ne doit pas avoir l'air
 cassé**, et un service d'audience en panne ne doit jamais empêcher d'écrire
 une page.
 
-### 13.3 Le piège du localhost
+### 13.3 Ce que le navigateur envoie réellement
 
-**Umami ne compte pas les visites depuis `localhost`.** C'est un
-comportement d'Umami, pas une panne de cette installation : le script se
-charge, ne renvoie rien, et l'éditeur affiche donc zéro. Ne pas en conclure
-que l'intégration est cassée — vérifier sur le domaine réel.
+Umami **compte bien** les visites depuis `localhost`. Une version
+antérieure de ce document affirmait le contraire ; c'était faux, et le
+croire ferait chasser un problème inexistant — ou pire, prendre de vrais
+zéros pour un comportement normal. Mesuré sur la 3.3.1 de ce compose, avec
+un vrai navigateur sur `http://127.0.0.1:4331/` : `POST /api/send` répond
+`200`.
+
+Voici la charge utile observée dans l'onglet réseau, pas citée depuis une
+brochure :
+
+```json
+{
+  "type": "event",
+  "payload": {
+    "hostname": "127.0.0.1",
+    "language": "fr",
+    "referrer": "",
+    "screen": "1728x1117",
+    "title": "Accueil",
+    "url": "http://127.0.0.1:4331/",
+    "website": "fb5c1ab0-1c7a-43f5-9d91-748a073605f1"
+  }
+}
+```
+
+Aucun cookie n'est posé, et rien là-dedans n'identifie une personne : pas
+d'identifiant stable, pas d'empreinte de navigateur, pas d'adresse IP (le
+serveur la voit passer, comme pour toute requête, et ne la conserve pas
+telle quelle). C'est ce qui permet de mesurer sans bandeau de
+consentement — mais vérifiez-le vous-même dans l'onglet réseau plutôt que
+de nous croire sur parole, c'est l'affaire de dix secondes.
+
+**Si l'écran reste à zéro en local**, la cause est ailleurs : les deux
+variables `PUBLIC_UMAMI_*` doivent être posées **avant** le build
+(`apps/web/.env.local`), parce qu'Astro les fige dans le bundle. Les
+ajouter après coup ne change rien tant que le site n'est pas reconstruit.
+Le contrôle qui tranche :
+
+```bash
+curl -s http://127.0.0.1:4321/ | grep -o 'data-website-id="[^"]*"'
+```
+
+Une ligne : la mesure est branchée. Rien : les variables manquaient au
+build.
 
 ### 13.4 Arriver sur Umami déjà connecté, en un clic
 
@@ -798,10 +840,11 @@ npx convex env set UMAMI_API_USERNAME   admin
 npx convex env set UMAMI_API_PASSWORD   <votre nouveau mot de passe>
 ```
 
-**5. Fabriquer des visites.** Le script de mesure chargé par une page ne
-compte pas `localhost` (13.3), donc l'écran resterait à zéro. L'API
-d'ingestion, elle, accepte ces événements — c'est la façon de voir le
-tableau de bord se remplir sans domaine :
+**5. Fabriquer des visites.** Le plus simple est de poser les deux
+variables `PUBLIC_UMAMI_*` dans `apps/web/.env.local`, de reconstruire le
+site et de le visiter : Umami compte les visites depuis `localhost` (13.3).
+Pour remplir le tableau de bord sans passer par le navigateur, l'API
+d'ingestion accepte aussi les événements directement :
 
 ```bash
 ID=<le Website ID>

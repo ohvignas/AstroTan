@@ -29,6 +29,19 @@ RUN pnpm install --frozen-lockfile
 # c'est pourquoi `convex deploy` précède le build des images en CI).
 ARG PUBLIC_CONVEX_URL
 ENV PUBLIC_CONVEX_URL=$PUBLIC_CONVEX_URL
+
+# La mesure d'audience. Publiques par construction — elles apparaissent dans
+# le source de chaque page de tout site mesuré par Umami — et figées ici par
+# Astro AU BUILD : les poser dans le `.env` du VPS ne ferait rien, le bundle
+# est déjà écrit.
+#
+# Facultatives, et le rester est le point : sans elles, `Analytics.astro`
+# n'émet aucune balise et le site ne parle à personne. Un adoptant qui ne
+# veut pas de mesure n'a rien à désactiver.
+ARG PUBLIC_UMAMI_URL
+ENV PUBLIC_UMAMI_URL=$PUBLIC_UMAMI_URL
+ARG PUBLIC_UMAMI_WEBSITE_ID
+ENV PUBLIC_UMAMI_WEBSITE_ID=$PUBLIC_UMAMI_WEBSITE_ID
 RUN test -n "$PUBLIC_CONVEX_URL" || (echo "PUBLIC_CONVEX_URL build-arg is required" && exit 1)
 RUN pnpm --filter @astrotan/web build
 

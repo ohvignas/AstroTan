@@ -79,6 +79,8 @@ jobs:
           push: true
           build-args: |
             PUBLIC_CONVEX_URL=${{ secrets.PUBLIC_CONVEX_URL }}
+            PUBLIC_UMAMI_URL=${{ secrets.PUBLIC_UMAMI_URL }}
+            PUBLIC_UMAMI_WEBSITE_ID=${{ secrets.PUBLIC_UMAMI_WEBSITE_ID }}
           tags: |
             ${{ steps.img.outputs.prefix }}/astrotan-web:${{ github.sha }}
             ${{ steps.img.outputs.prefix }}/astrotan-web:latest
