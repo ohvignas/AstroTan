@@ -38,10 +38,12 @@ export const Route = createFileRoute("/_authed/leads")({
 // n'a pas d'endroit où poser cet état. Chaque colonne se lit du plus récent
 // au plus ancien, l'ordre dans lequel on répond.
 //
-// Pas de glisser-déposer : il faudrait une bibliothèque, il ne marche pas au
-// clavier sans travail supplémentaire, et il ne marche pas du tout sur un
-// téléphone tenu d'une main. Un sélecteur par carte fait la même chose,
-// partout, tout de suite.
+// Le glisser-déposer utilise l'API native du navigateur — aucune
+// bibliothèque, aucun octet de plus. Il ne marche ni au clavier ni au
+// doigt : c'est une limite de l'API, pas un oubli. Le sélecteur de chaque
+// carte reste donc, non comme un doublon mais comme LE chemin pour qui
+// n'a pas de souris. Retirer l'un des deux rendrait le tableau
+// inutilisable pour quelqu'un.
 
 function formatDate(ms: number): string {
   return new Intl.DateTimeFormat("fr-FR", {
@@ -58,6 +60,9 @@ function LeadsPage() {
   const move = useMutation(api.leads.move)
   const remove = useMutation(api.leads.remove)
   const [openLead, setOpenLead] = useState<Doc<"leads"> | null>(null)
+  // La colonne actuellement survolée pendant un glissement. Sans ce retour
+  // visuel, on lâche à l'aveugle et on découvre le résultat après coup.
+  const [survolee, setSurvolee] = useState<LeadStatus | null>(null)
 
   // Supprimer est réservé : un éditeur classe, il n'efface pas ce qu'un
   // visiteur a écrit. L'interface masque, et la mutation revérifie.
@@ -105,7 +110,30 @@ function LeadsPage() {
           sur un écran étroit donnent cinq bandes illisibles. */}
       <div className="flex gap-4 overflow-x-auto pb-2">
         {LEAD_STATUSES.map((status) => (
-          <section key={status} className="flex w-72 shrink-0 flex-col gap-3">
+          <section
+            key={status}
+            className={`flex w-72 shrink-0 flex-col gap-3 rounded-lg p-1 transition-colors ${
+              survolee === status ? "bg-accent" : ""
+            }`}
+            // `preventDefault` sur `dragOver` est ce qui autorise le dépôt :
+            // sans lui le navigateur refuse le lâcher, et rien n'indique
+            // pourquoi.
+            onDragOver={(event) => {
+              event.preventDefault()
+              setSurvolee(status)
+            }}
+            onDragLeave={() => setSurvolee((s) => (s === status ? null : s))}
+            onDrop={(event) => {
+              event.preventDefault()
+              setSurvolee(null)
+              const id = event.dataTransfer.getData("text/plain") as Id<"leads">
+              const from = event.dataTransfer.getData("application/x-lead-status")
+              // Lâcher une carte dans sa propre colonne ne doit pas écrire :
+              // ce serait une mutation pour rien, et une ligne d'historique
+              // qui ne raconte rien.
+              if (id && from !== status) void move({ id, status })
+            }}
+          >
             <header className="flex items-center justify-between px-1">
               <h2 className="text-sm font-medium">{LEAD_STATUS_LABELS[status]}</h2>
               <Badge variant="secondary" className="tabular-nums">
@@ -117,7 +145,16 @@ function LeadsPage() {
               {board[status].map((lead) => (
                 <article
                   key={lead._id}
-                  className="rounded-lg border bg-card p-3 text-sm shadow-xs"
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData("text/plain", lead._id)
+                    // Le statut d'origine voyage avec la carte : c'est ce
+                    // qui permet à la colonne d'ignorer un dépôt sur
+                    // elle-même sans relire le tableau.
+                    event.dataTransfer.setData("application/x-lead-status", lead.status)
+                    event.dataTransfer.effectAllowed = "move"
+                  }}
+                  className="cursor-grab rounded-lg border bg-card p-3 text-sm shadow-xs active:cursor-grabbing"
                 >
                   <button
                     type="button"
