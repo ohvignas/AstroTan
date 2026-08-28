@@ -44,6 +44,12 @@ import PageHead from "../components/PageHead.astro"
 import Analytics from "../components/Analytics.astro"
 import SiteHeader from "../components/SiteHeader.astro"
 import SiteFooter from "../components/SiteFooter.astro"
+import Hero from "../components/landing/Hero.astro"
+import Numbers from "../components/landing/Numbers.astro"
+import Features from "../components/landing/Features.astro"
+import Stack from "../components/landing/Stack.astro"
+import Faq from "../components/landing/Faq.astro"
+import Cta from "../components/landing/Cta.astro"
 import "../styles/global.css"
 
 const homeSlug = await getConvexClient().query(api.settings.homePageSlug, {})
@@ -80,12 +86,30 @@ if (page === null && !homeSlug) {
         <p class="text-ink-mid">Cette page n'existe pas.</p>
       </main>
     ) : (
-      <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
-        <h1 class="text-3xl font-bold">{page.title}</h1>
-        <p class="text-ink-mid">
-          Cette page est en ligne. Son balisage se remplace par celui de la
-          maquette — voir la marche à suivre en tête de ce fichier.
-        </p>
+      <main>
+        {/* Le titre du <h1> vient de la ligne `pages`, comme le reste des
+            réglages : c'est la seule chose que l'administration décide ici.
+            Tout le reste — la mise en page, les mots, l'ordre des sections —
+            est ce fichier et les composants qu'il assemble.
+
+            Ces six sections vendent AstroTan. Qui reprend le template les
+            supprime : `src/components/landing/` est le seul dossier du dépôt
+            qui parle du produit au lieu d'en faire partie. */}
+        {/* Le titre est écrit ICI, pas repris de `page.title`. La ligne
+            `pages` porte le titre d'administration — celui de la liste du
+            dashboard et le repli du <title> — qui n'a aucune raison d'être
+            l'accroche de la page. Les afficher l'un pour l'autre donnait un
+            <h1> qui disait « Accueil ». */}
+        <Hero
+          eyebrow="Template site vitrine + CMS"
+          title="Le site se charge avant que vous ayez fini de cligner"
+          subtitle="Zéro JavaScript envoyé au visiteur, un dashboard sur invitation, un backend typé partagé par les deux, et un déploiement Docker qu'on sait annuler. Les décisions difficiles sont déjà prises, écrites, et tenues par des tests."
+        />
+        <Numbers />
+        <Features />
+        <Stack />
+        <Faq />
+        <Cta />
       </main>
     )}
     <SiteFooter />

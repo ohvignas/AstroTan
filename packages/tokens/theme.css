@@ -2,36 +2,103 @@
  *
  * Point de personnalisation du SITE PUBLIC (apps/web).
  *
- * Ce fichier est volontairement neutre : c'est une toile de départ, pas une
- * identité. Qui reprend ce template remplace ces valeurs par les siennes —
- * c'est le seul fichier à toucher pour changer l'apparence du site.
+ * Toile de départ, pas une identité : qui reprend ce template remplace ces
+ * valeurs par les siennes, et c'est le seul fichier à toucher pour changer
+ * l'apparence du site.
  *
- * Il ne pilote PAS le dashboard admin. shadcn/ui y gère ses propres variables
- * CSS ; superposer deux systèmes de tokens donnerait deux sources de vérité
- * pour les mêmes couleurs.
+ * Il ne pilote PAS le dashboard admin. shadcn/ui y gère ses propres
+ * variables CSS ; superposer deux systèmes de tokens donnerait deux sources
+ * de vérité pour les mêmes couleurs.
+ *
+ * Palette monochrome en OKLCH, inspirée du starter `astro-emdash` (MIT).
+ * OKLCH plutôt que hex parce que la clarté y est perceptuelle : passer de
+ * 0.20 à 0.50 assombrit du même écart visible quelle que soit la teinte, ce
+ * qu'un `#333` → `#888` ne garantit pas. Une seule teinte pour tout le site,
+ * et un chroma quasi nul sur les surfaces : la couleur devient alors un
+ * signal, pas une décoration.
  */
 @import "tailwindcss";
 
+/* Le mode sombre suit la classe `dark` sur `<html>`, posée par le script du
+   layout, et non `prefers-color-scheme` seul : sans quoi le choix explicite
+   d'un visiteur ne pourrait pas l'emporter sur le réglage de son système. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
-  /* Couleur d'accent — la seule teinte du site. Neutre par défaut : à remplacer.
-     Format oklch(clarté chroma teinte). Monter le chroma pour plus de saturation,
-     changer la teinte (0-360) pour changer de couleur. */
+  /* === Teinte unique du site ===
+     Tout ce qui suit s'accorde à cette valeur. La changer (0-360) fait
+     pivoter l'ensemble sans casser les contrastes. */
   --color-accent-50:  oklch(0.97 0.005 250);
   --color-accent-500: oklch(0.55 0.02  250);
   --color-accent-900: oklch(0.25 0.015 250);
 
-  /* Neutres. Légèrement biaisés vers la teinte d'accent : régler la même teinte
-     que ci-dessus pour que les gris s'accordent au reste. */
-  --color-ink:     oklch(0.20 0.01 250);
-  --color-ink-mid: oklch(0.50 0.01 250);
-  --color-paper:   oklch(0.99 0.003 250);
-  --color-rule:    oklch(0.90 0.005 250);
+  /* === Surfaces et texte, mode clair === */
+  --color-paper:     oklch(0.99  0.003 250);
+  --color-surface:   oklch(0.975 0.004 250);
+  --color-ink:       oklch(0.20  0.01  250);
+  --color-ink-mid:   oklch(0.50  0.01  250);
+  --color-ink-faint: oklch(0.65  0.008 250);
+  --color-rule:      oklch(0.90  0.005 250);
 
-  /* Typographie — piles système par défaut, aucune police à télécharger.
-     Remplacer par la police du projet et charger la fonte dans le layout. */
+  /* === Typographie ===
+     Piles système : aucune police à télécharger, donc aucun saut de mise en
+     page au chargement et zéro octet de fonte. Remplacer par la police du
+     projet en la chargeant dans le layout. */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-serif: ui-serif, Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  /* Rythme */
-  --radius-card: 0.5rem;
+  /* === Rythme === */
+  --radius-card: 0.75rem;
+  --spacing-section: 6rem;
+}
+
+/* Le mode sombre ne redéfinit QUE les tokens, jamais les composants. Une
+   couleur dont la seule définition vivrait ici ne s'appliquerait pas en mode
+   clair — c'est l'erreur classique, et elle rend la page illisible. */
+:root.dark {
+  --color-paper:     oklch(0.16  0.008 250);
+  --color-surface:   oklch(0.205 0.008 250);
+  --color-ink:       oklch(0.97  0.004 250);
+  --color-ink-mid:   oklch(0.72  0.008 250);
+  --color-ink-faint: oklch(0.55  0.008 250);
+  --color-rule:      oklch(0.30  0.008 250);
+  --color-accent-50:  oklch(0.26 0.01  250);
+  --color-accent-500: oklch(0.75 0.03  250);
+  --color-accent-900: oklch(0.95 0.01  250);
+}
+
+/* Bases : posées ici parce qu'elles valent pour toutes les pages, et que les
+   répéter dans chaque `.astro` est la duplication à ne pas commencer. */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    color-scheme: light;
+  }
+  html.dark { color-scheme: dark; }
+
+  /* `body` peint un fond explicite : sans lui, la page emprunte celui de
+     l'hôte et le texte du mode sombre atterrit sur un fond clair. */
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+  }
+
+  /* Un titre coupé sur un mot orphelin se voit tout de suite ; `balance`
+     répartit les lignes à la place. */
+  h1, h2, h3 { text-wrap: balance; }
+  p { text-wrap: pretty; }
+
+  ::selection {
+    background-color: var(--color-ink);
+    color: var(--color-paper);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }

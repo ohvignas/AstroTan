@@ -12,3 +12,6 @@ dist/
 .turbo/
 .DS_Store
 .superpowers/
+
+# Débris d'agents (journaux et captures Playwright)
+.playwright-mcp/

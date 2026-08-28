@@ -1,0 +1,35 @@
+---
+// La marque affichée quand aucun logo n'a été téléversé depuis les réglages.
+//
+// C'est l'icône d'Astro, posée comme valeur par défaut d'un template Astro.
+// Elle n'est PAS l'identité du site qu'on construira avec : téléverser un
+// logo dans les réglages la remplace partout, sans toucher au code.
+//
+// L'icône plutôt que le logo large : les deux fichiers fournis sont les
+// variantes « light », prévues pour un fond sombre — le mot « Astro » du
+// logo large est blanc, donc invisible sur cet en-tête clair. L'icône, elle,
+// est un dégradé magenta qui tient sur les deux fonds.
+//
+// `<Image>` et non `<img>` : le fichier vit dans `src/assets/`, donc
+// `astro:assets` le voit à travers le graphe de modules et le sert en WebP
+// redimensionné. Dans `public/`, il traverserait le pipeline intact et rien
+// ne le signalerait.
+import { Image } from "astro:assets"
+import astroIcon from "../assets/astro-icon.png"
+
+interface Props {
+  class?: string
+}
+const { class: className } = Astro.props
+---
+
+{/* `alt=""` : la marque jouxte le nom du site, déjà lu juste après. Le
+    décrire une seconde fois ferait entendre deux fois la même chose. */}
+<Image
+  src={astroIcon}
+  alt=""
+  width={22}
+  height={28}
+  densities={[1, 2]}
+  class={className}
+/>

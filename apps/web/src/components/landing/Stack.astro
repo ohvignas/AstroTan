@@ -1,0 +1,66 @@
+---
+// La pile, et surtout la raison de chaque choix.
+//
+// Une liste de logos ne dit rien ; ce qui aide à décider, c'est pourquoi
+// telle brique plutôt qu'une autre, et ce qu'elle coûte.
+interface Piece {
+  name: string
+  role: string
+  why: string
+}
+const pieces: Piece[] = [
+  {
+    name: "Astro 7",
+    role: "le site public",
+    why: "Rendu au serveur, adaptateur Node, zéro JavaScript envoyé par défaut. Les images passent par astro:assets — un PNG de 95 ko sort en WebP de 910 o.",
+  },
+  {
+    name: "TanStack Start",
+    role: "le dashboard",
+    why: "React 19 et shadcn/ui. TanStack Query est délibérément absent : Convex est déjà la couche réactive, et empiler un second cache donnerait deux sources de vérité sur la fraîcheur.",
+  },
+  {
+    name: "Convex",
+    role: "les données",
+    why: "Un backend typé et réactif partagé par les deux applications. Le site public n'a ni session ni clé d'administration : il n'appelle que des queries publiques qui filtrent les brouillons côté serveur.",
+  },
+  {
+    name: "Better Auth",
+    role: "l'authentification",
+    why: "Installation locale, plugin admin, invitations expirables. Le mot de passe est jugé par le même code côté serveur et côté navigateur, pour que la jauge affichée ne mente pas sur ce qui sera accepté.",
+  },
+  {
+    name: "Docker et Traefik",
+    role: "l'hébergement",
+    why: "Une pile compose sur un VPS, certificats automatiques, healthchecks. Le rollback rejoue le pipeline entier sur un sha — jamais les images seules, parce que le déploiement a aussi remplacé le schéma.",
+  },
+  {
+    name: "Umami",
+    role: "l'audience",
+    why: "Auto-hébergé à côté du reste. Aucune donnée ne quitte le serveur, et le coût est écrit franchement : un service et une base de plus à sauvegarder.",
+  },
+]
+---
+
+<section class="border-b border-rule bg-surface">
+  <div class="mx-auto max-w-5xl px-6 py-20 sm:py-24">
+    <h2 class="text-3xl font-semibold tracking-tight sm:text-4xl">Ce qu'il y a sous le capot</h2>
+    <p class="mt-4 max-w-2xl text-ink-mid">
+      Six briques, et la raison de chacune. Les versions ne sont pas
+      épinglées au hasard : elles le sont quand le spike d'intégration est
+      vert.
+    </p>
+
+    <dl class="mt-14 divide-y divide-rule border-y border-rule">
+      {pieces.map((piece) => (
+        <div class="grid gap-2 py-6 sm:grid-cols-[14rem_1fr] sm:gap-8">
+          <dt>
+            <span class="font-mono text-sm font-medium">{piece.name}</span>
+            <span class="mt-1 block text-xs text-ink-faint">{piece.role}</span>
+          </dt>
+          <dd class="text-sm leading-relaxed text-ink-mid">{piece.why}</dd>
+        </div>
+      ))}
+    </dl>
+  </div>
+</section>
