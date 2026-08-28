@@ -13,7 +13,13 @@
 
 ## Global Constraints
 
-- **Zéro JavaScript envoyé au visiteur**, hors bascule de thème. Aucun composant React, aucune directive `client:*`. C'est l'argument principal de la page d'accueil ; le contredire viderait le reste de son sens.
+- **Zéro JavaScript sur les pages de contenu**, hors bascule de thème.
+  **Une seule exception, décidée explicitement : `/contact`**, dont le
+  formulaire est un îlot React avec TanStack Form. Elle n'a pas vocation à
+  être référencée, et le confort de saisie y vaut plus que les octets.
+  Partout ailleurs, aucune directive `client:*` — et le texte de l'accueil
+  doit dire « pages de contenu », pas « toutes les pages », sous peine
+  d'être faux sur la page même qui le proclame.
 - **`apps/web` n'a ni session ni clé d'administration.** Il ne lit que des queries publiques filtrant `status === "published"`. La seule écriture autorisée par ce lot passe par un secret partagé, côté serveur.
 - **Une page est un couple** : un fichier `.astro` ET une ligne `pages` publiée. Sans la ligne, la route rend 404 — c'est voulu.
 - **Invoquer `add-page`** avant de toucher à `apps/web/src/pages/`, `mockup-to-astro` pour l'intégration du design, `convex-function` avant `packages/backend/convex/`.
@@ -99,7 +105,15 @@ Une page dont le fichier existe mais dont la ligne manque rend 404. C'est l'inva
 
 - [ ] **Step 1: Écrire les tests qui échouent** — le pot de miel rempli répond comme un succès sans rien écrire (dire « raté » à un robot, c'est lui apprendre à réussir) ; au-delà de la limite, 429 ; une charge utile trop grosse est refusée avant d'atteindre Convex.
 - [ ] **Step 2: Implémenter**, avec le limiteur de débit Convex — pas une carte en mémoire, qui serait par processus et donc inexistante dès qu'il y a deux conteneurs.
-- [ ] **Step 3: Le formulaire** du template pointe sur cette route, en `POST` natif, **sans JavaScript**. Il doit fonctionner script désactivé.
+- [ ] **Step 3: Le formulaire** est un îlot React (`client:load`) avec
+      `@tanstack/react-form`, déjà installé côté admin et jamais utilisé.
+      Il poste vers cette route. **Garder l'attribut `action` sur le
+      `<form>`** : l'îlot intercepte quand il est chargé, le navigateur
+      poste quand il ne l'est pas — le coût est d'une ligne, et il évite de
+      perdre un message quand un script n'arrive pas.
+- [ ] **Step 3 bis: Ajouter `@astrojs/react`** à `apps/web`, et vérifier que
+      les autres pages n'embarquent toujours rien : `grep -rn 'client:'
+      apps/web/src --include='*.astro'` ne doit citer que `contact`.
 - [ ] **Step 4: Vérifier de bout en bout** au navigateur : envoyer un message, le voir arriver.
 - [ ] **Step 5: Commit** — `feat(web): wire the contact form to its endpoint`
 
@@ -142,10 +156,11 @@ Une page dont le fichier existe mais dont la ligne manque rend 404. C'est l'inva
 ## Definition of Done — Lot 7
 
 - [ ] Chaque page publique ressemble au template, à 1440, 768 et 375 px.
-- [ ] Aucune directive `client:*`, aucun octet de JavaScript hors bascule de thème.
+- [ ] Aucune directive `client:*` hors `/contact`, vérifié par `grep`.
+- [ ] Le chiffre affiché sur l'accueil correspond à ce qui est réellement envoyé, page par page.
 - [ ] Chaque page a sa ligne `pages` et apparaît dans `/pages`.
 - [ ] `grep -c data-website-id` vaut 1 sur chaque route, et un `POST /api/send` observé.
 - [ ] Un message envoyé depuis le site apparaît dans `/messages` et déclenche un email.
-- [ ] Le formulaire fonctionne **JavaScript désactivé**.
+- [ ] Le formulaire poste quand même si l'îlot n'a pas chargé (`action` présent).
 - [ ] Un secret manquant, faux ou court fait refuser l'écriture, et c'est testé.
 - [ ] Le skill décrit ce qui s'est réellement passé.
