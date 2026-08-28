@@ -1011,3 +1011,87 @@ test("revoke réussit même après que l'envoi programmé a déjà terminé (ne 
   const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
   expect(rows).toHaveLength(0)
 })
+
+// --- preview : ce qu'affiche `/accept-invite` avant que la personne ne ----
+// --- saisisse quoi que ce soit — jamais authentifié, jamais le token -------
+// --- lui-même en retour -----------------------------------------------------
+
+// Unauthenticated on purpose, exactly like `accept`: the person opening the
+// link has no session yet. Called on the raw `t` (no identity at all), not
+// through `seedAdmin`'s signed-in handle — proving this doesn't secretly
+// depend on a caller role the way `list`/`revoke` do.
+test("preview renvoie l'email et le rôle d'une invitation valide, sans authentification et sans exposer le token", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "admin",
+  })
+
+  const result = await t.query(api.invitations.preview, { token })
+  expect(result).toEqual({ email: "invitee@example.com", role: "admin" })
+})
+
+test("preview refuse un token inconnu ou corrompu (INVALID)", async () => {
+  const t = makeTestConvex()
+  await expect(
+    t.query(api.invitations.preview, { token: "0".repeat(64) }),
+  ).rejects.toThrow(/INVALID/)
+})
+
+test("preview refuse une invitation expirée (EXPIRED)", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+  await t.run(async (ctx) => {
+    const row = await ctx.db.query("invitations").first()
+    await ctx.db.patch(row!._id, { expiresAt: Date.now() - 1000 })
+  })
+
+  await expect(t.query(api.invitations.preview, { token })).rejects.toThrow(/EXPIRED/)
+})
+
+test("preview refuse une invitation déjà acceptée (ALREADY_ACCEPTED)", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+  await t.mutation(api.invitations.accept, {
+    token,
+    password: "correct horse battery staple preview1",
+  })
+
+  await expect(t.query(api.invitations.preview, { token })).rejects.toThrow(
+    /ALREADY_ACCEPTED/,
+  )
+})
+
+// Same ordering rule as `accept` (ruling 2): a consumed invitation that has
+// since expired must still report ALREADY_ACCEPTED, never EXPIRED — so the
+// page can tell "already have an account, go sign in" apart from "ask for a
+// new invitation" correctly regardless of when it's opened.
+test("preview : une invitation consommée puis expirée reste ALREADY_ACCEPTED, jamais EXPIRED", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+  await t.mutation(api.invitations.accept, {
+    token,
+    password: "correct horse battery staple preview2",
+  })
+  await t.run(async (ctx) => {
+    const row = await ctx.db.query("invitations").first()
+    await ctx.db.patch(row!._id, { expiresAt: Date.now() - 1000 })
+  })
+
+  await expect(t.query(api.invitations.preview, { token })).rejects.toThrow(
+    /ALREADY_ACCEPTED/,
+  )
+})

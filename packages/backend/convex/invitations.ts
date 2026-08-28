@@ -355,6 +355,37 @@ export const list = query({
   },
 })
 
+// Unauthenticated, exactly like `accept` below: this is what `/accept-invite`
+// (`apps/admin/src/routes/accept-invite.tsx`) calls to show the invited
+// email and role *before* the visitor types a password, per the task's
+// requirement that those come "from the invitation, not from anything the
+// visitor supplies" — a URL could otherwise carry an arbitrary email/role
+// query param the page displayed uncritically. Deliberately narrower than
+// `accept`: no issuer re-check here (that answer can go stale between page
+// load and submission regardless, and `accept` re-verifies it for real at
+// the point that matters — creating the account), and no session/role gate
+// (the whole point of an invite link is that the person holding it has no
+// account yet). Same three early codes as `accept`, same order (ruling 2:
+// ALREADY_ACCEPTED before EXPIRED, so a consumed-then-expired invitation
+// reports consistently either way) — reusing them here rather than a
+// fourth representation of "is this token still good" that could drift
+// from `accept`'s own. Returns only `email`/`role`: never `tokenHash`,
+// `pendingToken`, or the token argument itself.
+export const preview = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const hash = await hashToken(args.token)
+    const invite = await ctx.db
+      .query("invitations")
+      .withIndex("by_token_hash", (q) => q.eq("tokenHash", hash))
+      .unique()
+    if (!invite) throw new ConvexError({ code: "INVALID" })
+    if (invite.acceptedAt) throw new ConvexError({ code: "ALREADY_ACCEPTED" })
+    if (invite.expiresAt < Date.now()) throw new ConvexError({ code: "EXPIRED" })
+    return { email: invite.email, role: invite.role }
+  },
+})
+
 // Requis par le test d'exhaustivité de `_registry.test.ts` (voir
 // `profiles.ts` pour le même mécanisme) : toute mutation publique doit être
 // déclarée ici, sans quoi ce test échoue. `list` (query) n'y figure pas :
