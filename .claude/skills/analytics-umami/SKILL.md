@@ -1,0 +1,152 @@
+---
+name: analytics-umami
+description: Use when touching anything about audience measurement in AstroTan — packages/backend/convex/analytics.ts, the Umami services in docker/, apps/web/src/components/Analytics.astro, the admin dashboard or its Statistiques button. Also use when the dashboard shows zeros, when statistics look plausible but wrong, when POST /api/auth/sso answers "Redis is disabled", when a link that should open Umami does nothing, or when wiring Umami into a fresh deployment.
+---
+
+# Umami dans AstroTan
+
+Chaque point de cette page a été payé une fois dans ce dépôt. Trois des
+erreurs listées ne levaient **aucune exception** : elles produisaient des
+chiffres faux, et les tests passaient.
+
+## La règle qui aurait évité la moitié de cette page
+
+**Un stub que vous écrivez encode vos hypothèses, donc il sera toujours
+d'accord avec votre code.** Ce module a été livré vert — tests, `tsc`,
+push Convex — avec quatre erreurs d'API, découvertes en dix minutes le jour
+où un vrai Umami a tourné. Lancer l'instance réelle avant d'écrire le
+parseur, pas après :
+
+```bash
+cd docker && docker compose --env-file .env.local \
+  -f docker-compose.yml -f docker-compose.local.yml up -d umami
+```
+
+La procédure complète est dans [`docker/README.md`](../../../docker/README.md) §13.5.
+
+## Les deux moitiés, qui ne vivent pas au même endroit
+
+| | Ce que c'est | Où ça vit | Quand c'est lu |
+|---|---|---|---|
+| `PUBLIC_UMAMI_URL`, `PUBLIC_UMAMI_WEBSITE_ID` | le script qui **écrit** les visites | secrets GitHub → build-args (`docker/web.Dockerfile`), et `apps/web/.env.local` en local | **au build** |
+| `UMAMI_API_URL`, `UMAMI_API_WEBSITE_ID`, `UMAMI_API_USERNAME`, `UMAMI_API_PASSWORD` | les identifiants qui **lisent** les chiffres | déploiement Convex (`npx convex env set`) | à l'exécution |
+| `UMAMI_API_SHARE_ID` *(facultative)* | le partage en lecture seule | déploiement Convex | à l'exécution |
+| `UMAMI_DOMAIN`, `UMAMI_DB_PASSWORD`, `UMAMI_APP_SECRET`, `UMAMI_TWO_FACTOR_ENCRYPTION_KEY` | le service lui-même | `.env` du VPS | au démarrage des conteneurs |
+
+**Le préfixe `UMAMI_API_` n'est pas décoratif.** Le `.env` du VPS porte déjà
+`UMAMI_DB_PASSWORD` et `UMAMI_APP_SECRET` : sans l'infixe, quelqu'un colle un
+secret dans le champ d'un autre, et le message d'erreur ne le dira pas.
+
+**La moitié écriture a été oubliée une fois, entièrement.** Le
+`web.Dockerfile` ne déclarait aucun `ARG PUBLIC_UMAMI_*` et `deploy.yml` n'en
+passait aucun : toute image de production aurait été construite sans le
+script, et le tableau de bord aurait affiché zéro pour toujours sans rien
+dire. Après tout changement, le contrôle qui tranche :
+
+```bash
+curl -s http://<le site>/ | grep -o 'data-website-id="[^"]*"'
+```
+
+Une ligne : branché. Rien : les variables manquaient **au build** — Astro les
+fige dans le bundle, les ajouter ensuite ne change rien tant que le site
+n'est pas reconstruit.
+
+## L'API d'Umami 3 — quatre pièges, trois silencieux
+
+Vérifiés contre la 3.3.1 épinglée dans le compose. Les tests de
+`convex/analytics.test.ts` portent les charges utiles réelles et épinglent
+chacun de ces points : les rouvrir casse un test plutôt que le produit.
+
+| Ce qu'on croit (Umami 2) | Ce que fait Umami 3 |
+|---|---|
+| `/stats` rend `{value, prev}` par métrique | **Nombres plats** + un objet `comparison` frère. Lu à l'ancienne, chaque chiffre sort `undefined` puis 0 : une page éternellement sans visite. |
+| `?url=/contact` filtre sur une page | **Accepté et ignoré**, sans erreur. La réponse est celle du site entier. Le paramètre s'appelle `path`. Mesuré : `url=/contact` → 11 vues, `path=/contact` → 2. |
+| `comparison` est toujours rempli | Zéro **sauf si** la requête porte `compare=prev`. Sans le drapeau, toute évolution passe pour une progression depuis rien. |
+| `/metrics?type=url` | **400.** Le type s'appelle `path`. Celui-là, au moins, échoue franchement. |
+
+## Le SSO — ce qui le fait marcher, et ce qui l'a cassé
+
+Arriver sur Umami déjà connecté depuis l'administration :
+
+1. Convex s'authentifie (`/api/auth/login`) — **côté serveur, jamais dans le
+   navigateur**.
+2. `POST /api/auth/sso` frappe un jeton d'échange à usage unique.
+3. Le navigateur le présente à `/sso?url=…&token=…`, Umami ouvre la session.
+
+**Redis est obligatoire.** Sans lui, l'étape 2 répond `500 {"message":"Redis
+is disabled"}` — un message qui ne parle pas d'authentification et qu'on lit
+d'abord comme une panne. C'est la raison d'être du service `umami-redis` du
+compose ; il ne persiste rien sur disque, ces jetons expirant en minutes.
+
+**`url` est obligatoire.** Sans ce paramètre, la page `/sso` consomme le
+jeton et s'arrête sur un **écran blanc**, sans erreur. Le jeton est brûlé :
+il faut en frapper un autre pour réessayer.
+
+**Ne pas ouvrir l'onglet en JavaScript.** `window.open(u, "_blank",
+"noopener")` rend `null` **par spécification** dès que `noopener` est
+présent : la référence à remplir n'existe pas, et le bouton ne fait *rien*.
+Retirer le drapeau ne suffit pas — des navigateurs et des contextes
+embarqués bloquent `window.open` même dans un vrai geste utilisateur. La
+barre latérale pointe donc une **ancre ordinaire** vers `/statistiques`, une
+route de l'admin qui frappe le jeton puis redirige. Un lien, aucun bloqueur
+ne l'arrête, et le clic-milieu fonctionne.
+
+**Le lien prête un compte partagé.** Umami ouvre la session de
+`UMAMI_API_USERNAME` : il ne délègue pas l'identité de qui clique.
+Conséquences assumées — l'historique d'Umami ne distingue pas les personnes,
+et qui clique peut tout ce que ce compte peut. D'où `requireRole(["owner",
+"admin"])` sur `ssoLink`, quand les fonctions qui ne rendent que des chiffres
+restent ouvertes aux trois rôles.
+
+## Règles de code
+
+- **Une `action`, jamais une `query`.** Une query ne peut pas sortir sur le
+  réseau, et surtout elle est réactive : elle rappellerait Umami à chaque
+  tick d'abonnement.
+- **Aucun identifiant de lecture ne doit atteindre le navigateur.** C'est
+  toute la raison pour laquelle ces appels partent de Convex et non de
+  l'admin. Un appel depuis le dashboard les exposerait aux outils de
+  développement.
+- **Aucune panne ne doit casser un écran.** Toute défaillance devient un
+  état lisible (`not-configured`, `unreachable`, `unauthorized`), jamais une
+  exception. Des statistiques sont une information, jamais une dépendance de
+  l'édition d'une page.
+- **Ne jamais afficher zéro pour une panne.** Un zéro se lit « personne
+  n'est venu » — une information fausse dont l'auteur peut tirer une
+  conclusion. Une liste absente dit qu'elle est absente.
+- **« Non configuré » est une réponse ordinaire.** Un template livré sans
+  Umami ne doit pas avoir l'air cassé, et l'absence de configuration est
+  l'interrupteur : `Analytics.astro` n'émet aucune balise, le menu masque son
+  bouton.
+
+## Idées reçues corrigées
+
+- **« Umami ne compte pas `localhost`. »** Faux, et ce document l'a affirmé
+  avant de le vérifier. Mesuré : `POST /api/send` répond `200` depuis
+  `http://127.0.0.1:4331/`. Si l'écran reste à zéro en local, chercher les
+  variables manquantes **au build**, pas un comportement d'Umami.
+- **« Il suffit de créer un compte Umami avec le même mot de passe que le
+  propriétaire du site. »** Ça met un mot de passe en clair dans un second
+  magasin, les deux divergent au premier changement sans que personne le
+  voie, et il faut **quand même** le taper sur le formulaire d'Umami. Le SSO
+  ci-dessus fait mieux sur les trois points.
+- **« Un jeton dans l'URL, c'est toujours à proscrire. »** Le jeton du
+  *compte*, oui : une URL se dépose dans l'historique, dans les en-têtes
+  `Referer` et dans les journaux des proxys. Le jeton d'*échange* d'Umami est
+  à usage unique et à vie courte — la forme d'un lien de connexion par
+  email. Confondre les deux fait rejeter le bon mécanisme.
+
+## Brancher un déploiement neuf — la liste
+
+1. `docker compose up -d umami` (avec Redis, il est dans le compose).
+2. Ouvrir `https://<UMAMI_DOMAIN>`, se connecter `admin` / `umami`,
+   **changer ce mot de passe immédiatement** — il est identique partout.
+3. *Add website* → noter le **Website ID**.
+4. `npx convex env set` les quatre `UMAMI_API_*` (depuis `packages/backend`).
+5. Poser `PUBLIC_UMAMI_URL` et `PUBLIC_UMAMI_WEBSITE_ID` en secrets GitHub,
+   puis **redéployer** — elles n'entrent que par le build.
+6. Vérifier avec le `curl` ci-dessus que la balise est dans la page.
+7. Visiter le site, puis recharger l'accueil de l'administration.
+
+En local, remplacer les étapes 5 et 6 par `apps/web/.env.local` et un
+`pnpm --filter @astrotan/web run build`.
