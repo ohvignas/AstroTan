@@ -1,0 +1,70 @@
+# docker/traefik/traefik.yml — configuration STATIQUE, montée en lecture
+# seule dans le conteneur. Le routage, lui, est dynamique et vient des
+# labels des services (provider docker ci-dessous).
+#
+# ATTENTION — ce fichier n'interpole RIEN. Contrairement au compose, qui
+# remplace `${WEB_DOMAIN}` avant de passer la valeur à Docker, Traefik lit
+# ce YAML tel quel : `${ACME_EMAIL}` y resterait la chaîne littérale
+# « ${ACME_EMAIL} ». Vérifié sur traefik:v3.6 (3.6.25) avec un champ
+# observable :
+#
+#     log.level: "${MYLEVEL}"   (MYLEVEL=DEBUG dans l'environnement)
+#     -> "Unknown Level String: '${mylevel}', defaulting to NoLevel"
+#
+# Et il n'existe aucune échappatoire par variable d'environnement ou par
+# argument de ligne de commande : dès que `/etc/traefik/traefik.yml`
+# existe, il est la source EXCLUSIVE de la configuration statique.
+# Vérifié aussi, sur cette même version : `TRAEFIK_LOG_LEVEL=DEBUG` puis
+# `traefik --log.level=DEBUG` ne produisent ni l'un ni l'autre la moindre
+# ligne DBG tant que ce fichier est monté. Toute valeur qui doit changer
+# d'un déploiement à l'autre se change donc ICI, par un commit — ce qui
+# est cohérent avec le reste du lot : la config du VPS vient du dépôt.
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    # Aucun conteneur n'est exposé sans le demander explicitement par un
+    # label `traefik.enable=true`. Le défaut inverse publierait sur
+    # internet tout conteneur qui passerait par là.
+    exposedByDefault: false
+    network: astrotan_edge
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      # Littéral, et non `${ACME_EMAIL}` : voir l'avertissement en tête de
+      # fichier. Ce n'est pas un secret — c'est l'adresse à laquelle Let's
+      # Encrypt envoie les avis d'expiration. Une valeur non interpolée
+      # ferait échouer l'enregistrement du compte ACME au premier
+      # certificat demandé, c'est-à-dire en production, DNS déjà basculé.
+      email: "contact@illith.com"
+      storage: /acme/acme.json
+      httpChallenge:
+        entryPoint: web
+
+# Endpoint interne `/ping` sur le port de l'API, seule cible du healthcheck
+# du conteneur Traefik. L'API et le dashboard Traefik ne sont PAS exposés :
+# ni `api.insecure`, ni router vers le dashboard. Un dashboard Traefik
+# ouvert publie la topologie complète du VPS.
+#
+# `traefik` est l'entrypoint interne par défaut (port 8080), non publié :
+# il n'apparaît pas dans `entryPoints` ci-dessus et n'a pas à y être
+# déclaré. Vérifié : `traefik healthcheck --ping` répond
+# « OK: http://:8080/ping » avec ce fichier.
+ping:
+  entryPoint: traefik
+
+log:
+  level: INFO
+accessLog: {}

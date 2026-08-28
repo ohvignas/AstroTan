@@ -1,0 +1,98 @@
+# docker/docker-compose.yml — ce qui tourne sur le VPS (spec §7).
+# Aucune image n'est construite ici : la CI les pousse sur GHCR et ce
+# fichier ne fait que les tirer, à un tag précis. C'est ce qui rend le
+# rollback exécutable — `IMAGE_TAG` est un sha de commit, pas `latest`.
+name: astrotan
+
+services:
+  traefik:
+    image: traefik:v3.6
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Lecture seule : Traefik n'a besoin que de lire les labels des
+      # conteneurs. Un socket Docker monté en écriture équivaut à donner
+      # le root de l'hôte au conteneur.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - acme:/acme
+    # Pas de bloc `environment:` ici, et surtout pas d'`ACME_EMAIL` : dès
+    # qu'un `/etc/traefik/traefik.yml` est monté, il est la source
+    # EXCLUSIVE de la configuration statique de Traefik — ni les variables
+    # d'environnement ni les arguments de ligne de commande n'y sont
+    # fusionnés (vérifié sur 3.6.25, voir l'en-tête de traefik/traefik.yml).
+    # Une variable passée ici serait donc silencieusement ignorée, ce qui
+    # est pire que son absence : elle laisserait croire que l'adresse ACME
+    # se règle depuis `.env`. Elle se règle dans traefik/traefik.yml.
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER is required}/astrotan-web:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    # Un seul réplica, et ce n'est pas un réglage de capacité : le cache
+    # d'Astro est `memoryCache()`, par processus. Une seconde instance
+    # continuerait de servir du contenu périmé jusqu'à `maxAge` après
+    # chaque publication, parce que le POST `/api/revalidate` n'atteint
+    # qu'un seul processus (spec §6.2 ; le commentaire final de
+    # apps/web/src/pages/api/revalidate.ts). Monter ce nombre exige
+    # d'abord un provider de cache partagé.
+    deploy:
+      replicas: 1
+    environment:
+      # Secrets d'exécution, jamais dans l'image (contrainte globale) :
+      # `.env` du VPS, jamais commité.
+      PREVIEW_SECRET: ${PREVIEW_SECRET:?PREVIEW_SECRET is required}
+      REVALIDATE_SECRET: ${REVALIDATE_SECRET:?REVALIDATE_SECRET is required}
+      # `PUBLIC_CONVEX_URL` n'apparaît pas ici : Astro l'a figée dans le
+      # bundle au build (build-arg). La changer impose de reconstruire.
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4321/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.web.rule: Host(`${WEB_DOMAIN:?WEB_DOMAIN is required}`)
+      traefik.http.routers.web.entrypoints: websecure
+      traefik.http.routers.web.tls.certresolver: letsencrypt
+      traefik.http.services.web.loadbalancer.server.port: "4321"
+
+  admin:
+    image: ghcr.io/${GHCR_OWNER}/astrotan-admin:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      # Les mêmes valeurs qu'en build-arg, et pour une autre raison :
+      # `src/lib/auth-server.ts` les lit par `process.env` au runtime,
+      # tandis que `src/router.tsx` lit la copie figée par Vite. Les deux
+      # sont nécessaires (voir docker/admin.Dockerfile, Task 5).
+      VITE_CONVEX_URL: ${VITE_CONVEX_URL:?VITE_CONVEX_URL is required}
+      VITE_CONVEX_SITE_URL: ${VITE_CONVEX_SITE_URL:?VITE_CONVEX_SITE_URL is required}
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.admin.rule: Host(`${ADMIN_DOMAIN:?ADMIN_DOMAIN is required}`)
+      traefik.http.routers.admin.entrypoints: websecure
+      traefik.http.routers.admin.tls.certresolver: letsencrypt
+      traefik.http.services.admin.loadbalancer.server.port: "3000"
+
+networks:
+  edge:
+    name: astrotan_edge
+
+volumes:
+  acme:
