@@ -125,6 +125,21 @@ export const setRole = mutation({
     const target = await authComponent.getAnyUserById(ctx, args.userId)
     if (!target) throw new ConvexError({ code: "NOT_FOUND" })
 
+    // I1 (Lot 1 final review): spec §5 gives `admin` authority to
+    // invite/edit `editor` only — never another `admin` — reserving
+    // everything else, `admin` included, to `owner`.
+    // `assertOwnerInvariant` below only ever guards the *owner* role, so
+    // admin-on-admin sailed through every one of its branches: a role
+    // -table rule, not a single-owner one, so it's enforced here rather
+    // than folded into that guard. An `admin` actor may only touch a
+    // target that is *currently* `editor`, and may only ever set it back
+    // to `editor` — a real role change (promote to `admin`, or act on an
+    // existing `admin`) is refused outright, before the owner-invariant
+    // check below even runs.
+    if (actor.role === "admin" && (parseRole(target.role) !== "editor" || args.role !== "editor")) {
+      throw new ConvexError({ code: "FORBIDDEN" })
+    }
+
     const ownerCount = await countUsersWithRole(ctx, "owner")
     try {
       assertOwnerInvariant({
@@ -166,6 +181,14 @@ export const remove = mutation({
 
     const target = await authComponent.getAnyUserById(ctx, args.userId)
     if (!target) throw new ConvexError({ code: "NOT_FOUND" })
+
+    // I1 (Lot 1 final review): same rule as `setRole` above — an `admin`
+    // actor may only remove a target that is currently `editor`. See that
+    // mutation's own comment for why this lives here rather than in
+    // `assertOwnerInvariant`.
+    if (actor.role === "admin" && parseRole(target.role) !== "editor") {
+      throw new ConvexError({ code: "FORBIDDEN" })
+    }
 
     const ownerCount = await countUsersWithRole(ctx, "owner")
     try {

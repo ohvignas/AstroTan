@@ -66,6 +66,21 @@ async function seedAdmin(t: ReturnType<typeof makeTestConvex>) {
   return identityFor(t, admin.id)
 }
 
+// I1 (Lot 1 final review): several tests below invite an `admin` role
+// specifically to prove `accept` preserves *whatever* role the invitation
+// carries — that needs an `owner` actor now that `admin` is refused
+// `role: "admin"` at `create` (see `invitations.ts`'s own I1 comment).
+async function seedOwner(t: ReturnType<typeof makeTestConvex>) {
+  const owner = await seedUser(t, {
+    email: "owner-issuer@example.com",
+    password: "correct horse battery staple owner-issuer",
+    name: "Owner Issuer",
+    role: "owner",
+  })
+  await signIn(t, "owner-issuer@example.com", "correct horse battery staple owner-issuer")
+  return identityFor(t, owner.id)
+}
+
 // --- Step 1 du brief : seul le hash du token est stocké durablement -------
 
 test("le hash durable du token est correct, et ce n'est jamais un champ 'token'", async () => {
@@ -258,6 +273,45 @@ test("un owner ne peut pas non plus inviter un owner", async () => {
   ).rejects.toThrow(/FORBIDDEN/)
 })
 
+// I1 (Lot 1 final review): spec §5 gives `admin` authority to invite/edit
+// `editor` — never another `admin` — reserving `admin` invitations to
+// `owner`. Symmetric with `un admin ne peut pas inviter un owner` above,
+// which only ever pinned the `owner` case; nothing here exercised `admin`
+// in either direction before this fix.
+test("I1 : un admin ne peut pas inviter un autre admin", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+
+  await expect(
+    asAdmin.mutation(api.invitations.create, { email: "invitee@example.com", role: "admin" }),
+  ).rejects.toThrow(/FORBIDDEN/)
+
+  const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
+  expect(rows).toHaveLength(0)
+})
+
+test("I1 (contrôle) : un owner peut inviter un admin", async () => {
+  const t = makeTestConvex()
+  const owner = await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple 33",
+    name: "Owner",
+    role: "owner",
+  })
+  await signIn(t, "owner@example.com", "correct horse battery staple 33")
+  const asOwner = await identityFor(t, owner.id)
+
+  const { token } = await asOwner.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "admin",
+  })
+  expect(typeof token).toBe("string")
+
+  const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
+  expect(rows).toHaveLength(1)
+  expect(rows[0]?.role).toBe("admin")
+})
+
 // --- Round 2 (review, item 5) : l'email est borné dans create -----------
 
 // `accept` defaults `displayName` to `invite.email` whenever no `name`
@@ -364,13 +418,16 @@ test("une invitation 'owner' fabriquée hors de create échoue quand même à l'
 // which nothing in the Task 3 schema test does.
 test("accept sélectionne l'invitation qui correspond au hash du token, pas une autre", async () => {
   const t = makeTestConvex()
-  const asAdmin = await seedAdmin(t)
+  // I1: an `owner` actor, not `admin` — this test invites `role: "admin"`
+  // specifically to prove the *second* invitation (not the first) is the
+  // one accepted, and `admin` is refused to an `admin` actor now.
+  const asOwner = await seedOwner(t)
 
-  await asAdmin.mutation(api.invitations.create, {
+  await asOwner.mutation(api.invitations.create, {
     email: "first@example.com",
     role: "editor",
   })
-  const { token: secondToken } = await asAdmin.mutation(api.invitations.create, {
+  const { token: secondToken } = await asOwner.mutation(api.invitations.create, {
     email: "second@example.com",
     role: "admin",
   })
@@ -404,8 +461,11 @@ test("un token inconnu (jamais émis, ou corrompu) est refusé", async () => {
 
 test("accept crée un compte Better Auth avec le rôle porté par l'invitation, et consomme l'invitation", async () => {
   const t = makeTestConvex()
-  const asAdmin = await seedAdmin(t)
-  const { token } = await asAdmin.mutation(api.invitations.create, {
+  // I1: an `owner` actor — this test invites `role: "admin"` specifically
+  // to prove the created account gets that role, and `admin` is refused to
+  // an `admin` actor now.
+  const asOwner = await seedOwner(t)
+  const { token } = await asOwner.mutation(api.invitations.create, {
     email: "invitee@example.com",
     role: "admin",
   })
@@ -470,8 +530,11 @@ test("accept refuse un mot de passe vide, et l'invitation reste utilisable", asy
 
 test("accept refuse un mot de passe d'un seul caractère, et l'invitation reste utilisable", async () => {
   const t = makeTestConvex()
-  const asAdmin = await seedAdmin(t)
-  const { token } = await asAdmin.mutation(api.invitations.create, {
+  // I1: an `owner` actor — this test invites `role: "admin"` specifically
+  // to prove the eventual account keeps that role, and `admin` is refused
+  // to an `admin` actor now.
+  const asOwner = await seedOwner(t)
+  const { token } = await asOwner.mutation(api.invitations.create, {
     email: "invitee@example.com",
     role: "admin",
   })
@@ -514,9 +577,13 @@ test("accept refuse si l'émetteur de l'invitation a été banni depuis (BANNED)
   await signIn(t, "issuer@example.com", "correct horse battery staple i2b")
   const asIssuer = await identityFor(t, issuer.id)
 
+  // I1: the invited role is incidental to what this test proves (the
+  // issuer's authority being revoked after the fact) — `editor`, not
+  // `admin`, since an `admin` actor is refused `role: "admin"` at `create`
+  // now.
   const { token } = await asIssuer.mutation(api.invitations.create, {
     email: "invitee@example.com",
-    role: "admin",
+    role: "editor",
   })
 
   const banRes = await t.fetch("/api/auth/admin/ban-user", {
@@ -555,9 +622,10 @@ test("accept refuse si l'émetteur a été rétrogradé en editor depuis (FORBID
   await signIn(t, "issuer@example.com", "correct horse battery staple i2e")
   const asIssuer = await identityFor(t, issuer.id)
 
+  // I1: same note as the BANNED test above — `editor`, not `admin`.
   const { token } = await asIssuer.mutation(api.invitations.create, {
     email: "invitee@example.com",
-    role: "admin",
+    role: "editor",
   })
 
   const demoteRes = await t.fetch("/api/auth/admin/set-role", {
@@ -596,9 +664,10 @@ test("accept refuse si l'émetteur a été supprimé depuis (UNAUTHENTICATED)", 
   await signIn(t, "issuer@example.com", "correct horse battery staple i2h")
   const asIssuer = await identityFor(t, issuer.id)
 
+  // I1: same note as the BANNED test above — `editor`, not `admin`.
   const { token } = await asIssuer.mutation(api.invitations.create, {
     email: "invitee@example.com",
-    role: "admin",
+    role: "editor",
   })
 
   const removeRes = await t.fetch("/api/auth/admin/remove-user", {
@@ -700,17 +769,24 @@ test("une invitation vers un email déjà pourvu d'un compte échoue, l'invitati
     password: "correct horse battery staple 9",
   })
 
+  // I1: the invited role is incidental to what this test proves (exactly
+  // one account per email) — `editor`, not `admin`, since an `admin` actor
+  // is refused `role: "admin"` at `create` now.
   const { token: secondToken } = await asAdmin.mutation(api.invitations.create, {
     email: "invitee@example.com",
-    role: "admin",
+    role: "editor",
   })
 
+  // Minor (Lot 1 final review): pinned to better-auth's own
+  // "already exists" message — the actual invariant this test names —
+  // rather than a bare `rejects.toThrow()`, which would pass identically
+  // for any unrelated failure (a typo in this test setup included).
   await expect(
     t.mutation(api.invitations.accept, {
       token: secondToken,
       password: "correct horse battery staple 10",
     }),
-  ).rejects.toThrow()
+  ).rejects.toThrow(/already exists/i)
 
   const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
   const second = rows.find((r) => r.role === "admin")
@@ -1022,8 +1098,11 @@ test("revoke réussit même après que l'envoi programmé a déjà terminé (ne 
 // depend on a caller role the way `list`/`revoke` do.
 test("preview renvoie l'email et le rôle d'une invitation valide, sans authentification et sans exposer le token", async () => {
   const t = makeTestConvex()
-  const asAdmin = await seedAdmin(t)
-  const { token } = await asAdmin.mutation(api.invitations.create, {
+  // I1: an `owner` actor — this test invites `role: "admin"` specifically
+  // to prove `preview` echoes that role back, and `admin` is refused to an
+  // `admin` actor now.
+  const asOwner = await seedOwner(t)
+  const { token } = await asOwner.mutation(api.invitations.create, {
     email: "invitee@example.com",
     role: "admin",
   })

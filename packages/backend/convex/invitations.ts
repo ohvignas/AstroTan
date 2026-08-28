@@ -43,6 +43,16 @@ export const create = mutation({
     // fenêtre de bootstrap où ce n'est pas encore le cas.
     if (args.role === "owner") throw new ConvexError({ code: "FORBIDDEN" })
 
+    // I1 (Lot 1 final review): spec §5 gives `admin` authority to invite
+    // `editor` only — reserving `admin` invitations to `owner`, same as
+    // `users.setRole`/`users.remove` reserve acting on an existing `admin`
+    // to `owner`. Symmetric with the `role === "owner"` refusal above,
+    // which applied to every actor already; this is the missing
+    // actor-specific half.
+    if (actor.role === "admin" && args.role === "admin") {
+      throw new ConvexError({ code: "FORBIDDEN" })
+    }
+
     // M1 (review): normalise avant stockage — `createUser` (dans `accept`)
     // fait de toute façon `email.toLowerCase()` et valide le format avec
     // zod, mais seulement au moment de l'acceptation. Sans cette

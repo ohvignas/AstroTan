@@ -203,6 +203,79 @@ test("setRole refuse de fabriquer un second owner (OWNER_ALREADY_EXISTS)", async
   ).rejects.toThrow(/OWNER_ALREADY_EXISTS/)
 })
 
+// I1 (Lot 1 final review): spec §5 gives `admin` authority to invite/edit
+// `editor` — never another `admin` — and reserves everything, `admin`
+// included, to `owner`. `assertOwnerInvariant` only ever guards the
+// *owner* role, so admin-on-admin sailed through every one of its
+// branches before this fix; nothing here exercised it in either direction.
+
+test("I1 : un admin ne peut pas changer le rôle d'un autre admin", async () => {
+  const t = makeTestConvex()
+  const { user: targetAdmin } = await seedActor(
+    t,
+    "admin",
+    "target-admin@example.com",
+    "correct horse battery staple 23",
+    "Target Admin",
+  )
+  const { identity: asAdmin } = await seedActor(
+    t,
+    "admin",
+    "acting-admin@example.com",
+    "correct horse battery staple 24",
+    "Acting Admin",
+  )
+
+  await expect(
+    asAdmin.mutation(api.users.setRole, { userId: targetAdmin.id, role: "editor" }),
+  ).rejects.toThrow(/FORBIDDEN/)
+})
+
+test("I1 : un admin ne peut pas promouvoir un editor en admin", async () => {
+  const t = makeTestConvex()
+  const { user: editor } = await seedActor(
+    t,
+    "editor",
+    "editor@example.com",
+    "correct horse battery staple 25",
+    "Editor",
+  )
+  const { identity: asAdmin } = await seedActor(
+    t,
+    "admin",
+    "acting-admin@example.com",
+    "correct horse battery staple 26",
+    "Acting Admin",
+  )
+
+  await expect(
+    asAdmin.mutation(api.users.setRole, { userId: editor.id, role: "admin" }),
+  ).rejects.toThrow(/FORBIDDEN/)
+})
+
+test("I1 (contrôle) : un owner peut changer le rôle d'un admin", async () => {
+  const t = makeTestConvex()
+  const { user: targetAdmin } = await seedActor(
+    t,
+    "admin",
+    "target-admin@example.com",
+    "correct horse battery staple 27",
+    "Target Admin",
+  )
+  const { identity: asOwner } = await seedActor(
+    t,
+    "owner",
+    "owner@example.com",
+    "correct horse battery staple 28",
+    "Owner",
+  )
+
+  await asOwner.mutation(api.users.setRole, { userId: targetAdmin.id, role: "editor" })
+
+  const rows = await asOwner.query(api.users.list, {})
+  expect(rows.find((r) => r.email === "target-admin@example.com")?.role).toBe("editor")
+})
+
 test("setRole refuse une cible inconnue (NOT_FOUND)", async () => {
   const t = makeTestConvex()
   const { identity: asOwner } = await seedActor(
@@ -300,6 +373,54 @@ test("un owner ne peut pas se retirer lui-même (CANNOT_REMOVE_SELF)", async () 
   await expect(asOwner.mutation(api.users.remove, { userId: owner.id })).rejects.toThrow(
     /CANNOT_REMOVE_SELF/,
   )
+})
+
+// I1 (Lot 1 final review), remove side — same rule, `remove` rather than
+// `setRole`: an admin's authority stops at `editor`.
+
+test("I1 : un admin ne peut pas retirer un autre admin", async () => {
+  const t = makeTestConvex()
+  const { user: targetAdmin } = await seedActor(
+    t,
+    "admin",
+    "target-admin@example.com",
+    "correct horse battery staple 29",
+    "Target Admin",
+  )
+  const { identity: asAdmin } = await seedActor(
+    t,
+    "admin",
+    "acting-admin@example.com",
+    "correct horse battery staple 30",
+    "Acting Admin",
+  )
+
+  await expect(asAdmin.mutation(api.users.remove, { userId: targetAdmin.id })).rejects.toThrow(
+    /FORBIDDEN/,
+  )
+})
+
+test("I1 (contrôle) : un owner peut retirer un admin", async () => {
+  const t = makeTestConvex()
+  const { user: targetAdmin } = await seedActor(
+    t,
+    "admin",
+    "target-admin@example.com",
+    "correct horse battery staple 31",
+    "Target Admin",
+  )
+  const { identity: asOwner } = await seedActor(
+    t,
+    "owner",
+    "owner@example.com",
+    "correct horse battery staple 32",
+    "Owner",
+  )
+
+  await asOwner.mutation(api.users.remove, { userId: targetAdmin.id })
+
+  const rows = await asOwner.query(api.users.list, {})
+  expect(rows.find((r) => r.email === "target-admin@example.com")).toBeUndefined()
 })
 
 test("remove refuse une cible inconnue (NOT_FOUND)", async () => {
