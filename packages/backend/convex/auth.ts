@@ -391,6 +391,16 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       minPasswordLength: MIN_PASSWORD_LENGTH,
       maxPasswordLength: MAX_PASSWORD_LENGTH,
     },
+    // Minor (Lot 1 final review): explicit rather than assumed. Better
+    // Auth's own in-memory rate limiter (`storage: "memory"`, `enabled:
+    // isProduction` by default) is inert in this runtime regardless of
+    // this flag — see `signInRateLimiter`'s own header comment above for
+    // why (in-memory state can't persist or be shared across Convex
+    // HTTP-action isolates) — so this changes no behavior either way.
+    // Setting it to `false` explicitly is what makes that intentional: the
+    // real gate is `@convex-dev/rate-limiter`, wired in by hand in
+    // `hooks.before` below, not this option.
+    rateLimit: { enabled: false },
     plugins: [
       convex({ authConfig }),
       admin({

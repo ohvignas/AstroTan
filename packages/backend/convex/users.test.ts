@@ -90,9 +90,18 @@ test("list renvoie les trois utilisateurs avec leur rôle et leur displayName, j
     displayName: "Editor Person",
   })
 
+  // Minor (Lot 1 final review): `tokenHash` isn't even a field the
+  // underlying Better Auth `user` document could ever carry (it's an
+  // `invitations`-only field) — asserting its absence here couldn't fail
+  // regardless of whether `list`'s explicit field list actually holds.
+  // `banReason`/`banExpires`/`emailVerified` are real fields on that
+  // document (see `betterAuth/schema.ts`'s `user` table) that a future
+  // regression to a `...doc` spread in `list`'s handler would genuinely
+  // leak — those are what this loop checks now.
   for (const row of rows) {
-    expect(row).not.toHaveProperty("tokenHash")
     expect(row).not.toHaveProperty("banReason")
+    expect(row).not.toHaveProperty("banExpires")
+    expect(row).not.toHaveProperty("emailVerified")
     expect(typeof row.id).toBe("string")
   }
 })

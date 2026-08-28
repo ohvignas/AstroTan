@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "codegen": "echo \"codegen placeholder: wired properly in Task 4 once the Convex component config exists\"",
+    "codegen": "test -d convex/_generated && echo \"convex/_generated present. It is committed and must be regenerated (never hand-edited) via a real 'npx convex dev --once' against a running deployment — this script deliberately never pushes on its own; see CLAUDE.md's Convex rules.\" || (echo \"convex/_generated is missing. Regenerate it with a real 'npx convex dev --once' against a running deployment before typecheck/test.\" && exit 1)",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
