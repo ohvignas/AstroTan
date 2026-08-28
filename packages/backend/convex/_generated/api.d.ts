@@ -19,11 +19,13 @@ import type * as lib_ownerGuard from "../lib/ownerGuard.js";
 import type * as lib_passwordStrength from "../lib/passwordStrength.js";
 import type * as lib_previewToken from "../lib/previewToken.js";
 import type * as lib_signInRateLimit from "../lib/signInRateLimit.js";
+import type * as lib_slug from "../lib/slug.js";
 import type * as lib_token from "../lib/token.js";
 import type * as media from "../media.js";
 import type * as pages from "../pages.js";
 import type * as profiles from "../profiles.js";
 import type * as revalidate from "../revalidate.js";
+import type * as tags from "../tags.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 
@@ -45,11 +47,13 @@ declare const fullApi: ApiFromModules<{
   "lib/passwordStrength": typeof lib_passwordStrength;
   "lib/previewToken": typeof lib_previewToken;
   "lib/signInRateLimit": typeof lib_signInRateLimit;
+  "lib/slug": typeof lib_slug;
   "lib/token": typeof lib_token;
   media: typeof media;
   pages: typeof pages;
   profiles: typeof profiles;
   revalidate: typeof revalidate;
+  tags: typeof tags;
   users: typeof users;
   validators: typeof validators;
 }>;

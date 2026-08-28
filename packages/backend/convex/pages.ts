@@ -7,6 +7,10 @@ import { requireRole, requireOwnDocument, requirePublishedPageWritable } from ".
 import { authComponent } from "./auth"
 import { insertOutboxRow } from "./revalidate"
 import { geoValidator, seoValidator, assertPageTextWithinLimits } from "./content"
+// Le normaliseur de chemin vit dans `lib/slug.ts`, aux côtés de `slugify`
+// qui fait un travail voisin mais différent — voir l'en-tête de ce module
+// pour la distinction, et pourquoi les confondre est un bug.
+import { normalizeSlug } from "./lib/slug"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // This task's own brief, verbatim: "the security-critical task of the
@@ -267,9 +271,7 @@ export const publicationStatus = query({
 // comment) — trimming both here is what keeps an operator from ever
 // creating a page whose stored slug can never actually match a request
 // path, silently 404ing forever.
-function normalizeSlug(raw: string): string {
-  return raw.trim().replace(/^\/+/, "").replace(/\/+$/, "")
-}
+
 
 async function assertSlugAvailable(
   ctx: MutationCtx,

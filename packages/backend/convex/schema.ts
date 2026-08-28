@@ -93,6 +93,17 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_created_by", ["createdBy"]),
 
+  // Deux chaînes pour une idée : le `name` qu'un humain a tapé, gardé tel
+  // quel pour l'affichage, et le `slug` qui en est dérivé — c'est lui qui
+  // décide de l'URL et de l'unicité. « Astro » et « astro » sont le même
+  // tag ; autoriser les deux produirait deux URL listant les mêmes
+  // articles, et personne ne s'en apercevrait avant que la seconde ait des
+  // lecteurs.
+  tags: defineTable({
+    name: v.string(),
+    slug: v.string(),
+  }).index("by_slug", ["slug"]),
+
   // Métadonnées des fichiers de Convex storage. Table *sidecar* : les
   // champs qui désignent un fichier (`seo.ogImageId`, et le `coverId` des
   // articles) référencent `_storage` directement, et cette table s'y
