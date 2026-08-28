@@ -152,6 +152,20 @@ export const list = query({
 })
 
 /**
+ * A storage URL for a file, readable without a session.
+ *
+ * Deliberately public and deliberately narrow: it takes a `storageId` the
+ * caller already has and returns only a URL. `apps/web` needs the site's
+ * logo on every page and carries no session, and the alternative — making
+ * the whole `media` row public to get one URL — would expose who uploaded
+ * what to anyone who asks.
+ */
+export const publicUrl = query({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => ctx.storage.getUrl(args.storageId),
+})
+
+/**
  * The sidecar lookup: metadata for a file, or `null` when the file was
  * uploaded outside the library. `null` is an ordinary answer here, not a
  * failure — see this module's header.

@@ -28,15 +28,39 @@
 //      classes.
 //
 // The home page is the one place where the file name and the slug differ,
-// because `/` has no path segment to name. Every other page keeps them
-// identical, which is what makes a slug guessable from a URL and back.
+// because `/` has no path segment to name. Which page answers here is
+// therefore not knowable from this file: it is chosen in the dashboard and
+// stored in `settings.homePageSlug`, so an operator can point `/` at a
+// different page without touching code. Hard-coding a slug here was the
+// first version, and it made the choice invisible from the dashboard —
+// including to the Preview button, which built a URL for a route that does
+// not exist.
 export const prerender = false
 
+import { api } from "@astrotan/backend/convex/_generated/api"
+import { getConvexClient } from "../lib/convexClient"
 import { loadPage } from "../lib/loadPage"
 import PageHead from "../components/PageHead.astro"
+import SiteHeader from "../components/SiteHeader.astro"
+import SiteFooter from "../components/SiteFooter.astro"
 import "../styles/global.css"
 
-const { page } = await loadPage(Astro, "accueil")
+const homeSlug = await getConvexClient().query(api.settings.homePageSlug, {})
+
+// No home page chosen yet is an ordinary state for a freshly cloned
+// template, not an error: `loadPage` is skipped and the 404 body renders,
+// which is at least honest about there being nothing to serve.
+const { page } = homeSlug
+  ? await loadPage(Astro, homeSlug)
+  : { page: null, preview: false }
+
+// `loadPage` sets the status when it is called; when it is skipped, nothing
+// does — and `/` would answer 200 with a 404 body. Status and body have to
+// say the same thing.
+if (page === null && !homeSlug) {
+  Astro.response.status = 404
+  Astro.cache.set(false)
+}
 ---
 
 <!doctype html>
@@ -47,6 +71,7 @@ const { page } = await loadPage(Astro, "accueil")
     <PageHead page={page} />
   </head>
   <body class="bg-white text-ink antialiased">
+    <SiteHeader />
     {page === null ? (
       <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
         <h1 class="text-3xl font-bold">404</h1>
@@ -61,5 +86,6 @@ const { page } = await loadPage(Astro, "accueil")
         </p>
       </main>
     )}
+    <SiteFooter />
   </body>
 </html>

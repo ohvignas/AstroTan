@@ -187,6 +187,19 @@ export const demoContent = internalMutation({
       created.posts++
     }
 
+    // Le site a un nom et une page d'accueil, sinon `/` répond 404 sur une
+    // installation neuve et rien n'indique que c'est un réglage manquant
+    // plutôt qu'une panne.
+    const settings = await ctx.db.query("settings").first()
+    if (settings === null) {
+      await ctx.db.insert("settings", {
+        siteName: "AstroTan",
+        homePageSlug: "accueil",
+      })
+    } else if (!settings.homePageSlug) {
+      await ctx.db.patch(settings._id, { homePageSlug: "accueil" })
+    }
+
     return { ...created, author }
   },
 })

@@ -9,6 +9,8 @@ export const prerender = false
 
 import { loadPage } from "../lib/loadPage"
 import PageHead from "../components/PageHead.astro"
+import SiteHeader from "../components/SiteHeader.astro"
+import SiteFooter from "../components/SiteFooter.astro"
 import "../styles/global.css"
 
 const { page } = await loadPage(Astro, "contact")
@@ -22,6 +24,7 @@ const { page } = await loadPage(Astro, "contact")
     <PageHead page={page} />
   </head>
   <body class="bg-white text-ink antialiased">
+    <SiteHeader />
     {page === null ? (
       <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
         <h1 class="text-3xl font-bold">404</h1>
@@ -37,5 +40,6 @@ const { page } = await loadPage(Astro, "contact")
         </p>
       </main>
     )}
+    <SiteFooter />
   </body>
 </html>

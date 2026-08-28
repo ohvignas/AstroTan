@@ -419,6 +419,17 @@ export const update = mutation({
 
     await ctx.db.patch(args.id, patch)
 
+    // La page d'accueil est désignée par son slug (`settings.homePageSlug`).
+    // Renommer ce slug sans suivre laisserait `/` pointer sur une page qui
+    // n'existe plus — la porte d'entrée du site en 404, sans rien dans le
+    // tableau de bord pour dire pourquoi.
+    if (patch.slug !== undefined && patch.slug !== page.slug) {
+      const settings = await ctx.db.query("settings").first()
+      if (settings?.homePageSlug === page.slug) {
+        await ctx.db.patch(settings._id, { homePageSlug: patch.slug })
+      }
+    }
+
     // M3 (whole-lot review): `update` used to be the only page mutation
     // with no `insertOutboxRow` call — `publishPage`/`remove`/`unpublish`
     // below all have one. Two distinct staleness bugs followed from that

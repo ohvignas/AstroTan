@@ -1,0 +1,34 @@
+---
+// Example header. Like everything under `src/`, it is meant to be replaced —
+// what it demonstrates is where the site's own identity comes from.
+//
+// The name and the logo live in `settings`, edited once in the dashboard and
+// read by every page. The links are written here, in code: this template has
+// no menu builder, because a navigation stored in the database and a
+// navigation written in markup are two sources of truth for the same thing,
+// and the markup is the one that has to render.
+import { api } from "@astrotan/backend/convex/_generated/api"
+import { getConvexClient } from "../lib/convexClient"
+
+const settings = await getConvexClient().query(api.settings.get, {})
+
+// Falls back rather than breaking: a freshly cloned template has no
+// settings row at all, and the header still has to render.
+const siteName = settings?.siteName ?? "AstroTan"
+const logoUrl = settings?.logoId
+  ? await getConvexClient().query(api.media.publicUrl, { storageId: settings.logoId })
+  : null
+---
+
+<header class="border-b border-ink/10">
+  <nav class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+    <a href="/" class="flex items-center gap-2 font-semibold no-underline">
+      {logoUrl && <img src={logoUrl} alt="" width="28" height="28" class="h-7 w-auto" />}
+      {siteName}
+    </a>
+    <ul class="flex list-none items-center gap-6 p-0 text-sm">
+      <li><a href="/blog">Blog</a></li>
+      <li><a href="/contact">Contact</a></li>
+    </ul>
+  </nav>
+</header>

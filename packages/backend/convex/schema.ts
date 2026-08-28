@@ -120,6 +120,24 @@ export default defineSchema({
     .index("by_status_published", ["status", "publishedAt"])
     .index("by_created_by", ["createdBy"]),
 
+  // Singleton : une ligne, ou aucune. Ce qui appartient au *site* plutôt
+  // qu'à une page — son nom, son logo, la page servie à `/`, les valeurs
+  // SEO par défaut. Une page décide de son slug et de son SEO ; elle ne
+  // peut pas décider qu'elle est la page d'accueil, parce que c'est une
+  // affirmation sur le site, et que deux pages pourraient sinon la
+  // revendiquer toutes les deux.
+  settings: defineTable({
+    siteName: v.string(),
+    logoId: v.optional(v.id("_storage")),
+    // Un slug, pas un identifiant de document : `index.astro` cherche la
+    // page par slug comme toutes les autres routes, donc un seul chemin de
+    // résolution. `pages.update` suit le renommage pour que la page
+    // d'accueil reste la page d'accueil.
+    homePageSlug: v.optional(v.string()),
+    defaultSeo: v.optional(seoValidator),
+    socials: v.optional(v.array(v.object({ label: v.string(), url: v.string() }))),
+  }),
+
   // Deux chaînes pour une idée : le `name` qu'un humain a tapé, gardé tel
   // quel pour l'affichage, et le `slug` qui en est dérivé — c'est lui qui
   // décide de l'URL et de l'unicité. « Astro » et « astro » sont le même

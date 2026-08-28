@@ -1,0 +1,31 @@
+---
+// Example footer, same principle as `SiteHeader.astro`: the site's name and
+// its social links come from `settings`, the layout comes from this file.
+import { api } from "@astrotan/backend/convex/_generated/api"
+import { getConvexClient } from "../lib/convexClient"
+
+const settings = await getConvexClient().query(api.settings.get, {})
+const siteName = settings?.siteName ?? "AstroTan"
+const socials = settings?.socials ?? []
+const year = new Date().getFullYear()
+---
+
+<footer class="mt-24 border-t border-ink/10">
+  <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-8 text-sm text-ink-mid">
+    <p>© {year} {siteName}</p>
+    {socials.length > 0 && (
+      <ul class="flex list-none gap-4 p-0">
+        {socials.map((social) => (
+          <li>
+            {/* `rel="noopener noreferrer"` on every outbound link: the URL
+                is operator-supplied, and a tab opened without it can
+                reach back through `window.opener`. */}
+            <a href={social.url} target="_blank" rel="noopener noreferrer">
+              {social.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    )}
+  </div>
+</footer>
