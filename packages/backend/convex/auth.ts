@@ -571,6 +571,36 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
             const targetId = ctx?.body?.userId ?? ctx?.context?.session?.user?.id
             const rawNextRole = (data as Record<string, unknown>).role
 
+            // I2 (Lot 1 final review): a write carrying `data.role` whose
+            // resolved target is the acting session's own user is refused
+            // outright, unless that session is already `owner`. Today the
+            // only thing stopping `/update-user` from accepting
+            // `{"role":"admin"}` is `input: false` on the admin plugin's
+            // own `role` field (verified live: it currently answers 400
+            // `FIELD_NOT_ALLOWED`, *before* this hook ever runs) — a
+            // library default nothing in this codebase configures or
+            // tests. This check is deliberately independent of it: even if
+            // that flag were ever silently dropped, changed by a
+            // better-auth upgrade, or bypassed by a write path that skips
+            // endpoint-level schema validation, this hook still refuses
+            // the write. Checked against `targetId` as already resolved
+            // above (not a second, differently-scoped lookup) so this
+            // stays a single, consistent notion of "who this write targets"
+            // — the same reasoning `assertOwnerInvariant`'s own "computed
+            // unconditionally, not gated on a local pre-check" comment
+            // gives for not maintaining two classifications that could
+            // drift apart.
+            if (
+              rawNextRole !== undefined &&
+              targetId !== undefined &&
+              targetId === ctx?.context?.session?.user?.id &&
+              parseRole(ctx?.context?.session?.user?.role) !== "owner"
+            ) {
+              throw new OwnerInvariantError(
+                "SELF_ROLE_ESCALATION: seul un owner peut modifier son propre rôle",
+              )
+            }
+
             // M1, round 3 — round 2's "unconditional" was itself wrong,
             // and this is the corrected rule: refuse when the guard
             // cannot identify the target of a write *that names one*;

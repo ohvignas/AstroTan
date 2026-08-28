@@ -995,3 +995,74 @@ test("round 3 reconfirmé : un editor peut s'auto-éditer via /update-user (non-
 
   expect(res.status).toBe(200)
 })
+
+// I2 (Lot 1 final review): `/update-user` takes an open record, and the
+// only thing stopping `{"role":"admin"}` from reaching it is `input:
+// false` on the admin plugin's own `role` field — a library flag nothing
+// in this codebase configures or tests. `assertOwnerInvariant` is
+// deliberately silent on editor -> admin (it only ever guards the *owner*
+// role), so nothing here independently verifies that flag actually holds.
+// Driven through the real endpoint, not a unit test of the hook function,
+// for the same reason every other test in this file is: the thing being
+// guarded is better-auth's own dispatch, which a call to our own code
+// can't prove anything about.
+test("I2 : un editor ne peut pas s'auto-promouvoir via /update-user (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const editor = await seedUser(t, {
+    email: "editor@example.com",
+    password: "correct horse battery staple i2-self",
+    name: "Editor",
+    role: "editor",
+  })
+  await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple i2-self-owner",
+    name: "Owner",
+    role: "owner",
+  })
+  const editorCookie = await signIn(t, "editor@example.com", "correct horse battery staple i2-self")
+  const ownerCookie = await signIn(
+    t,
+    "owner@example.com",
+    "correct horse battery staple i2-self-owner",
+  )
+
+  const res = await t.fetch("/api/auth/update-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: editorCookie },
+    body: JSON.stringify({ role: "admin" }),
+  })
+  expect(res.status).not.toBe(200)
+
+  // The regression check that actually discriminates: the row itself,
+  // read by someone who *can* — an editor holds no `user:get` permission
+  // at all (`editorRole` in `auth.ts`), so this can't be checked with the
+  // editor's own cookie the way `getRole` normally would be called.
+  expect(await getRole(t, ownerCookie, editor.id)).toBe("editor")
+})
+
+// Control for the same fix: an admin self-editing a *non-role* field
+// through `/update-user` must still work — the guard added for I2 only
+// ever refuses a write that actually carries `data.role` for the caller's
+// own id, never a plain rename.
+test("I2 (contrôle) : un admin peut toujours s'auto-éditer un champ non-role via /update-user (chemin réel)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "admin@example.com",
+    password: "correct horse battery staple i2-self-admin",
+    name: "Admin",
+    role: "admin",
+  })
+  const adminCookie = await signIn(
+    t,
+    "admin@example.com",
+    "correct horse battery staple i2-self-admin",
+  )
+
+  const res = await t.fetch("/api/auth/update-user", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: adminCookie },
+    body: JSON.stringify({ name: "Admin Renamed" }),
+  })
+  expect(res.status).toBe(200)
+})
