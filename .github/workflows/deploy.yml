@@ -1,0 +1,143 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Permet de rejouer un déploiement sans commit vide.
+  workflow_dispatch:
+
+# Un déploiement à la fois, et jamais annulé en cours de route : une image
+# poussée puis abandonnée entre `convex deploy` et le `compose up` laisse
+# le backend en avance sur les conteneurs.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ÉTAPE 1 DU PIPELINE (spec §7) — obligatoirement avant le build des
+      # images : `apps/web` prérend `src/pages/index.astro`, qui interroge
+      # Convex. Construire l'image d'abord ferait lire au build un schéma
+      # qui n'existe pas encore.
+      - name: Deploy Convex functions
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: pnpm --filter @astrotan/backend exec convex deploy
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute the lowercase image prefix
+        id: img
+        # GHCR n'accepte que des noms de dépôt en minuscules, alors que le
+        # propriétaire GitHub peut contenir des majuscules.
+        run: echo "prefix=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Seules des valeurs PUBLIQUES passent en build-arg (contrainte
+      # globale du lot) : Vite et Astro les figent dans le bundle, donc un
+      # secret qui passerait ici serait lisible dans l'image. Les vrais
+      # secrets du site — `PREVIEW_SECRET`, `REVALIDATE_SECRET` — ne sont
+      # fournis qu'à l'exécution, par le `.env` du VPS.
+      - name: Build and push the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/web.Dockerfile
+          push: true
+          build-args: |
+            PUBLIC_CONVEX_URL=${{ secrets.PUBLIC_CONVEX_URL }}
+          tags: |
+            ${{ steps.img.outputs.prefix }}/astrotan-web:${{ github.sha }}
+            ${{ steps.img.outputs.prefix }}/astrotan-web:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push the admin image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/admin.Dockerfile
+          push: true
+          build-args: |
+            VITE_CONVEX_URL=${{ secrets.VITE_CONVEX_URL }}
+            VITE_CONVEX_SITE_URL=${{ secrets.VITE_CONVEX_SITE_URL }}
+            VITE_WEB_SITE_URL=${{ secrets.VITE_WEB_SITE_URL }}
+          tags: |
+            ${{ steps.img.outputs.prefix }}/astrotan-admin:${{ github.sha }}
+            ${{ steps.img.outputs.prefix }}/astrotan-admin:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # La configuration qui tourne sur le VPS vient du dépôt, à chaque
+      # déploiement — sinon un compose édité à la main sur la machine
+      # diverge en silence, et le rollback ne reproduit plus rien.
+      - name: Configure the SSH client
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # La clé d'hôte du VPS, vérifiée à chaque connexion. Jamais
+          # `StrictHostKeyChecking=no` : ce serait livrer la clé de
+          # déploiement à n'importe quel serveur répondant à cette adresse.
+          printf '%s\n' "${{ secrets.VPS_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # `--exclude '.env'` avec `--delete` : le `.env` du VPS n'est ni
+      # écrasé ni supprimé. Il porte les variables que la commande
+      # ci-dessous ne passe pas — `WEB_DOMAIN`, `ADMIN_DOMAIN`,
+      # `PREVIEW_SECRET`, `REVALIDATE_SECRET`, `VITE_CONVEX_URL`,
+      # `VITE_CONVEX_SITE_URL` — et que `docker/docker-compose.yml` exige
+      # par la syntaxe `${VAR:?message}`.
+      - name: Ship the compose stack
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_deploy" \
+            --exclude '.env' \
+            docker/ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:~/astrotan/"
+
+      # ÉTAPE 3 DU PIPELINE — `IMAGE_TAG` est le sha, jamais `latest` : ce
+      # qui tourne sur le VPS doit être nommable pour être reproductible.
+      # `IMAGE_TAG` et `GHCR_OWNER` sont les deux seules variables passées
+      # par la commande ; elles couvrent exactement ce que le déploiement
+      # décide et que le `.env` du VPS ne peut pas savoir.
+      - name: Pull and restart
+        run: |
+          ssh -i ~/.ssh/id_deploy "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "cd ~/astrotan \
+             && IMAGE_TAG=${{ github.sha }} GHCR_OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]') docker compose pull \
+             && IMAGE_TAG=${{ github.sha }} GHCR_OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]') docker compose up -d \
+             && echo ${{ github.sha }} > ~/astrotan/DEPLOYED_SHA \
+             && docker image prune -f"
+
+      # Rend la cible d'un éventuel rollback évidente sans fouiller les logs
+      # (spec §7 : « le job de déploiement enregistre le sha publié »).
+      - name: Record the deployed sha
+        # Bloc scalaire et non `run: echo …` sur une ligne : la phrase
+        # contient « Rollback: », et un `: ` dans un scalaire simple fait
+        # échouer le parseur YAML sur le workflow entier
+        # (« mapping values are not allowed here »).
+        run: |
+          echo "Deployed \`${{ github.sha }}\`. Rollback: run the Rollback workflow with the previous sha." >> "$GITHUB_STEP_SUMMARY"
