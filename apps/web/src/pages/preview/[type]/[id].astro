@@ -1,0 +1,89 @@
+---
+// Lot 2, Task 7; design spec §6.3 — the read side of "two independent
+// barriers, deliberately". A preview URL
+// (`/preview/{type}/{id}?t={token}`, minted by a future Task 8 dashboard
+// action) proves nothing to Convex on its own: `apps/web` carries no
+// session and no admin key at all (CLAUDE.md invariant #1). A signed,
+// unexpired token is the only thing granting access. This file is a thin
+// wrapper — both barriers themselves live in `../../../lib/loadPreviewPage.ts`
+// (see that module's own header for why: Astro's Container API can't
+// exercise `Astro.cache` in a test, so the authorization logic below is
+// kept separately testable there, without this route's Astro-specific
+// lines getting in the way).
+export const prerender = false
+
+import { blockRegistry } from "../../../lib/blockRegistry"
+import { loadPreviewPage } from "../../../lib/loadPreviewPage"
+import PageLayout from "../../../layouts/PageLayout.astro"
+
+// Never cached, never crawled — set unconditionally, first, before
+// `loadPreviewPage` runs either barrier. A *refused* preview response is
+// exactly as wrong to cache or let a crawler follow as an accepted one
+// is: this task's own brief, verbatim, "a previewed draft appearing in a
+// search index would be the same leak the whole lot prevents, arriving by
+// a different door". `Astro.cache.set(false)` is the documented
+// Astro-side opt-out (`astro.config.ts`'s own comment: "the opt-out is
+// the explicit call, not an absence of a `routeRules` entry") —
+// `/preview/…` has no `routeRules` entry to begin with, so this call is
+// what makes "never cached" a fact this route enforces, not one it merely
+// happens to be true of today.
+Astro.cache.set(false)
+Astro.response.headers.set("Cache-Control", "no-store")
+Astro.response.headers.set("X-Robots-Tag", "noindex")
+
+const { type, id } = Astro.params
+const token = Astro.url.searchParams.get("t")
+
+// Every refusal `loadPreviewPage` can produce — bad `type`, missing
+// `id`/`token`, a token barrier 1 rejects, a token barrier 2 (Convex)
+// independently rejects, an id Convex genuinely has no document for —
+// comes back as the same `null` here, and renders the exact same 404
+// output below. Collapsing every refusal into one shape is deliberate,
+// the same reasoning `getPublishedPage` already applies to "no page with
+// this slug" vs "a draft with this slug" (`[...slug].astro`'s own
+// comment): a response that distinguishes "no such id" from "wrong token
+// for an id that does exist" is itself information a holder of a bad
+// preview link should not get for free.
+const page = await loadPreviewPage({ type, id, token })
+
+if (page === null) {
+  Astro.response.status = 404
+}
+
+const canonicalUrl = new URL(Astro.url.pathname, Astro.url.origin).href
+---
+
+{
+  page === null ? (
+    <PageLayout title="Page not found" canonicalUrl={canonicalUrl} noindex={true}>
+      <main class="mx-auto max-w-2xl px-6 py-24 text-center">
+        <h1 class="text-3xl font-bold text-ink">404</h1>
+        <p class="mt-4 text-ink-mid">This page does not exist.</p>
+      </main>
+    </PageLayout>
+  ) : (
+    // `noindex` below is always `true`, regardless of `page.seo?.noindex`
+    // — that field governs the *published* page once it goes live; a
+    // preview is never indexable, full stop, independent of what its
+    // author set that field to for the eventual publish. Belt and
+    // suspenders with the `X-Robots-Tag` header set above: crawlers that
+    // only honour one signal or the other still get the same answer from
+    // either.
+    <PageLayout
+      title={page.seo?.title || page.title}
+      description={page.seo?.description}
+      canonicalUrl={canonicalUrl}
+      noindex={true}
+    >
+      {page.blocks.map((block) => {
+        // Same registry Task 5/6 already prove exhaustive
+        // (`src/lib/blockRegistry.ts`) — a preview renders through the
+        // identical component pipeline as a published page, on purpose:
+        // what an editor sees in preview is what will actually render
+        // once published, not a separate approximation of it.
+        const Component = blockRegistry[block.type]
+        return <Component block={block} />
+      })}
+    </PageLayout>
+  )
+}
