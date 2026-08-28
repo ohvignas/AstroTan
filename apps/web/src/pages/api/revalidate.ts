@@ -113,6 +113,18 @@ export const POST: APIRoute = async (context) => {
     return new Response(null, { status: 400 })
   }
 
+  // Known limit, documented where a future reader debugging "why didn't
+  // this invalidation reach every instance" will actually land — this
+  // line, not just `astro.config.ts`'s own comment on `memoryCache()` or
+  // a task report. `memoryCache()` is per-process: this call only purges
+  // the in-memory cache of the one `web` process that received this HTTP
+  // request. Fine today, because this lot runs a single `web` replica
+  // (design spec §6.2/§7 "Rollback et migrations"). The moment a second
+  // replica exists, a publish will invalidate one instance while the
+  // other keeps serving stale content for up to `maxAge` — this line
+  // needs a shared cache provider (e.g. Redis, via Astro's Cache Provider
+  // API) before that's safe, not just a bigger fleet behind the same
+  // config.
   await context.cache.invalidate({ tags })
   return new Response(null, { status: 200 })
 }
