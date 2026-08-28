@@ -1,8 +1,19 @@
+// This file lives under `_tests/` rather than next to `revalidate.ts` for a
+// mechanical reason, not an aesthetic one: `src/pages/**` is Astro's route
+// tree, and a `.ts` sitting in it is compiled as a route. At
+// `src/pages/api/revalidate.test.ts` this file became the route
+// `/api/revalidate.test`, pulled `vitest` into the prerender bundle, and
+// failed `astro build` with "Vitest failed to find the runner" — tests
+// green, typecheck clean, and the site image impossible to build. Astro
+// excludes from routing any file or directory under `src/pages` prefixed
+// with `_`; this directory is that exclusion. Do not move this file up one
+// level.
+
 import { experimental_AstroContainer as AstroContainer } from "astro/container"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import type { APIContext } from "astro"
-import { POST } from "./revalidate"
-import * as revalidateEndpoint from "./revalidate"
+import { POST } from "../revalidate"
+import * as revalidateEndpoint from "../revalidate"
 
 const TEST_SECRET = "test-revalidate-secret-please-do-not-use-x"
 
