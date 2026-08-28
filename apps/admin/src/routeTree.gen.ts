@@ -13,6 +13,7 @@ import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
+import { Route as AuthedCompteRouteImport } from './routes/_authed/compte'
 import { Route as AuthedLeadsRouteImport } from './routes/_authed/leads'
 import { Route as AuthedMediaRouteImport } from './routes/_authed/media'
 import { Route as AuthedRedirectsRouteImport } from './routes/_authed/redirects'
@@ -43,6 +44,11 @@ const LoginRoute = LoginRouteImport.update({
 const AuthedIndexRoute = AuthedIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedCompteRoute = AuthedCompteRouteImport.update({
+  id: '/compte',
+  path: '/compte',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedLeadsRoute = AuthedLeadsRouteImport.update({
@@ -110,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AuthedIndexRoute
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
+  '/compte': typeof AuthedCompteRoute
   '/leads': typeof AuthedLeadsRoute
   '/media': typeof AuthedMediaRoute
   '/redirects': typeof AuthedRedirectsRoute
@@ -126,6 +133,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
+  '/compte': typeof AuthedCompteRoute
   '/leads': typeof AuthedLeadsRoute
   '/media': typeof AuthedMediaRoute
   '/redirects': typeof AuthedRedirectsRoute
@@ -145,6 +153,7 @@ export interface FileRoutesById {
   '/_authed': typeof AuthedRouteWithChildren
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
+  '/_authed/compte': typeof AuthedCompteRoute
   '/_authed/leads': typeof AuthedLeadsRoute
   '/_authed/media': typeof AuthedMediaRoute
   '/_authed/redirects': typeof AuthedRedirectsRoute
@@ -165,6 +174,7 @@ export interface FileRouteTypes {
     | '/'
     | '/accept-invite'
     | '/login'
+    | '/compte'
     | '/leads'
     | '/media'
     | '/redirects'
@@ -181,6 +191,7 @@ export interface FileRouteTypes {
   to:
     | '/accept-invite'
     | '/login'
+    | '/compte'
     | '/leads'
     | '/media'
     | '/redirects'
@@ -199,6 +210,7 @@ export interface FileRouteTypes {
     | '/_authed'
     | '/accept-invite'
     | '/login'
+    | '/_authed/compte'
     | '/_authed/leads'
     | '/_authed/media'
     | '/_authed/redirects'
@@ -250,6 +262,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AuthedIndexRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/compte': {
+      id: '/_authed/compte'
+      path: '/compte'
+      fullPath: '/compte'
+      preLoaderRoute: typeof AuthedCompteRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/leads': {
@@ -340,6 +359,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthedRouteChildren {
+  AuthedCompteRoute: typeof AuthedCompteRoute
   AuthedLeadsRoute: typeof AuthedLeadsRoute
   AuthedMediaRoute: typeof AuthedMediaRoute
   AuthedRedirectsRoute: typeof AuthedRedirectsRoute
@@ -354,6 +374,7 @@ interface AuthedRouteChildren {
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
+  AuthedCompteRoute: AuthedCompteRoute,
   AuthedLeadsRoute: AuthedLeadsRoute,
   AuthedMediaRoute: AuthedMediaRoute,
   AuthedRedirectsRoute: AuthedRedirectsRoute,

@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import type { FunctionReturnType } from "convex/server"
 import type { api } from "@astrotan/backend/convex/_generated/api"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -18,7 +18,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ChevronsUpDownIcon, LogOutIcon } from "lucide-react"
+import { ChevronsUpDownIcon, KeyRoundIcon, LogOutIcon } from "lucide-react"
 import { authClient } from "@/lib/auth-client"
 
 type Profile = FunctionReturnType<typeof api.profiles.me>
@@ -92,6 +92,11 @@ export function NavUser({ profile }: { profile: Profile | undefined }) {
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem render={<Link to="/compte" />}>
+              <KeyRoundIcon />
+              Changer de mot de passe
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => {
