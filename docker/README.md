@@ -569,6 +569,7 @@ mêmes secrets ni le même lieu.
 |---|---|---|
 | `PUBLIC_UMAMI_URL`, `PUBLIC_UMAMI_WEBSITE_ID` | le script de mesure chargé par chaque page | secrets GitHub → build-args, **figés dans le bundle au build** |
 | `UMAMI_API_URL`, `UMAMI_API_WEBSITE_ID`, `UMAMI_API_USERNAME`, `UMAMI_API_PASSWORD` | les identifiants avec lesquels le dashboard **lit** les chiffres | déploiement Convex (`convex env set`) |
+| `UMAMI_API_SHARE_ID` *(optionnelle)* | l'identifiant du lien de partage, pour que le bouton « Statistiques » n'exige pas de reconnexion (13.4) | déploiement Convex (`convex env set`) |
 
 Les premières sont publiques par construction : elles apparaissent dans le
 source de chaque page de tout site mesuré par Umami. Les secondes ne le sont
@@ -607,7 +608,45 @@ comportement d'Umami, pas une panne de cette installation : le script se
 charge, ne renvoie rien, et l'éditeur affiche donc zéro. Ne pas en conclure
 que l'intégration est cassée — vérifier sur le domaine réel.
 
-### 13.4 Umami en local, avant de toucher au VPS
+### 13.4 Arriver sur Umami sans se reconnecter
+
+Le bouton « Statistiques » de l'administration ouvre Umami, qui redemande
+un mot de passe. Umami sait éviter ça, et une seule des façons d'y arriver
+est acceptable.
+
+**Ce qu'il ne faut pas faire :** faire voyager un jeton dans l'URL. Le
+jeton d'Umami est celui d'un compte qui peut écrire, et une URL se dépose
+dans l'historique du navigateur, dans les en-têtes `Referer` envoyés aux
+sites suivants, et dans les journaux de tout proxy traversé. Un accès en
+écriture à vos statistiques resterait lisible longtemps après le clic.
+
+**Ce qu'il faut faire :** le **lien de partage** d'Umami. Dans Umami,
+*Settings → Websites → (votre site) → Edit → Share URL*, activer et noter
+l'identifiant. La page `/<umami>/share/<id>` affiche alors le tableau de
+bord complet, **en lecture seule et sans connexion**.
+
+```bash
+cd packages/backend
+npx convex env set UMAMI_API_SHARE_ID <l'identifiant de partage>
+```
+
+Le bouton mène désormais directement au tableau de bord. Sans cette
+variable, il mène à la page de connexion d'Umami — c'est le défaut, et
+c'est voulu.
+
+**Le compromis, en clair :** un lien de partage est un *secret porteur*.
+Qui l'obtient voit vos statistiques, sans compte et sans trace. Elles ne
+contiennent aucune donnée personnelle (c'est la raison d'utiliser Umami),
+mais elles disent votre trafic et vos pages qui marchent. L'activer est
+une décision, pas un réglage par défaut — d'où la variable optionnelle
+plutôt qu'un partage créé automatiquement. Pour révoquer : désactiver le
+Share URL dans Umami, l'ancien identifiant cesse immédiatement de
+répondre.
+
+Administrer Umami (ajouter un site, changer un réglage) demande toujours
+une vraie connexion : le partage ne donne que la lecture.
+
+### 13.5 Umami en local, avant de toucher au VPS
 
 Tout ce qui suit a été exécuté avant d'être écrit ici. Les pièges cités
 sont ceux qui se sont réellement produits, pas ceux qu'on imagine.
@@ -701,9 +740,9 @@ docker compose --env-file .env.local \
   -f docker-compose.yml -f docker-compose.local.yml down
 ```
 
-`down` seul, **jamais `down -v`** : le `-v` détruirait le volume (13.6).
+`down` seul, **jamais `down -v`** : le `-v` détruirait le volume (13.7).
 
-### 13.5 Ce que l'API d'Umami 3 rend vraiment
+### 13.6 Ce que l'API d'Umami 3 rend vraiment
 
 Trois différences avec Umami 2 ont été trouvées en interrogeant un 3.3.1
 réel. Les trois sont **silencieuses** : elles ne produisent pas d'erreur,
@@ -720,7 +759,7 @@ ces tests plutôt que le tableau de bord.
 Un quatrième point échoue franchement, lui : `type=url` sur `/metrics`
 répond 400. Le type s'appelle `path`.
 
-### 13.6 Sauvegarde — la première du projet
+### 13.7 Sauvegarde — la première du projet
 
 Le volume `astrotan_umami-db` est le **premier volume applicatif** de ce
 VPS. Jusqu'ici, la seule chose à ne pas perdre était `astrotan_acme`, et le
@@ -742,11 +781,11 @@ gunzip -c umami-<date>.sql.gz | ssh <user>@<host> \
 `docker compose down -v` détruit ce volume. **Ne jamais lancer `down -v` sur
 ce VPS** — `down` seul suffit à arrêter la pile.
 
-### 13.7 Mettre à jour Umami
+### 13.8 Mettre à jour Umami
 
 Le tag de l'image est épinglé exactement (`3.3.1`), jamais `latest`. Une
 montée de version applique des migrations Prisma sur la base au premier
-démarrage : **faire le dump de 13.6 avant**, puis changer le tag et
+démarrage : **faire le dump de 13.7 avant**, puis changer le tag et
 redéployer. Un retour arrière se fait par restauration du dump, pas par un
 retour au tag précédent — une base déjà migrée n'est plus lisible par
 l'ancienne version.

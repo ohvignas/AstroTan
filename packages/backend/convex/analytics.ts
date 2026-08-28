@@ -185,19 +185,36 @@ export interface SiteSummary {
 }
 
 /**
- * L'adresse publique d'Umami, pour le lien du menu.
+ * L'adresse qu'ouvre le bouton « Statistiques ».
  *
  * Une `query` et non une variable de build de l'admin : une seconde source
  * pourrait diverger de celle que les actions interrogent, et le lien
  * enverrait alors ailleurs que là où les chiffres sont lus. Elle ne rend que
  * l'adresse — jamais le nom d'utilisateur ni le mot de passe, qui sont dans
  * le même bloc de configuration.
+ *
+ * Avec `UMAMI_API_SHARE_ID`, elle rend le **lien de partage** d'Umami
+ * (`/share/<id>`), qui affiche le tableau de bord complet en lecture seule
+ * sans demander de connexion. C'est la seule façon correcte d'enchaîner
+ * depuis l'administration : faire voyager un jeton dans l'URL le déposerait
+ * dans l'historique du navigateur, dans les en-têtes `Referer` et dans les
+ * journaux de tout proxy traversé — et ce jeton-là ouvre un compte qui peut
+ * écrire.
+ *
+ * La variable est optionnelle **et doit le rester** : un lien de partage est
+ * un secret porteur, qui le détient voit les statistiques. L'activer est une
+ * décision d'opérateur, pas un défaut qu'on impose. Sans elle, le bouton
+ * ouvre Umami, qui demande une connexion.
  */
 export const umamiUrl = query({
   args: {},
   handler: async (ctx): Promise<string | null> => {
     await requireRole(ctx, ["owner", "admin", "editor"])
-    return readUmamiConfig(process.env)?.url ?? null
+    const url = readUmamiConfig(process.env)?.url ?? null
+    if (url === null) return null
+
+    const shareId = process.env.UMAMI_API_SHARE_ID
+    return shareId ? `${url}/share/${shareId}` : url
   },
 })
 

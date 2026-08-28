@@ -44,6 +44,7 @@ function configure() {
   process.env.UMAMI_API_WEBSITE_ID = "site-1"
   process.env.UMAMI_API_USERNAME = "lecture"
   process.env.UMAMI_API_PASSWORD = "secret"
+  delete process.env.UMAMI_API_SHARE_ID
 }
 
 test("refuse un appelant sans session", async () => {
@@ -320,4 +321,31 @@ test("siteSummary demande explicitement la comparaison et le bon type de palmar�
   // `type=url` répond 400 en Umami 3 ; le type s'appelle `path`.
   expect(urls.some((u) => u.includes("type=path"))).toBe(true)
   expect(urls.some((u) => u.includes("type=url"))).toBe(false)
+})
+
+test("umamiUrl rend le lien de partage quand il est activé", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  process.env.UMAMI_API_SHARE_ID = "astrotan-demo"
+
+  // `/share/<id>` affiche le tableau de bord d'Umami en lecture seule, sans
+  // connexion et sans qu'aucun identifiant ne voyage.
+  expect(await editor.identity.query(api.analytics.umamiUrl, {})).toBe(
+    "https://umami.illith.test/share/astrotan-demo",
+  )
+})
+
+test("sans partage activé, le bouton mène à la connexion d'Umami", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  delete process.env.UMAMI_API_SHARE_ID
+
+  // Le partage reste une décision d'opérateur : le lien est un secret
+  // porteur, et l'activer par défaut exposerait des statistiques que
+  // personne n'a choisi de publier.
+  expect(await editor.identity.query(api.analytics.umamiUrl, {})).toBe(
+    "https://umami.illith.test",
+  )
 })
