@@ -22,6 +22,7 @@ import {
   verifyPreviewToken,
 } from "./lib/previewToken"
 import { insertOutboxRow } from "./revalidate"
+import { mintRenameRedirect } from "./redirects"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // Posts are the one place this template still holds content in the
@@ -257,6 +258,26 @@ export const update = mutation({
     })
 
     await ctx.db.patch(args.id, patch)
+
+    // Renommer le slug d'un article *publié* abandonnerait ses lecteurs à
+    // une 404 : l'ancienne URL est partagée, indexée, mise en favori. Une
+    // 301 la fait suivre. Le chemin porte le préfixe du blog des deux
+    // côtés — c'est l'URL réelle, pas le slug nu.
+    //
+    // Rien pour un brouillon jamais publié : renommer trois fois un
+    // brouillon laisserait trois redirections mortes.
+    if (
+      patch.slug !== undefined &&
+      patch.slug !== post.slug &&
+      post.publishedAt !== undefined
+    ) {
+      await mintRenameRedirect(
+        ctx,
+        `blog/${post.slug}`,
+        `blog/${patch.slug}`,
+        authUser._id
+      )
+    }
 
     // Saving an edit to a *published* article has to invalidate too, or the
     // cached response stays stale for up to `maxAge` while the dashboard

@@ -57,6 +57,17 @@ export const MAX_ALT_LENGTH = 300
 export const MAX_FILENAME_LENGTH = 255
 export const MAX_MEDIA_SIZE_BYTES = 10 * 1024 * 1024
 
+// Same reasoning once more, for `redirects.ts` — the redirects screen caps
+// its two path inputs at the number the mutation refuses past, and
+// `redirects.ts` reaches `lib/authz` → `auth.ts` like every other entry
+// point. `redirects.ts` re-exports it.
+//
+// One bound for both `from` and `to`: `to` may be an absolute URL and 2048
+// is the practical ceiling browsers and servers agree on for a URL, while
+// `from` is a path that can never usefully be longer than the URL it has
+// to match.
+export const MAX_REDIRECT_PATH_LENGTH = 2048
+
 // An allow-list, never a deny-list, and `image/svg+xml` is the reason why.
 // An SVG is an executable document: served from the site's own origin it
 // is an XSS vector, and it looks like an image format from every angle

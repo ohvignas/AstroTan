@@ -20,16 +20,27 @@ export type PathConflict =
   | { reason: "post"; detail: string }
   | { reason: "reserved"; detail: string }
 
-/** `true` when a route file already answers on this path. */
+/**
+ * `true` when a route file answers on this *exact* path.
+ *
+ * Exact only, and a dynamic prefix deliberately does not count. `/blog/x`
+ * is matched by `blog/[slug].astro`, but what that route serves comes from
+ * the database — so the path is live only if a post is live there, which
+ * the post lookup below decides. Treating the prefix as "served" would
+ * refuse the redirect a renamed article most needs: from its own old URL,
+ * which now 404s precisely because the post moved.
+ *
+ * `/blog` itself is an exact path (`blog/index.astro`) and is still
+ * refused.
+ */
 export function isServedByRoute(path: string): boolean {
+  return SERVED_PATHS.includes("/" + normalizeSlug(path))
+}
+
+/** `true` when a dynamic route would resolve this path against the database. */
+export function isUnderDynamicRoute(path: string): boolean {
   const normalized = "/" + normalizeSlug(path)
-  if (SERVED_PATHS.includes(normalized)) return true
-  // A dynamic route owns everything below its prefix: `/blog/[slug]`
-  // answers `/blog/anything`, so a redirect from `/blog/x` is shadowed even
-  // though no exact path matches.
-  return SERVED_PREFIXES.some(
-    (prefix) => normalized === prefix || normalized.startsWith(prefix + "/")
-  )
+  return SERVED_PREFIXES.some((prefix) => normalized.startsWith(prefix + "/"))
 }
 
 /**
@@ -62,9 +73,16 @@ export async function findPathConflict(
   // `blog/<slug>` is the only shape an article answers on, and the prefix
   // check above already caught it — but a bare article slug is checked too,
   // so a future route layout change cannot silently open a hole here.
+  // Un article vit sous `/blog/<slug>` : c'est ce segment-là qu'il faut
+  // comparer, pas le chemin entier. Un chemin sous une route dynamique
+  // n'est occupé que si la ligne existe — sinon il rend 404, et le
+  // rediriger est exactement ce qu'on veut.
+  const postSlug = isUnderDynamicRoute(path)
+    ? slug.slice(slug.indexOf("/") + 1)
+    : slug
   const post = await ctx.db
     .query("posts")
-    .withIndex("by_slug", (q: any) => q.eq("slug", slug))
+    .withIndex("by_slug", (q: any) => q.eq("slug", postSlug))
     .unique()
   if (post !== null) return { reason: "post", detail: post.title }
 

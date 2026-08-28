@@ -81,13 +81,55 @@ test("create refuse un chemin servi par un fichier de route", async () => {
     owner.identity.mutation(api.redirects.create, { from: "contact", to: "/", code: 301 }),
   ).rejects.toMatchObject({ data: { code: "PATH_ALREADY_SERVED", reason: "route" } })
 
+  // `/blog` lui-même est un chemin exact (`blog/index.astro`).
+  await expect(
+    owner.identity.mutation(api.redirects.create, { from: "blog", to: "/", code: 301 }),
+  ).rejects.toMatchObject({ data: { code: "PATH_ALREADY_SERVED" } })
+})
+
+test("un chemin sous une route dynamique n'est occupé que si l'article existe", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+
+  // `/blog/<slug>` est résolu contre la base : sans article, il rend 404,
+  // et le rediriger est exactement ce qu'on veut après un renommage.
+  const id = await owner.identity.mutation(api.redirects.create, {
+    from: "blog/article-disparu",
+    to: "/blog/nouveau",
+    code: 301,
+  })
+  expect(id).toBeDefined()
+
+  // Mais un article vivant occupe bien son chemin.
+  await owner.identity.mutation(api.posts.create, {
+    title: "Vivant",
+    slug: "article-vivant",
+  })
   await expect(
     owner.identity.mutation(api.redirects.create, {
-      from: "blog/quoi-que-ce-soit",
+      from: "blog/article-vivant",
       to: "/",
       code: 301,
     }),
-  ).rejects.toMatchObject({ data: { code: "PATH_ALREADY_SERVED", reason: "route" } })
+  ).rejects.toMatchObject({ data: { code: "PATH_ALREADY_SERVED", reason: "post" } })
+})
+
+test("renommer un article publié crée une 301 depuis son ancienne URL", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "Article",
+    slug: "titre-v1",
+  })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+
+  await owner.identity.mutation(api.posts.update, { id, slug: "titre-v2" })
+
+  expect(await t.query(api.redirects.listActive, {})).toContainEqual({
+    from: "blog/titre-v1",
+    to: "/blog/titre-v2",
+    code: 301,
+  })
 })
 
 test("create refuse le chemin d'une page, même en brouillon", async () => {

@@ -9,6 +9,7 @@ import { assertPathAvailable } from "./lib/servedPaths"
 import { normalizeSlug } from "./lib/slug"
 import { RESERVED_PAGE_SLUGS } from "./posts"
 import { MUTATION_REGISTRY } from "./_registry"
+import { MAX_REDIRECT_PATH_LENGTH } from "./content"
 
 // Redirects, and the one property that makes them safe.
 //
@@ -27,7 +28,12 @@ import { MUTATION_REGISTRY } from "./_registry"
 // it, create the page (accepted, the redirect is inactive), re-enable it,
 // and the page is shadowed having never failed a single check.
 
-export const MAX_REDIRECT_PATH_LENGTH = 2048
+// Defined in `content.ts` and only re-exported here, for the reason that
+// file states about every other bound it holds: this module is a
+// deployment entry point whose graph reaches `lib/authz` → `auth.ts`, and
+// the redirects screen needs the same number to cap its inputs. Importing
+// it from here would drag the server into the browser bundle.
+export { MAX_REDIRECT_PATH_LENGTH }
 
 /**
  * Everything a redirect must satisfy before it can be stored or re-enabled.
