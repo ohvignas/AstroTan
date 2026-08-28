@@ -51,4 +51,16 @@ describe("PublicationStatusBadge", () => {
     expect(html).toContain("Échec de la propagation")
     expect(html).not.toContain("Publiée")
   })
+
+  // Closing-fixes review: `publicationStatus` reports this state when the
+  // only outbox row it found for this page predates the `pageId` field and
+  // is therefore unindexable — it genuinely cannot tell whether the last
+  // real propagation attempt succeeded or failed. Rendering it as
+  // "Publiée" would be exactly the false-green badge this whole review
+  // keeps flagging.
+  test("unknown — an unindexable outbox row is visible as uncertain, not silently reported as published", () => {
+    const html = render({ state: "unknown" })
+    expect(html).toContain("Statut de propagation inconnu")
+    expect(html).not.toContain("Publiée")
+  })
 })

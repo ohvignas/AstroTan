@@ -1,7 +1,7 @@
 import type { FunctionReturnType } from "convex/server"
 import type { api } from "@astrotan/backend/convex/_generated/api"
 import { Badge } from "@/components/ui/badge"
-import { CheckIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react"
+import { CheckIcon, CircleHelpIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react"
 
 // Pulled out of `routes/_authed/pages/$pageId.tsx` (whole-lot review, the
 // status-badge finding): this is a pure, five-branch function of its
@@ -48,6 +48,21 @@ export function PublicationStatusBadge({
         <Loader2Icon data-icon="inline-start" className="animate-spin" />
         Propagation en cours ({status.attempts} tentative
         {status.attempts > 1 ? "s" : ""})
+      </Badge>
+    )
+  }
+  // Closing-fixes review: `pages.publicationStatus` returns this state
+  // when the only outbox row it can find for this page predates the
+  // `pageId` field and is therefore unindexable — it genuinely cannot
+  // tell whether the last real propagation attempt succeeded or failed.
+  // Rendering that as "Publiée" would be exactly the false-green badge
+  // this whole review keeps flagging; rendering it as a distinct,
+  // visibly-uncertain state is the honest alternative.
+  if (status.state === "unknown") {
+    return (
+      <Badge variant="outline">
+        <CircleHelpIcon data-icon="inline-start" />
+        Statut de propagation inconnu
       </Badge>
     )
   }

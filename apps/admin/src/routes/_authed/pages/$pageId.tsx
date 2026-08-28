@@ -136,7 +136,13 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   // (`requireRole(["owner","admin"])`) re-check the exact same boundary
   // themselves, unconditionally, on the server.
   const isOwn = page.createdBy === profile.authUserId
-  const canWrite = profile.role !== "editor" || isOwn
+  // Closing-fixes review: `pages.update`/`pages.remove` now also refuse an
+  // editor once the page is `published` (`requirePublishedPageWritable`,
+  // `lib/authz.ts`) — this flag has to know that rule too, or an editor
+  // opening their own published page sees an enabled form and only
+  // discovers the refusal on save. The server enforcement is what's
+  // correct either way; this is only the courtesy that used to mislead.
+  const canWrite = profile.role !== "editor" || (isOwn && page.status !== "published")
   const canPublish = profile.role === "owner" || profile.role === "admin"
 
   function addBlock(type: Block["type"]) {
@@ -284,8 +290,9 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
 
       {!canWrite && (
         <p className="rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-          Cette page appartient à un autre utilisateur : vous pouvez la
-          consulter, pas la modifier.
+          {isOwn
+            ? "Cette page est publiée : un editor ne peut plus la modifier une fois en ligne. Dépubliez-la (ou demandez à un owner/admin) pour reprendre l'édition."
+            : "Cette page appartient à un autre utilisateur : vous pouvez la consulter, pas la modifier."}
         </p>
       )}
       {error && (
