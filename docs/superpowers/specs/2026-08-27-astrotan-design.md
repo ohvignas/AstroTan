@@ -499,10 +499,10 @@ final (le rôle inchangé), pas sur le contenu de la réponse.
 
 1. **Socle** — monorepo, Convex, Better Auth Local Install, rôles, invitations. *(livré)*
 2. **Pages** — registre des pages, publication, aperçu, cache, panneaux SEO/GEO. *(livré ; les trois modèles de contenu essayés ont tous été retirés — voir §4)*
-3. **Blog** — posts, tags, médias.
-4. **Redirections** — slugs, 301, garde d'exclusion mutuelle. *(la navigation en base est retirée du périmètre : menu et pied de page vivent dans le balisage de chaque page, en code)*
-5. **Infra** — Docker, Traefik, CI/CD, rollback.
-6. **SEO, GEO et statistiques** — JSON-LD (`Organization`, `Article`, `FAQPage`), `sitemap.xml`, `robots.txt`, `llms.txt`, et intégration [Umami](https://umami.is/) : script sur le site, lecture de son API dans l'admin pour afficher les statistiques par page.
+3. **Blog** — posts, tags, médias. *(livré)*
+4. **Redirections** — slugs, 301, garde d'exclusion mutuelle. *(backend et middleware livrés ; écran d'admin en cours. La navigation en base est retirée du périmètre : menu et pied de page vivent dans le balisage de chaque page, en code)*
+5. **Infra** — Docker, Traefik, CI/CD, rollback. *(livré ; le pipeline n'a jamais tourné contre un vrai VPS)*
+6. **SEO, GEO et statistiques** — JSON-LD (`Organization`, `Article`, `FAQPage`), `sitemap.xml`, `robots.txt`, `llms.txt`, et intégration [Umami](https://umami.is/) : script sur le site, lecture de son API dans l'admin pour afficher les statistiques par page. *(plan écrit : `docs/superpowers/plans/2026-08-28-lot6-seo-geo-umami.md`)*
 
 Les lots 3 à 6 sont numérotés dans l'ordre où ils ont été planifiés, pas
 dans un ordre d'exécution imposé : 4 et 5 ne dépendent pas de 3, et
