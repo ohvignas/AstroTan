@@ -135,7 +135,14 @@ describe("POST /api/revalidate", () => {
   // them." Not just "all three are non-200" (the three tests above) but
   // that the *response itself* — status and body — is indistinguishable
   // across all three failure reasons.
+  //
+  // Closing-fixes review: the non-ASCII case (M1, this same file's own
+  // dedicated test above) belongs in this identity check too — it used to
+  // live only in its own 401-only assertion, never proven identical to
+  // the other three refusal shapes. Folded in here rather than left as a
+  // separate claim.
   test("secret manquant, mauvais, ou de mauvaise longueur produisent la même réponse", async () => {
+    const nonAsciiSecret = "é" + "a".repeat(TEST_SECRET.length - 1)
     const scenarios = [
       fakeContext({ body: { tags: ["pages"] } }), // missing
       fakeContext({
@@ -143,6 +150,7 @@ describe("POST /api/revalidate", () => {
         body: { tags: ["pages"] },
       }), // wrong, same length
       fakeContext({ headers: { "x-revalidate-secret": "short" }, body: { tags: ["pages"] } }), // wrong length
+      fakeContext({ headers: { "x-revalidate-secret": nonAsciiSecret }, body: { tags: ["pages"] } }), // non-ASCII, same char length (M1)
     ]
 
     const responses = await Promise.all(
