@@ -73,15 +73,37 @@ function getRevalidateSecret(): string {
 // never-reaped table. Optional, matching the schema field itself — a row
 // this module ever inserts always has a real page behind it in practice,
 // but the type stays honest about what the schema actually guarantees.
+/**
+ * What a row is about, so a page's own bookkeeping never has to read a
+ * post's rows.
+ *
+ * `pages.publicationStatus` falls back to scanning rows with no `pageId`,
+ * and its whole cost argument is that this set can only shrink — every
+ * caller passes a real id. Posts publish through the same outbox and have
+ * no `pageId`, so without this discriminant that set would grow by one row
+ * per post publish, forever, on a query the editor screen subscribes to
+ * reactively. `kind` is what keeps the two apart at the index, not in
+ * memory after the fact.
+ *
+ * Optional in the schema: rows written before this field existed carry
+ * none, and `kind === undefined` is exactly the frozen legacy set that
+ * fallback now scans.
+ */
+export type OutboxTarget =
+  | { kind: "page"; pageId: Id<"pages"> | undefined }
+  | { kind: "post"; postId: Id<"posts"> }
+
 export async function insertOutboxRow(
   ctx: MutationCtx,
-  pageId: Id<"pages"> | undefined,
+  target: OutboxTarget,
   tags: string[],
 ): Promise<void> {
   const now = Date.now()
   await ctx.db.insert("revalidationOutbox", {
     tags,
-    pageId,
+    kind: target.kind,
+    pageId: target.kind === "page" ? target.pageId : undefined,
+    postId: target.kind === "post" ? target.postId : undefined,
     status: "pending",
     attempts: 0,
     nextAttemptAt: now,

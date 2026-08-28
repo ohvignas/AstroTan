@@ -1,11 +1,17 @@
 import { ConvexError, v } from "convex/values"
-import { mutation } from "./_generated/server"
-import { api } from "./_generated/api"
+import { mutation, query } from "./_generated/server"
+import { api, internal } from "./_generated/api"
 import type { Id, Doc } from "./_generated/dataModel"
 import type { MutationCtx } from "./_generated/server"
 import { geoValidator, seoValidator, assertPageTextWithinLimits } from "./content"
 import { requireRole, requireOwnDocument } from "./lib/authz"
 import { normalizeSlug } from "./lib/slug"
+import {
+  PREVIEW_TOKEN_TTL_MS,
+  signPreviewToken,
+  verifyPreviewToken,
+} from "./lib/previewToken"
+import { insertOutboxRow } from "./revalidate"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // Posts are the one place this template still holds content in the
@@ -242,6 +248,239 @@ MUTATION_REGISTRY.push(
         slug: `registry-${Date.now()}-${Math.random()}`,
       })
       return t.mutation(api.posts.remove, { id })
+    },
+  }
+)
+
+// ---------------------------------------------------------------------
+// La famille publique — et la famille d'aperçu, séparément
+// ---------------------------------------------------------------------
+//
+// Two families, kept apart on purpose and readable apart. `apps/web` has no
+// session and no admin key, so a public query that forgot its `status`
+// filter is a draft leak with nothing else standing in the way. Factoring
+// these two into one parameterised helper would save a dozen lines and cost
+// the property a reviewer needs to be able to check at a glance: that no
+// function in the first family can return an unpublished row.
+
+const POST_PREVIEW_TOKEN_TYPE = "post"
+
+/** How many published posts `/blog` will list. See the plan's Decision 3. */
+export const PUBLISHED_POSTS_LIMIT = 100
+
+export const getPublishedPost = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const post = await ctx.db
+      .query("posts")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .unique()
+    if (post === null) return null
+    // The filter is here, in the query, never in the caller. `null` covers
+    // both "no such slug" and "a draft with that slug" — from the public
+    // site's point of view those are the same outcome, deliberately.
+    if (post.status !== "published") return null
+    return post
+  },
+})
+
+export const listPublishedPosts = query({
+  args: {},
+  handler: async (ctx) => {
+    // `by_status_published` in that order, descending: "the published ones,
+    // newest first" as a single index range scan rather than a full scan
+    // filtered in memory.
+    const posts = await ctx.db
+      .query("posts")
+      .withIndex("by_status_published", (q) => q.eq("status", "published"))
+      .order("desc")
+      .take(PUBLISHED_POSTS_LIMIT + 1)
+
+    if (posts.length > PUBLISHED_POSTS_LIMIT) {
+      // Truncating in silence is how a blog quietly stops showing its
+      // oldest posts and nobody finds out. Pagination is deliberately not
+      // in v1 (plan, Decision 3); this line is the debt saying so out loud.
+      console.warn(
+        `listPublishedPosts hit its ${PUBLISHED_POSTS_LIMIT}-post ceiling — ` +
+          `older posts are not being listed. Time to add pagination.`
+      )
+    }
+    return posts.slice(0, PUBLISHED_POSTS_LIMIT)
+  },
+})
+
+/**
+ * A draft, opened by a valid token — and by nothing else.
+ *
+ * Keyed on the slug so a preview opens at the post's real URL
+ * (`/blog/x?t=…`), like a page's. The token's `type` is `"post"`, and the
+ * HMAC covers it: a token minted for a *page* cannot open an article, even
+ * one whose slug happens to match.
+ */
+export const previewPost = query({
+  args: { slug: v.string(), token: v.string() },
+  handler: async (ctx, args) => {
+    const valid = await verifyPreviewToken({
+      type: POST_PREVIEW_TOKEN_TYPE,
+      id: args.slug,
+      token: args.token,
+    })
+    if (!valid) throw new ConvexError({ code: "INVALID_PREVIEW_TOKEN" })
+
+    return ctx.db
+      .query("posts")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .unique()
+  },
+})
+
+export const mintPostPreviewToken = mutation({
+  args: { id: v.id("posts") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    const post = await ctx.db.get(args.id)
+    if (!post) throw new ConvexError({ code: "NOT_FOUND" })
+
+    const expiresAt = Date.now() + PREVIEW_TOKEN_TTL_MS
+    // Reads the slug from the row rather than trusting a caller-supplied
+    // one: that is what stops a token being minted for a post the caller
+    // names but has no handle on.
+    const token = await signPreviewToken({
+      type: POST_PREVIEW_TOKEN_TYPE,
+      id: post.slug,
+      expiresAt,
+    })
+    return { token, expiresAt, slug: post.slug }
+  },
+})
+
+MUTATION_REGISTRY.push({
+  name: "posts.mintPostPreviewToken",
+  allowedRoles: ["owner", "admin", "editor"],
+  invoke: async (t) => {
+    const id = await t.mutation(api.posts.create, {
+      title: "Registry post",
+      slug: `registry-${Date.now()}-${Math.random()}`,
+    })
+    return t.mutation(api.posts.mintPostPreviewToken, { id })
+  },
+})
+
+// ---------------------------------------------------------------------
+// Publication
+// ---------------------------------------------------------------------
+
+/**
+ * Flip a post live, and record the invalidation in the same transaction.
+ *
+ * `insertOutboxRow` is a plain `ctx.db.insert`, not a nested mutation call:
+ * that is what makes the row impossible to lose. Either both writes land or
+ * neither does, so there is no window where `status` says published and
+ * nothing was ever queued to invalidate the cache.
+ *
+ * Republishing an already-published post still writes a fresh row: every
+ * publish is a signal that what is live may be stale, whether or not
+ * `status` itself changed.
+ */
+export const publishPost = mutation({
+  args: { id: v.id("posts") },
+  handler: async (ctx, args) => {
+    // Publishing is owner/admin, never the editor who wrote the post —
+    // enforced here, not by the dashboard hiding a button.
+    await requireRole(ctx, ["owner", "admin"])
+    const post = await ctx.db.get(args.id)
+    if (!post) throw new ConvexError({ code: "NOT_FOUND" })
+
+    await ctx.db.patch(args.id, { status: "published", publishedAt: Date.now() })
+    await insertOutboxRow(ctx, { kind: "post", postId: args.id }, [
+      "posts",
+      `post:${post.slug}`,
+    ])
+    // The fast path: don't wait for the next cron sweep when nothing is
+    // wrong. The cron is the recovery path for when this call is lost, not
+    // the primary one.
+    await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+  },
+})
+
+/**
+ * Take a post offline, and invalidate just as hard.
+ *
+ * Unpublishing without invalidating leaves the article served from cache
+ * for up to `maxAge` after it was withdrawn — the failure mode that matters
+ * most here, since withdrawing is usually urgent.
+ */
+export const unpublishPost = mutation({
+  args: { id: v.id("posts") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin"])
+    const post = await ctx.db.get(args.id)
+    if (!post) throw new ConvexError({ code: "NOT_FOUND" })
+
+    await ctx.db.patch(args.id, { status: "draft" })
+    await insertOutboxRow(ctx, { kind: "post", postId: args.id }, [
+      "posts",
+      `post:${post.slug}`,
+    ])
+    await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+  },
+})
+
+export const publicationStatus = query({
+  args: { id: v.id("posts") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    const post = await ctx.db.get(args.id)
+    if (!post) return null
+    if (post.status !== "published") return { state: "draft" as const }
+
+    // A single index range scan on this post's own rows, newest first —
+    // never a scan of the whole outbox, which is never pruned and only
+    // grows.
+    const latest = await ctx.db
+      .query("revalidationOutbox")
+      .withIndex("by_post_created_at", (q) => q.eq("postId", args.id))
+      .order("desc")
+      .first()
+
+    // No row at all for an already-published post is real but narrow (a
+    // fixture seeded straight to `published`): treated as settled rather
+    // than stuck propagating forever with nothing to resolve it.
+    if (!latest || latest.status === "done") {
+      return { state: "published" as const, publishedAt: post.publishedAt }
+    }
+    if (latest.status === "failed") {
+      return {
+        state: "failed" as const,
+        lastError: latest.lastError,
+        attempts: latest.attempts,
+      }
+    }
+    return { state: "propagating" as const, attempts: latest.attempts }
+  },
+})
+
+MUTATION_REGISTRY.push(
+  {
+    name: "posts.publishPost",
+    allowedRoles: ["owner", "admin"],
+    invoke: async (t) => {
+      const id = await t.mutation(api.posts.create, {
+        title: "Registry post",
+        slug: `registry-${Date.now()}-${Math.random()}`,
+      })
+      return t.mutation(api.posts.publishPost, { id })
+    },
+  },
+  {
+    name: "posts.unpublishPost",
+    allowedRoles: ["owner", "admin"],
+    invoke: async (t) => {
+      const id = await t.mutation(api.posts.create, {
+        title: "Registry post",
+        slug: `registry-${Date.now()}-${Math.random()}`,
+      })
+      return t.mutation(api.posts.unpublishPost, { id })
     },
   }
 )

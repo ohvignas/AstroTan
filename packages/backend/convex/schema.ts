@@ -186,13 +186,23 @@ export default defineSchema({
   // reduce happened to see first.
   revalidationOutbox: defineTable({
     tags: v.array(v.string()),
+    // Ce sur quoi porte la ligne. Optionnel : les lignes antérieures à ce
+    // champ n'en portent pas — voir `OutboxTarget` dans `revalidate.ts`.
+    kind: v.optional(v.union(v.literal("page"), v.literal("post"))),
     pageId: v.optional(v.id("pages")),
+    postId: v.optional(v.id("posts")),
     status: outboxStatusValidator,
     attempts: v.number(),
     nextAttemptAt: v.number(),
     lastError: v.optional(v.string()),
     createdAt: v.number(),
   })
+    // Discriminant ajouté avec les articles (lot 3, Task 5) : voir
+    // `OutboxTarget` dans `revalidate.ts`. Optionnel — les lignes écrites
+    // avant lui n'en portent pas, et `kind === undefined` est exactement
+    // l'ensemble figé que le repli de `pages.publicationStatus` balaie.
+    .index("by_kind_page_created_at", ["kind", "pageId", "createdAt"])
+    .index("by_post_created_at", ["postId", "createdAt"])
     .index("by_status_next_attempt", ["status", "nextAttemptAt"])
     .index("by_page_created_at", ["pageId", "createdAt"]),
 })

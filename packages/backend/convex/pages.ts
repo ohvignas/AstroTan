@@ -231,9 +231,17 @@ export const publicationStatus = query({
     // in memory is therefore safe for the same reason `by_page_created_at`
     // exists at all (M4's own comment above): it is never a scan of the
     // whole, ever-growing table, reactive subscription included.
+    // `kind === undefined` restreint ce balayage aux lignes écrites avant
+    // que le discriminant n'existe : un ensemble réellement figé, qui ne
+    // peut plus grandir d'aucune façon. Sans cette clause, publier un
+    // article — qui passe par le même outbox sans `pageId` — le ferait
+    // grandir d'une ligne à chaque fois, sur une query que l'écran
+    // d'édition suit en abonnement réactif.
     const unindexableRows = await ctx.db
       .query("revalidationOutbox")
-      .withIndex("by_page_created_at", (q) => q.eq("pageId", undefined))
+      .withIndex("by_kind_page_created_at", (q) =>
+        q.eq("kind", undefined).eq("pageId", undefined),
+      )
       .collect()
     const tag = `page:${page.slug}`
     const latestUnindexable = unindexableRows
@@ -430,7 +438,7 @@ export const update = mutation({
       if (patch.slug !== undefined && patch.slug !== page.slug) {
         tags.push(`page:${patch.slug}`)
       }
-      await insertOutboxRow(ctx, args.id, tags)
+      await insertOutboxRow(ctx, { kind: "page", pageId: args.id }, tags)
       await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
     }
   },
@@ -460,7 +468,7 @@ export const remove = mutation({
     await ctx.db.delete(args.id)
 
     if (page.status === "published") {
-      await insertOutboxRow(ctx, page._id, ["pages", `page:${page.slug}`])
+      await insertOutboxRow(ctx, { kind: "page", pageId: page._id }, ["pages", `page:${page.slug}`])
       await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
     }
   },
@@ -485,7 +493,7 @@ export const unpublish = mutation({
     if (page.status !== "published") return
 
     await ctx.db.patch(args.id, { status: "draft" })
-    await insertOutboxRow(ctx, args.id, ["pages", `page:${page.slug}`])
+    await insertOutboxRow(ctx, { kind: "page", pageId: args.id }, ["pages", `page:${page.slug}`])
     await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
   },
 })
@@ -545,7 +553,7 @@ export const publishPage = mutation({
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
 
     await ctx.db.patch(args.id, { status: "published", publishedAt: Date.now() })
-    await insertOutboxRow(ctx, args.id, ["pages", `page:${page.slug}`])
+    await insertOutboxRow(ctx, { kind: "page", pageId: args.id }, ["pages", `page:${page.slug}`])
     // The fast path (design spec §6.2, step 2): don't wait for the next
     // 60s cron sweep (`crons.ts`) when nothing is wrong. `runAfter(0, ...)`
     // schedules `drain` to run essentially immediately, once this

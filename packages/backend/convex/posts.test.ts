@@ -264,3 +264,222 @@ test("un editor ne peut modifier que ses propres articles", async () => {
   await editor.identity.mutation(api.posts.update, { id: own, title: "Le mien, édité" })
   expect((await t.run((ctx) => ctx.db.get(own)))?.title).toBe("Le mien, édité")
 })
+
+// ---------------------------------------------------------------------
+// L'invariant du lot
+// ---------------------------------------------------------------------
+
+test("getPublishedPost ne sert jamais un brouillon, même avec le bon slug", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.posts.create, {
+    title: "Brouillon",
+    slug: "brouillon-confidentiel",
+  })
+
+  // Appelé sans identité — la posture exacte d'`apps/web`, qui n'a ni
+  // session ni clé admin.
+  expect(await t.query(api.posts.getPublishedPost, { slug: "brouillon-confidentiel" })).toBeNull()
+})
+
+test("listPublishedPosts n'expose aucun brouillon", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.posts.create, { title: "Brouillon", slug: "b1" })
+  const publie = await owner.identity.mutation(api.posts.create, { title: "Publié", slug: "p1" })
+  await t.run((ctx) => ctx.db.patch(publie, { status: "published", publishedAt: Date.now() }))
+
+  const rows = await t.query(api.posts.listPublishedPosts, {})
+  expect(rows.map((r) => r.slug)).toEqual(["p1"])
+})
+
+test("listPublishedPosts rend les articles du plus récent au plus ancien", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  for (const [slug, at] of [["vieux", 1000], ["recent", 3000], ["moyen", 2000]] as const) {
+    const id = await owner.identity.mutation(api.posts.create, { title: slug, slug })
+    await t.run((ctx) => ctx.db.patch(id, { status: "published", publishedAt: at }))
+  }
+
+  const rows = await t.query(api.posts.listPublishedPosts, {})
+  expect(rows.map((r) => r.slug)).toEqual(["recent", "moyen", "vieux"])
+})
+
+test("previewPost refuse un jeton de type page visant le même slug", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.posts.create, { title: "Article", slug: "collision" })
+  await owner.identity.mutation(api.pages.create, { title: "Page", slug: "collision" })
+
+  // Le garde-fou central du lot : l'HMAC couvre le *type*, donc un jeton
+  // frappé pour la page ne peut pas ouvrir l'article homonyme.
+  const pageId = await t.run(async (ctx) =>
+    (await ctx.db.query("pages").withIndex("by_slug", (q) => q.eq("slug", "collision")).unique())!._id,
+  )
+  const { token } = await owner.identity.mutation(api.pages.mintPreviewToken, { id: pageId })
+
+  await expect(
+    t.query(api.posts.previewPost, { slug: "collision", token }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_PREVIEW_TOKEN" } })
+})
+
+test("previewPost ouvre le brouillon avec son propre jeton, et refuse celui d'un autre article", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const cible = await owner.identity.mutation(api.posts.create, { title: "Cible", slug: "cible" })
+  await owner.identity.mutation(api.posts.create, { title: "Autre", slug: "autre" })
+
+  const { token, slug } = await owner.identity.mutation(api.posts.mintPostPreviewToken, {
+    id: cible,
+  })
+  expect(slug).toBe("cible")
+
+  const post = await t.query(api.posts.previewPost, { slug: "cible", token })
+  expect(post?.status).toBe("draft")
+
+  await expect(
+    t.query(api.posts.previewPost, { slug: "autre", token }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_PREVIEW_TOKEN" } })
+})
+
+test("previewPost refuse un jeton expiré, altéré, ou absent", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, { title: "X", slug: "x" })
+  const { token } = await owner.identity.mutation(api.posts.mintPostPreviewToken, { id })
+
+  const last = token.at(-1)
+  const altere = token.slice(0, -1) + (last === "0" ? "1" : "0")
+  for (const bad of ["", "pas-un-jeton", altere]) {
+    await expect(
+      t.query(api.posts.previewPost, { slug: "x", token: bad }),
+    ).rejects.toMatchObject({ data: { code: "INVALID_PREVIEW_TOKEN" } })
+  }
+})
+
+// ---------------------------------------------------------------------
+// Publication et invalidation
+// ---------------------------------------------------------------------
+
+async function outboxRows(t: TestConvex<typeof schema>) {
+  return t.run((ctx) => ctx.db.query("revalidationOutbox").collect())
+}
+
+test("publishPost est réservé à owner/admin", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  const id = await editor.identity.mutation(api.posts.create, {
+    title: "À moi",
+    slug: "a-moi",
+  })
+
+  // Un editor peut écrire son article, pas décider qu'il part en ligne.
+  await expect(
+    editor.identity.mutation(api.posts.publishPost, { id }),
+  ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } })
+})
+
+test("publishPost écrit la ligne d'outbox dans la même transaction que le statut", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "Publié",
+    slug: "publie",
+  })
+
+  await owner.identity.mutation(api.posts.publishPost, { id })
+
+  const post = await t.run((ctx) => ctx.db.get(id))
+  expect(post?.status).toBe("published")
+  expect(post?.publishedAt).toBeDefined()
+
+  const rows = await outboxRows(t)
+  expect(rows).toHaveLength(1)
+  expect(rows[0]?.tags).toEqual(["posts", "post:publie"])
+  expect(rows[0]?.kind).toBe("post")
+  expect(rows[0]?.postId).toBe(id)
+  // Jamais de `pageId` : c'est ce qui garde le repli de
+  // `pages.publicationStatus` sur un ensemble figé.
+  expect(rows[0]?.pageId).toBeUndefined()
+})
+
+test("republier écrit une nouvelle ligne, même si le statut ne change pas", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, { title: "R", slug: "r" })
+
+  await owner.identity.mutation(api.posts.publishPost, { id })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+
+  // Chaque publication signale que ce qui est en ligne peut être périmé,
+  // que `status` ait bougé ou non.
+  expect(await outboxRows(t)).toHaveLength(2)
+})
+
+test("unpublishPost repasse en brouillon et invalide aussi", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, { title: "U", slug: "u" })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+
+  await owner.identity.mutation(api.posts.unpublishPost, { id })
+
+  expect((await t.run((ctx) => ctx.db.get(id)))?.status).toBe("draft")
+  // Sans cette invalidation, l'article retiré resterait servi depuis le
+  // cache jusqu'à expiration — le pire moment pour attendre.
+  const rows = await outboxRows(t)
+  expect(rows).toHaveLength(2)
+  expect(rows[1]?.tags).toEqual(["posts", "post:u"])
+
+  expect(await t.query(api.posts.getPublishedPost, { slug: "u" })).toBeNull()
+})
+
+test("publicationStatus rend l'état réel de la propagation", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, { title: "S", slug: "s" })
+
+  expect(await owner.identity.query(api.posts.publicationStatus, { id })).toEqual({
+    state: "draft",
+  })
+
+  await owner.identity.mutation(api.posts.publishPost, { id })
+  expect(
+    (await owner.identity.query(api.posts.publicationStatus, { id }))?.state,
+  ).toBe("propagating")
+
+  const rowId = (await outboxRows(t))[0]!._id
+  await t.run((ctx) => ctx.db.patch(rowId, { status: "done" }))
+  expect(
+    (await owner.identity.query(api.posts.publicationStatus, { id }))?.state,
+  ).toBe("published")
+
+  await t.run((ctx) => ctx.db.patch(rowId, { status: "failed", lastError: "boom" }))
+  const failed = await owner.identity.query(api.posts.publicationStatus, { id })
+  expect(failed?.state).toBe("failed")
+})
+
+test("publier un article ne perturbe pas le statut de propagation d'une page", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const pageId = await owner.identity.mutation(api.pages.create, {
+    title: "Page",
+    slug: "une-page",
+  })
+  await owner.identity.mutation(api.pages.publishPage, { id: pageId })
+  const pageRow = (await outboxRows(t))[0]!._id
+  await t.run((ctx) => ctx.db.patch(pageRow, { status: "done" }))
+
+  const postId = await owner.identity.mutation(api.posts.create, {
+    title: "Article",
+    slug: "un-article",
+  })
+  await owner.identity.mutation(api.posts.publishPost, { id: postId })
+
+  // La ligne de l'article n'a pas de `pageId` : sans le discriminant
+  // `kind`, elle tomberait dans le balayage de repli de la page et
+  // ferait basculer son badge en « inconnu ».
+  expect(
+    (await owner.identity.query(api.pages.publicationStatus, { id: pageId }))?.state,
+  ).toBe("published")
+})
