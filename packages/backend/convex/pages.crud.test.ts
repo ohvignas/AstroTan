@@ -726,3 +726,28 @@ test("publicationStatus renvoie published (pas unknown) pour une page publiée s
   const status = await owner.identity.query(api.pages.publicationStatus, { id })
   expect(status?.state).toBe("published")
 })
+
+test("update refuse une URL canonique à schéma exécutable", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "canonique", createdBy: owner.id })
+
+  // Ce champ va dans `<link rel="canonical" href>` sans passer par
+  // l'assainisseur, qui ne voit que le corps rendu.
+  for (const mauvais of ["javascript:alert(1)", "//evil.example", "/\\evil.example"]) {
+    await expect(
+      owner.identity.mutation(api.pages.update, {
+        id,
+        seo: { canonicalUrl: mauvais },
+      }),
+    ).rejects.toMatchObject({ data: { code: "UNSAFE_HREF", field: "seo.canonicalUrl" } })
+  }
+
+  await owner.identity.mutation(api.pages.update, {
+    id,
+    seo: { canonicalUrl: "https://illith.com/canonique" },
+  })
+  expect((await t.run((ctx) => ctx.db.get(id)))?.seo?.canonicalUrl).toBe(
+    "https://illith.com/canonique",
+  )
+})

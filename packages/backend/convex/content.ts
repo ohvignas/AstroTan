@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values"
+import { assertSafeHref } from "./lib/safeHref"
 
 // ---------------------------------------------------------------------
 // What a page is
@@ -190,6 +191,13 @@ export function assertPageTextWithinLimits(page: {
   }
   if (page.seo?.canonicalUrl !== undefined) {
     assertLength(page.seo.canonicalUrl, MAX_CANONICAL_URL_LENGTH, "seo.canonicalUrl")
+    // Ce champ atterrit dans `<link rel="canonical" href>` sans jamais
+    // passer par l'assainisseur, qui ne voit que le corps rendu. C'est le
+    // seul contrôle entre « quelqu'un a tapé un lien » et un attribut
+    // exécutable.
+    if (page.seo.canonicalUrl.length > 0) {
+      assertSafeHref(page.seo.canonicalUrl, "seo.canonicalUrl")
+    }
   }
 
   if (page.geo?.summary !== undefined) {

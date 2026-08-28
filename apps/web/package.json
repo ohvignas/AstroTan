@@ -10,7 +10,10 @@
     "typecheck": "astro check",
     "check": "astro check",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate:served-paths": "node ../../scripts/generate-served-paths.mjs",
+    "predev": "pnpm generate:served-paths",
+    "prebuild": "pnpm generate:served-paths"
   },
   "dependencies": {
     "@astrojs/node": "11.1.4",
