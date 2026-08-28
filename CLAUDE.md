@@ -10,11 +10,21 @@ la stratégie de cache et la procédure de rollback.
 ## Structure
 
 ```
-apps/web/          Astro 7 · @astrojs/node standalone · SSG + SSR sélectif
+apps/web/          Astro 7 · @astrojs/node standalone · une page = un .astro
 apps/admin/        TanStack Start 1 · React 19 · shadcn/ui
 packages/backend/  Convex : schema, functions, betterAuth/ (Local Install)
 packages/tokens/   tokens Tailwind v4 partagés
 docker/            Dockerfiles · compose · Traefik
+```
+
+**Ajouter une page**, c'est écrire `apps/web/src/pages/<slug>.astro`. Les trois
+lignes à recopier en tête — et il n'y a rien d'autre à brancher :
+
+```astro
+export const prerender = false
+import { loadPage } from "../lib/loadPage"
+import PageHead from "../components/PageHead.astro"
+const { page } = await loadPage(Astro, "<slug>")
 ```
 
 pnpm workspaces + Turborepo. Les types viennent de la codegen Convex : lancer
@@ -26,13 +36,21 @@ pnpm workspaces + Turborepo. Les types viennent de la codegen Convex : lancer
    publiques, et chacune filtre `status === "published"` côté serveur. Une query
    publique sans ce filtre est une fuite de brouillons.
 2. **Les queries de preview sont une famille de fonctions distincte** des queries
-   publiques, protégées par un token HMAC expirable vérifié deux fois : dans Astro,
-   puis à nouveau dans Convex.
+   publiques, protégées par un token HMAC expirable vérifié deux fois : dans Astro
+   (`lib/loadPage.ts`, avant tout appel réseau), puis à nouveau dans Convex
+   (`pages.previewPage`). Le jeton signe le **slug**, si bien que l'aperçu
+   s'ouvre à la vraie URL de la page (`/accueil?t=…`) — jamais une route
+   parallèle qui en rendrait une approximation.
 3. **Les permissions sont revérifiées dans chaque mutation Convex.** L'UI masque,
    elle ne décide pas.
 4. **Le rôle vit sur l'utilisateur Better Auth**, jamais dupliqué côté application.
-5. **Les blocs sont rendus uniquement en `.astro`.** Ne pas créer de version React
-   d'un bloc : le dashboard édite des formulaires et prévisualise en `<iframe>`.
+5. **La base ne porte aucun contenu de page.** Une page *est* son fichier
+   `.astro` : le balisage, la mise en page et les mots, écrits en code depuis
+   une maquette. La ligne `pages` ne porte que le slug, le titre, le statut,
+   `seo` et `geo`. Trois modèles de contenu ont été essayés puis retirés
+   (union de blocs, corps Markdown, champs de texte déclarés) — chacun était
+   une seconde façon, plus faible, de faire ce que le code fait déjà.
+   L'admin décide **qui doit trouver la page**, jamais ce qu'elle contient.
 6. **Aucun changement de schéma destructif dans un seul déploiement.** Discipline
    expand / migrate / contract (spec §7) — c'est ce qui rend le rollback sûr.
 

@@ -68,7 +68,7 @@ Tables applicatives :
 
 | Table | Champs | Index |
 |---|---|---|
-| `pages` | `slug`, `title`, `status`, `body` (Markdown), `seo`, `geo`, `publishedAt`, `createdBy`, `updatedBy` | `by_slug`, `by_status`, `by_created_by` |
+| `pages` | `slug`, `title`, `status`, `seo`, `geo`, `publishedAt`, `createdBy`, `updatedBy` — **aucun champ de contenu** | `by_slug`, `by_status`, `by_created_by` |
 | `posts` | `slug`, `title`, `excerpt`, `coverId`, `body` (Markdown), `status`, `seo`, `geo`, `publishedAt`, `createdBy`, `updatedBy`, `tagIds[]` | `by_slug`, `by_status_published`, `by_created_by` |
 | `tags` | `name`, `slug` | `by_slug` |
 | `media` | `storageId`, `filename`, `mime`, `width`, `height`, `alt`, `size` | `by_creation` |
@@ -86,31 +86,50 @@ vers un nom affichable passe par `profiles.by_auth_user`.
 
 Tables Better Auth : dans `convex/betterAuth/schema.ts` (Local Install, §5).
 
-### Contenu : Markdown, pas de blocs
+### Contenu : rien en base
 
-**Révisé le 2026-08-28.** La première version de cette spec décrivait
-`blocks[]`, une union discriminée de six types de blocs rendus par un
-registre exhaustif. Le lot 2 l'a livrée, puis elle a été retirée du projet.
+**Révisé deux fois — le 2026-08-28.** La spec d'origine décrivait `blocks[]`,
+une union discriminée de six types rendus par un registre exhaustif. Le lot 2
+l'a livrée. Elle a été remplacée par un corps Markdown, puis par des champs de
+texte déclarés, puis par rien du tout. Les trois révisions ont convergé vers la
+même conclusion, chacune plus tôt que la précédente.
 
-La raison n'est pas technique : le système marchait. C'est que c'était un
-constructeur de pages — une seconde façon, plus faible, de faire un travail
-que ce template fait déjà dans le code. La mise en page de ce template
-s'écrit en code et s'édite en code, y compris par un agent travaillant sur
-le site lui-même. Un éditeur de blocs dans l'admin entre en conflit avec ce
-code dès que les deux ne sont pas d'accord sur la mise en page.
+**Une page *est* son fichier `.astro`** : le balisage, la mise en page et les
+mots, écrits en code depuis une maquette. La table `pages` ne porte aucun champ
+de contenu.
 
-`body` est donc du Markdown, stocké tel quel, rendu à la requête et
-**assaini après rendu, jamais avant** : Markdown laisse passer le HTML brut
-par conception, donc « ce n'est que du Markdown » n'est pas une propriété de
-sécurité. Le champ est borné à `MAX_BODY_LENGTH` (200 000 caractères).
+La raison n'est pas technique — les trois modèles fonctionnaient. C'est que
+chacun était une seconde façon, plus faible, de faire un travail que le code
+fait déjà, et qu'ils entraient en conflit avec lui dès que les deux n'étaient
+pas d'accord sur la mise en page. Ce template est destiné à des sites dont le
+design est écrit par un agent à partir d'une maquette ; un éditeur de contenu
+dans l'admin se bat contre cet agent.
 
-La séparation qui en résulte est le cœur du template :
+Ce que porte la ligne, c'est ce que le tableau de bord a le droit de décider :
 
 | Question | Répondue par |
 |---|---|
-| Que dit cette page ? | l'admin (`body`) |
+| Cette page est-elle en ligne ? | l'admin (`status`) |
+| Sur quel chemin répond-elle ? | l'admin (`slug`) |
 | Qui doit la trouver ? | l'admin (`seo`, `geo`) |
-| À quoi ressemble-t-elle ? | le code (`.astro`, Tailwind) |
+| Que contient-elle, et à quoi ressemble-t-elle ? | le code (`src/pages/<slug>.astro`) |
+
+Ajouter une page, c'est écrire son fichier. Les trois lignes de passe-partout
+sont dans `CLAUDE.md`. `loadPage()` récupère la ligne et pose le statut et le
+cache ; `PageHead` rend les champs SEO/GEO dans le `<head>`. Il n'y a rien
+d'autre à brancher.
+
+**Aperçu.** Le jeton signe le *slug*, pas l'identifiant du document, si bien
+qu'un aperçu s'ouvre à la vraie URL de la page (`/accueil?t=…`). Ce qu'un
+éditeur contrôle avant publication est donc littéralement la page qui partira
+en ligne — même fichier, même balisage, seule la barrière de publication est
+levée. Les deux vérifications indépendantes du jeton sont conservées
+(invariant 2).
+
+**Les articles de blog font exception** : un article *est* du contenu, et
+personne ne demandera à un agent d'écrire chaque billet. `posts` garde donc un
+corps Markdown, rendu par `apps/web/src/lib/markdown.ts` — assaini après
+rendu, jamais avant.
 
 ### Champs GEO
 
@@ -479,9 +498,9 @@ final (le rôle inchangé), pas sur le contenu de la réponse.
 ## 10. Découpage en lots
 
 1. **Socle** — monorepo, Convex, Better Auth Local Install, rôles, invitations. *(livré)*
-2. **Pages** — contenu Markdown, éditeur, rendu Astro, preview, cache, publication. *(livré ; le système de blocs prévu à l'origine a été retiré — voir §4)*
+2. **Pages** — registre des pages, publication, aperçu, cache, panneaux SEO/GEO. *(livré ; les trois modèles de contenu essayés ont tous été retirés — voir §4)*
 3. **Blog** — posts, tags, médias.
-4. **Navigation et redirections** — header/footer, slugs, 301.
+4. **Redirections** — slugs, 301, garde d'exclusion mutuelle. *(la navigation en base est retirée du périmètre : menu et pied de page vivent dans le balisage de chaque page, en code)*
 5. **Infra** — Docker, Traefik, CI/CD, rollback.
 6. **SEO, GEO et statistiques** — JSON-LD (`Organization`, `Article`, `FAQPage`), `sitemap.xml`, `robots.txt`, `llms.txt`, et intégration [Umami](https://umami.is/) : script sur le site, lecture de son API dans l'admin pour afficher les statistiques par page.
 
