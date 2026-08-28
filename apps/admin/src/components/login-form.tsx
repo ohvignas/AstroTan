@@ -97,6 +97,19 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
 // purpose, so a login attempt can't be used to enumerate which emails have
 // accounts.
 //
+// `SIGN_IN_RATE_LIMITED` (packages/backend/convex/auth.ts's `hooks.before`,
+// via `lib/signInRateLimit.ts`) is named here for the same reason
+// `BANNED_USER` is, not an exception to the rule above: the backend
+// already deliberately rate-limits a known and an unknown email identically
+// (see that module's own header comment), so surfacing this one distinctly
+// reveals nothing about whether the typed address has an account — only
+// that *this* (origin, email) pair has been tried too many times. Folding
+// it into "Email ou mot de passe incorrect" would repeat the exact mistake
+// Task 9 found and fixed for an unreachable backend: telling a legitimate
+// owner to re-check credentials that were never actually re-checked, which
+// (worse, here) invites exactly the retry behavior the rate limit exists
+// to slow down.
+//
 // A `status >= 500` (or no status at all — better-fetch reports a network
 // failure the same shapeless way) is a different kind of thing and is
 // called out separately: verified live, with the local Convex backend
@@ -111,6 +124,9 @@ function describeSignInError(error: {
 }): string {
   if (error.code === "BANNED_USER") {
     return "Votre compte a été suspendu. Contactez un administrateur."
+  }
+  if (error.code === "SIGN_IN_RATE_LIMITED") {
+    return "Trop de tentatives de connexion. Réessayez dans quelques instants."
   }
   if (error.status === undefined || error.status >= 500) {
     return "Impossible de contacter le serveur. Réessayez dans un instant."
