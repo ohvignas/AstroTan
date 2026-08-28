@@ -26,6 +26,7 @@ import type * as pages from "../pages.js";
 import type * as posts from "../posts.js";
 import type * as profiles from "../profiles.js";
 import type * as revalidate from "../revalidate.js";
+import type * as seed from "../seed.js";
 import type * as tags from "../tags.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   posts: typeof posts;
   profiles: typeof profiles;
   revalidate: typeof revalidate;
+  seed: typeof seed;
   tags: typeof tags;
   users: typeof users;
   validators: typeof validators;

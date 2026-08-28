@@ -116,6 +116,24 @@ dans ce dépôt, pas des bonnes pratiques générales. Les lire avant d'écrire 
 Ce sont des **index**, pas la doc complète. Rafraîchir avec
 `./scripts/refresh-ai-docs.sh`.
 
+## Amorcer du contenu de démonstration
+
+```bash
+cd packages/backend && npx convex run seed:demoContent
+```
+
+Crée deux tags, deux pages publiées et trois articles — dont un brouillon,
+pour que l'invariant « un brouillon n'est jamais public » soit visible plutôt
+qu'affirmé. Idempotent par slug : le relancer ne change rien, et il saute
+toute ligne existante. Tout ce qu'il écrit est destiné à être supprimé depuis
+l'administration.
+
+C'est un `internalMutation` : il écrit par `ctx.db` sans session, parce qu'un
+opérateur qui lance une commande CLI n'en a pas. Il contourne donc les
+contrôles de rôle — acceptable pour une commande qui exige déjà la clé de
+déploiement, et c'est la raison pour laquelle il n'est pas une `mutation`
+publique.
+
 ## Écosystème TanStack — ce qu'on utilise, et ce qu'on refuse
 
 Le dashboard s'appuie sur **Start**, **Router**, **Devtools**, `router-plugin`

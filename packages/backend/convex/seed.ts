@@ -1,0 +1,177 @@
+import { internalMutation } from "./_generated/server"
+
+// Demo content for a fresh install.
+//
+// Run by an operator, never by a client:
+//
+//     npx convex run seed:demoContent
+//
+// A template that clones into an empty database shows an empty dashboard
+// and an empty blog, and there is no way to tell "it works, there is
+// nothing yet" from "it is broken". This fills in enough to see every
+// moving part: a published page, a published article with real Markdown,
+// a draft to prove drafts stay invisible, and tags on both.
+//
+// Idempotent by slug: running it twice changes nothing, so it is safe to
+// re-run after a schema change or on a database that is already half
+// populated. Everything it writes is meant to be deleted from the
+// dashboard once the real content exists.
+//
+// It writes through `ctx.db` directly rather than through the public
+// mutations, on purpose: those require a session, and an operator running a
+// CLI command has none. The trade-off is that it bypasses the role checks —
+// acceptable for a command that already needs deploy-key access, and the
+// reason it is an `internalMutation` and not a `mutation`.
+
+const DEMO_TAGS = [
+  { name: "Astro", slug: "astro" },
+  { name: "Convex", slug: "convex" },
+]
+
+const DEMO_PAGES = [
+  { slug: "accueil", title: "Accueil", publish: true },
+  { slug: "contact", title: "Contact", publish: true },
+]
+
+const FIRST_POST_BODY = `Ce site tourne sur AstroTan. Cet article est du contenu
+de démonstration : supprimez-le depuis l'administration quand vous n'en aurez
+plus besoin.
+
+## Ce qui vient de la base, et ce qui vient du code
+
+Une **page** est son fichier \`.astro\`. Son balisage, sa mise en page et ses
+mots s'écrivent en code ; l'administration ne décide que de son slug, de sa
+publication et de ses champs SEO et GEO.
+
+Un **article**, lui, porte son texte en base — parce qu'un billet *est* du
+contenu, et que personne ne demandera à un agent d'écrire chaque article.
+
+## Ce que vous pouvez essayer tout de suite
+
+1. Modifiez le titre de cet article dans l'administration, enregistrez,
+   rechargez cette page.
+2. Dépubliez-le : cette URL répondra 404 en quelques secondes.
+3. Republiez-le, puis utilisez le bouton *Prévisualiser* sur un brouillon —
+   l'aperçu s'ouvre sur l'URL réelle de l'article, pas sur une route à part.
+
+> Le corps d'un article est du Markdown, stocké tel quel et assaini *après*
+> rendu. Une balise \`<script>\` écrite ici n'atteindra jamais un visiteur.
+`
+
+const SECOND_POST_BODY = `Un second article, pour que la liste du blog ait de
+quoi montrer un ordre : les articles sortent du plus récent au plus ancien.
+
+## Listes et images
+
+Une liste :
+
+- un point
+- un autre
+- un dernier
+
+Et du \`code en ligne\`, plus un bloc :
+
+\`\`\`ts
+const { post } = await loadPost(Astro, slug)
+\`\`\`
+`
+
+export const demoContent = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    // Attributed to the first profile there is — on a fresh install, the
+    // owner. Falls back to a marker string rather than failing: seeding a
+    // database with no accounts yet is a legitimate order of operations.
+    const firstProfile = await ctx.db.query("profiles").first()
+    const author = firstProfile?.authUserId ?? "seed-script"
+    const now = Date.now()
+
+    const created = { tags: 0, pages: 0, posts: 0 }
+
+    const tagIds = []
+    for (const tag of DEMO_TAGS) {
+      const existing = await ctx.db
+        .query("tags")
+        .withIndex("by_slug", (q) => q.eq("slug", tag.slug))
+        .unique()
+      if (existing) {
+        tagIds.push(existing._id)
+        continue
+      }
+      tagIds.push(await ctx.db.insert("tags", tag))
+      created.tags++
+    }
+
+    for (const page of DEMO_PAGES) {
+      const existing = await ctx.db
+        .query("pages")
+        .withIndex("by_slug", (q) => q.eq("slug", page.slug))
+        .unique()
+      if (existing) continue
+      await ctx.db.insert("pages", {
+        slug: page.slug,
+        title: page.title,
+        status: page.publish ? "published" : "draft",
+        publishedAt: page.publish ? now : undefined,
+        seo: {
+          description:
+            "Page de démonstration livrée avec AstroTan — à remplacer par la vôtre.",
+          noindex: false,
+        },
+        createdBy: author,
+        updatedBy: author,
+      })
+      created.pages++
+    }
+
+    const posts = [
+      {
+        slug: "bienvenue",
+        title: "Bienvenue sur AstroTan",
+        excerpt:
+          "Ce que l'administration décide, ce que le code décide, et comment les deux se rejoignent.",
+        body: FIRST_POST_BODY,
+        status: "published" as const,
+        // Espacés d'une heure pour que l'ordre de la liste soit visible
+        // plutôt que dépendant d'un tri à la milliseconde près.
+        publishedAt: now,
+        tagIds,
+      },
+      {
+        slug: "markdown-et-mise-en-forme",
+        title: "Markdown et mise en forme",
+        excerpt: "Listes, code, citations : ce que le rendu accepte.",
+        body: SECOND_POST_BODY,
+        status: "published" as const,
+        publishedAt: now - 3_600_000,
+        tagIds: tagIds.slice(0, 1),
+      },
+      {
+        slug: "brouillon-de-demonstration",
+        title: "Un brouillon, invisible depuis le site",
+        excerpt: "Il n'apparaît ni sur /blog, ni à son URL — c'est l'invariant.",
+        body: "Cet article est un brouillon. Il n'est visible qu'ici, ou par un lien de prévisualisation.\n",
+        status: "draft" as const,
+        publishedAt: undefined,
+        tagIds: [],
+      },
+    ]
+
+    for (const post of posts) {
+      const existing = await ctx.db
+        .query("posts")
+        .withIndex("by_slug", (q) => q.eq("slug", post.slug))
+        .unique()
+      if (existing) continue
+      await ctx.db.insert("posts", {
+        ...post,
+        seo: { noindex: false },
+        createdBy: author,
+        updatedBy: author,
+      })
+      created.posts++
+    }
+
+    return { ...created, author }
+  },
+})
