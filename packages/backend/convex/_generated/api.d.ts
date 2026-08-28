@@ -27,6 +27,7 @@ import type * as lib_signInRateLimit from "../lib/signInRateLimit.js";
 import type * as lib_slug from "../lib/slug.js";
 import type * as lib_token from "../lib/token.js";
 import type * as lib_umamiToken from "../lib/umamiToken.js";
+import type * as lib_webhookUrl from "../lib/webhookUrl.js";
 import type * as media from "../media.js";
 import type * as migrations from "../migrations.js";
 import type * as pages from "../pages.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   "lib/slug": typeof lib_slug;
   "lib/token": typeof lib_token;
   "lib/umamiToken": typeof lib_umamiToken;
+  "lib/webhookUrl": typeof lib_webhookUrl;
   media: typeof media;
   migrations: typeof migrations;
   pages: typeof pages;

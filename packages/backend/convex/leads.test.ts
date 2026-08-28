@@ -20,10 +20,15 @@ beforeEach(() => {
   process.env.SITE_URL = ORIGIN
   process.env.PREVIEW_SECRET = "test-preview-secret-please-do-not-use-in-prod-x"
   process.env.LEAD_SUBMIT_SECRET = SECRET
+  // `finishAllScheduledFunctions` fait avancer les minuteurs : sans cette
+  // ligne, il lève « timers APIs are not mocked » et le webhook ne peut
+  // pas être exercé du tout.
+  vi.useFakeTimers()
 })
 
 afterEach(() => {
   process.env = originalEnv
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -154,4 +159,68 @@ test("supprimer une fiche emporte ses messages", async () => {
   // une fuite : personne ne les verrait plus, et ils resteraient.
   expect((await admin.query(api.leads.board, {})).new).toHaveLength(0)
   await expect(admin.query(api.leads.messages, { id })).rejects.toThrow()
+})
+
+test("une panne du webhook ne perd pas le lead", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await admin.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    leadWebhookUrl: "https://hook.exemple.fr/leads",
+    leadWebhookSecret: "un-secret-de-signature",
+  })
+  // Le tiers est injoignable. C'est le cas qui compte : le message est
+  // arrivé, il doit rester, quoi qu'il advienne de n8n.
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")))
+
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  const board = await admin.query(api.leads.board, {})
+  expect(board.new).toHaveLength(1)
+
+  const settings = await admin.query(api.settings.get, {})
+  // L'échec est VISIBLE : un webhook muet depuis trois semaines est le
+  // défaut le plus courant de ce genre d'intégration.
+  expect(settings?.leadWebhookLastStatus).toContain("injoignable")
+})
+
+test("l'envoi est signé, et ne part pas sans configuration", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  const appels: { url: string; signature: string; corps: string }[] = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init: RequestInit) => {
+      appels.push({
+        url: String(url),
+        signature: String((init.headers as Record<string, string>)["x-astrotan-signature"]),
+        corps: String(init.body),
+      })
+      return { ok: true, status: 200 }
+    }),
+  )
+
+  // Sans réglage, rien ne part — et surtout, aucune erreur.
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+  expect(appels).toHaveLength(0)
+
+  await admin.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    leadWebhookUrl: "https://hook.exemple.fr/leads",
+    leadWebhookSecret: "un-secret-de-signature",
+  })
+  await t.mutation(api.leads.submit, { ...MESSAGE, email: "autre@example.com" })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(appels).toHaveLength(1)
+  expect(appels[0]!.url).toBe("https://hook.exemple.fr/leads")
+  // 64 caractères hexadécimaux : un HMAC-SHA256, pas une chaîne vide qu'un
+  // receveur accepterait sans le remarquer.
+  expect(appels[0]!.signature).toMatch(/^[0-9a-f]{64}$/)
+  expect(JSON.parse(appels[0]!.corps)).toMatchObject({
+    type: "lead.created",
+    lead: { email: "autre@example.com", name: "Camille Dupont" },
+  })
 })

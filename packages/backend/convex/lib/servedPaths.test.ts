@@ -7,7 +7,11 @@ import { isServedByRoute, isUnderDynamicRoute } from "./servedPaths"
 // générateur cessait de produire ce qu'il annonce.
 
 describe("les chemins qu'un fichier de route sert déjà", () => {
-  test.each(["/", "/a-propos", "/contact", "/blog"])("%s est servi", (path) => {
+  // La liste suit le manifeste engendré : `/a-propos` y figurait jusqu'à ce
+  // que la page fusionne avec `/services` dans `/fonctionnalites`. Un test
+  // qui cite des chemins en dur doit changer quand les routes changent —
+  // c'est le prix de vérifier le vrai manifeste plutôt qu'une copie.
+  test.each(["/", "/fonctionnalites", "/contact", "/blog"])("%s est servi", (path) => {
     expect(isServedByRoute(path)).toBe(true)
   })
 

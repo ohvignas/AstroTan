@@ -208,6 +208,19 @@ export default defineSchema({
     homePageSlug: v.optional(v.string()),
     defaultSeo: v.optional(seoValidator),
     socials: v.optional(v.array(v.object({ label: v.string(), url: v.string() }))),
+
+    // Le webhook déclenché à l'arrivée d'un lead — n8n, Make, ou n'importe
+    // quel service qui écoute une URL. Trois champs et pas un de plus :
+    // l'adresse, le secret qui signe l'envoi, et l'état du dernier essai.
+    //
+    // `leadWebhookLastStatus` existe parce qu'un webhook muet depuis trois
+    // semaines est le défaut le plus courant de ce genre d'intégration :
+    // sans trace visible dans l'écran, personne ne s'aperçoit qu'il ne part
+    // plus rien.
+    leadWebhookUrl: v.optional(v.string()),
+    leadWebhookSecret: v.optional(v.string()),
+    leadWebhookLastStatus: v.optional(v.string()),
+    leadWebhookLastAt: v.optional(v.number()),
   }),
 
   // Deux chaînes pour une idée : le `name` qu'un humain a tapé, gardé tel

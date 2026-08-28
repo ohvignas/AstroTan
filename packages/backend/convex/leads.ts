@@ -1,8 +1,14 @@
 import { v } from "convex/values"
 import { ConvexError } from "convex/values"
-import { mutation, query } from "./_generated/server"
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
-import { api } from "./_generated/api"
+import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
 import { requireRole } from "./lib/authz"
 import { timingSafeEqualHex } from "./lib/previewToken"
@@ -121,6 +127,19 @@ export const submit = mutation({
       subject,
       body,
       userAgent: args.userAgent,
+    })
+
+    // APRÈS l'écriture, et planifié : le lead est en base quoi qu'il
+    // advienne du tiers. Planifier avant, ou appeler pendant, ferait
+    // dépendre un message reçu de la santé d'un service qu'on ne contrôle
+    // pas.
+    await ctx.scheduler.runAfter(0, internal.leads.deliverWebhook, {
+      leadId,
+      name,
+      email,
+      subject,
+      body,
+      messageCount: existing === null ? 1 : existing.messageCount + 1,
     })
 
     return null
@@ -269,3 +288,110 @@ MUTATION_REGISTRY.push(
     },
   },
 )
+
+// --- Le webhook ----------------------------------------------------------
+
+/**
+ * Prévenir un service tiers qu'un lead est arrivé.
+ *
+ * Une `action` planifiée APRÈS l'écriture, jamais avant et jamais pendant :
+ * le lead est en base quoi qu'il arrive au tiers. L'ordre n'est pas un
+ * détail d'implémentation, c'est la garantie qu'une panne de n8n ne fait
+ * pas perdre un message.
+ *
+ * Une seule tentative. Un réessai automatique demanderait une file, une
+ * limite, et une idempotence côté receveur qu'on ne contrôle pas — trois
+ * choses qu'il vaut mieux ne pas simuler. L'échec est écrit dans les
+ * réglages, où il se voit.
+ */
+export const deliverWebhook = internalAction({
+  args: {
+    leadId: v.id("leads"),
+    name: v.string(),
+    email: v.string(),
+    subject: v.optional(v.string()),
+    body: v.string(),
+    messageCount: v.number(),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    const settings = await ctx.runQuery(internal.leads.webhookConfig, {})
+    if (settings === null) return null
+
+    const payload = JSON.stringify({
+      type: "lead.created",
+      // Millisecondes, et dit comme tel : la moitié des intégrations se
+      // trompent d'unité en silence, et une date de 1970 ne se remarque pas.
+      occurredAtMs: Date.now(),
+      lead: {
+        id: args.leadId,
+        name: args.name,
+        email: args.email,
+        subject: args.subject ?? null,
+        message: args.body,
+        messageCount: args.messageCount,
+      },
+    })
+
+    let status: string
+    try {
+      const response = await fetch(settings.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          // La signature permet au receveur de vérifier que l'envoi vient
+          // bien de nous. Sans elle, qui connaît l'URL du scénario peut y
+          // injecter de faux leads — et une URL de webhook n'est pas un
+          // secret : elle traverse des journaux, des captures d'écran.
+          "x-astrotan-signature": await sign(payload, settings.secret),
+        },
+        body: payload,
+        // Borné : un tiers qui ne répond pas ne doit pas tenir une action
+        // ouverte indéfiniment.
+        signal: AbortSignal.timeout(10_000),
+      })
+      status = response.ok ? `ok ${response.status}` : `échec ${response.status}`
+    } catch (error) {
+      status = `injoignable : ${error instanceof Error ? error.name : "erreur"}`
+    }
+
+    await ctx.runMutation(internal.leads.recordWebhookResult, { status })
+    return null
+  },
+})
+
+async function sign(payload: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  )
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload))
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+}
+
+/** Lue par l'action ; `null` quand le webhook n'est pas configuré. */
+export const webhookConfig = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<{ url: string; secret: string } | null> => {
+    const settings = await ctx.db.query("settings").first()
+    if (!settings?.leadWebhookUrl || !settings.leadWebhookSecret) return null
+    return { url: settings.leadWebhookUrl, secret: settings.leadWebhookSecret }
+  },
+})
+
+export const recordWebhookResult = internalMutation({
+  args: { status: v.string() },
+  handler: async (ctx, args): Promise<null> => {
+    const settings = await ctx.db.query("settings").first()
+    if (settings === null) return null
+    await ctx.db.patch(settings._id, {
+      leadWebhookLastStatus: args.status,
+      leadWebhookLastAt: Date.now(),
+    })
+    return null
+  },
+})

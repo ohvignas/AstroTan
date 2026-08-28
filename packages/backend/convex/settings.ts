@@ -9,6 +9,7 @@ import {
   seoValidator,
 } from "./content"
 import { requireRole } from "./lib/authz"
+import { refuseWebhookUrl } from "./lib/webhookUrl"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // Site-wide settings: one row, or none.
@@ -87,6 +88,10 @@ export const update = mutation({
     // `undefined` juste avant le patch, où elle efface bien le champ.
     logoId: v.optional(v.union(v.id("_storage"), v.null())),
     iconId: v.optional(v.union(v.id("_storage"), v.null())),
+    // `null` efface le réglage ; absent le laisse tel quel. Sans les deux
+    // formes, on ne pourrait jamais débrancher un webhook une fois posé.
+    leadWebhookUrl: v.optional(v.union(v.string(), v.null())),
+    leadWebhookSecret: v.optional(v.union(v.string(), v.null())),
     defaultSeo: v.optional(seoValidator),
     socials: v.optional(v.array(socialValidator)),
   },
@@ -114,11 +119,25 @@ export const update = mutation({
 
     // `logoId` est extrait de l'étalement plutôt que réécrit par-dessus :
     // sinon le type du champ garde son `| null`, que `db.patch` refuse.
-    const { logoId, iconId, ...rest } = args
+    // L'URL est vérifiée AVANT d'être écrite : une adresse interne posée
+    // en base deviendrait une requête sortante à chaque lead, et le refus
+    // arriverait alors trop tard pour servir à quoi que ce soit.
+    if (args.leadWebhookUrl) {
+      const refus = refuseWebhookUrl(args.leadWebhookUrl)
+      if (refus !== null) throw new ConvexError({ code: refus, field: "leadWebhookUrl" })
+    }
+
+    const { logoId, iconId, leadWebhookUrl, leadWebhookSecret, ...rest } = args
     const patch = {
       ...rest,
       ...(logoId !== undefined ? { logoId: logoId ?? undefined } : {}),
       ...(iconId !== undefined ? { iconId: iconId ?? undefined } : {}),
+      ...(leadWebhookUrl !== undefined
+        ? { leadWebhookUrl: leadWebhookUrl ?? undefined }
+        : {}),
+      ...(leadWebhookSecret !== undefined
+        ? { leadWebhookSecret: leadWebhookSecret ?? undefined }
+        : {}),
     }
 
     const existing = await ctx.db.query("settings").first()

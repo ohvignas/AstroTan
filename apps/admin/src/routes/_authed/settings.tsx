@@ -314,6 +314,8 @@ function SettingsForm({
   const updateSettings = useMutation(api.settings.update)
 
   const [siteName, setSiteName] = useState(settings?.siteName ?? "")
+  const [webhookUrl, setWebhookUrl] = useState(settings?.leadWebhookUrl ?? "")
+  const [webhookSecret, setWebhookSecret] = useState(settings?.leadWebhookSecret ?? "")
   const [iconId, setIconId] = useState<Id<"_storage"> | null>(
     settings?.iconId ?? null,
   )
@@ -349,6 +351,11 @@ function SettingsForm({
         // is only ever written, never unset from here.
         ...(logoId === null ? {} : { logoId }),
         ...(iconId === null ? {} : { iconId }),
+        // Chaîne vide = « débrancher » : `null` efface le réglage côté
+        // serveur, là où `undefined` le laisserait tel quel. Sans cette
+        // distinction, un webhook posé une fois ne pourrait plus être retiré.
+        leadWebhookUrl: webhookUrl.trim() === "" ? null : webhookUrl.trim(),
+        leadWebhookSecret: webhookSecret.trim() === "" ? null : webhookSecret.trim(),
         // Rows an operator started and left half-filled are dropped rather
         // than sent: a social link with no URL would render in the footer
         // as a link to nowhere.
@@ -524,6 +531,68 @@ function SettingsForm({
             Activé ici, c'est le site entier qui sort de l'index — à réserver
             à une mise en ligne qui n'est pas encore publique.
           </FieldDescription>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Webhook des leads</CardTitle>
+          <CardDescription>
+            Chaque message reçu déclenche un appel vers cette adresse — un
+            scénario n8n, Make, ou tout service qui écoute une URL.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <Field>
+            <FieldLabel htmlFor="webhook-url">Adresse du webhook</FieldLabel>
+            <Input
+              id="webhook-url"
+              type="url"
+              placeholder="https://hook.eu2.make.com/…"
+              value={webhookUrl}
+              disabled={!canWrite}
+              onChange={(event) => setWebhookUrl(event.target.value)}
+            />
+            <FieldDescription>
+              En `https` uniquement, et jamais une adresse interne : un champ
+              d'URL qui déclenche un appel sortant est refusé sur
+              `localhost`, les plages privées et l'adresse de métadonnées de
+              l'hébergeur. Vider le champ débranche le webhook.
+            </FieldDescription>
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="webhook-secret">Secret de signature</FieldLabel>
+            <Input
+              id="webhook-secret"
+              type="text"
+              placeholder="une longue chaîne aléatoire"
+              value={webhookSecret}
+              disabled={!canWrite}
+              onChange={(event) => setWebhookSecret(event.target.value)}
+            />
+            <FieldDescription>
+              Chaque envoi porte un en-tête `x-astrotan-signature`,
+              HMAC-SHA256 du corps avec ce secret. Il permet à votre scénario
+              de vérifier que l'appel vient bien de vous — une URL de webhook
+              traverse des journaux et des captures d'écran, elle n'est pas
+              un secret.
+            </FieldDescription>
+          </Field>
+
+          {settings?.leadWebhookLastStatus && (
+            <p className="text-sm text-muted-foreground">
+              {/* L'état du dernier envoi, visible ici plutôt que dans des
+                  journaux : un webhook muet depuis trois semaines est le
+                  défaut le plus courant de ce genre d'intégration. */}
+              Dernier envoi : {settings.leadWebhookLastStatus}
+              {settings.leadWebhookLastAt &&
+                ` — ${new Intl.DateTimeFormat("fr-FR", {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                }).format(new Date(settings.leadWebhookLastAt))}`}
+            </p>
+          )}
         </CardContent>
       </Card>
 

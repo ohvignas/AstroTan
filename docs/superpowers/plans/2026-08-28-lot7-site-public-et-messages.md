@@ -149,7 +149,43 @@ avec le style de leur `Newsletter.astro`, le seul formulaire qu'ils aient.
 
 ---
 
-### Task 8: Le skill, écrit après coup et pas avant
+### Task 8: Prévenir un service tiers — le webhook
+
+**Files:** Modifier `packages/backend/convex/leads.ts`, `settings.ts`, `schema.ts` ; l'écran `settings.tsx`.
+
+Un lead qui arrive doit pouvoir déclencher un scénario n8n ou Make. C'est
+la première fois que **ce backend appelle une adresse choisie par
+l'opérateur** — et cette phrase est la raison de tout ce qui suit.
+
+- [ ] **Step 1: Écrire les tests qui échouent**
+  - L'URL est refusée si elle n'est pas `https://`. Une URL en clair ferait
+    voyager le contenu d'un message sur le réseau sans chiffrement.
+  - Une adresse **interne** est refusée : `localhost`, `127.0.0.1`, `::1`,
+    les plages privées, et surtout `169.254.169.254` — l'adresse de
+    métadonnées des hébergeurs, qui rend des jetons d'identité. Un champ
+    d'URL librement éditable est une machine à faire faire des requêtes à
+    notre serveur ; c'est la faille SSRF, et elle se ferme ici.
+  - **Une panne du tiers ne perd jamais le lead.** Le message est écrit
+    d'abord, la notification part ensuite, planifiée. C'est le point qui
+    justifie l'ordre du code.
+  - La charge utile est **signée** : `X-AstroTan-Signature`, HMAC-SHA256 du
+    corps avec un secret montré une seule fois. Sans elle, n'importe qui
+    connaissant l'URL du scénario peut y injecter de faux leads.
+- [ ] **Step 2: Le réglage** — URL, secret, et un interrupteur. Le secret
+      s'affiche à sa création et jamais plus : le réafficher ferait de
+      l'écran une seconde copie à protéger.
+- [ ] **Step 3: L'envoi**, par une `action` planifiée après l'écriture,
+      avec un délai borné. Une seule tentative, et l'échec est **visible**
+      dans les réglages plutôt que noyé dans les journaux — un webhook muet
+      depuis trois semaines est le défaut le plus courant de ce genre
+      d'intégration.
+- [ ] **Step 4: Un bouton « Envoyer un test »** dans les réglages. Sans lui,
+      la seule façon de vérifier est d'attendre un vrai lead.
+- [ ] **Step 5: Commit** — `feat(backend): notify a webhook when a lead arrives`
+
+---
+
+### Task 9: Le skill, écrit après coup et pas avant
 
 **Files:** Créer `.claude/skills/template-into-astrotan/SKILL.md`.
 
@@ -171,4 +207,6 @@ avec le style de leur `Newsletter.astro`, le seul formulaire qu'ils aient.
 - [ ] Un message envoyé depuis le site apparaît dans `/leads`, en tête de liste, et déclenche un email.
 - [ ] Le formulaire poste quand même si l'îlot n'a pas chargé (`action` présent).
 - [ ] Un secret manquant, faux ou court fait refuser l'écriture, et c'est testé.
+- [ ] Une URL de webhook interne ou en clair est refusée, et c'est testé.
+- [ ] Une panne du tiers ne perd aucun lead, et c'est testé.
 - [ ] Le skill décrit ce qui s'est réellement passé.

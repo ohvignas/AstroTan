@@ -14,6 +14,7 @@ import {
 import {
   FileTextIcon,
   ImageIcon,
+  InboxIcon,
   ChartNoAxesColumnIcon,
   Settings2Icon,
   SignpostIcon,
@@ -67,6 +68,15 @@ const SETTINGS_ITEM = {
 
 // Owner/admin only: a redirect changes what every visitor of the site sees,
 // which is not an editor's call. `redirects.*` refuse an editor server-side.
+// La pastille compte les fiches encore en première colonne : c'est le seul
+// nombre qui appelle une action, et le mettre dans le menu évite d'ouvrir
+// l'écran pour découvrir qu'il n'y a rien de neuf.
+const LEADS_ITEM = {
+  title: "Leads",
+  url: "/leads",
+  icon: <InboxIcon />,
+}
+
 const REDIRECTS_ITEM = {
   title: "Redirections",
   url: "/redirects",
@@ -118,8 +128,8 @@ export function AppSidebar({
 
   const base =
     profile?.role === "owner" || profile?.role === "admin"
-      ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, USERS_ITEM, REDIRECTS_ITEM, SETTINGS_ITEM]
-      : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM]
+      ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, LEADS_ITEM, USERS_ITEM, REDIRECTS_ITEM, SETTINGS_ITEM]
+      : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, LEADS_ITEM]
   const canSso = profile?.role === "owner" || profile?.role === "admin"
 
   // Un owner ou un admin arrive connecté, avec les réglages d'Umami. Un
