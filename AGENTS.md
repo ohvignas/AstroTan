@@ -79,8 +79,10 @@ still is, and still must be left to the human.
    [`packages/backend/.env.example`](packages/backend/.env.example), which
    stays authoritative. An empty `RESEND_API_KEY` is not posted at all, and
    the script says so.
-3. **The app-side variables for local development**: `apps/web/.env` and
-   `apps/admin/.env`, written from the matching `.env.example`. Their Convex
+3. **The app-side variables for local development**: `apps/web/.env.local` and
+   `apps/admin/.env.local`, written from the matching `.env.example` (that is
+   the filename those examples ask for, and the one Vite and Astro load last,
+   so a generated `.env` would be shadowed by any `.env.local` already there). Their Convex
    URLs stay at the local defaults on purpose — `.env.deploy` carries the
    *production* URLs, and pointing `pnpm dev` at production is not what step
    1 built you. `PREVIEW_SECRET` and `REVALIDATE_SECRET` are injected: they

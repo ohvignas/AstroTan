@@ -558,10 +558,19 @@ if (SKIP_GITHUB) {
 
 // ── 5. `.env` de développement local ────────────────────────────────────────
 
-title("5 · Développement local — apps/web/.env, apps/admin/.env");
+title("5 · Développement local — apps/web/.env.local, apps/admin/.env.local");
 
 /**
- * Recopie un `.env.example` en `.env` en n'y substituant que les valeurs dont
+ * `.env.local` et non `.env` : c'est le nom que les deux `.env.example`
+ * demandent de créer, et c'est celui que Vite et Astro chargent EN DERNIER,
+ * donc en priorité. Écrire `.env` alors qu'un `.env.local` existe déjà — le
+ * cas de quiconque a suivi l'en-tête de l'exemple avant de découvrir ce
+ * script — produirait un fichier généré silencieusement masqué, et un
+ * `PREVIEW_SECRET` qui ne correspond pas à celui de Convex sans que rien ne
+ * le signale.
+ *
+ * Recopie un `.env.example` en `.env.local` en n'y substituant que les valeurs
+ * dont
  * ce script dispose. Les commentaires sont conservés : ce sont eux qui
  * documentent chaque variable, et ils font autorité (README).
  *
@@ -595,12 +604,12 @@ function renderLocalEnv(examplePath, values) {
 const LOCAL_TARGETS = [
   {
     example: join(ROOT, "apps", "web", ".env.example"),
-    target: join(ROOT, "apps", "web", ".env"),
+    target: join(ROOT, "apps", "web", ".env.local"),
     values: { PREVIEW_SECRET: g("PREVIEW_SECRET"), REVALIDATE_SECRET: g("REVALIDATE_SECRET") },
   },
   {
     example: join(ROOT, "apps", "admin", ".env.example"),
-    target: join(ROOT, "apps", "admin", ".env"),
+    target: join(ROOT, "apps", "admin", ".env.local"),
     values: {},
   },
 ];
@@ -618,7 +627,7 @@ for (const t of LOCAL_TARGETS) {
   ok(`${rel.padEnd(20)} ${unchanged ? "inchangé" : "écrit   "}`);
   for (const [k, v] of Object.entries(t.values)) info(`  ${k} · ${describe(v, true)}`);
 }
-summary.push(["Dev local", DRY ? "2 fichiers (dry-run)" : "apps/web/.env, apps/admin/.env"]);
+summary.push(["Dev local", DRY ? "2 fichiers (dry-run)" : "apps/web/.env.local, apps/admin/.env.local"]);
 
 info("rappel: `astro dev` ne charge PAS PREVIEW_SECRET/REVALIDATE_SECRET dans process.env — les exporter dans le shell (apps/web/.env.example, note de fin)");
 

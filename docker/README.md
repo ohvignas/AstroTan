@@ -261,7 +261,7 @@ sens qu'**identiques** sur le déploiement Convex et dans le conteneur `web`.
 **`pnpm bootstrap` est fait pour cette contrainte précise.** Il génère chaque
 clé une fois par `openssl rand -hex 32`, la réécrit dans `.env.deploy` pour ne
 jamais la régénérer ensuite, puis la pose telle quelle sur les trois côtés :
-le déploiement Convex, `.env.vps`, et `apps/web/.env` pour le développement
+le déploiement Convex, `.env.vps`, et `apps/web/.env.local` pour le développement
 local. Il n'affiche jamais leur valeur ; il en affiche une empreinte SHA-256
 courte, ce qui suffit à vérifier d'un coup d'œil que les trois côtés portent
 bien la même clé. Une divergence ne peut donc plus venir que d'une rotation

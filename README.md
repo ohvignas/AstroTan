@@ -42,7 +42,7 @@ destinations qui ne peuvent pas se lire entre elles :
 |---|---|
 | déploiement Convex | les 7 variables de [`packages/backend/.env.example`](packages/backend/.env.example), par `convex env set` |
 | secrets GitHub Actions | les 9 secrets de [`docker/README.md`](docker/README.md) §7, par `gh secret set` |
-| développement local | `apps/web/.env` et `apps/admin/.env` |
+| développement local | `apps/web/.env.local` et `apps/admin/.env.local` |
 
 Il génère au passage `BETTER_AUTH_SECRET`, `PREVIEW_SECRET` et
 `REVALIDATE_SECRET` — une fois, puis les relit tels quels — et produit
