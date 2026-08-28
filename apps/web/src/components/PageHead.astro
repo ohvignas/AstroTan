@@ -4,6 +4,7 @@
 // only thing the SEO and GEO panels reach.
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { getConvexClient } from "../lib/convexClient"
+import siteMark from "../assets/astrotan-mark.png"
 import type { PageRecord } from "../lib/loadPage"
 import {
   articleJsonLd,
@@ -91,6 +92,12 @@ const structured = noai
         : null,
     ].filter((block) => block !== null)
 ---
+
+{/* Le favicon vient du MÊME fichier que la marque de l'en-tête et du pied
+    de page : une seconde copie sous `public/` serait un second endroit à
+    penser le jour où le logo change, et celui qu'on oublierait.
+    `siteMark.src` est l'URL hachée engendrée par le pipeline d'assets. */}
+<link rel="icon" href={siteMark.src} />
 
 <title>{title}</title>
 {description && <meta name="description" content={description} />}

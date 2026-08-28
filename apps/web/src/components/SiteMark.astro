@@ -1,35 +1,39 @@
 ---
-// La marque affichée quand aucun logo n'a été téléversé depuis les réglages.
+// La marque du site — le seul endroit qui sait à quoi elle ressemble.
 //
-// C'est l'icône d'Astro, posée comme valeur par défaut d'un template Astro.
-// Elle n'est PAS l'identité du site qu'on construira avec : téléverser un
-// logo dans les réglages la remplace partout, sans toucher au code.
+// En-tête, pied de page et favicon passent tous par ici : changer
+// `src/assets/astrotan-mark.png` les change tous les trois. C'est la raison
+// d'être de ce composant, qui autrement ne serait qu'une balise.
 //
-// L'icône plutôt que le logo large : les deux fichiers fournis sont les
-// variantes « light », prévues pour un fond sombre — le mot « Astro » du
-// logo large est blanc, donc invisible sur cet en-tête clair. L'icône, elle,
-// est un dégradé magenta qui tient sur les deux fonds.
+// Elle sert de valeur par défaut. Un logo téléversé depuis les réglages la
+// remplace dans l'en-tête sans toucher au code — voir `SiteHeader.astro`.
 //
 // `<Image>` et non `<img>` : le fichier vit dans `src/assets/`, donc
-// `astro:assets` le voit à travers le graphe de modules et le sert en WebP
-// redimensionné. Dans `public/`, il traverserait le pipeline intact et rien
-// ne le signalerait.
+// `astro:assets` le voit à travers le graphe de modules et le sert
+// redimensionné en WebP. Dans `public/`, il traverserait le pipeline intact
+// et rien ne le signalerait.
 import { Image } from "astro:assets"
-import astroIcon from "../assets/astro-icon.png"
+import mark from "../assets/astrotan-mark.png"
 
 interface Props {
   class?: string
+  /** Hauteur rendue en pixels ; la largeur suit le rapport d'origine. */
+  size?: number
 }
-const { class: className } = Astro.props
+const { class: className, size = 28 } = Astro.props
+
+// La largeur est calculée, pas devinée : la coder en dur déformerait la
+// marque au premier remplacement de fichier par une image d'un autre format.
+const width = Math.round((mark.width / mark.height) * size)
 ---
 
-{/* `alt=""` : la marque jouxte le nom du site, déjà lu juste après. Le
-    décrire une seconde fois ferait entendre deux fois la même chose. */}
+{/* `alt=""` : la marque jouxte le nom du site, lu juste après. Le décrire
+    une seconde fois ferait entendre deux fois la même chose. */}
 <Image
-  src={astroIcon}
+  src={mark}
   alt=""
-  width={22}
-  height={28}
+  width={width}
+  height={size}
   densities={[1, 2]}
   class={className}
 />

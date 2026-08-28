@@ -8,11 +8,15 @@ const settings = await getConvexClient().query(api.settings.get, {})
 const siteName = settings?.siteName ?? "AstroTan"
 const socials = settings?.socials ?? []
 const year = new Date().getFullYear()
+import SiteMark from "./SiteMark.astro"
 ---
 
 <footer class="mt-24 border-t border-ink/10">
   <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-8 text-sm text-ink-mid">
-    <p>© {year} {siteName}</p>
+    <p class="flex items-center gap-2">
+      <SiteMark size={20} class="h-5 w-auto" />
+      © {year} {siteName}
+    </p>
     {socials.length > 0 && (
       <ul class="flex list-none gap-4 p-0">
         {socials.map((social) => (

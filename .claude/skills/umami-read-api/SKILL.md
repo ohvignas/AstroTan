@@ -207,3 +207,20 @@ Deux réflexes, parce que l'API répond `200` à des paramètres qu'elle jette :
    seule page : chacun rend deux hypothèses indiscernables. Fabriquer les
    données qui les séparent — deux sessions aux comptes différents ont suffi
    à établir §1, deux fenêtres antidatées à réfuter §3.
+
+
+## Correction : les UTM se filtrent en camelCase, pas en snake_case
+
+Mesuré sur 3.3.1, même fenêtre, mêmes données :
+
+```
+(aucun filtre)              visiteurs = 8
+&utm_source=essai-vigneau   visiteurs = 8   ← ignoré, sans erreur
+&utmSource=essai-vigneau    visiteurs = 3   ← filtre réellement
+```
+
+Les cinq clés qui filtrent sont `utmSource`, `utmMedium`, `utmCampaign`,
+`utmContent`, `utmTerm`. Le piège est aggravé par le rapport `utm`, qui
+rend ses clés en **snake_case** — c'est-à-dire exactement l'orthographe qui
+ne filtre pas. Recopier une clé de la réponse dans une requête donne donc
+un résultat non filtré qui ressemble à un résultat filtré.

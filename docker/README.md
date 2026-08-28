@@ -888,7 +888,18 @@ marchent pas avec le seul script de comptage : il faut **deux
 interrupteurs**, et ils ne sont pas au même endroit.
 
 **1. Côté Umami** — *Settings → (votre site) → Replays & Heatmaps*, activer
-l'un ou l'autre. Le bloc « Tracking code » de cette page affiche alors une
+l'un ou l'autre. Par API, le champ qui s'écrit est `replayConfig`, pas
+`recorderEnabled` : ce dernier est **dérivé** (`replayEnabled ||
+heatmapEnabled`) et un POST qui le porte répond 200 sans rien changer.
+
+```bash
+curl -X POST "$UMAMI/api/websites/$ID" -H "Authorization: Bearer $TOK" \
+  -d '{"replayConfig":{"replayEnabled":true,"sampleRate":1,"maskLevel":"strict"}}'
+```
+
+`sampleRate` vaut **0,15 par défaut** : un visiteur sur sept est filmé, pas
+tous. Et un enregistrement s'arrête définitivement au bout de 5 minutes,
+en silence. Le bloc « Tracking code » de cette page affiche alors une
 **seconde balise**, en plus de la première :
 
 ```html
@@ -930,8 +941,19 @@ Conséquences à peser avant d'allumer :
 - Le volume de données change d'ordre de grandeur. `recorder.js` pèse
   ~190 ko, et chaque session écrit dans la base d'Umami — celle-là même
   que §13.7 dit de sauvegarder.
-- Vérifiez ce qui est masqué dans les réglages d'Umami avant d'ouvrir aux
-  vrais visiteurs, pas après.
+- **Le masquage protège ce qui est tapé, pas ce qui est affiché.** Mesuré
+  sur le réseau : une saisie part en astérisques — 22 caractères tapés
+  donnent 22 astérisques, champ mot de passe compris — donc le contenu ne
+  fuit pas, mais **la longueur exacte et la cadence de frappe partent**. Et
+  en `moderate`, qui est le défaut, **tout le texte statique de la page part
+  en clair** : un nom déjà affiché par votre serveur, un récapitulatif de
+  commande. `maskLevel` n'a que deux valeurs, `strict` et `moderate`.
+- **Il n'existe aucune suppression unitaire d'un enregistrement.** Le seul
+  chemin est `DELETE /api/websites/{id}/sessions/{sessionId}`, qui emporte
+  aussi les vues de page de cette session. À savoir **avant** de recevoir
+  une demande d'effacement, pas pendant.
+- Aucun mécanisme de rétention automatique n'a été trouvé : ce qui est
+  enregistré reste jusqu'à suppression manuelle.
 
 Allumer est un choix légitime ; le faire sans avoir lu ces trois points ne
 l'est pas.
