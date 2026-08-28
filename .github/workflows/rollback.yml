@@ -118,7 +118,12 @@ jobs:
       # après. C'est encore moins acceptable ici — un rollback qu'on croit
       # réussi est un incident qu'on croit clos. Avec `--wait`, compose attend
       # running|healthy et sort en 1 sur `container <nom> is unhealthy`, donc
-      # DEPLOYED_SHA n'est pas réécrit et le job échoue.
+      # DEPLOYED_SHA n'est pas réécrit et le job échoue. `--wait-timeout`
+      # pour la même raison que dans `deploy.yml` : en `restart:
+      # unless-stopped`, un conteneur en boucle de crash ne se stabilise
+      # jamais en `unhealthy` et ferait pendre le job jusqu'au timeout
+      # GitHub — en tenant le verrou `deploy`, donc en bloquant le
+      # déploiement correctif d'après.
       - name: Pull and restart at that sha
         env:
           VPS_USER: ${{ secrets.VPS_USER }}
@@ -130,7 +135,7 @@ jobs:
           ssh -i ~/.ssh/id_deploy "$VPS_USER@$VPS_HOST" \
             "cd ~/astrotan \
              && IMAGE_TAG=$IMAGE_TAG GHCR_OWNER=$GHCR_OWNER docker compose pull \
-             && IMAGE_TAG=$IMAGE_TAG GHCR_OWNER=$GHCR_OWNER docker compose up -d --wait \
+             && IMAGE_TAG=$IMAGE_TAG GHCR_OWNER=$GHCR_OWNER docker compose up -d --wait --wait-timeout 180 \
              && echo $IMAGE_TAG > ~/astrotan/DEPLOYED_SHA"
 
       - name: Record the rollback

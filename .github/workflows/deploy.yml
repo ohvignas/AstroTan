@@ -157,9 +157,13 @@ jobs:
       # renvoie 0 sur un conteneur dont le healthcheck échoue, `up -d --wait`
       # renvoie 1). Le `&&` qui suit n'est donc plus atteint : un déploiement
       # cassé n'écrit pas son sha dans DEPLOYED_SHA et fait échouer le job.
-      # Les healthchecks du compose sont bornés (`interval` × `retries` +
-      # `start_period`) ; si cette attente devait un jour être plafonnée
-      # explicitement, l'option est `--wait-timeout <secondes>`.
+      # `--wait-timeout` n'est pas décoratif : les trois services sont en
+      # `restart: unless-stopped`, et un conteneur qui plante puis redémarre
+      # en boucle repart à chaque fois dans son `start_period` sans jamais se
+      # stabiliser en `unhealthy`. Sans plafond, `--wait` attendrait alors
+      # jusqu'au timeout de job GitHub (6 h par défaut) en tenant le verrou
+      # de concurrence `deploy`. 180 s couvre largement le pire cas sain
+      # (`start_period` 20 s + `interval` 30 s × `retries` 3 = 110 s).
       - name: Pull and restart
         env:
           VPS_USER: ${{ secrets.VPS_USER }}
@@ -171,7 +175,7 @@ jobs:
           ssh -i ~/.ssh/id_deploy "$VPS_USER@$VPS_HOST" \
             "cd ~/astrotan \
              && IMAGE_TAG=$IMAGE_TAG GHCR_OWNER=$GHCR_OWNER docker compose pull \
-             && IMAGE_TAG=$IMAGE_TAG GHCR_OWNER=$GHCR_OWNER docker compose up -d --wait \
+             && IMAGE_TAG=$IMAGE_TAG GHCR_OWNER=$GHCR_OWNER docker compose up -d --wait --wait-timeout 180 \
              && echo $IMAGE_TAG > ~/astrotan/DEPLOYED_SHA \
              && docker image prune -f"
 
