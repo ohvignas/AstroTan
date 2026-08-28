@@ -36,6 +36,38 @@ function describeFieldTooLong(data: {
   return `${field} dépasse la limite autorisée${max}.`
 }
 
+/**
+ * Les deux refus du lot 4 qui portent une donnée dans leur charge utile.
+ *
+ * Sans eux, un opérateur qui renomme une page voit « une erreur inattendue
+ * est survenue » alors que la cause est précise et que la marche à suivre
+ * l'est aussi. C'est le pire des deux mondes : refusé, et sans savoir
+ * pourquoi.
+ */
+function describeSlugRefusal(
+  code: string,
+  data: Record<string, unknown>
+): string | null {
+  if (code === "SLUG_FIXED_BY_ROUTE") {
+    const file = typeof data.file === "string" ? data.file : "son fichier"
+    return (
+      `Le chemin de cette page est fixé par son fichier ${file}. ` +
+      `C'est lui qui décide de l'URL — renommez le fichier dans le code du ` +
+      `site, et le slug suivra.`
+    )
+  }
+  if (code === "SLUG_HAS_REDIRECT") {
+    const to = typeof data.to === "string" ? data.to : "un autre chemin"
+    return (
+      `Une redirection active occupe déjà ce chemin et renvoie vers ${to}. ` +
+      `La page naîtrait invisible : le visiteur serait redirigé avant de ` +
+      `l'atteindre. Supprimez ou désactivez cette redirection dans ` +
+      `Redirections, ou choisissez un autre slug.`
+    )
+  }
+  return null
+}
+
 export function describePageError(error: unknown): string {
   if (error instanceof ConvexError) {
     const data = error.data
@@ -43,6 +75,10 @@ export function describePageError(error: unknown): string {
       const code = (data as { code?: unknown }).code
       if (code === "FIELD_TOO_LONG")
         return describeFieldTooLong(data as Record<string, unknown>)
+      if (typeof code === "string") {
+        const refusal = describeSlugRefusal(code, data as Record<string, unknown>)
+        if (refusal !== null) return refusal
+      }
       if (typeof code === "string" && PAGE_ERROR_MESSAGES[code])
         return PAGE_ERROR_MESSAGES[code]
     }
