@@ -14,6 +14,7 @@ import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as AuthedUsersRouteImport } from './routes/_authed/users'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as AuthedPagesIndexRouteImport } from './routes/_authed/pages/index'
 import { Route as AuthedPagesPageIdRouteImport } from './routes/_authed/pages/$pageId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -42,6 +43,11 @@ const AuthedUsersRoute = AuthedUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AuthedRoute,
 } as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthedPagesIndexRoute = AuthedPagesIndexRouteImport.update({
   id: '/pages/',
   path: '/pages/',
@@ -63,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
   '/users': typeof AuthedUsersRoute
+  '/api/health': typeof ApiHealthRoute
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/pages/': typeof AuthedPagesIndexRoute
@@ -71,6 +78,7 @@ export interface FileRoutesByTo {
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
   '/users': typeof AuthedUsersRoute
+  '/api/health': typeof ApiHealthRoute
   '/': typeof AuthedIndexRoute
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -82,6 +90,7 @@ export interface FileRoutesById {
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
   '/_authed/users': typeof AuthedUsersRoute
+  '/api/health': typeof ApiHealthRoute
   '/_authed/': typeof AuthedIndexRoute
   '/_authed/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -94,6 +103,7 @@ export interface FileRouteTypes {
     | '/accept-invite'
     | '/login'
     | '/users'
+    | '/api/health'
     | '/pages/$pageId'
     | '/api/auth/$'
     | '/pages/'
@@ -102,6 +112,7 @@ export interface FileRouteTypes {
     | '/accept-invite'
     | '/login'
     | '/users'
+    | '/api/health'
     | '/'
     | '/pages/$pageId'
     | '/api/auth/$'
@@ -112,6 +123,7 @@ export interface FileRouteTypes {
     | '/accept-invite'
     | '/login'
     | '/_authed/users'
+    | '/api/health'
     | '/_authed/'
     | '/_authed/pages/$pageId'
     | '/api/auth/$'
@@ -122,6 +134,7 @@ export interface RootRouteChildren {
   AuthedRoute: typeof AuthedRouteWithChildren
   AcceptInviteRoute: typeof AcceptInviteRoute
   LoginRoute: typeof LoginRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -161,6 +174,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/users'
       preLoaderRoute: typeof AuthedUsersRouteImport
       parentRoute: typeof AuthedRoute
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_authed/pages/': {
       id: '/_authed/pages/'
@@ -207,6 +227,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthedRoute: AuthedRouteWithChildren,
   AcceptInviteRoute: AcceptInviteRoute,
   LoginRoute: LoginRoute,
+  ApiHealthRoute: ApiHealthRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
