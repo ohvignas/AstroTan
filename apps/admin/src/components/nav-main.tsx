@@ -14,7 +14,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
-import { ChevronRightIcon } from "lucide-react"
+import { ChevronRightIcon, ExternalLinkIcon } from "lucide-react"
 
 export function NavMain({
   items,
@@ -83,6 +83,13 @@ export function NavMain({
               >
                 {item.icon}
                 <span>{item.title}</span>
+                {/* Poussée tout à droite, à la place du chevron d'un menu
+                    dépliant : c'est là que l'œil cherche ce qui va se
+                    passer. Elle prévient qu'on quitte l'administration —
+                    l'onglet qui s'ouvre n'est pas une page de plus ici. */}
+                {item.external && (
+                  <ExternalLinkIcon className="ml-auto size-3.5 opacity-60" />
+                )}
               </SidebarMenuButton>
             </SidebarMenuItem>
           ),
