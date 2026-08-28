@@ -430,3 +430,35 @@ test("un scénario supprimé est expliqué, pas codé en chiffres", async () => 
   const board = await admin.query(api.leads.board, {})
   expect(board.new).toHaveLength(1)
 })
+
+test("ni le webhook ni l'email en panne n'empêchent le lead d'arriver", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.RESEND_API_KEY = "re_test_cle_factice"
+  await admin.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    leadWebhookUrl: "https://hook.exemple.fr/leads",
+    leadWebhookSecret: "un-secret-de-signature",
+  })
+
+  // Les DEUX effets de bord échouent en même temps. C'est l'invariant que
+  // le visiteur ne doit jamais payer : il a écrit, son message est là.
+  // Chacun est déjà testé seul ; ce test-ci existe parce que le jour où
+  // les deux tombent ensemble est précisément celui où on découvre qu'une
+  // exception non rattrapée dans l'un annulait l'autre.
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")))
+  const envoi = vi
+    .spyOn(Resend.prototype, "sendEmail")
+    .mockRejectedValue(new Error("Resend indisponible"))
+
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  const board = await admin.query(api.leads.board, {})
+  expect(board.new).toHaveLength(1)
+  expect(board.new[0]!.email).toBe(MESSAGE.email)
+
+  const messages = await admin.query(api.leads.messages, { id: board.new[0]!._id })
+  expect(messages).toHaveLength(1)
+  expect(envoi).toHaveBeenCalled()
+})
