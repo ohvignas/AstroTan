@@ -1,5 +1,6 @@
 import type { FunctionReturnType } from "convex/server"
-import type { api } from "@astrotan/backend/convex/_generated/api"
+import { useQuery } from "convex/react"
+import { api } from "@astrotan/backend/convex/_generated/api"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import {
@@ -12,6 +13,7 @@ import {
 import {
   FileTextIcon,
   ImageIcon,
+  ChartNoAxesColumnIcon,
   Settings2Icon,
   SignpostIcon,
   LayoutDashboardIcon,
@@ -81,16 +83,31 @@ const USERS_ITEM = {
   icon: <UsersIcon />,
 }
 
+// Rendu seulement quand Umami répond une adresse : un bouton qui ouvre un
+// onglet vide est pire que pas de bouton.
+function statsItem(url: string) {
+  return {
+    title: "Statistiques",
+    url,
+    icon: <ChartNoAxesColumnIcon />,
+    external: true,
+  }
+}
+
 export function AppSidebar({
   profile,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   profile: FunctionReturnType<typeof api.profiles.me> | undefined
 }) {
-  const navMain =
+  // `undefined` pendant le chargement, `null` si Umami n'est pas configuré.
+  const umamiUrl = useQuery(api.analytics.umamiUrl)
+
+  const base =
     profile?.role === "owner" || profile?.role === "admin"
       ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, USERS_ITEM, REDIRECTS_ITEM, SETTINGS_ITEM]
       : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM]
+  const navMain = umamiUrl ? [...base, statsItem(umamiUrl)] : base
 
   return (
     <Sidebar collapsible="icon" {...props}>

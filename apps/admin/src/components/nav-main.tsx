@@ -24,6 +24,8 @@ export function NavMain({
     url: string
     icon?: React.ReactNode
     isActive?: boolean
+    /** Quitte l'admin : rendu en `<a>`, jamais en `<Link>` du routeur. */
+    external?: boolean
     items?: {
       title: string
       url: string
@@ -65,7 +67,20 @@ export function NavMain({
             // No children: a plain link, not a disclosure trigger with
             // nothing to disclose.
             <SidebarMenuItem key={item.title}>
-              <SidebarMenuButton tooltip={item.title} render={<Link to={item.url} />}>
+              <SidebarMenuButton
+                tooltip={item.title}
+                render={
+                  // Un `<Link>` du routeur sur une adresse externe tente une
+                  // navigation interne et rend une 404 de l'admin. Il faut
+                  // une vraie ancre — avec `noopener`, sans quoi la page
+                  // ouverte garde une poignée sur celle-ci.
+                  item.external ? (
+                    <a href={item.url} target="_blank" rel="noopener noreferrer" />
+                  ) : (
+                    <Link to={item.url} />
+                  )
+                }
+              >
                 {item.icon}
                 <span>{item.title}</span>
               </SidebarMenuButton>

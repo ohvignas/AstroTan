@@ -153,3 +153,137 @@ test("le jeton est réutilisé plutôt que redemandé à chaque appel", async ()
   // identifiants sur le réseau bien plus souvent que nécessaire.
   expect(logins).toBe(1)
 })
+
+test("umamiUrl refuse un appelant sans session", async () => {
+  const t = makeTestConvex()
+  configure()
+  await expect(t.query(api.analytics.umamiUrl, {})).rejects.toThrow()
+})
+
+test("umamiUrl rend null quand rien n'est configuré — le menu cache alors le bouton", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  delete process.env.UMAMI_API_URL
+
+  // Un bouton mort est pire que pas de bouton.
+  expect(await editor.identity.query(api.analytics.umamiUrl, {})).toBeNull()
+})
+
+test("umamiUrl rend l'adresse, sans jamais les identifiants", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+
+  const url = await editor.identity.query(api.analytics.umamiUrl, {})
+  expect(url).toBe("https://umami.illith.test")
+  // Ce que le navigateur reçoit est une adresse publique et rien d'autre.
+  expect(JSON.stringify(url)).not.toContain("secret")
+  expect(JSON.stringify(url)).not.toContain("lecture")
+})
+
+function stubSite() {
+  return vi.fn(async (url: string) => {
+    const u = String(url)
+    if (u.includes("/api/auth/login")) {
+      return { ok: true, status: 200, json: async () => ({ token: "jeton" }) }
+    }
+    if (u.includes("/pageviews")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          sessions: [
+            { x: "2026-08-01T00:00:00Z", y: 5 },
+            { x: "2026-08-02T00:00:00Z", y: 9 },
+          ],
+          pageviews: [
+            { x: "2026-08-01T00:00:00Z", y: 12 },
+            { x: "2026-08-02T00:00:00Z", y: 20 },
+          ],
+        }),
+      }
+    }
+    if (u.includes("type=url")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [{ x: "/blog/bienvenue", y: 312 }, { x: "/", y: 189 }],
+      }
+    }
+    if (u.includes("type=referrer")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [{ x: "google.com", y: 128 }, { x: "", y: 94 }],
+      }
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        pageviews: { value: 128, prev: 118 },
+        visitors: { value: 44, prev: 39 },
+      }),
+    }
+  })
+}
+
+test("siteSummary rend totaux, période précédente, série et palmarès", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  vi.stubGlobal("fetch", stubSite())
+
+  const result = await editor.identity.action(api.analytics.siteSummary, {})
+  expect(result.status).toBe("ok")
+  expect(result.totals).toEqual({
+    pageviews: { value: 128, prev: 118 },
+    visitors: { value: 44, prev: 39 },
+  })
+  expect(result.series).toEqual([
+    { date: "2026-08-01T00:00:00Z", visitors: 5, pageviews: 12 },
+    { date: "2026-08-02T00:00:00Z", visitors: 9, pageviews: 20 },
+  ])
+  expect(result.topPages).toEqual([
+    { label: "/blog/bienvenue", views: 312 },
+    { label: "/", views: 189 },
+  ])
+  // Umami rend le referrer vide pour un accès direct. Le laisser vide
+  // afficherait une ligne sans étiquette, illisible.
+  expect(result.topReferrers).toEqual([
+    { label: "google.com", views: 128 },
+    { label: "Accès direct", views: 94 },
+  ])
+})
+
+test("siteSummary : un palmarès en échec ne coûte pas le tableau de bord", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  const base = stubSite()
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      String(url).includes("type=referrer")
+        ? { ok: false, status: 500, json: async () => ({}) }
+        : base(url),
+    ),
+  )
+
+  // Les chiffres principaux valent mieux qu'un écran vide : la liste
+  // manquante se signale, elle ne fait pas tomber le reste.
+  const result = await editor.identity.action(api.analytics.siteSummary, {})
+  expect(result.status).toBe("ok")
+  expect(result.totals?.visitors.value).toBe(44)
+  expect(result.topReferrers).toBeNull()
+})
+
+test("siteSummary sans configuration ne lève pas", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  delete process.env.UMAMI_API_URL
+
+  const result = await editor.identity.action(api.analytics.siteSummary, {})
+  expect(result.status).toBe("not-configured")
+  expect(result.totals).toBeNull()
+})

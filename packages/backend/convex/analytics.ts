@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import { action } from "./_generated/server"
+import { action, query } from "./_generated/server"
 import { requireRole } from "./lib/authz"
 import {
   clearUmamiToken,
@@ -134,6 +134,148 @@ export const forPath = action({
       // reports "unreachable" and keeps working — statistics are
       // information, never a dependency of editing a page.
       return { last7: null, last30: null, status: "unreachable" }
+    }
+  },
+})
+
+// --- Le résumé du site, pour l'accueil de l'administration ----------------
+
+export interface Metric {
+  value: number
+  /** Le même nombre sur la période précédente, tel qu'Umami le rend. */
+  prev: number
+}
+
+export interface SeriesPoint {
+  date: string
+  visitors: number
+  pageviews: number
+}
+
+export interface RankedItem {
+  label: string
+  views: number
+}
+
+export interface SiteSummary {
+  totals: { pageviews: Metric; visitors: Metric } | null
+  series: SeriesPoint[] | null
+  /**
+   * `null` quand ce palmarès précis a échoué alors que le reste a répondu :
+   * une liste manquante se signale, elle ne fait pas tomber l'écran.
+   */
+  topPages: RankedItem[] | null
+  topReferrers: RankedItem[] | null
+  status: AnalyticsResult["status"]
+}
+
+/**
+ * L'adresse publique d'Umami, pour le lien du menu.
+ *
+ * Une `query` et non une variable de build de l'admin : une seconde source
+ * pourrait diverger de celle que les actions interrogent, et le lien
+ * enverrait alors ailleurs que là où les chiffres sont lus. Elle ne rend que
+ * l'adresse — jamais le nom d'utilisateur ni le mot de passe, qui sont dans
+ * le même bloc de configuration.
+ */
+export const umamiUrl = query({
+  args: {},
+  handler: async (ctx): Promise<string | null> => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    return readUmamiConfig(process.env)?.url ?? null
+  },
+})
+
+async function getJson<T>(url: string, token: string): Promise<T | null> {
+  const response = await fetch(url, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!response.ok) return null
+  return (await response.json()) as T
+}
+
+/** Umami rend un referrer vide pour un accès direct — sans étiquette, la
+ *  ligne serait illisible. */
+function rank(rows: { x?: string; y?: number }[] | null): RankedItem[] | null {
+  if (rows === null) return null
+  return rows.map((row) => ({
+    label: row.x && row.x.length > 0 ? row.x : "Accès direct",
+    views: row.y ?? 0,
+  }))
+}
+
+export const siteSummary = action({
+  args: {},
+  handler: async (ctx): Promise<SiteSummary> => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+
+    const empty = {
+      totals: null,
+      series: null,
+      topPages: null,
+      topReferrers: null,
+    }
+
+    const cfg = readUmamiConfig(process.env)
+    if (cfg === null) return { ...empty, status: "not-configured" }
+
+    const now = Date.now()
+    const startAt = String(now - 30 * DAY_MS)
+    const endAt = String(now)
+    const base = `${cfg.url}/api/websites/${cfg.websiteId}`
+    const window = `startAt=${startAt}&endAt=${endAt}`
+
+    try {
+      const token = await getUmamiToken(cfg, now)
+      if (token === null) return { ...empty, status: "unauthorized" }
+
+      // Quatre appels, lancés ensemble : en série, l'accueil attendrait
+      // quatre allers-retours réseau avant son premier pixel.
+      const [totals, series, pages, referrers] = await Promise.all([
+        getJson<{ pageviews?: Metric; visitors?: Metric }>(
+          `${base}/stats?${window}`,
+          token
+        ),
+        getJson<{
+          sessions?: { x?: string; y?: number }[]
+          pageviews?: { x?: string; y?: number }[]
+        }>(`${base}/pageviews?${window}&unit=day`, token),
+        getJson<{ x?: string; y?: number }[]>(
+          `${base}/metrics?${window}&type=url&limit=5`,
+          token
+        ),
+        getJson<{ x?: string; y?: number }[]>(
+          `${base}/metrics?${window}&type=referrer&limit=5`,
+          token
+        ),
+      ])
+
+      // Les totaux sont le tableau de bord. Sans eux il n'y a rien à
+      // montrer, et l'écran le dit plutôt que d'afficher des zéros.
+      if (!totals?.pageviews || !totals.visitors) {
+        return { ...empty, status: "unreachable" }
+      }
+
+      const points = series?.pageviews ?? null
+      return {
+        totals: { pageviews: totals.pageviews, visitors: totals.visitors },
+        series:
+          points === null
+            ? null
+            : points.map((point, index) => ({
+                date: point.x ?? "",
+                // Umami renvoie les deux séries dans le même ordre et sur
+                // le même découpage ; l'index les apparie.
+                visitors: series?.sessions?.[index]?.y ?? 0,
+                pageviews: point.y ?? 0,
+              })),
+        topPages: rank(pages),
+        topReferrers: rank(referrers),
+        status: "ok",
+      }
+    } catch {
+      return { ...empty, status: "unreachable" }
     }
   },
 })
