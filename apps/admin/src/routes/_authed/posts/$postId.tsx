@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery } from "convex/react"
@@ -31,10 +31,12 @@ import {
   MAX_TAG_NAME_LENGTH,
 } from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
+import { describeContentProblem, splitEntities } from "@/lib/contentGuards"
 import { MediaPicker } from "@/components/media-picker"
 import { PageAnalytics } from "@/components/analytics-panel"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 import { RichTextEditor } from "@/components/rich-text-editor"
+import { SaveBar, useAutoSave } from "@/components/save-bar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -205,6 +207,46 @@ function initialValues(post: PostDoc): PostFormValues {
   }
 }
 
+/**
+ * Ce qu'une sauvegarde automatique a le droit de réécrire.
+ *
+ * Tout sauf le slug. `posts.update` frappe une redirection 301 à chaque
+ * renommage (`redirects.mintRenameRedirect`), et une écriture qui suivrait
+ * la frappe laisserait derrière elle `/tar`, `/tari`, `/tarif` — des lignes
+ * mortes que personne ne relierait à leur cause, et qui occuperaient
+ * ensuite ces chemins pour de bon.
+ */
+function autoFieldsOf(values: PostFormValues) {
+  return {
+    title: values.title,
+    body: values.body,
+    excerpt: values.excerpt,
+    // `undefined` means "leave alone" to `posts.update`, so a cover
+    // is only ever sent when one is actually selected. Clearing a
+    // cover back to none is therefore not expressible against the
+    // current mutation — reported rather than faked here.
+    ...(values.coverId === null ? {} : { coverId: values.coverId }),
+    tagIds: values.tagIds,
+    seo: {
+      title: values.seoTitle.trim() || undefined,
+      description: values.seoDescription.trim() || undefined,
+      canonicalUrl: values.seoCanonicalUrl.trim() || undefined,
+      noindex: values.seoNoindex,
+    },
+    geo: {
+      summary: values.geoSummary.trim() || undefined,
+      // Drop rows the operator started and left blank rather than
+      // sending them: an empty Q/A pair would be emitted as FAQPage
+      // JSON-LD with nothing in it.
+      faq: values.geoFaq.filter(
+        (item) => item.question.trim() !== "" && item.answer.trim() !== ""
+      ),
+      entities: splitEntities(values.geoEntities),
+      noai: values.geoNoai,
+    },
+  }
+}
+
 function PostEditor({
   post,
   profile,
@@ -237,56 +279,47 @@ function PostEditor({
   // per-field subscriptions (typing in a 200 000-character body no longer
   // re-renders the SEO and GEO cards), and `isDirty`/`isSubmitting` as
   // derived state rather than two more flags to keep in sync by hand.
+  // Un seul point d'écriture, appelé avec ou sans le slug.
+  //
+  // `posts.update` déclare tous ses arguments optionnels : omettre `slug`
+  // laisse littéralement la valeur enregistrée intacte, et n'atteint donc
+  // jamais `mintRenameRedirect`. C'est ce qui permet à la sauvegarde
+  // automatique de suivre la frappe sans semer une 301 par lettre tapée
+  // dans le champ « Slug ».
+  async function persist(
+    values: PostFormValues,
+    options: { withSlug: boolean }
+  ) {
+    await updatePost({
+      id: post._id,
+      ...(options.withSlug ? { slug: values.slug } : {}),
+      ...autoFieldsOf(values),
+    })
+  }
+
+  // Première utilisation de TanStack Form dans ce dépôt — la forme que
+  // devraient copier les formulaires suivants. Ce qu'elle apporte ici :
+  // `defaultValues` semé une seule fois depuis le document, et des
+  // abonnements par champ (taper dans un corps de 200 000 caractères ne
+  // re-rend plus les cartes SEO et GEO).
+  //
+  // Pas de `onSubmit` : l'enregistrement appartient désormais à
+  // `useAutoSave`, qui doit distinguer deux charges utiles (avec ou sans
+  // slug) là où `handleSubmit` n'en connaît qu'une. Pas de `form.reset`
+  // après un enregistrement non plus — il réécrirait les champs avec la
+  // photo envoyée, effaçant ce qui aurait été tapé pendant l'appel. La
+  // référence de propreté est tenue par `useAutoSave`.
   const form = useForm({
     defaultValues: initialValues(post),
-    onSubmit: async ({ value }) => {
-      setError(null)
-      try {
-        await updatePost({
-          id: post._id,
-          title: value.title,
-          slug: value.slug,
-          body: value.body,
-          excerpt: value.excerpt,
-          // `undefined` means "leave alone" to `posts.update`, so a cover
-          // is only ever sent when one is actually selected. Clearing a
-          // cover back to none is therefore not expressible against the
-          // current mutation — reported rather than faked here.
-          ...(value.coverId === null ? {} : { coverId: value.coverId }),
-          tagIds: value.tagIds,
-          seo: {
-            title: value.seoTitle.trim() || undefined,
-            description: value.seoDescription.trim() || undefined,
-            canonicalUrl: value.seoCanonicalUrl.trim() || undefined,
-            noindex: value.seoNoindex,
-          },
-          geo: {
-            summary: value.geoSummary.trim() || undefined,
-            // Drop rows the operator started and left blank rather than
-            // sending them: an empty Q/A pair would be emitted as FAQPage
-            // JSON-LD with nothing in it.
-            faq: value.geoFaq.filter(
-              (item) => item.question.trim() !== "" && item.answer.trim() !== ""
-            ),
-            entities: value.geoEntities
-              .split(",")
-              .map((entity) => entity.trim())
-              .filter((entity) => entity !== ""),
-            noai: value.geoNoai,
-          },
-        })
-        // Re-baseline so `isDirty` goes back to false on what was just
-        // saved, rather than staying true until the component remounts.
-        form.reset(value)
-      } catch (err) {
-        // Caught here rather than left to propagate: a rejection out of
-        // `handleSubmit` is an unhandled promise rejection in the console
-        // and nothing at all on screen. `isSubmitting` still resolves
-        // correctly because the handler itself completes.
-        setError(describePostError(err))
-      }
-    },
   })
+
+  // Le bouton « Enregistrer » vit dans un enfant (il s'abonne aux valeurs
+  // du formulaire, ce que ce composant-ci évite justement de faire). La
+  // soumission native du `<form>` — la touche Entrée dans un champ — doit
+  // pourtant déclencher le même geste ; cette référence est le fil entre
+  // les deux.
+  const requestSave = useRef<(() => void) | null>(null)
+
 
   // The property this whole screen upholds, verbatim from the pages
   // editor: "hiding a button is a courtesy to the operator, never the
@@ -348,7 +381,7 @@ function PostEditor({
       className="flex flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault()
-        void form.handleSubmit()
+        requestSave.current?.()
       }}
     >
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -781,27 +814,90 @@ function PostEditor({
         </CardContent>
       </Card>
 
+      {/* Ni barre ni sauvegarde automatique pour qui ne peut pas écrire :
+          `posts.update` refuserait de toute façon (`requireOwnDocument`) —
+          c'est lui l'application de la règle, ceci n'est que la courtoisie.
+
+          Abonné aux valeurs entières, et c'est pour cela que la barre est
+          un composant à part : le rendu déclenché par chaque frappe reste
+          confiné à ces quelques nœuds, au lieu de re-rendre les cartes SEO
+          et GEO à chaque caractère du corps. */}
       {canWrite && (
         <form.Subscribe
-          selector={(state) => ({
-            isDirty: state.isDirty,
-            isSubmitting: state.isSubmitting,
-          })}
-          children={({ isDirty, isSubmitting }) => (
-            <div className="flex items-center justify-end gap-3">
-              {isDirty && !isSubmitting && (
-                <span className="text-sm text-muted-foreground">
-                  Modifications non enregistrées.
-                </span>
-              )}
-              <Button type="submit" disabled={isSubmitting || !isDirty}>
-                {isSubmitting ? "Enregistrement…" : "Enregistrer"}
-              </Button>
-            </div>
+          selector={(state) => state.values}
+          children={(values) => (
+            <PostSaveBar
+              values={values}
+              persist={persist}
+              onRequestSave={requestSave}
+            />
           )}
         />
       )}
     </form>
+  )
+}
+
+// ---------------------------------------------------------------------
+// Barre d'enregistrement
+// ---------------------------------------------------------------------
+
+/**
+ * La barre collante de cet écran.
+ *
+ * Elle n'est montée que lorsque l'opérateur peut écrire, d'où `enabled:
+ * true` — le composant parent porte déjà la condition.
+ */
+function PostSaveBar({
+  values,
+  persist,
+  onRequestSave,
+}: {
+  values: PostFormValues
+  persist: (
+    values: PostFormValues,
+    options: { withSlug: boolean }
+  ) => Promise<void>
+  onRequestSave: { current: (() => void) | null }
+}) {
+  const autoSave = useAutoSave({
+    enabled: true,
+    auto: autoFieldsOf(values),
+    manual: { slug: values.slug },
+    // `values` est celui du rendu courant, et `useAutoSave` lit toujours la
+    // dernière version de ces deux fermetures : ce qui part est bien la
+    // photo comparée juste au-dessus.
+    saveAuto: async () => {
+      await persist(values, { withSlug: false })
+    },
+    saveAll: async () => {
+      await persist(values, { withSlug: true })
+    },
+    validate: ({ auto }) =>
+      describeContentProblem({
+        title: auto.title,
+        entities: auto.geo.entities,
+        faq: auto.geo.faq,
+      }),
+    describeError: describePostError,
+  })
+
+  // La soumission native du `<form>` (touche Entrée) passe par ici.
+  useEffect(() => {
+    onRequestSave.current = autoSave.saveNow
+    return () => {
+      onRequestSave.current = null
+    }
+  }, [onRequestSave, autoSave.saveNow])
+
+  return (
+    <SaveBar
+      status={autoSave.status}
+      lastSavedAt={autoSave.lastSavedAt}
+      error={autoSave.error}
+      canSave={autoSave.canSave}
+      onSave={autoSave.saveNow}
+    />
   )
 }
 

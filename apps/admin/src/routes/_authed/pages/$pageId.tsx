@@ -18,11 +18,13 @@ import {
   MAX_SLUG_LENGTH,
 } from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
+import { describeContentProblem, splitEntities } from "@/lib/contentGuards"
 import { PageAnalytics } from "@/components/analytics-panel"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 // Lived in this file until the settings screen needed the same widget for
 // its social links — see that component's header.
 import { RepeatableItems } from "@/components/repeatable-items"
+import { SaveBar, useAutoSave } from "@/components/save-bar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -119,7 +121,6 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   )
   const [geoNoai, setGeoNoai] = useState(page.geo?.noai ?? false)
 
-  const [saving, setSaving] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -141,41 +142,53 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   const canPublish = profile.role === "owner" || profile.role === "admin"
 
 
-  async function handleSave() {
-    setError(null)
-    setSaving(true)
-    try {
-      await updatePage({
-        id: page._id,
-        title,
-        slug,
-        seo: {
-          title: seoTitle.trim() || undefined,
-          description: seoDescription.trim() || undefined,
-          canonicalUrl: seoCanonicalUrl.trim() || undefined,
-          noindex: seoNoindex,
-        },
-        geo: {
-          summary: geoSummary.trim() || undefined,
-          // Drop rows the operator started and left blank rather than
-          // sending them: an empty Q/A pair would be emitted as FAQPage
-          // JSON-LD with nothing in it.
-          faq: geoFaq.filter(
-            (item) => item.question.trim() !== "" && item.answer.trim() !== ""
-          ),
-          entities: geoEntities
-            .split(",")
-            .map((entity) => entity.trim())
-            .filter((entity) => entity !== ""),
-          noai: geoNoai,
-        },
-      })
-    } catch (err) {
-      setError(describePageError(err))
-    } finally {
-      setSaving(false)
-    }
+  // Tout ce qui peut être réécrit sans effet de bord hors de cette ligne.
+  // Le slug n'y est pas, et c'est le point entier de ce découpage :
+  // `pages.update` frappe une 301 à chaque renommage
+  // (`redirects.mintRenameRedirect`), donc une sauvegarde qui suivrait la
+  // frappe laisserait derrière elle `/tar`, `/tari`, `/tarif`…
+  const autoFields = {
+    title,
+    seo: {
+      title: seoTitle.trim() || undefined,
+      description: seoDescription.trim() || undefined,
+      canonicalUrl: seoCanonicalUrl.trim() || undefined,
+      noindex: seoNoindex,
+    },
+    geo: {
+      summary: geoSummary.trim() || undefined,
+      // Drop rows the operator started and left blank rather than
+      // sending them: an empty Q/A pair would be emitted as FAQPage
+      // JSON-LD with nothing in it.
+      faq: geoFaq.filter(
+        (item) => item.question.trim() !== "" && item.answer.trim() !== ""
+      ),
+      entities: splitEntities(geoEntities),
+      noai: geoNoai,
+    },
   }
+
+  const autoSave = useAutoSave({
+    enabled: canWrite,
+    auto: autoFields,
+    manual: { slug },
+    // `slug` absent de l'appel : `pages.update` déclare tous ses arguments
+    // optionnels, et un argument omis laisse la valeur enregistrée telle
+    // quelle. Aucune redirection n'est donc frappée par ce chemin.
+    saveAuto: async (auto) => {
+      await updatePage({ id: page._id, ...auto })
+    },
+    saveAll: async ({ auto, manual }) => {
+      await updatePage({ id: page._id, slug: manual.slug, ...auto })
+    },
+    validate: ({ auto }) =>
+      describeContentProblem({
+        title: auto.title,
+        entities: auto.geo.entities,
+        faq: auto.geo.faq,
+      }),
+    describeError: describePageError,
+  })
 
   async function handlePublishToggle() {
     setError(null)
@@ -475,12 +488,18 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         </CardContent>
       </Card>
 
+      {/* Pas de barre du tout en lecture seule : ni bouton à cliquer, ni
+          sauvegarde automatique à déclencher. `pages.update` refuserait de
+          toute façon — c'est lui l'application de la règle, ceci n'est que
+          la courtoisie. */}
       {canWrite && (
-        <div className="flex justify-end">
-          <Button disabled={saving} onClick={handleSave}>
-            {saving ? "Enregistrement…" : "Enregistrer"}
-          </Button>
-        </div>
+        <SaveBar
+          status={autoSave.status}
+          lastSavedAt={autoSave.lastSavedAt}
+          error={autoSave.error}
+          canSave={autoSave.canSave}
+          onSave={autoSave.saveNow}
+        />
       )}
     </div>
   )
