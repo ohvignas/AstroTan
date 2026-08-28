@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest"
-import { markdownToPlainText, renderInline, renderMarkdown } from "./markdown"
+import {
+  markdownToPlainText,
+  renderInline,
+  renderMarkdown,
+  renderStoredHtml,
+} from "./markdown"
 
 // `renderMarkdown`'s output goes straight into `set:html` on every public
 // page and every preview. Every case in the first block below is markup
@@ -136,5 +141,31 @@ describe("renderInline — les champs de contenu déclarés « rich »", () => {
     const html = renderInline("[ILLITH](https://illith.com)")
     expect(html).toContain('href="https://illith.com"')
     expect(html).toContain('rel="noopener noreferrer"')
+  })
+})
+
+describe("renderStoredHtml — le corps d'article, désormais du HTML", () => {
+  test("laisse passer le balisage que l'éditeur produit", () => {
+    const html = renderStoredHtml(
+      '<h2>Titre</h2><p>Un <strong>mot</strong> et un <a href="https://illith.com">lien</a>.</p><ul><li>un</li></ul>'
+    )
+    expect(html).toContain("<h2>Titre</h2>")
+    expect(html).toContain("<strong>mot</strong>")
+    expect(html).toContain("<li>un</li>")
+  })
+
+  test("assainit exactement comme le rendu Markdown", () => {
+    // Le stockage a changé, la barrière non : la valeur vient d'une session
+    // authentifiée, jamais d'un visiteur, et elle est assainie quand même.
+    expect(renderStoredHtml("<p>a</p><script>alert(1)</script>")).not.toContain("<script")
+    expect(renderStoredHtml('<p onclick="x()">a</p>')).not.toContain("onclick")
+    expect(renderStoredHtml('<a href="javascript:alert(1)">x</a>')).not.toContain("javascript:")
+    expect(renderStoredHtml('<iframe src="https://evil.example"></iframe>')).not.toContain("<iframe")
+  })
+
+  test("ajoute rel=noopener aux liens, comme l'autre chemin", () => {
+    expect(renderStoredHtml('<a href="https://illith.com">x</a>')).toContain(
+      'rel="noopener noreferrer"'
+    )
   })
 })

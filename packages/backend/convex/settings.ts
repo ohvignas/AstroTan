@@ -1,7 +1,13 @@
 import { ConvexError, v } from "convex/values"
 import { mutation, query } from "./_generated/server"
 import { api } from "./_generated/api"
-import { seoValidator } from "./content"
+import {
+  MAX_SITE_NAME_LENGTH,
+  MAX_SOCIALS,
+  MAX_SOCIAL_LABEL_LENGTH,
+  MAX_SOCIAL_URL_LENGTH,
+  seoValidator,
+} from "./content"
 import { requireRole } from "./lib/authz"
 import { MUTATION_REGISTRY } from "./_registry"
 
@@ -18,10 +24,21 @@ import { MUTATION_REGISTRY } from "./_registry"
 // page. Nothing secret goes in this table — if a field ever needs a session
 // to read, it belongs somewhere else.
 
-export const MAX_SITE_NAME_LENGTH = 100
-export const MAX_SOCIAL_LABEL_LENGTH = 40
-export const MAX_SOCIAL_URL_LENGTH = 2048
-export const MAX_SOCIALS = 10
+// The bounds live in `content.ts` and are re-exported here so existing
+// importers — `settings.test.ts` among them — do not have to know they
+// moved. Same reason `media.ts` moved its four: the settings screen caps
+// the site name and the social rows at exactly these numbers, and
+// importing them from *this* module drags its whole graph
+// (`_generated/server`, `_registry`, `lib/authz` → `auth.ts`) into the
+// browser bundle — which the Convex client reports as "Convex functions
+// should not be imported in the browser. This will throw an error in
+// future versions of `convex`", once per function definition it finds.
+export {
+  MAX_SITE_NAME_LENGTH,
+  MAX_SOCIALS,
+  MAX_SOCIAL_LABEL_LENGTH,
+  MAX_SOCIAL_URL_LENGTH,
+}
 
 export const socialValidator = v.object({
   label: v.string(),

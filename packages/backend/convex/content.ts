@@ -68,6 +68,19 @@ export const ALLOWED_MIME_TYPES = [
   "image/gif",
 ] as const
 
+// Same reasoning again, for `settings.ts` — the site settings screen caps
+// the site name and the social links exactly where the mutation does, and
+// `settings.ts` reaches `lib/authz` → `auth.ts` like every other entry
+// point. `settings.ts` re-exports all four.
+//
+// `MAX_SOCIALS` bounds the *list*, not a string: a footer with more than
+// ten social links has stopped being a footer, and the array is written
+// whole on every save.
+export const MAX_SITE_NAME_LENGTH = 100
+export const MAX_SOCIAL_LABEL_LENGTH = 40
+export const MAX_SOCIAL_URL_LENGTH = 2048
+export const MAX_SOCIALS = 10
+
 // `pages.seo` — mirrors design spec §6.5 (title, description, ogImage,
 // canonical, noindex). `title`/`description` bounds follow the point past
 // which Google truncates a search-result snippet; there's no protocol

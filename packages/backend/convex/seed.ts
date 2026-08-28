@@ -1,6 +1,13 @@
+import { marked } from "marked"
 import { internalMutation } from "./_generated/server"
 
 // Demo content for a fresh install.
+//
+// The two long bodies are authored as Markdown here because it is far more
+// readable in source than the HTML they become — but `posts.body` holds
+// HTML, so they are converted once on the way in. What the dashboard's
+// editor writes back is HTML directly; this is only a convenience for
+// writing the fixture.
 //
 // Run by an operator, never by a client:
 //
@@ -33,7 +40,7 @@ const DEMO_PAGES = [
   { slug: "contact", title: "Contact", publish: true },
 ]
 
-const FIRST_POST_BODY = `Ce site tourne sur AstroTan. Cet article est du contenu
+const FIRST_POST_BODY_MD = `Ce site tourne sur AstroTan. Cet article est du contenu
 de démonstration : supprimez-le depuis l'administration quand vous n'en aurez
 plus besoin.
 
@@ -58,7 +65,7 @@ contenu, et que personne ne demandera à un agent d'écrire chaque article.
 > rendu. Une balise \`<script>\` écrite ici n'atteindra jamais un visiteur.
 `
 
-const SECOND_POST_BODY = `Un second article, pour que la liste du blog ait de
+const SECOND_POST_BODY_MD = `Un second article, pour que la liste du blog ait de
 quoi montrer un ordre : les articles sortent du plus récent au plus ancien.
 
 ## Listes et images
@@ -130,7 +137,7 @@ export const demoContent = internalMutation({
         title: "Bienvenue sur AstroTan",
         excerpt:
           "Ce que l'administration décide, ce que le code décide, et comment les deux se rejoignent.",
-        body: FIRST_POST_BODY,
+        body: marked.parse(FIRST_POST_BODY_MD, { async: false }),
         status: "published" as const,
         // Espacés d'une heure pour que l'ordre de la liste soit visible
         // plutôt que dépendant d'un tri à la milliseconde près.
@@ -141,7 +148,7 @@ export const demoContent = internalMutation({
         slug: "markdown-et-mise-en-forme",
         title: "Markdown et mise en forme",
         excerpt: "Listes, code, citations : ce que le rendu accepte.",
-        body: SECOND_POST_BODY,
+        body: marked.parse(SECOND_POST_BODY_MD, { async: false }),
         status: "published" as const,
         publishedAt: now - 3_600_000,
         tagIds: tagIds.slice(0, 1),
@@ -150,7 +157,7 @@ export const demoContent = internalMutation({
         slug: "brouillon-de-demonstration",
         title: "Un brouillon, invisible depuis le site",
         excerpt: "Il n'apparaît ni sur /blog, ni à son URL — c'est l'invariant.",
-        body: "Cet article est un brouillon. Il n'est visible qu'ici, ou par un lien de prévisualisation.\n",
+        body: "<p>Cet article est un brouillon. Il n'est visible qu'ici, ou par un lien de prévisualisation.</p>",
         status: "draft" as const,
         publishedAt: undefined,
         tagIds: [],

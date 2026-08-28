@@ -55,13 +55,13 @@ beforeEach(() => {
   process.env.BETTER_AUTH_SECRET = "test-secret-please-do-not-use-in-prod-x"
   process.env.SITE_URL = ORIGIN
 
-  // Le temps est figé pour toute cette suite, et ce n'est pas du confort.
-  // Chaque tentative de connexion fait un *vrai* hachage de mot de passe :
-  // sous charge — machine occupée, suites en parallèle — une boucle de
-  // quelques tentatives dépasse la durée de la fenêtre. Les deux limiteurs
-  // sont à fenêtre fixe, donc la fenêtre bascule en cours de test et la
-  // tentative censée être refusée repart avec un quota neuf. Rouge, sans
-  // que rien de ce qui est testé n'ait changé — observé trois fois.
+  // Le temps est figé pour toute cette suite. Ce n'était PAS la cause des
+  // échecs observés — c'était une expiration de test, corrigée par
+  // `testTimeout` dans `vitest.config.ts` — mais le risque que ce gel
+  // écarte est réel et vaut d'être gardé : chaque tentative fait un vrai
+  // hachage de mot de passe, les deux limiteurs sont à fenêtre fixe, et une
+  // boucle assez lente verrait la fenêtre basculer en plein test, rendant
+  // un quota neuf à la tentative censée être refusée.
   //
   // Seul `Date` est simulé, jamais les minuteries : les promesses doivent
   // continuer de se résoudre normalement, sinon `t.fetch` ne rend jamais la

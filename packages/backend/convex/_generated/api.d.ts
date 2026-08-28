@@ -22,6 +22,7 @@ import type * as lib_signInRateLimit from "../lib/signInRateLimit.js";
 import type * as lib_slug from "../lib/slug.js";
 import type * as lib_token from "../lib/token.js";
 import type * as media from "../media.js";
+import type * as migrations from "../migrations.js";
 import type * as pages from "../pages.js";
 import type * as posts from "../posts.js";
 import type * as profiles from "../profiles.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   "lib/slug": typeof lib_slug;
   "lib/token": typeof lib_token;
   media: typeof media;
+  migrations: typeof migrations;
   pages: typeof pages;
   posts: typeof posts;
   profiles: typeof profiles;

@@ -32,7 +32,22 @@ const ALLOWED_TAGS = [
 ]
 
 /**
- * Render a page body to HTML that is safe to inject with `set:html`.
+ * Sanitise HTML that was authored in the dashboard's rich editor.
+ *
+ * `posts.body` holds HTML now, not Markdown — the editor's native output,
+ * so nothing is converted and nothing can be lost in converting. What does
+ * not change is that it still passes through the allow-list below before
+ * reaching a visitor: the value is authored through an authenticated
+ * dashboard, never by a visitor, and it is sanitised anyway. A single
+ * compromised editor session, or a block of markup pasted in from an
+ * untrusted page, would otherwise be stored XSS against every reader.
+ */
+export function renderStoredHtml(html: string): string {
+  return sanitizeHtml(html, SANITIZE_OPTIONS)
+}
+
+/**
+ * Render a Markdown body to HTML that is safe to inject with `set:html`.
  *
  * `sanitize-html` runs an allowlist: ordinary prose tags and attributes
  * pass, while `<script>`, inline event handlers (`onclick`, …), `style`
@@ -45,7 +60,10 @@ export function renderMarkdown(body: string): string {
   // `[object Promise]` would land in the page as text.
   const html = marked.parse(body, { async: false })
 
-  return sanitizeHtml(html, {
+  return sanitizeHtml(html, SANITIZE_OPTIONS)
+}
+
+const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     allowedTags: ALLOWED_TAGS,
     allowedAttributes: {
       a: ["href", "title", "target", "rel"],
@@ -65,7 +83,6 @@ export function renderMarkdown(body: string): string {
     transformTags: {
       a: sanitizeHtml.simpleTransform("a", { rel: "noopener noreferrer" }, true),
     },
-  })
 }
 
 /**
