@@ -109,6 +109,28 @@ test("un jeton dont la signature est plus courte que prévu est refusé sans lev
   ).toBe(false)
 })
 
+// M2 (whole-lot review): `timingSafeEqualHex` compared `a.length !==
+// b.length` (JS string length, UTF-16 code units) before calling
+// `node:crypto`'s `timingSafeEqual` on `Buffer.from(a, "utf8")`/
+// `Buffer.from(b, "utf8")`. Those two lengths aren't the same thing — a
+// code point in 0x80-0xFF is one JS string char but *two* UTF-8 bytes —
+// so a signature part can pass the character-length check while still
+// producing a byte buffer of a different length, which makes
+// `timingSafeEqual` throw instead of this function returning `false`
+// like every other malformed-token case here does. This module's own
+// header claims "never throws on a malformed / tampered / expired /
+// wrong-target token" — this is the case that broke that claim.
+test("une signature non-ASCII de même longueur en caractères que le vrai hex ne fait pas planter la vérification", () => {
+  const expiresAt = Date.now() + TTL_MS
+  const forgedSignature = "é" + "a".repeat(63) // 64 JS chars, 65 UTF-8 bytes
+  expect(forgedSignature.length).toBe(64) // same length as a real hex digest
+  const token = `${expiresAt}.${forgedSignature}`
+  expect(() =>
+    verifyPreviewToken({ type: "page", id: "page_1", token, now: Date.now() }),
+  ).not.toThrow()
+  expect(verifyPreviewToken({ type: "page", id: "page_1", token, now: Date.now() })).toBe(false)
+})
+
 test("un jeton émis pour un id est refusé pour un autre id", () => {
   const expiresAt = Date.now() + TTL_MS
   const token = signTestToken("page", "page_A", expiresAt)

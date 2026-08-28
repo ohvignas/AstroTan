@@ -103,6 +103,33 @@ describe("POST /api/revalidate", () => {
     expect(cacheInvalidate).not.toHaveBeenCalled()
   })
 
+  // M1 (whole-lot review): `isValidSecret` used to compare `.length` in
+  // *characters* before comparing bytes with `timingSafeEqual`. Node
+  // parses raw HTTP header bytes as latin1 — one JS string char per byte
+  // — so a header value containing a code point in 0x80–0xFF is one JS
+  // char but encodes to *two* UTF-8 bytes. A secret built that way can
+  // have the same character length as the real secret while its
+  // `Buffer.from(..., "utf8")` length differs, which made
+  // `timingSafeEqual` throw `ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH` —
+  // uncaught, surfacing as a 500 instead of the 401 every other wrong
+  // secret gets. That 500-vs-401 split is itself the leak: probing with
+  // `"\xe9" + "a".repeat(n-1)` for increasing `n` reveals the exact
+  // secret length at the one `n` that 500s instead of 401s.
+  test("un secret non-ASCII de même longueur en caractères que le vrai secret ne fait pas planter la comparaison", async () => {
+    const nonAsciiSecret = "é" + "a".repeat(TEST_SECRET.length - 1)
+    expect(nonAsciiSecret.length).toBe(TEST_SECRET.length)
+    expect(nonAsciiSecret).not.toBe(TEST_SECRET)
+    const { context, cacheInvalidate } = fakeContext({
+      headers: { "x-revalidate-secret": nonAsciiSecret },
+      body: { tags: ["pages"] },
+    })
+
+    const response = await POST(context)
+
+    expect(response.status).toBe(401)
+    expect(cacheInvalidate).not.toHaveBeenCalled()
+  })
+
   // This task's brief, verbatim: "a wrong, missing, or wrong-length secret
   // must be refused identically — do not let the refusal distinguish
   // them." Not just "all three are non-200" (the three tests above) but

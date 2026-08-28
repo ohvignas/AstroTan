@@ -15,7 +15,7 @@
 export const prerender = false
 
 import type { APIRoute } from "astro"
-import { timingSafeEqual } from "node:crypto"
+import { createHash, timingSafeEqual } from "node:crypto"
 
 // Same floor as `PREVIEW_SECRET`'s own guard (`../../lib/previewToken.ts`)
 // and Convex's copy (`packages/backend/convex/revalidate.ts`): an
@@ -47,20 +47,38 @@ function getRevalidateSecret(): string {
 //      primitive — not a `===`, which would short-circuit on the first
 //      differing byte and leak how many leading bytes matched through how
 //      long the compare takes.
-//   2. Every failure *reason* must produce the exact same response.
-//      `provided` is coerced to `""` when the header is absent (call
-//      site, `?? ""`) rather than special-cased before ever reaching this
-//      function — "missing" and "present but wrong" take the identical
-//      code path here. And `timingSafeEqual` itself throws on
-//      unequal-length buffers rather than comparing them, which is
-//      exactly the kind of response-shape leak (a caught exception vs. a
-//      clean `false`) this task's brief is warning about — a "wrong
-//      length" secret must come back as an ordinary `false`, not a
-//      different code path with a different failure mode. The length
-//      check below exists for that reason, not as an optimization.
+//   2. Every failure *reason* must produce the exact same response —
+//      including in how the comparison itself can fail. `provided` is
+//      coerced to `""` when the header is absent (call site, `?? ""`)
+//      rather than special-cased before ever reaching this function —
+//      "missing" and "present but wrong" take the identical code path
+//      here.
+//
+// A previous version of this function pre-checked `provided.length !==
+// expected.length` before calling `timingSafeEqual` directly on
+// `Buffer.from(..., "utf8")`. That looks like the same "reject a
+// wrong-length secret before it can throw" idea, but `.length` there is
+// the JS string length in UTF-16 code units, not the byte length
+// `timingSafeEqual` actually compares — and Node parses raw HTTP header
+// values as latin1 (one JS char per byte), so a header value with a byte
+// ≥ 0x80 is a single JS char that becomes *two* UTF-8 bytes once
+// `Buffer.from(..., "utf8")` runs. A secret crafted with the same
+// character length as the real one but a differing UTF-8 byte length
+// passed the character check, then hit `timingSafeEqual`'s own
+// unequal-length throw — uncaught here, turning into a 500 where every
+// other wrong secret gets a 401, which lets an attacker binary-search the
+// real secret's length by watching which candidate length 500s instead
+// of 401s.
+//
+// Hashing both sides to a fixed-width digest before comparing sidesteps
+// the whole class: `createHash("sha256").digest()` is always exactly 32
+// bytes regardless of the input's length or encoding, so `timingSafeEqual`
+// below can never throw — there is no length check to get subtly wrong
+// because there is no longer a length that can differ.
 function isValidSecret(provided: string, expected: string): boolean {
-  if (provided.length !== expected.length) return false
-  return timingSafeEqual(Buffer.from(provided, "utf8"), Buffer.from(expected, "utf8"))
+  const providedDigest = createHash("sha256").update(provided, "utf8").digest()
+  const expectedDigest = createHash("sha256").update(expected, "utf8").digest()
+  return timingSafeEqual(providedDigest, expectedDigest)
 }
 
 // `tags` is read once, here, and the exact same value is what `POST`

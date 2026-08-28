@@ -29,7 +29,7 @@
 // — a real constant-time byte-compare primitive, not the hand-rolled
 // `charCodeAt`/`|=` loop the Convex copy needs only because Web Crypto's
 // `SubtleCrypto` has no byte-comparison primitive of its own.
-import { createHmac, timingSafeEqual } from "node:crypto"
+import { createHash, createHmac, timingSafeEqual } from "node:crypto"
 
 // Same floor as Convex's own guard, same reasoning: an HMAC key shorter
 // than the hash it keys (SHA-256: 32 bytes) is the easiest possible way to
@@ -61,16 +61,29 @@ function hmacHex(secret: string, message: string): string {
   return createHmac("sha256", secret).update(message).digest("hex")
 }
 
-// Constant-time only where it needs to be: two hex strings of equal
-// length. A length mismatch is refused immediately, *before*
-// `timingSafeEqual` ever runs — not an optimization, a requirement:
-// `node:crypto`'s `timingSafeEqual` throws on unequal-length buffers
-// rather than comparing them, so without this check a malformed or
-// truncated token would throw out of `verifyPreviewToken` instead of
-// returning `false` like every other malformed-input case here does.
+// A previous version of this function pre-checked `a.length !== b.length`
+// before comparing `Buffer.from(a, "utf8")`/`Buffer.from(b, "utf8")` with
+// `timingSafeEqual`, on the theory that a length mismatch must be refused
+// before that call can throw on unequal-length buffers. That check used
+// the wrong notion of length: `.length` is the JS string length in
+// UTF-16 code units, not the byte length `timingSafeEqual` actually
+// compares — a code point in 0x80-0xFF is one JS char but *two* UTF-8
+// bytes, so a signature part with the same character length as a real
+// 64-hex-character digest can still produce a longer byte buffer once
+// `Buffer.from(..., "utf8")` runs, and `timingSafeEqual` throws on that
+// exactly like it does on a genuine length mismatch — uncaught here,
+// which is what let a malformed token 500 the preview route instead of
+// this function's own documented "never throws" contract holding.
+//
+// Hashing both sides to a fixed-width digest first sidesteps the whole
+// class of problem: `createHash("sha256").digest()` is always exactly 32
+// bytes no matter the input's length or byte width, so `timingSafeEqual`
+// below can never throw — there is no length check to get subtly wrong
+// because there is no longer a length that can differ.
 function timingSafeEqualHex(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"))
+  const digestA = createHash("sha256").update(a, "utf8").digest()
+  const digestB = createHash("sha256").update(b, "utf8").digest()
+  return timingSafeEqual(digestA, digestB)
 }
 
 // Returns a plain boolean, never throws on a malformed / tampered /
