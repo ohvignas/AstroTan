@@ -97,9 +97,15 @@ Ils demandent une approbation au premier lancement de la session.
 
 ### Skills
 
+Les skills locaux (`.claude/skills/`) portent les erreurs réellement commises
+dans ce dépôt, pas des bonnes pratiques générales. Les lire avant d'écrire :
+
 | Sujet | Skill |
 |---|---|
-| Better Auth × Convex | `better-auth` (local, `.claude/skills/`) |
+| Ajouter / modifier une page du site | `add-page` (local) |
+| Écrire une query, mutation, table ou index Convex | `convex-function` (local) |
+| Intégrer une maquette HTML, performance, images, polices | `mockup-to-astro` (local) |
+| Better Auth × Convex | `better-auth` (local) |
 | Convex | `convex`, `convex-setup-auth`, `convex-migration-helper` |
 | shadcn/ui et blocs UI | `shadcnblocks` |
 | SEO / GEO | `anthropic-skills:seo-geo`, `schema-markup`, `seo-audit` |
