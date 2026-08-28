@@ -141,13 +141,47 @@ const decisions = [
     subheadline="Un site vitrine et son administration, avec les décisions difficiles déjà prises, écrites, et tenues par des tests. Vous héritez du raisonnement, pas seulement du code."
   />
 
-  <FeatureTabs tabs={tabs} name="fonctionnalites" />
+  {/* Chaque bloc est enveloppé dans une `section.container.section` avec son
+      `section-head`, comme sur l'accueil. Posés nus, ces composants sortent
+      sans conteneur, sans titre et sans rythme vertical : ils fonctionnent,
+      et la page a l'air cassée. */}
+  <section class="container section" data-animate>
+    <header class="section-head">
+      <p class="section-head__eyebrow">Au quotidien</p>
+      <h2 class="section-head__title">Quatre choses que vous ferez souvent</h2>
+      <p class="section-head__lead">
+        Écrire, être trouvé, mesurer, mettre en ligne. Le reste du template
+        existe pour que ces quatre-là ne coincent pas.
+      </p>
+    </header>
+    <FeatureTabs tabs={tabs} name="fonctionnalites" />
+  </section>
 
-  <FeatureGrid title="Les décisions que vous héritez" features={decisions} columns={3} />
+  <div data-animate>
+    <FeatureGrid title="Les décisions que vous héritez" features={decisions} columns={3} />
+  </div>
 
-  <TechStack items={STACK} />
+  <section class="container section" data-animate>
+    <header class="section-head">
+      <h2 class="section-head__title">Ce qu'il y a sous le capot</h2>
+      <p class="section-head__lead">
+        Six briques, et la raison de chacune. Aucune n'est là par habitude.
+      </p>
+    </header>
+    <TechStack items={STACK} />
+  </section>
 
-  <LighthouseScores items={FIGURES} />
+  <section class="container section" data-animate>
+    <header class="section-head">
+      <p class="section-head__eyebrow">Mesuré, pas arrondi</p>
+      <h2 class="section-head__title">Les chiffres de ce dépôt</h2>
+      <p class="section-head__lead">
+        Chacun se vérifie en ouvrant l'onglet réseau ou en lançant la suite
+        de tests.
+      </p>
+    </header>
+    <LighthouseScores items={FIGURES} />
+  </section>
 
   <CTA
     eyebrow="Prêt ?"
@@ -160,3 +194,11 @@ const decisions = [
     centered
   />
 </BaseLayout>
+
+<style>
+  /* Le rythme vertical des sections, repris de l'accueil. Sans lui, les
+     blocs se touchent et la page se lit comme une seule masse. */
+  .section {
+    padding-block: var(--space-3xl);
+  }
+</style>
