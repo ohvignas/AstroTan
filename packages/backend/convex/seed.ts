@@ -30,6 +30,27 @@ import { internalMutation } from "./_generated/server"
 // acceptable for a command that already needs deploy-key access, and the
 // reason it is an `internalMutation` and not a `mutation`.
 
+// Le champ `geo.faq` est émis en JSON-LD `FAQPage` — le format que les
+// moteurs de réponse citent le plus fidèlement.
+const DEMO_FAQ = {
+  summary:
+    "AstroTan sépare ce que dit un site de ce à quoi il ressemble : le texte et les réglages vivent dans l'administration, le design dans le code.",
+  faq: [
+    {
+      question: "Faut-il savoir coder pour modifier le contenu ?",
+      answer:
+        "Non. Le texte des articles, les réglages SEO et le nom du site se modifient depuis l'administration. Seul le design se touche dans le code.",
+    },
+    {
+      question: "Où vivent les pages ?",
+      answer:
+        "Chaque page est un fichier .astro dans le code du site. L'administration décide de son adresse, de sa publication et de son référencement.",
+    },
+  ],
+  entities: ["AstroTan", "Astro", "Convex"],
+  noai: false,
+}
+
 const DEMO_TAGS = [
   { name: "Astro", slug: "astro" },
   { name: "Convex", slug: "convex" },
@@ -181,6 +202,12 @@ export const demoContent = internalMutation({
         // écraser le travail de quelqu'un.
         if (!existing.coverId && firstMedia && existing.status === "published") {
           await ctx.db.patch(existing._id, { coverId: firstMedia.storageId })
+        }
+        // Une FAQ de démonstration sur le premier article : c'est ce qui
+        // rend visible le JSON-LD `FAQPage`, sans quoi ce champ n'a aucun
+        // lecteur et personne ne sait qu'il existe.
+        if (!existing.geo?.faq && post.slug === "bienvenue") {
+          await ctx.db.patch(existing._id, { geo: DEMO_FAQ })
         }
         continue
       }

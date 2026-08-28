@@ -2,15 +2,35 @@
 // Everything the dashboard decides about how a page is found, rendered
 // into the document head. Dropped into every page's `<head>`; it is the
 // only thing the SEO and GEO panels reach.
+import { api } from "@astrotan/backend/convex/_generated/api"
+import { getConvexClient } from "../lib/convexClient"
 import type { PageRecord } from "../lib/loadPage"
+import {
+  articleJsonLd,
+  breadcrumbJsonLd,
+  faqJsonLd,
+  organizationJsonLd,
+  serializeJsonLd,
+  type SiteIdentity,
+} from "../lib/jsonLd"
 
 interface Props {
   page: PageRecord | null
   /** Fallback title for the 404 case, where there is no row to read. */
   fallbackTitle?: string
+  /**
+   * Set on an article so this renders `Article` and a breadcrumb rather
+   * than a bare page. Everything else is shared.
+   */
+  article?: {
+    title: string
+    excerpt?: string
+    publishedAt?: number
+    coverUrl?: string | null
+  }
 }
 
-const { page, fallbackTitle = "Page introuvable" } = Astro.props
+const { page, fallbackTitle = "Page introuvable", article } = Astro.props
 
 const title = page?.seo?.title || page?.title || fallbackTitle
 
@@ -31,17 +51,56 @@ const noai = page?.geo?.noai ?? false
 
 const robots = [noindex ? "noindex, nofollow" : "index, follow"]
 if (noai) robots.push("noai", "noimageai")
+
+const settings = await getConvexClient().query(api.settings.get, {})
+const site: SiteIdentity = {
+  siteName: settings?.siteName ?? "AstroTan",
+  logoUrl: settings?.logoId
+    ? await getConvexClient().query(api.media.publicUrl, {
+        storageId: settings.logoId,
+      })
+    : null,
+  socials: settings?.socials ?? [],
+}
+
+// The image a shared link shows. Falls back to the site's default, then to
+// nothing at all — an empty `og:image` is worse than none, because a
+// platform renders it as a broken frame rather than skipping it.
+const ogImageId = page?.seo?.ogImageId ?? settings?.defaultSeo?.ogImageId
+const ogImageUrl = ogImageId
+  ? await getConvexClient().query(api.media.publicUrl, { storageId: ogImageId })
+  : article?.coverUrl ?? null
+
+const description = page?.seo?.description ?? settings?.defaultSeo?.description
+
+// `noai` suppresses every structured block, not just the robots hint. An
+// extract built to be quoted, published on a page whose operator asked not
+// to be quoted, would empty that switch of its meaning.
+const structured = noai
+  ? []
+  : [
+      organizationJsonLd(site, Astro.url.origin),
+      article ? articleJsonLd(article, site, canonicalUrl) : null,
+      faqJsonLd(page?.geo?.faq),
+      article
+        ? breadcrumbJsonLd([
+            { name: "Accueil", url: new URL("/", Astro.url.origin).href },
+            { name: "Blog", url: new URL("/blog", Astro.url.origin).href },
+            { name: article.title, url: canonicalUrl },
+          ])
+        : null,
+    ].filter((block) => block !== null)
 ---
 
 <title>{title}</title>
-{page?.seo?.description && <meta name="description" content={page.seo.description} />}
+{description && <meta name="description" content={description} />}
 <link rel="canonical" href={canonicalUrl} />
 <meta name="robots" content={robots.join(", ")} />
 
-<meta property="og:type" content="website" />
+<meta property="og:type" content={article ? "article" : "website"} />
 <meta property="og:title" content={title} />
 <meta property="og:url" content={canonicalUrl} />
-{page?.seo?.description && <meta property="og:description" content={page.seo.description} />}
+{description && <meta property="og:description" content={description} />}
 
 {/* The GEO summary, exposed where an answer engine reads it rather than
     only where a human does. Suppressed under `noai` — publishing an
@@ -53,3 +112,17 @@ if (noai) robots.push("noai", "noimageai")
 {page?.geo?.entities && page.geo.entities.length > 0 && !noai && (
   <meta name="keywords" content={page.geo.entities.join(", ")} />
 )}
+
+{ogImageUrl && <meta property="og:image" content={ogImageUrl} />}
+{ogImageUrl && <meta property="og:image:alt" content={title} />}
+
+{/* `summary_large_image` only when there IS an image: the large card
+    renders an empty band without one. */}
+<meta name="twitter:card" content={ogImageUrl ? "summary_large_image" : "summary"} />
+<meta name="twitter:title" content={title} />
+{description && <meta name="twitter:description" content={description} />}
+{ogImageUrl && <meta name="twitter:image" content={ogImageUrl} />}
+
+{structured.map((block) => (
+  <script type="application/ld+json" set:html={serializeJsonLd(block)} />
+))}

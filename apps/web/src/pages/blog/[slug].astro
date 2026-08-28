@@ -8,6 +8,7 @@ export const prerender = false
 
 import { Image } from "astro:assets"
 import { loadPost } from "../../lib/loadPost"
+import PageHead from "../../components/PageHead.astro"
 import { renderStoredHtml } from "../../lib/markdown"
 import SiteHeader from "../../components/SiteHeader.astro"
 import SiteFooter from "../../components/SiteFooter.astro"
@@ -31,14 +32,20 @@ const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{post?.seo?.title || post?.title || "Article introuvable"}</title>
-    {post?.seo?.description && (
-      <meta name="description" content={post.seo.description} />
-    )}
-    <link rel="canonical" href={canonicalUrl} />
-    <meta
-      name="robots"
-      content={post?.seo?.noindex ? "noindex, nofollow" : "index, follow"}
+    {/* Le même composant que les pages : un article n'a pas besoin d'un
+        second jeu de balises qui pourrait diverger. `article` déclenche en
+        plus le JSON-LD `Article` et le fil d'Ariane. */}
+    <PageHead
+      page={post}
+      fallbackTitle="Article introuvable"
+      article={post
+        ? {
+            title: post.title,
+            excerpt: post.excerpt,
+            publishedAt: post.publishedAt,
+            coverUrl: post.coverUrl,
+          }
+        : undefined}
     />
   </head>
   <body class="bg-white text-ink antialiased">
