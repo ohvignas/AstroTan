@@ -52,9 +52,52 @@ export const socialValidator = v.object({
  * `null` is an ordinary answer, not a failure: a freshly cloned template has
  * no settings, and every consumer falls back rather than breaking.
  */
+/**
+ * Les réglages que le SITE PUBLIC peut lire — et rien d'autre.
+ *
+ * Cette query n'a pas de contrôle de rôle, et ne peut pas en avoir : le site
+ * n'a ni session ni clé d'administration, c'est l'invariant n°1 du projet.
+ * Elle est donc appelable par n'importe qui connaissant l'URL Convex, qui
+ * est publique par construction — elle est dans le bundle du site.
+ *
+ * Elle rendait la LIGNE ENTIÈRE. Le jour où un secret est entré dans cette
+ * table — le secret de signature du webhook — il est devenu lisible par
+ * tout Internet, et il permettait de forger des appels signés vers le
+ * scénario de l'opérateur. Une clé d'API OpenRouter y aurait suivi.
+ *
+ * D'où cette projection EXPLICITE, champ par champ. Ajouter un champ à la
+ * table ne l'expose plus par accident : il faut venir l'écrire ici, et le
+ * test `settings.publicProjection.test.ts` échoue si un champ sensible
+ * apparaît dans le résultat.
+ */
 export const get = query({
   args: {},
-  handler: async (ctx) => ctx.db.query("settings").first(),
+  handler: async (ctx) => {
+    const settings = await ctx.db.query("settings").first()
+    if (settings === null) return null
+    return {
+      siteName: settings.siteName,
+      logoId: settings.logoId,
+      iconId: settings.iconId,
+      homePageSlug: settings.homePageSlug,
+      defaultSeo: settings.defaultSeo,
+      socials: settings.socials,
+    }
+  },
+})
+
+/**
+ * La ligne entière, pour le dashboard.
+ *
+ * Séparée de `get` parce que les deux publics n'ont pas les mêmes droits :
+ * celle-ci exige un rôle, et c'est elle qui porte les secrets.
+ */
+export const getPrivate = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    return ctx.db.query("settings").first()
+  },
 })
 
 /**

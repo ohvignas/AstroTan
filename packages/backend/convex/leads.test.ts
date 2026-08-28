@@ -180,7 +180,7 @@ test("une panne du webhook ne perd pas le lead", async () => {
   const board = await admin.query(api.leads.board, {})
   expect(board.new).toHaveLength(1)
 
-  const settings = await admin.query(api.settings.get, {})
+  const settings = await admin.query(api.settings.getPrivate, {})
   // L'échec est VISIBLE : un webhook muet depuis trois semaines est le
   // défaut le plus courant de ce genre d'intégration.
   expect(settings?.leadWebhookLastStatus).toContain("injoignable")
@@ -422,7 +422,7 @@ test("un scénario supprimé est expliqué, pas codé en chiffres", async () => 
   await t.mutation(api.leads.submit, MESSAGE)
   await t.finishAllScheduledFunctions(vi.runAllTimers)
 
-  const settings = await admin.query(api.settings.get, {})
+  const settings = await admin.query(api.settings.getPrivate, {})
   expect(settings?.leadWebhookLastStatus).toContain("n'existe plus")
   expect(settings?.leadWebhookLastStatus).toContain("410")
 

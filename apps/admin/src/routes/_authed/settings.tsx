@@ -27,6 +27,7 @@ import defaultIcon from "@/assets/icon_astrotan.png"
 import defaultLogo from "@/assets/logo_astrotan.png"
 import { MediaPicker } from "@/components/media-picker"
 import { RepeatableItems } from "@/components/repeatable-items"
+import { SaveBar, useAutoSave } from "@/components/save-bar"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -57,7 +58,7 @@ export const Route = createFileRoute("/_authed/settings")({
   component: SettingsPage,
 })
 
-type Settings = FunctionReturnType<typeof api.settings.get>
+type Settings = FunctionReturnType<typeof api.settings.getPrivate>
 type PageRow = FunctionReturnType<typeof api.pages.list>[number]
 type Social = { label: string; url: string }
 
@@ -129,7 +130,10 @@ function SettingsPage() {
   // `null` is an ordinary answer, never an error: a freshly cloned
   // template has never been configured, and the first save creates the row
   // (`settings.update` upserts). Only `undefined` means "still loading".
-  const settings = useQuery(api.settings.get)
+  // `getPrivate` et non `get` : `get` est la projection publique, appelable
+  // sans session par n'importe qui, et elle ne porte donc aucun secret. Le
+  // dashboard, lui, a une session et a besoin de la ligne entière.
+  const settings = useQuery(api.settings.getPrivate)
   const pages = useQuery(api.pages.list)
 
   if (profile === undefined || settings === undefined || pages === undefined) {
@@ -168,7 +172,7 @@ function SettingsPage() {
       />
 
       {/* Seeded from `settings` exactly once, on its first render — the
-          same convention as the page editor. `api.settings.get` is a live
+          same convention as the page editor. `api.settings.getPrivate` is a live
           subscription, so re-seeding on every update (a concurrent
           administrator, or this screen's own save resolving) would wipe
           whatever is being typed. */}
@@ -334,55 +338,78 @@ function SettingsForm({
     settings?.defaultSeo?.noindex ?? false
   )
 
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
-
   const trimmedSiteName = siteName.trim()
 
-  async function handleSave() {
-    setError(null)
-    setSaved(false)
-    setSaving(true)
-    try {
-      await updateSettings({
-        siteName,
-        // `undefined` means "leave alone" to `settings.update`, so a logo
-        // is only ever written, never unset from here.
-        ...(logoId === null ? {} : { logoId }),
-        ...(iconId === null ? {} : { iconId }),
-        // Chaîne vide = « débrancher » : `null` efface le réglage côté
-        // serveur, là où `undefined` le laisserait tel quel. Sans cette
-        // distinction, un webhook posé une fois ne pourrait plus être retiré.
-        leadWebhookUrl: webhookUrl.trim() === "" ? null : webhookUrl.trim(),
-        leadWebhookSecret: webhookSecret.trim() === "" ? null : webhookSecret.trim(),
-        // Rows an operator started and left half-filled are dropped rather
-        // than sent: a social link with no URL would render in the footer
-        // as a link to nowhere.
-        socials: socials.filter(
-          (social) => social.label.trim() !== "" && social.url.trim() !== ""
-        ),
-        defaultSeo: {
-          title: seoTitle.trim() || undefined,
-          description: seoDescription.trim() || undefined,
-          canonicalUrl: seoCanonicalUrl.trim() || undefined,
-          noindex: seoNoindex,
-          // Carried through untouched. `settings.update` replaces
-          // `defaultSeo` whole, and this screen has no control for the
-          // default OG image — omitting it here would delete it on every
-          // save.
-          ...(settings?.defaultSeo?.ogImageId === undefined
-            ? {}
-            : { ogImageId: settings.defaultSeo.ogImageId }),
-        },
-      })
-      setSaved(true)
-    } catch (err) {
-      setError(describeSettingsError(err))
-    } finally {
-      setSaving(false)
-    }
+  // Ce que la sauvegarde automatique a le droit de réécrire : des valeurs
+  // qui ne touchent que cette ligne.
+  const autoFields = {
+    siteName,
+    // `undefined` means "leave alone" to `settings.update`, so a logo
+    // is only ever written, never unset from here.
+    ...(logoId === null ? {} : { logoId }),
+    ...(iconId === null ? {} : { iconId }),
+    // Rows an operator started and left half-filled are dropped rather
+    // than sent: a social link with no URL would render in the footer
+    // as a link to nowhere.
+    socials: socials.filter(
+      (social) => social.label.trim() !== "" && social.url.trim() !== ""
+    ),
+    defaultSeo: {
+      title: seoTitle.trim() || undefined,
+      description: seoDescription.trim() || undefined,
+      canonicalUrl: seoCanonicalUrl.trim() || undefined,
+      noindex: seoNoindex,
+      // Carried through untouched. `settings.update` replaces
+      // `defaultSeo` whole, and this screen has no control for the
+      // default OG image — omitting it here would delete it on every
+      // save.
+      ...(settings?.defaultSeo?.ogImageId === undefined
+        ? {}
+        : { ogImageId: settings.defaultSeo.ogImageId }),
+    },
   }
+
+  // Le webhook est à cet écran ce que le slug est à l'éditeur de pages :
+  // un champ dont l'écriture a un effet au-delà de sa propre ligne, donc
+  // jamais automatique.
+  //
+  // Deux raisons, pas une. `settings.update` frappe un secret HMAC
+  // aléatoire dès qu'une URL est posée sans secret — une frappe par
+  // caractère en poserait un par valeur intermédiaire. Et surtout,
+  // `https://exemple.co` est une URL parfaitement valide en route vers
+  // `https://exemple.com` : enregistrée ne serait-ce qu'une seconde, tout
+  // lead reçu pendant cette seconde part chez l'hôte de passage. Ceci
+  // attend le clic.
+  //
+  // Chaîne vide = « débrancher » : `null` efface le réglage côté serveur,
+  // là où `undefined` le laisserait tel quel. Sans cette distinction, un
+  // webhook posé une fois ne pourrait plus être retiré.
+  const manualFields = {
+    leadWebhookUrl: webhookUrl.trim() === "" ? null : webhookUrl.trim(),
+    leadWebhookSecret:
+      webhookSecret.trim() === "" ? null : webhookSecret.trim(),
+  }
+
+  const autoSave = useAutoSave({
+    enabled: canWrite,
+    auto: autoFields,
+    manual: manualFields,
+    saveAuto: async (auto) => {
+      await updateSettings(auto)
+    },
+    saveAll: async ({ auto, manual }) => {
+      await updateSettings({ ...auto, ...manual })
+    },
+    // `settings.update` refuse un nom de site vide (`INVALID_SITE_NAME`).
+    // L'envoyer quand même ferait échouer la sauvegarde automatique à
+    // chaque pause de frappe, le temps que le champ soit vidé puis
+    // réécrit.
+    validate: ({ auto }) =>
+      auto.siteName.trim().length === 0
+        ? "Le nom du site ne peut pas être vide."
+        : null,
+    describeError: describeSettingsError,
+  })
 
   return (
     <>
@@ -596,23 +623,16 @@ function SettingsForm({
         </CardContent>
       </Card>
 
+      {/* Ni barre ni sauvegarde automatique pour un editor : la mutation
+          refuse de toute façon (`requireRole(["owner","admin"])`). */}
       {canWrite && (
-        <div className="flex items-center justify-end gap-3">
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {saved && !error && (
-            <p className="text-sm text-muted-foreground">Réglages enregistrés.</p>
-          )}
-          <Button
-            disabled={saving || trimmedSiteName.length === 0}
-            onClick={handleSave}
-          >
-            {saving ? "Enregistrement…" : "Enregistrer"}
-          </Button>
-        </div>
+        <SaveBar
+          status={autoSave.status}
+          lastSavedAt={autoSave.lastSavedAt}
+          error={autoSave.error}
+          canSave={autoSave.canSave && trimmedSiteName.length > 0}
+          onSave={autoSave.saveNow}
+        />
       )}
     </>
   )
