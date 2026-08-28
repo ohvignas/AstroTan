@@ -72,19 +72,10 @@ export default defineSchema({
     // `blocks` field is complete (`migrations.ts`'s `blocksToMarkdown`,
     // run against every existing row before this field was tightened and
     // `blocks` dropped from the schema).
-    body: v.string(),
-    // The declared texts of a designed page, keyed by the field keys in
-    // `siteContent.ts`. Separate from `body` on purpose: `body` is a whole
-    // page written as prose, `content` is the set of holes a page designed
-    // in code leaves for the dashboard to fill. A page uses one or the
-    // other — which one is decided by whether `siteContent.ts` declares
-    // fields for its slug.
-    //
-    // A bare record rather than a per-page object: the field list lives in
-    // code and changes with the design, and a Convex validator cannot
-    // follow it. `assertContentValid` is what refuses undeclared keys, so
-    // the looseness stops at the schema boundary.
-    content: v.optional(v.record(v.string(), v.string())),
+    // No content field of any kind, and that is the design: a page's
+    // markup is an `.astro` file written in code, and this row carries
+    // only what the dashboard is allowed to decide — the slug it answers
+    // on, its title, whether it is live, and how it should be found.
     seo: v.optional(seoValidator),
     // Generative Engine Optimization: the abstract, FAQ and entities an
     // answer engine needs to quote the page rather than paraphrase it.

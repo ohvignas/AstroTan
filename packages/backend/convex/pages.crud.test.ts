@@ -4,7 +4,7 @@ import schema from "./schema"
 import { api, internal } from "./_generated/api"
 import { getFunctionName } from "convex/server"
 import { verifyPreviewToken } from "./lib/previewToken"
-import { MAX_BODY_LENGTH, MAX_GEO_SUMMARY_LENGTH } from "./content"
+import { MAX_GEO_SUMMARY_LENGTH } from "./content"
 import { ORIGIN, identityFor, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
 
 // Task 8 — the page editor screen's own mutations/queries: `create`,
@@ -54,7 +54,6 @@ test("create insère un brouillon appartenant à l'appelant", async () => {
   expect(page?.title).toBe("Ma page")
   expect(page?.slug).toBe("ma-page")
   expect(page?.status).toBe("draft")
-  expect(page?.body).toBe("")
   expect(page?.createdBy).toBe(actor.id)
   expect(page?.updatedBy).toBe(actor.id)
 })
@@ -117,7 +116,6 @@ async function insertOwnedPage(
       slug: overrides.slug,
       title: "Titre initial",
       status: overrides.status ?? "draft",
-      body: "",
       createdBy: overrides.createdBy,
       updatedBy: overrides.createdBy,
     }),
@@ -284,29 +282,7 @@ test("update refuse un id inexistant", async () => {
   ).rejects.toMatchObject({ data: { code: "NOT_FOUND" } })
 })
 
-test("update refuse un corps Markdown au-delà de sa limite", async () => {
-  const t = makeTestConvex()
-  const owner = await seedActor(t, "owner")
-  const id = await insertOwnedPage(t, { slug: "corps-trop-long", createdBy: owner.id })
-  await expect(
-    owner.identity.mutation(api.pages.update, {
-      id,
-      body: "x".repeat(MAX_BODY_LENGTH + 1),
-    }),
-  ).rejects.toMatchObject({ data: { code: "FIELD_TOO_LONG", field: "body" } })
-})
 
-test("update enregistre le corps Markdown tel quel, sans le reformater", async () => {
-  const t = makeTestConvex()
-  const owner = await seedActor(t, "owner")
-  const id = await insertOwnedPage(t, { slug: "corps", createdBy: owner.id })
-  // Verbatim matters: an agent writes this field and reads it back, so any
-  // normalisation here would silently rewrite its work.
-  const body = "# Titre\n\nUn paragraphe avec du *gras*.\n\n- un\n- deux\n"
-  await owner.identity.mutation(api.pages.update, { id, body })
-  const page = await t.run((ctx) => ctx.db.get(id))
-  expect(page?.body).toBe(body)
-})
 
 test("update enregistre les champs GEO et les borne", async () => {
   const t = makeTestConvex()
@@ -475,13 +451,32 @@ test("unpublish sur un brouillon est un no-op — aucune ligne d'outbox", async 
 // mintPreviewToken
 // ---------------------------------------------------------------------
 
-test("mintPreviewToken renvoie un jeton vérifié avec succès par verifyPreviewToken", async () => {
+test("mintPreviewToken signe le slug de la page, pas son id", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
   const id = await insertOwnedPage(t, { slug: "a-previsualiser", createdBy: owner.id })
-  const { token } = await owner.identity.mutation(api.pages.mintPreviewToken, { id })
-  const valid = await verifyPreviewToken({ type: "page", id, token })
-  expect(valid).toBe(true)
+  const { token, slug } = await owner.identity.mutation(api.pages.mintPreviewToken, { id })
+
+  expect(slug).toBe("a-previsualiser")
+  expect(await verifyPreviewToken({ type: "page", id: slug, token })).toBe(true)
+  // L'id ne vérifie plus rien : c'est ce qui permet à l'aperçu de s'ouvrir
+  // à la vraie URL de la page plutôt qu'à une route parallèle.
+  expect(await verifyPreviewToken({ type: "page", id, token })).toBe(false)
+})
+
+test("un jeton d'aperçu n'ouvre pas une autre page", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const cible = await insertOwnedPage(t, { slug: "cible", createdBy: owner.id })
+  await insertOwnedPage(t, { slug: "autre", createdBy: owner.id })
+  const { token } = await owner.identity.mutation(api.pages.mintPreviewToken, { id: cible })
+
+  await expect(
+    t.query(api.pages.previewPage, { slug: "autre", token }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_PREVIEW_TOKEN" } })
+
+  const page = await t.query(api.pages.previewPage, { slug: "cible", token })
+  expect(page?.slug).toBe("cible")
 })
 
 test("mintPreviewToken refuse un id inexistant", async () => {
@@ -730,107 +725,4 @@ test("publicationStatus renvoie published (pas unknown) pour une page publiée s
   })
   const status = await owner.identity.query(api.pages.publicationStatus, { id })
   expect(status?.state).toBe("published")
-})
-
-// --- Le contrat de contenu : ce que le design déclare, et rien d'autre ---
-
-// `siteContent.ts` est la seule source de vérité sur les textes qu'une page
-// expose. Ces tests portent la moitié serveur de ce contrat : le formulaire
-// de l'admin est *généré* depuis la même liste, mais un appelant qui saute
-// le formulaire doit se heurter au même refus.
-
-test("update refuse une clé de contenu que la page ne déclare pas", async () => {
-  const t = makeTestConvex()
-  const owner = await seedActor(t, "owner")
-  const id = await insertOwnedPage(t, { slug: "accueil", createdBy: owner.id })
-
-  await expect(
-    owner.identity.mutation(api.pages.update, {
-      id,
-      content: { "hero.inexistant": "Texte fantôme" },
-    }),
-  ).rejects.toMatchObject({
-    data: { code: "UNKNOWN_CONTENT_FIELD", field: "hero.inexistant" },
-  })
-})
-
-test("update refuse tout contenu sur une page sans champs déclarés", async () => {
-  const t = makeTestConvex()
-  const owner = await seedActor(t, "owner")
-  const id = await insertOwnedPage(t, { slug: "page-sans-design", createdBy: owner.id })
-
-  await expect(
-    owner.identity.mutation(api.pages.update, {
-      id,
-      content: { "hero.badge": "Peu importe" },
-    }),
-  ).rejects.toMatchObject({ data: { code: "NO_CONTENT_FIELDS" } })
-})
-
-test("update refuse un texte au-delà de la borne déclarée pour ce champ", async () => {
-  const t = makeTestConvex()
-  const owner = await seedActor(t, "owner")
-  const id = await insertOwnedPage(t, { slug: "accueil", createdBy: owner.id })
-
-  await expect(
-    owner.identity.mutation(api.pages.update, {
-      id,
-      content: { "hero.badge": "x".repeat(81) },
-    }),
-  ).rejects.toMatchObject({
-    data: { code: "FIELD_TOO_LONG", field: "hero.badge", max: 80 },
-  })
-})
-
-test("update refuse un saut de ligne dans un champ d'une seule ligne", async () => {
-  const t = makeTestConvex()
-  const owner = await seedActor(t, "owner")
-  const id = await insertOwnedPage(t, { slug: "accueil", createdBy: owner.id })
-
-  // Un `\n` dans un titre ou un bouton ne rend pas un retour à la ligne —
-  // il fait juste mentir le balisage sur sa forme.
-  await expect(
-    owner.identity.mutation(api.pages.update, {
-      id,
-      content: { "hero.titreLigne1": "Deux\nlignes" },
-    }),
-  ).rejects.toMatchObject({
-    data: { code: "FIELD_NOT_A_LINE", field: "hero.titreLigne1" },
-  })
-})
-
-test("update enregistre les textes déclarés, verbatim", async () => {
-  const t = makeTestConvex()
-  const owner = await seedActor(t, "owner")
-  const id = await insertOwnedPage(t, { slug: "accueil", createdBy: owner.id })
-
-  await owner.identity.mutation(api.pages.update, {
-    id,
-    content: {
-      "hero.badge": "École No-Code · Bordeaux",
-      "hero.preuveSociale": "**4,9/5** sur les avis Google",
-    },
-  })
-  const page = await t.run((ctx) => ctx.db.get(id))
-  expect(page?.content).toEqual({
-    "hero.badge": "École No-Code · Bordeaux",
-    "hero.preuveSociale": "**4,9/5** sur les avis Google",
-  })
-})
-
-test("le contenu est validé contre le slug d'arrivée quand le slug change dans la même sauvegarde", async () => {
-  const t = makeTestConvex()
-  const owner = await seedActor(t, "owner")
-  const id = await insertOwnedPage(t, { slug: "accueil", createdBy: owner.id })
-
-  // Renommer vers un slug sans champs déclarés, tout en envoyant des
-  // textes : jugé contre la destination, donc refusé. Valider contre
-  // l'ancien slug laisserait passer un contenu que plus aucune page ne lit.
-  await expect(
-    owner.identity.mutation(api.pages.update, {
-      id,
-      slug: "ancienne-accueil",
-      content: { "hero.badge": "Texte orphelin" },
-    }),
-  ).rejects.toMatchObject({ data: { code: "NO_CONTENT_FIELDS" } })
 })

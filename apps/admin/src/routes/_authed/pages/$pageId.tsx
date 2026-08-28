@@ -5,7 +5,6 @@ import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import {
-  MAX_BODY_LENGTH,
   MAX_CANONICAL_URL_LENGTH,
   MAX_GEO_ANSWER_LENGTH,
   MAX_GEO_ENTITIES,
@@ -18,8 +17,6 @@ import {
   MAX_SEO_TITLE_LENGTH,
   MAX_SLUG_LENGTH,
 } from "@astrotan/backend/convex/content"
-import { contentDefinitionFor } from "@astrotan/backend/convex/siteContent"
-import { PageContentForm } from "@/components/page-content-form"
 import { describePageError } from "@/lib/pageErrors"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 import { Button } from "@/components/ui/button"
@@ -99,8 +96,6 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
 
   const [title, setTitle] = useState(page.title)
   const [slug, setSlug] = useState(page.slug)
-  const [body, setBody] = useState(page.body)
-  const [content, setContent] = useState<Record<string, string>>(page.content ?? {})
   const [seoTitle, setSeoTitle] = useState(page.seo?.title ?? "")
   const [seoDescription, setSeoDescription] = useState(
     page.seo?.description ?? ""
@@ -143,13 +138,6 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   const canWrite = profile.role !== "editor" || (isOwn && page.status !== "published")
   const canPublish = profile.role === "owner" || profile.role === "admin"
 
-  // Which content model this page uses is decided by one thing only: does
-  // `siteContent.ts` declare fields for its slug. A designed page (its
-  // markup written in code, its texts declared) gets the generated form; a
-  // page with no declaration gets the Markdown body. There is no switch in
-  // the database and none in this screen — the code that renders the page
-  // decides, which is the whole point of the split.
-  const definition = contentDefinitionFor(page.slug)
 
   async function handleSave() {
     setError(null)
@@ -159,10 +147,6 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         id: page._id,
         title,
         slug,
-        // A page is one thing or the other, never both: sending `body` for
-        // a designed page would store prose nothing renders, and sending
-        // `content` for a Markdown page is refused by the mutation.
-        ...(definition === null ? { body } : { content }),
         seo: {
           title: seoTitle.trim() || undefined,
           description: seoDescription.trim() || undefined,
@@ -217,7 +201,9 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         setError("VITE_WEB_SITE_URL n'est pas configuré côté admin.")
         return
       }
-      const url = `${base}/preview/page/${page._id}?t=${encodeURIComponent(token)}`
+      // The page's own URL, not a parallel preview route: what is checked
+      // before publishing is literally the page that will go live.
+      const url = `${base}/${slug}?t=${encodeURIComponent(token)}`
       setPreviewUrl(url)
       window.open(url, "_blank", "noopener,noreferrer")
     } catch (err) {
@@ -396,44 +382,6 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
             </FieldLabel>
           </Field>
         </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Contenu</CardTitle>
-        </CardHeader>
-        {definition !== null ? (
-          <CardContent>
-            <PageContentForm
-              definition={definition}
-              values={content}
-              disabled={!canWrite}
-              onChange={setContent}
-            />
-          </CardContent>
-        ) : (
-        <CardContent className="flex flex-col gap-2">
-          {/* A plain textarea, deliberately. This field is read and written
-              by an agent as often as by a person, and every rich-text layer
-              that sits between the two ends up storing something other than
-              what was typed. Markdown in, Markdown out. */}
-          <Textarea
-            id="edit-body"
-            aria-label="Contenu Markdown de la page"
-            value={body}
-            maxLength={MAX_BODY_LENGTH}
-            disabled={!canWrite}
-            spellCheck
-            className="min-h-[28rem] font-mono text-sm leading-relaxed"
-            placeholder={"# Titre de la page\n\nVotre texte, en Markdown."}
-            onChange={(event) => setBody(event.target.value)}
-          />
-          <p className="text-right text-xs text-muted-foreground tabular-nums">
-            {body.length.toLocaleString("fr-FR")} /{" "}
-            {MAX_BODY_LENGTH.toLocaleString("fr-FR")} caractères
-          </p>
-        </CardContent>
-        )}
       </Card>
 
       <Card>

@@ -7,7 +7,6 @@ import { requireRole, requireOwnDocument, requirePublishedPageWritable } from ".
 import { authComponent } from "./auth"
 import { insertOutboxRow } from "./revalidate"
 import { geoValidator, seoValidator, assertPageTextWithinLimits } from "./content"
-import { assertContentValid, contentDefinitionFor } from "./siteContent"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // This task's own brief, verbatim: "the security-critical task of the
@@ -97,18 +96,32 @@ export const listPublishedPages = query({
 // one of the "no token at all" cases this task's brief asks to prove
 // refused. An empty-string token reaches the handler and is refused by
 // `verifyPreviewToken` itself (no `.` separator to split on).
+// Keyed on the slug, not the document id, so a preview opens the page at
+// its *real* URL (`/tarifs?t=…`) rather than a parallel `/preview/...`
+// route that renders an approximation of it. What an editor checks before
+// publishing is then literally the page that will go live — same file,
+// same layout, same everything but the publication gate.
+//
+// Security is unchanged: the HMAC covers the slug the same way it covered
+// the id, so a token minted for one page cannot open another. Renaming a
+// slug invalidates that page's outstanding tokens, which is correct — they
+// were issued for a URL that no longer exists — and they last 15 minutes
+// anyway.
 export const previewPage = query({
-  args: { id: v.id("pages"), token: v.string() },
+  args: { slug: v.string(), token: v.string() },
   handler: async (ctx, args) => {
     const valid = await verifyPreviewToken({
       type: PREVIEW_TOKEN_TYPE,
-      id: args.id,
+      id: args.slug,
       token: args.token,
     })
     if (!valid) {
       throw new ConvexError({ code: "INVALID_PREVIEW_TOKEN" })
     }
-    return ctx.db.get(args.id)
+    return ctx.db
+      .query("pages")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .unique()
   },
 })
 
@@ -294,27 +307,24 @@ export const create = mutation({
       slug,
       title,
       status: "draft",
-      body: "",
       createdBy: authUser._id,
       updatedBy: authUser._id,
     })
   },
 })
 
-// Patches title/slug/body/seo/geo on an existing page. `requireOwnDocument`
+// Patches title/slug/seo/geo on an existing page. `requireOwnDocument`
 // is the ownership half of this section's own header comment: an editor
 // may only reach the `ctx.db.patch` below when `page.createdBy` is their
 // own id — owner/admin bypass that check and may edit any page. Every
 // field is `v.optional` and patched only when the caller actually sent
 // it, so a partial save (e.g. just the SEO panel) never has to first
-// re-read and re-send the body it isn't touching.
+// re-read and re-send the title it isn't touching.
 export const update = mutation({
   args: {
     id: v.id("pages"),
     title: v.optional(v.string()),
     slug: v.optional(v.string()),
-    body: v.optional(v.string()),
-    content: v.optional(v.record(v.string(), v.string())),
     seo: v.optional(seoValidator),
     geo: v.optional(geoValidator),
   },
@@ -346,8 +356,6 @@ export const update = mutation({
     const patch: {
       title?: string
       slug?: string
-      body?: string
-      content?: Record<string, string>
       seo?: typeof args.seo
       geo?: typeof args.geo
       updatedBy: string
@@ -364,17 +372,6 @@ export const update = mutation({
       await assertSlugAvailable(ctx, slug, args.id)
       patch.slug = slug
     }
-    if (args.body !== undefined) patch.body = args.body
-    if (args.content !== undefined) {
-      // Validated against the slug the row will actually carry after this
-      // patch, not the one it had before: renaming a page and rewriting
-      // its texts in one save must be judged against the destination's
-      // field list, or the check silently applies the wrong contract.
-      const definition = contentDefinitionFor(patch.slug ?? page.slug)
-      const problem = assertContentValid(definition, args.content)
-      if (problem !== null) throw new ConvexError(problem)
-      patch.content = args.content
-    }
     if (args.seo !== undefined) patch.seo = args.seo
     if (args.geo !== undefined) patch.geo = args.geo
 
@@ -388,7 +385,6 @@ export const update = mutation({
     assertPageTextWithinLimits({
       title: patch.title ?? page.title,
       slug: patch.slug ?? page.slug,
-      body: patch.body ?? page.body,
       seo: patch.seo ?? page.seo,
       geo: patch.geo ?? page.geo,
     })
@@ -492,8 +488,17 @@ export const mintPreviewToken = mutation({
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
 
     const expiresAt = Date.now() + PREVIEW_TOKEN_TTL_MS
-    const token = await signPreviewToken({ type: PREVIEW_TOKEN_TYPE, id: args.id, expiresAt })
-    return { token, expiresAt }
+    // Signed over the slug — see `previewPage` for why. Takes the page id
+    // as its argument because that is what the dashboard has in hand, and
+    // reading the slug here rather than trusting a caller-supplied one is
+    // what keeps a token from being minted for a page the caller names but
+    // does not have.
+    const token = await signPreviewToken({
+      type: PREVIEW_TOKEN_TYPE,
+      id: page.slug,
+      expiresAt,
+    })
+    return { token, expiresAt, slug: page.slug }
   },
 })
 
@@ -563,7 +568,6 @@ MUTATION_REGISTRY.push(
           slug: `registry-publish-${Date.now()}-${Math.random()}`,
           title: "Registry Check",
           status: "draft",
-          body: "",
           createdBy: "registry-check",
           updatedBy: "registry-check",
         }),
@@ -598,7 +602,6 @@ MUTATION_REGISTRY.push(
           slug: `registry-update-${Date.now()}-${Math.random()}`,
           title: "Registry Check",
           status: "draft",
-          body: "",
           createdBy: ownerId,
           updatedBy: ownerId,
         }),
@@ -616,7 +619,6 @@ MUTATION_REGISTRY.push(
           slug: `registry-remove-${Date.now()}-${Math.random()}`,
           title: "Registry Check",
           status: "draft",
-          body: "",
           createdBy: ownerId,
           updatedBy: ownerId,
         }),
@@ -637,7 +639,6 @@ MUTATION_REGISTRY.push(
           slug: `registry-unpublish-${Date.now()}-${Math.random()}`,
           title: "Registry Check",
           status: "published",
-          body: "",
           publishedAt: Date.now(),
           createdBy: "registry-check",
           updatedBy: "registry-check",
@@ -659,7 +660,6 @@ MUTATION_REGISTRY.push(
           slug: `registry-preview-${Date.now()}-${Math.random()}`,
           title: "Registry Check",
           status: "draft",
-          body: "",
           createdBy: "registry-check",
           updatedBy: "registry-check",
         }),

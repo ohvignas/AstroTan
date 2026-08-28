@@ -1,0 +1,55 @@
+---
+// Everything the dashboard decides about how a page is found, rendered
+// into the document head. Dropped into every page's `<head>`; it is the
+// only thing the SEO and GEO panels reach.
+import type { PageRecord } from "../lib/loadPage"
+
+interface Props {
+  page: PageRecord | null
+  /** Fallback title for the 404 case, where there is no row to read. */
+  fallbackTitle?: string
+}
+
+const { page, fallbackTitle = "Page introuvable" } = Astro.props
+
+const title = page?.seo?.title || page?.title || fallbackTitle
+
+// `seo.canonicalUrl` overrides the computed current-URL default; stripped
+// of query and hash either way, since a page's canonical identity should
+// not depend on a tracking parameter, a fragment, or the `?t=` of a
+// preview link.
+const canonicalUrl =
+  page?.seo?.canonicalUrl ??
+  new URL(Astro.url.pathname, Astro.url.origin).href
+
+// Two independent switches, and collapsing them would take a decision that
+// is not ours: `noindex` keeps the page out of search results, `noai` asks
+// answer engines not to reproduce its content. A page can legitimately
+// want the second without the first.
+const noindex = page?.seo?.noindex ?? false
+const noai = page?.geo?.noai ?? false
+
+const robots = [noindex ? "noindex, nofollow" : "index, follow"]
+if (noai) robots.push("noai", "noimageai")
+---
+
+<title>{title}</title>
+{page?.seo?.description && <meta name="description" content={page.seo.description} />}
+<link rel="canonical" href={canonicalUrl} />
+<meta name="robots" content={robots.join(", ")} />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content={title} />
+<meta property="og:url" content={canonicalUrl} />
+{page?.seo?.description && <meta property="og:description" content={page.seo.description} />}
+
+{/* The GEO summary, exposed where an answer engine reads it rather than
+    only where a human does. Suppressed under `noai` — publishing an
+    extract designed to be quoted, on a page whose operator asked not to be
+    quoted, would defeat the switch. */}
+{page?.geo?.summary && !noai && (
+  <meta name="description:summary" content={page.geo.summary} />
+)}
+{page?.geo?.entities && page.geo.entities.length > 0 && !noai && (
+  <meta name="keywords" content={page.geo.entities.join(", ")} />
+)}

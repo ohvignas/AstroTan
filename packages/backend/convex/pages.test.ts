@@ -22,13 +22,11 @@ afterEach(() => {
 function pageDoc(overrides: {
   slug: string
   status: "draft" | "published"
-  body?: string
 }) {
   return {
     slug: overrides.slug,
     title: "Titre de test",
     status: overrides.status,
-    body: overrides.body ?? "",
     createdBy: "user_1",
     updatedBy: "user_1",
   }
@@ -36,7 +34,7 @@ function pageDoc(overrides: {
 
 async function insertPage(
   t: TestConvex<typeof schema>,
-  overrides: { slug: string; status: "draft" | "published"; body?: string },
+  overrides: { slug: string; status: "draft" | "published" },
 ) {
   return t.run((ctx) => ctx.db.insert("pages", pageDoc(overrides)))
 }
@@ -94,89 +92,95 @@ test("listPublishedPages renvoie un tableau vide s'il n'existe que des brouillon
 // primitive in correctly, end to end, including "no token at all".
 // ---------------------------------------------------------------------
 
-test("previewPage renvoie un brouillon avec un jeton valide émis pour son id exact", async () => {
+test("previewPage renvoie un brouillon avec un jeton valide émis pour son slug exact", async () => {
   const t = convexTest(schema, modules)
-  const id = await insertPage(t, { slug: "brouillon", status: "draft" })
+  await insertPage(t, { slug: "brouillon", status: "draft" })
   const token = await signPreviewToken({
     type: "page",
-    id,
+    id: "brouillon",
     expiresAt: Date.now() + PREVIEW_TOKEN_TTL_MS,
   })
-  const result = await t.query(api.pages.previewPage, { id, token })
+  const result = await t.query(api.pages.previewPage, { slug: "brouillon", token })
   expect(result?.slug).toBe("brouillon")
   expect(result?.status).toBe("draft")
 })
 
 test("previewPage renvoie aussi une page déjà publiée avec un jeton valide", async () => {
   const t = convexTest(schema, modules)
-  const id = await insertPage(t, { slug: "publiee", status: "published" })
+  await insertPage(t, { slug: "publiee", status: "published" })
   const token = await signPreviewToken({
     type: "page",
-    id,
+    id: "publiee",
     expiresAt: Date.now() + PREVIEW_TOKEN_TTL_MS,
   })
-  const result = await t.query(api.pages.previewPage, { id, token })
+  const result = await t.query(api.pages.previewPage, { slug: "publiee", token })
   expect(result?.slug).toBe("publiee")
 })
 
 test("previewPage refuse un jeton expiré", async () => {
   const t = convexTest(schema, modules)
-  const id = await insertPage(t, { slug: "brouillon", status: "draft" })
-  const token = await signPreviewToken({ type: "page", id, expiresAt: Date.now() - 1 })
-  await expect(t.query(api.pages.previewPage, { id, token })).rejects.toThrow()
+  await insertPage(t, { slug: "brouillon", status: "draft" })
+  const token = await signPreviewToken({ type: "page", id: "brouillon", expiresAt: Date.now() - 1 })
+  await expect(t.query(api.pages.previewPage, { slug: "brouillon", token })).rejects.toThrow()
 })
 
 test("previewPage refuse un jeton altéré d'un octet", async () => {
   const t = convexTest(schema, modules)
-  const id = await insertPage(t, { slug: "brouillon", status: "draft" })
+  await insertPage(t, { slug: "brouillon", status: "draft" })
   const token = await signPreviewToken({
     type: "page",
-    id,
+    id: "brouillon",
     expiresAt: Date.now() + PREVIEW_TOKEN_TTL_MS,
   })
   const lastChar = token.at(-1)
   const tampered = token.slice(0, -1) + (lastChar === "0" ? "1" : "0")
-  await expect(t.query(api.pages.previewPage, { id, token: tampered })).rejects.toThrow()
+  await expect(
+    t.query(api.pages.previewPage, { slug: "brouillon", token: tampered }),
+  ).rejects.toThrow()
 })
 
 test("previewPage refuse un jeton émis pour une autre page", async () => {
   const t = convexTest(schema, modules)
-  const idA = await insertPage(t, { slug: "page-a", status: "draft" })
-  const idB = await insertPage(t, { slug: "page-b", status: "draft" })
+  await insertPage(t, { slug: "page-a", status: "draft" })
+  await insertPage(t, { slug: "page-b", status: "draft" })
   const token = await signPreviewToken({
     type: "page",
-    id: idA,
+    id: "page-a",
     expiresAt: Date.now() + PREVIEW_TOKEN_TTL_MS,
   })
-  await expect(t.query(api.pages.previewPage, { id: idB, token })).rejects.toThrow()
+  await expect(t.query(api.pages.previewPage, { slug: "page-b", token })).rejects.toThrow()
 })
 
 test("previewPage refuse un jeton dont l'exp a été trafiquée", async () => {
   const t = convexTest(schema, modules)
-  const id = await insertPage(t, { slug: "brouillon", status: "draft" })
+  await insertPage(t, { slug: "brouillon", status: "draft" })
   const expiresAt = Date.now() + PREVIEW_TOKEN_TTL_MS
-  const token = await signPreviewToken({ type: "page", id, expiresAt })
+  const token = await signPreviewToken({ type: "page", id: "brouillon", expiresAt })
   const dot = token.indexOf(".")
   const forged = `${expiresAt + 10 * PREVIEW_TOKEN_TTL_MS}.${token.slice(dot + 1)}`
-  await expect(t.query(api.pages.previewPage, { id, token: forged })).rejects.toThrow()
+  await expect(
+    t.query(api.pages.previewPage, { slug: "brouillon", token: forged }),
+  ).rejects.toThrow()
 })
 
 test("previewPage refuse en l'absence de jeton (chaîne vide)", async () => {
   const t = convexTest(schema, modules)
-  const id = await insertPage(t, { slug: "brouillon", status: "draft" })
-  await expect(t.query(api.pages.previewPage, { id, token: "" })).rejects.toThrow()
+  await insertPage(t, { slug: "brouillon", status: "draft" })
+  await expect(
+    t.query(api.pages.previewPage, { slug: "brouillon", token: "" }),
+  ).rejects.toThrow()
 })
 
 test("previewPage refuse si PREVIEW_SECRET n'est pas configuré sur ce déploiement", async () => {
   const t = convexTest(schema, modules)
-  const id = await insertPage(t, { slug: "brouillon", status: "draft" })
+  await insertPage(t, { slug: "brouillon", status: "draft" })
   const token = await signPreviewToken({
     type: "page",
-    id,
+    id: "brouillon",
     expiresAt: Date.now() + PREVIEW_TOKEN_TTL_MS,
   })
   delete process.env.PREVIEW_SECRET
-  await expect(t.query(api.pages.previewPage, { id, token })).rejects.toThrow(
+  await expect(t.query(api.pages.previewPage, { slug: "brouillon", token })).rejects.toThrow(
     "PREVIEW_SECRET is not set on this Convex deployment",
   )
 })

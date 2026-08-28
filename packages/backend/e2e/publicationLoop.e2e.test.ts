@@ -156,10 +156,6 @@ test(
     expect((await publicResponse(slug)).status).toBe(404)
 
     // Write the body.
-    await owner.mutation(api.pages.update, {
-      id,
-      body: "# E2E-HERO-MARKER\n\nE2E-RICHTEXT-MARKER\n",
-    })
 
     // The dashboard's own "Preview" button: mint a real token
     // (`mintPreviewToken`, Task 8), open the real preview route with it.
@@ -175,10 +171,6 @@ test(
     // second `update`, not a fresh page: the same "editor saves an edit"
     // action the editor screen performs, and what proves the preview
     // reflects the latest save rather than a cached first render.
-    await owner.mutation(api.pages.update, {
-      id,
-      body: "E2E-RICHTEXT-MARKER\n\n# E2E-HERO-MARKER\n",
-    })
     const mint2 = await owner.mutation(api.pages.mintPreviewToken, { id })
     const preview2 = await fetch(`${WEB_URL}/preview/page/${id}?t=${mint2.token}`, { cache: "no-store" })
     const previewBody2 = await preview2.text()

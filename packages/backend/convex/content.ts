@@ -3,17 +3,17 @@ import { ConvexError, v } from "convex/values"
 // ---------------------------------------------------------------------
 // What a page is
 //
-// A page is Markdown plus its settings. It is deliberately NOT a tree of
-// composable blocks: this template's design is authored in code and edited
-// by an agent working on the site itself, so a page-builder in the admin
-// would be a second, weaker way to do the same job — one that fights the
-// code every time the two disagree about layout.
+// A page's markup — and its words — live in an `.astro` file, written in
+// code. The database holds no content at all: not a block tree, not a
+// Markdown body, not a map of text slots. Every one of those is a second,
+// weaker way to do a job the code already does, and each fights the code
+// the moment the two disagree.
 //
-// What the admin owns instead is the text and everything that decides how
-// the page is *found*: its SEO fields, its GEO fields (below), its slug,
-// its publication state. That split is the whole point — the admin answers
-// "what does this page say and who should find it", the codebase answers
-// "what does it look like".
+// What the row carries instead is everything that decides how the page is
+// *found* and whether it is live: its slug, its title, its publication
+// state, and the SEO and GEO fields below. The split is the whole point —
+// the dashboard answers "who should find this page", the codebase answers
+// "what it is and what it looks like".
 // ---------------------------------------------------------------------
 
 // ---------------------------------------------------------------------
@@ -31,12 +31,6 @@ import { ConvexError, v } from "convex/values"
 
 export const MAX_PAGE_TITLE_LENGTH = 200 // <title> / nav labels — generous but not unbounded
 export const MAX_SLUG_LENGTH = 200 // URL path segment; an operator-facing text input
-
-// The Markdown body. Generous — this is the field meant to carry the whole
-// page's copy — but far below the 1 MB document ceiling, so a paste
-// accident fails with a clear error instead of a Convex-level rejection
-// nobody can act on.
-export const MAX_BODY_LENGTH = 200_000
 
 // `pages.seo` — mirrors design spec §6.5 (title, description, ogImage,
 // canonical, noindex). `title`/`description` bounds follow the point past
@@ -134,16 +128,11 @@ function assertCount(length: number, max: number, field: string): void {
 export function assertPageTextWithinLimits(page: {
   title: string
   slug: string
-  body?: string
   seo?: PageSeoInput
   geo?: PageGeoInput
 }): void {
   assertLength(page.title, MAX_PAGE_TITLE_LENGTH, "title")
   assertLength(page.slug, MAX_SLUG_LENGTH, "slug")
-  if (page.body !== undefined) {
-    assertLength(page.body, MAX_BODY_LENGTH, "body")
-  }
-
   if (page.seo?.title !== undefined) {
     assertLength(page.seo.title, MAX_SEO_TITLE_LENGTH, "seo.title")
   }
