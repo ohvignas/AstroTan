@@ -32,6 +32,7 @@ import {
 } from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
 import { MediaPicker } from "@/components/media-picker"
+import { PageAnalytics } from "@/components/analytics-panel"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 import { RichTextEditor } from "@/components/rich-text-editor"
 import { Badge } from "@/components/ui/badge"
@@ -437,6 +438,10 @@ function PostEditor({
           </a>
         </p>
       )}
+
+      {/* Un article répond toujours sous `/blog/`, et sur son slug
+          enregistré : c'est ce qui est en ligne qui a été mesuré. */}
+      <PageAnalytics path={`/blog/${post.slug}`} />
 
       <Card>
         <CardHeader>

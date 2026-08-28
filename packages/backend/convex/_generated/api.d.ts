@@ -9,6 +9,7 @@
  */
 
 import type * as _registry from "../_registry.js";
+import type * as analytics from "../analytics.js";
 import type * as auth from "../auth.js";
 import type * as bootstrap from "../bootstrap.js";
 import type * as content from "../content.js";
@@ -24,6 +25,7 @@ import type * as lib_servedPaths from "../lib/servedPaths.js";
 import type * as lib_signInRateLimit from "../lib/signInRateLimit.js";
 import type * as lib_slug from "../lib/slug.js";
 import type * as lib_token from "../lib/token.js";
+import type * as lib_umamiToken from "../lib/umamiToken.js";
 import type * as media from "../media.js";
 import type * as migrations from "../migrations.js";
 import type * as pages from "../pages.js";
@@ -45,6 +47,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   _registry: typeof _registry;
+  analytics: typeof analytics;
   auth: typeof auth;
   bootstrap: typeof bootstrap;
   content: typeof content;
@@ -60,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   "lib/signInRateLimit": typeof lib_signInRateLimit;
   "lib/slug": typeof lib_slug;
   "lib/token": typeof lib_token;
+  "lib/umamiToken": typeof lib_umamiToken;
   media: typeof media;
   migrations: typeof migrations;
   pages: typeof pages;

@@ -18,6 +18,7 @@ import {
   MAX_SLUG_LENGTH,
 } from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
+import { PageAnalytics } from "@/components/analytics-panel"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 // Lived in this file until the settings screen needed the same widget for
 // its social links — see that component's header.
@@ -91,6 +92,9 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   const publicationStatus = useQuery(api.pages.publicationStatus, {
     id: page._id,
   })
+  // Publique et sans session : `apps/web` la lit aussi pour savoir quelle
+  // page rendre sur `/`.
+  const homePageSlug = useQuery(api.settings.homePageSlug)
 
   const [title, setTitle] = useState(page.title)
   const [slug, setSlug] = useState(page.slug)
@@ -299,6 +303,15 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
           </a>
         </p>
       )}
+
+      {/* Le chemin mesuré est celui qui est réellement servi, pas le slug :
+          la page d'accueil répond sur `/` et non sur `/accueil`, et
+          interroger le mauvais chemin rendrait zéro sans le dire. Le slug
+          enregistré, pas celui en cours d'édition — la mesure porte sur ce
+          qui est en ligne. */}
+      <PageAnalytics
+        path={homePageSlug === page.slug ? "/" : `/${page.slug}`}
+      />
 
       <Card>
         <CardHeader>
