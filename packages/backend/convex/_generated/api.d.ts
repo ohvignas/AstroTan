@@ -20,7 +20,6 @@ import type * as lib_passwordStrength from "../lib/passwordStrength.js";
 import type * as lib_previewToken from "../lib/previewToken.js";
 import type * as lib_signInRateLimit from "../lib/signInRateLimit.js";
 import type * as lib_token from "../lib/token.js";
-import type * as migrations from "../migrations.js";
 import type * as pages from "../pages.js";
 import type * as profiles from "../profiles.js";
 import type * as revalidate from "../revalidate.js";
@@ -46,7 +45,6 @@ declare const fullApi: ApiFromModules<{
   "lib/previewToken": typeof lib_previewToken;
   "lib/signInRateLimit": typeof lib_signInRateLimit;
   "lib/token": typeof lib_token;
-  migrations: typeof migrations;
   pages: typeof pages;
   profiles: typeof profiles;
   revalidate: typeof revalidate;
