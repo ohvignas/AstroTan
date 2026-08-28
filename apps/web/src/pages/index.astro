@@ -1,40 +1,65 @@
 ---
-// Placeholder landing page for the public site scaffold (Lot 2, Task 4).
-// Prerendered by default under `output: 'static'` — no `prerender = false`
-// here, this isn't a CMS route. The real `/[...slug]` catch-all that reads
-// and renders page bodies lives in `[...slug].astro`.
+// The home page, and the worked example of what every page of this site
+// looks like.
 //
-// The `listPublishedPages` call below exists to actually exercise the
-// wiring this task is responsible for: `ConvexHttpClient` built from
-// `PUBLIC_CONVEX_URL`, calling a public query that filters
-// `status === "published"` server-side — no session, no admin key, per
-// CLAUDE.md invariant #1. It runs at build time (static output), which is
-// also why `PUBLIC_CONVEX_URL` is passed as a build-arg in the Docker image
-// (spec §7): prerendered pages read Convex at build, not at request time.
-import { api } from "@astrotan/backend/convex/_generated/api"
-import { getConvexClient } from "../lib/convexClient"
+// A page IS this file: the markup below is the design, written in code —
+// converted from a mockup, with its Tailwind classes carried over as they
+// are. Nothing about how it looks comes from the database. What `loadPage`
+// fetches is the row the dashboard owns: whether the page is live, and how
+// it should be found.
+//
+// ---------------------------------------------------------------------
+// Adding a page
+// ---------------------------------------------------------------------
+// 1. Create `src/pages/<slug>.astro` and copy the four lines of frontmatter
+//    below verbatim, changing only the slug.
+// 2. Create the page in the dashboard with that same slug, and publish it.
+//    Until it is published this route answers 404 — that is the point.
+// 3. Paste the mockup's markup into the body, then:
+//    - `<img>` becomes Astro's `<Image>`, with the file imported from
+//      `src/assets/` (NOT `public/` — `astro:assets` only optimises what it
+//      can see through the module graph, and silently passes the rest
+//      through unoptimised);
+//    - the hero image keeps `loading="eager"` and `fetchpriority="high"`,
+//      everything else gets `loading="lazy"`;
+//    - the mockup's `<style type="text/tailwindcss">` block moves once into
+//      `src/styles/global.css` — it is identical on every page;
+//    - the Tailwind CDN `<script>` is dropped: the build compiles the
+//      classes.
+//
+// The home page is the one place where the file name and the slug differ,
+// because `/` has no path segment to name. Every other page keeps them
+// identical, which is what makes a slug guessable from a URL and back.
+export const prerender = false
+
+import { loadPage } from "../lib/loadPage"
+import PageHead from "../components/PageHead.astro"
 import "../styles/global.css"
 
-const publishedPages = await getConvexClient().query(
-  api.pages.listPublishedPages,
-  {},
-)
+const { page } = await loadPage(Astro, "accueil")
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AstroTan</title>
+    <PageHead page={page} />
   </head>
-  <body>
-    <main>
-      <h1>AstroTan</h1>
-      <p>
-        Public site scaffold. Connected to Convex at build time via a public,
-        published-only query — {publishedPages.length} published page(s) found.
-      </p>
-    </main>
+  <body class="bg-white text-ink antialiased">
+    {page === null ? (
+      <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
+        <h1 class="text-3xl font-bold">404</h1>
+        <p class="text-ink-mid">Cette page n'existe pas.</p>
+      </main>
+    ) : (
+      <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
+        <h1 class="text-3xl font-bold">{page.title}</h1>
+        <p class="text-ink-mid">
+          Cette page est en ligne. Son balisage se remplace par celui de la
+          maquette — voir la marche à suivre en tête de ce fichier.
+        </p>
+      </main>
+    )}
   </body>
 </html>
