@@ -26,14 +26,10 @@ export default defineConfig({
   // `/preview/[type]/[id]`, Task 7). Those call `Astro.cache.set(false)` /
   // `context.cache.set(false)` in the route itself: the documented opt-out
   // is the explicit call, not an absence of a `routeRules` entry.
-  routeRules: {
-    "/[...slug]": { maxAge: 300, swr: 600, tags: ["pages"] },
-  },
-
-  // Tailwind v4 has no PostCSS/Astro integration package of its own — the
-  // Vite plugin is the supported path, same as `apps/admin`. Class usage is
-  // discovered from the whole Vite module graph, so no `content` globs are
-  // needed here even though the theme lives in `packages/tokens`.
+  // No `routeRules` entry: every page sets its own cache through
+  // `loadPage` (`src/lib/loadPage.ts`), which is the documented opt-out
+  // pattern and keeps the tag next to the slug it invalidates. The old
+  // `/[...slug]` rule went with the catch-all route it described.
   vite: {
     plugins: [tailwindcss()],
   },
