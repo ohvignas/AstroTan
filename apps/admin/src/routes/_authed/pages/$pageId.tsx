@@ -27,7 +27,7 @@ import {
 } from "@/lib/pageBlocks"
 import type { Block } from "@/lib/pageBlocks"
 import { describePageError } from "@/lib/pageErrors"
-import { Badge } from "@/components/ui/badge"
+import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -56,12 +56,9 @@ import {
   ArrowDownIcon,
   ArrowLeftIcon,
   ArrowUpIcon,
-  CheckIcon,
   ExternalLinkIcon,
-  Loader2Icon,
   PlusIcon,
   Trash2Icon,
-  TriangleAlertIcon,
 } from "lucide-react"
 
 export const Route = createFileRoute("/_authed/pages/$pageId")({
@@ -70,7 +67,6 @@ export const Route = createFileRoute("/_authed/pages/$pageId")({
 
 type Profile = FunctionReturnType<typeof api.profiles.me>
 type PageDoc = NonNullable<FunctionReturnType<typeof api.pages.get>>
-type PublicationStatus = FunctionReturnType<typeof api.pages.publicationStatus>
 
 function PageEditorPage() {
   const { pageId } = Route.useParams()
@@ -463,51 +459,6 @@ function DeletePageButton({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  )
-}
-
-// The whole reason `revalidationOutbox` exists (this task's own brief,
-// verbatim): "a publication that silently fails to propagate is the
-// failure mode the outbox was built to make visible." `undefined` is the
-// query still loading; `null` means `pages.get` above already refused
-// (shouldn't happen once `page` itself resolved, kept exhaustive anyway).
-function PublicationStatusBadge({
-  status,
-  pageStatus,
-}: {
-  status: PublicationStatus | undefined
-  pageStatus: "draft" | "published"
-}) {
-  if (status === undefined) {
-    return <Badge variant="outline">…</Badge>
-  }
-  if (status === null || status.state === "draft") {
-    return <Badge variant="outline">Brouillon</Badge>
-  }
-  if (status.state === "published") {
-    return (
-      <Badge variant="default">
-        <CheckIcon data-icon="inline-start" />
-        Publiée
-      </Badge>
-    )
-  }
-  if (status.state === "propagating") {
-    return (
-      <Badge variant="secondary">
-        <Loader2Icon data-icon="inline-start" className="animate-spin" />
-        Propagation en cours ({status.attempts} tentative
-        {status.attempts > 1 ? "s" : ""})
-      </Badge>
-    )
-  }
-  // "failed"
-  return (
-    <Badge variant="destructive" title={status.lastError ?? undefined}>
-      <TriangleAlertIcon data-icon="inline-start" />
-      Échec de la propagation
-      {pageStatus === "published" ? "" : " (dernière tentative)"}
-    </Badge>
   )
 }
 
