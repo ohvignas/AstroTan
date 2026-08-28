@@ -11,6 +11,8 @@ export const prerender = false
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { getConvexClient } from "../../lib/convexClient"
 import { markdownToPlainText } from "../../lib/markdown"
+import SiteHeader from "../../components/SiteHeader.astro"
+import SiteFooter from "../../components/SiteFooter.astro"
 import "../../styles/global.css"
 
 // Published only, filtered server-side inside the query — never here. This
@@ -35,6 +37,7 @@ const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
     <link rel="canonical" href={new URL("/blog", Astro.url.origin).href} />
   </head>
   <body class="bg-white text-ink antialiased">
+    <SiteHeader />
     <main class="mx-auto max-w-3xl px-6 py-16">
       <h1 class="text-3xl font-bold">Blog</h1>
 
@@ -70,5 +73,6 @@ const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
         </ul>
       )}
     </main>
+    <SiteFooter />
   </body>
 </html>

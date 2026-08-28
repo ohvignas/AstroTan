@@ -9,6 +9,8 @@ export const prerender = false
 import { Image } from "astro:assets"
 import { loadPost } from "../../lib/loadPost"
 import { renderMarkdown } from "../../lib/markdown"
+import SiteHeader from "../../components/SiteHeader.astro"
+import SiteFooter from "../../components/SiteFooter.astro"
 import "../../styles/global.css"
 
 const { slug } = Astro.params
@@ -41,6 +43,7 @@ const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
     />
   </head>
   <body class="bg-white text-ink antialiased">
+    <SiteHeader />
     {preview && (
       <p class="bg-amber-100 px-6 py-2 text-center text-sm text-amber-900">
         Aperçu — cet article n'est pas publié. Le lien expire au bout de 15
@@ -91,5 +94,6 @@ const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
         />
       </main>
     )}
+    <SiteFooter />
   </body>
 </html>
