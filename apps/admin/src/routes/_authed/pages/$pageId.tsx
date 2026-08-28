@@ -19,6 +19,9 @@ import {
 } from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
+// Lived in this file until the settings screen needed the same widget for
+// its social links — see that component's header.
+import { RepeatableItems } from "@/components/repeatable-items"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -36,12 +39,7 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  ArrowLeftIcon,
-  ExternalLinkIcon,
-  PlusIcon,
-  Trash2Icon,
-} from "lucide-react"
+import { ArrowLeftIcon, ExternalLinkIcon, Trash2Icon } from "lucide-react"
 
 export const Route = createFileRoute("/_authed/pages/$pageId")({
   component: PageEditorPage,
@@ -509,159 +507,3 @@ function DeletePageButton({
     </AlertDialog>
   )
 }
-
-// ---------------------------------------------------------------------
-// Block editor
-// ---------------------------------------------------------------------
-
-function LabeledInput({
-  label,
-  value,
-  max,
-  disabled,
-  onChange,
-}: {
-  label: string
-  value: string
-  max: number
-  disabled: boolean
-  onChange: (value: string) => void
-}) {
-  return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <Input
-        value={value}
-        maxLength={max}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </Field>
-  )
-}
-
-function LabeledTextarea({
-  label,
-  value,
-  max,
-  disabled,
-  rows,
-  onChange,
-}: {
-  label: string
-  value: string
-  max: number
-  disabled: boolean
-  rows?: number
-  onChange: (value: string) => void
-}) {
-  return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <Textarea
-        value={value}
-        maxLength={max}
-        disabled={disabled}
-        rows={rows}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </Field>
-  )
-}
-
-// Shared by `features.items` ({title, body}) and `faq.items` ({question,
-// answer}) — both are a plain array of two bounded string fields, only
-// the field names/labels/limits differ.
-function RepeatableItems<T extends Record<string, string>>({
-  items,
-  disabled,
-  addLabel,
-  emptyItem,
-  fields,
-  onChange,
-}: {
-  items: T[]
-  disabled: boolean
-  addLabel: string
-  emptyItem: T
-  fields: { key: keyof T; label: string; max: number; multiline?: boolean }[]
-  onChange: (items: T[]) => void
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      {items.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          Aucun élément pour le moment.
-        </p>
-      )}
-      {items.map((item, index) => (
-        <div
-          key={index}
-          className="flex flex-col gap-2 rounded-lg border border-dashed border-input p-2.5"
-        >
-          {fields.map((field) =>
-            field.multiline ? (
-              <LabeledTextarea
-                key={String(field.key)}
-                label={field.label}
-                // `T extends Record<string, string>` guarantees every
-                // value is a real string — `noUncheckedIndexedAccess`
-                // still widens a *generic* key's indexed access to
-                // `| undefined`, a known TS limitation around index
-                // signatures rather than a real possibility here.
-                value={item[field.key] as string}
-                max={field.max}
-                disabled={disabled}
-                onChange={(value) =>
-                  onChange(
-                    items.map((it, i) =>
-                      i === index ? { ...it, [field.key]: value } : it
-                    )
-                  )
-                }
-              />
-            ) : (
-              <LabeledInput
-                key={String(field.key)}
-                label={field.label}
-                value={item[field.key] as string}
-                max={field.max}
-                disabled={disabled}
-                onChange={(value) =>
-                  onChange(
-                    items.map((it, i) =>
-                      i === index ? { ...it, [field.key]: value } : it
-                    )
-                  )
-                }
-              />
-            )
-          )}
-          {!disabled && (
-            <div className="flex justify-end">
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => onChange(items.filter((_, i) => i !== index))}
-              >
-                <Trash2Icon data-icon="inline-start" />
-                Retirer
-              </Button>
-            </div>
-          )}
-        </div>
-      ))}
-      {!disabled && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onChange([...items, emptyItem])}
-        >
-          <PlusIcon data-icon="inline-start" />
-          {addLabel}
-        </Button>
-      )}
-    </div>
-  )
-}
-

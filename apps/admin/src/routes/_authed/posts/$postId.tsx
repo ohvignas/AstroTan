@@ -33,6 +33,7 @@ import {
 import { describePageError } from "@/lib/pageErrors"
 import { MediaPicker } from "@/components/media-picker"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
+import { RichTextEditor } from "@/components/rich-text-editor"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -510,29 +511,23 @@ function PostEditor({
             name="body"
             children={(field) => (
               <Field>
-                <FieldLabel htmlFor={field.name}>Corps (Markdown)</FieldLabel>
-                <Textarea
+                <FieldLabel htmlFor={field.name}>Corps</FieldLabel>
+                {/* `posts.body` contient du HTML — la sortie native de
+                    Tiptap, sans conversion, donc sans perte. Le compteur
+                    et la limite vivent dans l'éditeur : il mesure la
+                    chaîne HTML, qui est exactement ce que `posts.update`
+                    borne. */}
+                <RichTextEditor
                   id={field.name}
-                  name={field.name}
                   value={field.state.value}
                   maxLength={MAX_POST_BODY_LENGTH}
                   disabled={!canWrite}
-                  spellCheck={false}
-                  // `Textarea` carries `field-sizing-content`, which makes
-                  // the `rows` attribute inert — an empty body would sit at
-                  // `min-h-16`, three lines for a field meant to hold an
-                  // article. The floor is set here instead, and the ceiling
-                  // keeps a long body from growing the page without bound.
-                  className="max-h-[70vh] min-h-96 overflow-y-auto font-mono text-sm"
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
+                  onChange={field.handleChange}
                 />
                 <FieldDescription>
-                  Markdown brut, stocké et relu verbatim. Ce champ est écrit par
-                  un agent aussi souvent que par une personne : pas d'éditeur
-                  riche, qui enregistrerait autre chose que ce qui a été tapé.{" "}
-                  {field.state.value.length.toLocaleString("fr-FR")}/
-                  {MAX_POST_BODY_LENGTH.toLocaleString("fr-FR")}
+                  Mise en forme par la barre d'outils. Le bouton{" "}
+                  <code>&lt;/&gt;</code> montre le HTML tel qu'il est stocké, et
+                  permet de le corriger à la main.
                 </FieldDescription>
               </Field>
             )}

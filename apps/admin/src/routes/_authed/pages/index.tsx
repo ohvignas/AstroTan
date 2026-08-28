@@ -44,7 +44,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { PlusIcon } from "lucide-react"
+import { HomeIcon, PlusIcon } from "lucide-react"
 
 export const Route = createFileRoute("/_authed/pages/")({
   component: PagesListPage,
@@ -57,8 +57,16 @@ function PagesListPage() {
   // convention as `routes/_authed/users.tsx`.
   const profile = useQuery(api.profiles.me)
   const pages = useQuery(api.pages.list)
+  // Read here only to *mark* the home page in the list. Choosing one lives
+  // in `/settings` and nowhere else: it is a statement about the site, not
+  // about a page, and two pages could otherwise both claim it.
+  const homePageSlug = useQuery(api.settings.homePageSlug)
 
-  if (profile === undefined || pages === undefined) {
+  if (
+    profile === undefined ||
+    pages === undefined ||
+    homePageSlug === undefined
+  ) {
     return <p className="text-sm text-muted-foreground">Chargement…</p>
   }
 
@@ -92,6 +100,7 @@ function PagesListPage() {
             pages={pages}
             selfAuthUserId={profile.authUserId}
             canPublish={canPublish}
+            homePageSlug={homePageSlug}
           />
         </CardContent>
       </Card>
@@ -103,10 +112,12 @@ function PagesTable({
   pages,
   selfAuthUserId,
   canPublish,
+  homePageSlug,
 }: {
   pages: PageRow[]
   selfAuthUserId: string
   canPublish: boolean
+  homePageSlug: string | null
 }) {
   const removePage = useMutation(api.pages.remove)
   const publishPage = useMutation(api.pages.publishPage)
@@ -157,13 +168,26 @@ function PagesTable({
             return (
               <TableRow key={page._id}>
                 <TableCell className="font-medium">
-                  <Link
-                    to="/pages/$pageId"
-                    params={{ pageId: page._id }}
-                    className="hover:underline"
-                  >
-                    {page.title}
-                  </Link>
+                  <span className="flex items-center gap-1.5">
+                    <Link
+                      to="/pages/$pageId"
+                      params={{ pageId: page._id }}
+                      className="hover:underline"
+                    >
+                      {page.title}
+                    </Link>
+                    {page.slug === homePageSlug && (
+                      <span
+                        title="Page d'accueil : c'est elle que le site sert à /. Se change dans Réglages."
+                        className="inline-flex text-muted-foreground"
+                      >
+                        <HomeIcon className="size-3.5" aria-hidden="true" />
+                        <span className="sr-only">
+                          Page d'accueil, servie à /
+                        </span>
+                      </span>
+                    )}
+                  </span>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
                   /{page.slug}

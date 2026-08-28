@@ -5,6 +5,7 @@ import { api, components, internal } from "./_generated/api"
 import { decideAccess, requireRole } from "./lib/authz"
 import { authComponent, createAuth, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./auth"
 import { generateToken, hashToken } from "./lib/token"
+import { BOOTSTRAP_ISSUER } from "./bootstrap"
 import { MIN_PASSWORD_SCORE, scorePassword } from "./lib/passwordStrength"
 import { roleValidator } from "./validators"
 import { MAX_DISPLAY_NAME_LENGTH } from "./profiles"
@@ -279,8 +280,16 @@ export const accept = mutation({
     // une troisième implémentation de la même décision. Lève
     // UNAUTHENTICATED (émetteur supprimé), BANNED, ou FORBIDDEN (émetteur
     // rétrogradé en editor) — jamais un succès silencieux.
-    const issuer = await authComponent.getAnyUserById(ctx, invite.invitedBy)
-    decideAccess(issuer, ["owner", "admin"])
+    // Une invitation émise par l'opérateur (`bootstrap.ts`) n'a pas
+    // d'émetteur à relire : elle vient de quelqu'un qui détient les
+    // identifiants du déploiement, pas d'un compte. La relecture
+    // ci-dessous refuserait toute invitation d'amorçage avec
+    // UNAUTHENTICATED — c'est-à-dire exactement le verrouillage que ce
+    // chemin existe pour dénouer.
+    if (invite.invitedBy !== BOOTSTRAP_ISSUER) {
+      const issuer = await authComponent.getAnyUserById(ctx, invite.invitedBy)
+      decideAccess(issuer, ["owner", "admin"])
+    }
 
     // C1 (review, critical) : `/admin/create-user` — ce que `createUser`
     // ci-dessous appelle — déclare `password: z.string().optional()` sans

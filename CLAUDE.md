@@ -121,6 +121,27 @@ dans ce dépôt, pas des bonnes pratiques générales. Les lire avant d'écrire 
 Ce sont des **index**, pas la doc complète. Rafraîchir avec
 `./scripts/refresh-ai-docs.sh`.
 
+## Amorcer un accès administrateur
+
+L'accès au dashboard est sur invitation seule (`disableSignUp: true`, pas
+d'OAuth), et émettre une invitation exige d'être déjà owner ou admin. Deux
+situations n'ont donc pas d'issue par l'interface : un déploiement neuf sans
+aucun compte, et la perte de tous les accès owner/admin.
+
+```bash
+cd packages/backend
+npx convex run bootstrap:createInvitation '{"email":"vous@exemple.com","role":"admin"}'
+```
+
+Rend un jeton ; ouvrir `<admin>/accept-invite?token=<jeton>` et choisir son
+mot de passe sur la page normale. **Aucun mot de passe ne transite par le
+shell ni par un historique.**
+
+C'est un `internalMutation` : inatteignable depuis un client, seulement via
+`npx convex run`, qui exige déjà les identifiants du déploiement. Quelqu'un
+qui les détient peut de toute façon tout faire sur ce déploiement — ce
+chemin n'élargit rien.
+
 ## Amorcer du contenu de démonstration
 
 ```bash

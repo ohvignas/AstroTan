@@ -10,6 +10,7 @@
 
 import type * as _registry from "../_registry.js";
 import type * as auth from "../auth.js";
+import type * as bootstrap from "../bootstrap.js";
 import type * as content from "../content.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
@@ -42,6 +43,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   _registry: typeof _registry;
   auth: typeof auth;
+  bootstrap: typeof bootstrap;
   content: typeof content;
   crons: typeof crons;
   http: typeof http;

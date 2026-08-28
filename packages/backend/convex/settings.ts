@@ -80,7 +80,12 @@ function assertLength(value: string, max: number, field: string): void {
 export const update = mutation({
   args: {
     siteName: v.optional(v.string()),
-    logoId: v.optional(v.id("_storage")),
+    // `v.union(..., v.null())` et pas seulement `v.optional` : le client
+    // Convex supprime les champs `undefined` avant l'envoi, donc il
+    // n'existe aucune valeur qu'un formulaire puisse transmettre pour dire
+    // « enlève le logo ». `null` est cette valeur ; elle est traduite en
+    // `undefined` juste avant le patch, où elle efface bien le champ.
+    logoId: v.optional(v.union(v.id("_storage"), v.null())),
     defaultSeo: v.optional(seoValidator),
     socials: v.optional(v.array(socialValidator)),
   },
@@ -106,14 +111,22 @@ export const update = mutation({
       }
     }
 
+    // `logoId` est extrait de l'étalement plutôt que réécrit par-dessus :
+    // sinon le type du champ garde son `| null`, que `db.patch` refuse.
+    const { logoId, ...rest } = args
+    const patch = {
+      ...rest,
+      ...(logoId !== undefined ? { logoId: logoId ?? undefined } : {}),
+    }
+
     const existing = await ctx.db.query("settings").first()
     if (existing) {
-      await ctx.db.patch(existing._id, args)
+      await ctx.db.patch(existing._id, patch)
       return existing._id
     }
     // Upsert rather than requiring a separate "initialise" step: a freshly
     // cloned template has no row, and the first save should just work.
-    return ctx.db.insert("settings", { siteName: "Mon site", ...args })
+    return ctx.db.insert("settings", { siteName: "Mon site", ...patch })
   },
 })
 
