@@ -107,7 +107,7 @@ function Ranking({
   items,
 }: {
   title: string
-  items: { label: string; views: number }[] | null
+  items: { label: string; visits: number }[] | null
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -130,7 +130,7 @@ function Ranking({
             <li key={item.label} className="flex justify-between gap-4">
               <span className="truncate">{item.label}</span>
               <span className="tabular-nums text-muted-foreground">
-                {item.views}
+                {item.visits}
               </span>
             </li>
           ))}
@@ -177,7 +177,11 @@ export function SiteDashboard({
             )}
 
             <div className="grid gap-6 sm:grid-cols-2">
-              <Ranking title="Pages les plus vues" items={summary.topPages} />
+              {/* « visitées » et non « vues » : Umami compte ici une visite
+                  par session, pas chaque affichage. Le chiffre était juste,
+                  l'intitulé mentait — mesuré, `/` sortait à 2 visites pour
+                  5 vues. */}
+              <Ranking title="Pages les plus visitées" items={summary.topPages} />
               <Ranking title="D'où viennent-ils" items={summary.topReferrers} />
             </div>
           </>

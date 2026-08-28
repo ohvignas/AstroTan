@@ -45,9 +45,9 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * La réponse de `/stats`, telle qu'Umami 3 la rend réellement.
  *
  * `comparison` porte les valeurs ABSOLUES de la période précédente, pas un
- * écart — et il n'est rempli que si la requête porte `compare=prev`. Sans
- * ce drapeau il vaut zéro sans le dire, ce qui fait passer toute évolution
- * pour une progression depuis rien.
+ * écart. Il est rempli que la requête porte `compare=prev` ou non — vérifié
+ * sur 3.3.1, fenêtre courante à 4 vues et précédente à 15, identique dans
+ * les deux cas.
  */
 interface RawStats {
   pageviews?: number
@@ -169,7 +169,16 @@ export interface SeriesPoint {
 
 export interface RankedItem {
   label: string
-  views: number
+  /**
+   * Des **visites**, pas des vues — et l'écart n'est pas cosmétique.
+   *
+   * `/metrics` compte une visite par session, quand `/stats?path=` compte
+   * chaque affichage. Mesuré sur la même journée : `/` sortait à 2 par
+   * `/metrics` et à 5 vues par `/stats`. Nommer ce champ `views` faisait
+   * afficher un chiffre juste sous une étiquette fausse, et sous-estimait
+   * de plus de la moitié.
+   */
+  visits: number
 }
 
 export interface SiteSummary {
@@ -255,7 +264,7 @@ function rank(rows: { x?: string; y?: number }[] | null): RankedItem[] | null {
   if (rows === null) return null
   return rows.map((row) => ({
     label: row.x && row.x.length > 0 ? row.x : "Accès direct",
-    views: row.y ?? 0,
+    visits: row.y ?? 0,
   }))
 }
 
@@ -287,9 +296,12 @@ export const siteSummary = action({
       // Quatre appels, lancés ensemble : en série, l'accueil attendrait
       // quatre allers-retours réseau avant son premier pixel.
       const [totals, series, pages, referrers] = await Promise.all([
-        // `compare=prev` est obligatoire : sans lui, `comparison` est rendu
-        // à zéro sans erreur, et chaque tendance s'afficherait comme une
-        // progression depuis rien.
+        // `compare=prev` est explicite, pas obligatoire : mesuré contre
+        // 3.3.1, `comparison` est rempli avec ou sans lui. Une version
+        // antérieure de ce fichier affirmait le contraire — l'observation
+        // reposait sur un facteur de confusion, la période précédente étant
+        // vide dans chaque essai « sans drapeau ». Le drapeau reste parce
+        // qu'il coûte zéro et dit ce qu'on attend, pas parce qu'il manque.
         getJson<RawStats>(`${base}/stats?${window}&compare=prev`, token),
         getJson<{
           sessions?: { x?: string; y?: number }[]
@@ -313,6 +325,14 @@ export const siteSummary = action({
       if (totals === null) return { ...empty, status: "unreachable" }
 
       const points = series?.pageviews ?? null
+      // Umami construit `pageviews` et `sessions` séparément : rien ne
+      // garantit qu'ils portent les mêmes seaux ni le même nombre. Les
+      // apparier par indice décalerait tout ce qui suit un seau manquant,
+      // silencieusement et de façon plausible. La clé `x` est ce qui les
+      // relie réellement.
+      const visitorsByDate = new Map(
+        (series?.sessions ?? []).map((point) => [point.x ?? "", point.y ?? 0])
+      )
       return {
         totals: {
           pageviews: {
@@ -327,11 +347,9 @@ export const siteSummary = action({
         series:
           points === null
             ? null
-            : points.map((point, index) => ({
+            : points.map((point) => ({
                 date: point.x ?? "",
-                // Umami renvoie les deux séries dans le même ordre et sur
-                // le même découpage ; l'index les apparie.
-                visitors: series?.sessions?.[index]?.y ?? 0,
+                visitors: visitorsByDate.get(point.x ?? "") ?? 0,
                 pageviews: point.y ?? 0,
               })),
         topPages: rank(pages),

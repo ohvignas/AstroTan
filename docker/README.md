@@ -935,7 +935,8 @@ ces tests plutôt que le tableau de bord.
 |---|---|
 | `/stats` rend `{value, prev}` par métrique | Il rend des **nombres plats**, plus un objet `comparison` frère. Lu à l'ancienne, chaque chiffre sort à zéro. |
 | `?url=/contact` filtre sur une page | **Ignoré sans erreur** : la réponse est celle du site entier. Le paramètre s'appelle `path`. Vérifié : `url=/contact` → 11 vues, `path=/contact` → 2. |
-| `comparison` est toujours rempli | Il vaut zéro **sauf si** la requête porte `compare=prev`. Sans le drapeau, toute évolution passe pour une progression depuis rien. |
+| `/metrics` rend des vues | Il rend des **visites**, une par session. Mesuré : `/` à 2 par `/metrics`, 5 vues par `/stats?path=/`. |
+| `comparison` exige `compare=prev` | Non — il est rempli dans les deux cas. Ce document a affirmé le contraire : l'essai « sans drapeau » portait sur une période précédente vide, un facteur de confusion. |
 
 Un quatrième point échoue franchement, lui : `type=url` sur `/metrics`
 répond 400. Le type s'appelle `path`.

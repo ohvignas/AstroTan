@@ -15,8 +15,8 @@ const OK: SiteSummary = {
     { date: "2026-08-01T00:00:00Z", visitors: 5, pageviews: 12 },
     { date: "2026-08-02T00:00:00Z", visitors: 9, pageviews: 20 },
   ],
-  topPages: [{ label: "/blog/bienvenue", views: 312 }],
-  topReferrers: [{ label: "Accès direct", views: 94 }],
+  topPages: [{ label: "/blog/bienvenue", visits: 312 }],
+  topReferrers: [{ label: "Accès direct", visits: 94 }],
   status: "ok",
 }
 

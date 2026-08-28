@@ -258,15 +258,18 @@ test("siteSummary rend totaux, période précédente, série et palmarès", asyn
     { date: "2026-08-01T00:00:00Z", visitors: 5, pageviews: 12 },
     { date: "2026-08-02T00:00:00Z", visitors: 9, pageviews: 20 },
   ])
+  // `/metrics` compte des VISITES : une visite par session, là où
+  // `/stats?path=` compte chaque affichage. Mesuré sur 3.3.1, `/` sortait
+  // à 2 ici et à 5 vues par `/stats`.
   expect(result.topPages).toEqual([
-    { label: "/blog/bienvenue", views: 312 },
-    { label: "/", views: 189 },
+    { label: "/blog/bienvenue", visits: 312 },
+    { label: "/", visits: 189 },
   ])
   // Umami rend le referrer vide pour un accès direct. Le laisser vide
   // afficherait une ligne sans étiquette, illisible.
   expect(result.topReferrers).toEqual([
-    { label: "google.com", views: 128 },
-    { label: "Accès direct", views: 94 },
+    { label: "google.com", visits: 128 },
+    { label: "Accès direct", visits: 94 },
   ])
 })
 
@@ -319,8 +322,10 @@ test("siteSummary demande explicitement la comparaison et le bon type de palmar�
 
   await editor.identity.action(api.analytics.siteSummary, {})
 
-  // Sans `compare=prev`, Umami 3 rend `comparison` à zéro SANS erreur : les
-  // tendances passeraient toutes pour des progressions depuis rien.
+  // Le drapeau est explicite, pas obligatoire : `comparison` est rempli
+  // avec ou sans lui sur 3.3.1. Ce test le fige quand même, pour qu'un
+  // changement de défaut chez Umami casse un test plutôt que les
+  // tendances affichées.
   expect(urls.find((u) => u.includes("/stats"))).toContain("compare=prev")
   // `type=url` répond 400 en Umami 3 ; le type s'appelle `path`.
   expect(urls.some((u) => u.includes("type=path"))).toBe(true)
@@ -420,4 +425,58 @@ test("sans Redis, Umami refuse et le lien vaut null plutôt que de casser", asyn
   )
 
   expect(await admin.identity.action(api.analytics.ssoLink, {})).toBeNull()
+})
+
+
+test("les deux séries sont appariées par leur date, jamais par leur indice", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      const u = String(url)
+      if (u.includes("/api/auth/login")) {
+        return { ok: true, status: 200, json: async () => ({ token: "jeton" }) }
+      }
+      if (u.includes("/pageviews")) {
+        return {
+          ok: true,
+          status: 200,
+          // Umami construit les deux tableaux séparément. Ici aucune session
+          // ne DÉBUTE le 2 : `sessions` n'a que deux entrées pour trois
+          // jours de vues. Apparier par indice collerait les 9 visiteurs du
+          // 3 sur la journée du 2.
+          json: async () => ({
+            pageviews: [
+              { x: "2026-08-01T00:00:00Z", y: 12 },
+              { x: "2026-08-02T00:00:00Z", y: 20 },
+              { x: "2026-08-03T00:00:00Z", y: 30 },
+            ],
+            sessions: [
+              { x: "2026-08-01T00:00:00Z", y: 5 },
+              { x: "2026-08-03T00:00:00Z", y: 9 },
+            ],
+          }),
+        }
+      }
+      if (u.includes("type=path") || u.includes("type=referrer")) {
+        return { ok: true, status: 200, json: async () => [] }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ pageviews: 62, visitors: 14, comparison: { pageviews: 0, visitors: 0 } }),
+      }
+    }),
+  )
+
+  const result = await editor.identity.action(api.analytics.siteSummary, {})
+  expect(result.series).toEqual([
+    { date: "2026-08-01T00:00:00Z", visitors: 5, pageviews: 12 },
+    // Le jour sans session ouverte vaut zéro visiteur, et ne décale rien.
+    { date: "2026-08-02T00:00:00Z", visitors: 0, pageviews: 20 },
+    { date: "2026-08-03T00:00:00Z", visitors: 9, pageviews: 30 },
+  ])
 })

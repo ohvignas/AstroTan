@@ -61,7 +61,7 @@ chacun de ces points : les rouvrir casse un test plutôt que le produit.
 |---|---|
 | `/stats` rend `{value, prev}` par métrique | **Nombres plats** + un objet `comparison` frère. Lu à l'ancienne, chaque chiffre sort `undefined` puis 0 : une page éternellement sans visite. |
 | `?url=/contact` filtre sur une page | **Accepté et ignoré**, sans erreur. La réponse est celle du site entier. Le paramètre s'appelle `path`. Mesuré : `url=/contact` → 11 vues, `path=/contact` → 2. |
-| `comparison` est toujours rempli | Zéro **sauf si** la requête porte `compare=prev`. Sans le drapeau, toute évolution passe pour une progression depuis rien. |
+| `/metrics` rend des vues | Il rend des **visites** — une par session. Mesuré : `/` sortait à 2 par `/metrics` et à 5 vues par `/stats?path=/`. Afficher ce chiffre sous « pages les plus vues » sous-estimait de plus de la moitié, sous une étiquette fausse. |
 | `/metrics?type=url` | **400.** Le type s'appelle `path`. Celui-là, au moins, échoue franchement. |
 
 ## Le SSO — ce qui le fait marcher, et ce qui l'a cassé
@@ -174,6 +174,44 @@ l'argument « sans donnée personnelle, donc sans bandeau de consentement »
 ne tient plus tel quel. `recorder.js` pèse ~190 ko, et chaque session
 s'écrit dans la base à sauvegarder.
 
+## Une erreur commise ici, et comment elle a survécu à la vérification
+
+**Ce document a affirmé que `compare=prev` était obligatoire. C'est faux :
+`comparison` est rempli avec ou sans le drapeau.**
+
+L'observation d'origine était réelle — sans drapeau, `comparison` valait
+zéro — mais elle reposait sur un facteur de confusion : dans chaque essai
+« sans drapeau », la période précédente était vide. La mesure décisive
+demande **la même fenêtre** dans les deux cas, avec du trafic dans la
+période précédente :
+
+```
+fenêtre 20:00→21:00 (4 vues), période précédente 19:00→20:00 (15 vues)
+sans drapeau   → comparison = 15
+&compare=prev  → comparison = 15
+```
+
+La leçon vaut au-delà d'Umami : **une variable qu'on croit tester n'est
+testée que si tout le reste est tenu constant.** Comparer deux appels qui
+diffèrent par le drapeau *et* par la fenêtre ne prouve rien sur le drapeau.
+
+Le drapeau reste dans le code : il coûte zéro et dit ce qu'on attend. Mais
+il y est comme un choix explicite, pas comme une obligation.
+
+## Deux pièges d'appariement, dont un a mordu
+
+**`/metrics` compte des visites, `/stats?path=` compte des vues.** Le même
+jour, `/` sortait à 2 par le premier et 5 par le second. Le tableau de bord
+affichait donc un chiffre juste sous « Pages les plus vues » — étiquette
+fausse, et sous-estimation de plus de la moitié.
+
+**`pageviews` et `sessions` sont deux tableaux construits séparément.**
+Rien ne garantit qu'ils portent les mêmes seaux : un jour avec des vues
+mais aucune session ouverte apparaît dans l'un et pas dans l'autre. Les
+apparier **par indice** décale alors tout ce qui suit, en silence et de
+façon plausible — 9 visiteurs posés sur le mauvais jour. Joindre sur la
+clé `x`, jamais sur la position.
+
 ## Idées reçues corrigées
 
 - **« Umami ne compte pas `localhost`. »** Faux, et ce document l'a affirmé
@@ -185,6 +223,9 @@ s'écrit dans la base à sauvegarder.
   magasin, les deux divergent au premier changement sans que personne le
   voie, et il faut **quand même** le taper sur le formulaire d'Umami. Le SSO
   ci-dessus fait mieux sur les trois points.
+- **« Le stub passe, donc le parseur est bon. »** Voir en tête de page : un
+  stub écrit par la même personne que le code encode les mêmes hypothèses.
+  Trois des quatre pièges de ce document ont survécu à une suite verte.
 - **« Il faut déclarer chaque page dans Umami. »** Non — voir plus haut.
   L'API n'a pas de notion de page, et écrire cette synchronisation
   créerait un second modèle de données pour rien.
