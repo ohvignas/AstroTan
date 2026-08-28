@@ -119,6 +119,61 @@ restent ouvertes aux trois rôles.
   l'interrupteur : `Analytics.astro` n'émet aucune balise, le menu masque son
   bouton.
 
+## Une page créée dans l'admin n'a RIEN à déclarer dans Umami
+
+C'est la question qui revient, et la réponse évite d'écrire du code inutile.
+
+**Umami ne connaît pas de pages. Il connaît des chemins, et il les découvre
+en les recevant.** Un site = un `websiteId`, un seul. Il n'existe aucune
+notion de page enregistrée, donc rien à créer, rien à synchroniser, rien à
+supprimer quand une page disparaît.
+
+Prouvé plutôt qu'affirmé — un chemin jamais vu, envoyé une fois, est
+immédiatement interrogeable :
+
+```bash
+curl -X POST "$UMAMI/api/send" -H 'content-type: application/json' \
+  -H 'User-Agent: Mozilla/5.0 … Chrome/140 …' \
+  -d '{"type":"event","payload":{"website":"'"$ID"'","hostname":"localhost",
+       "url":"/une-page-qui-vient-d-etre-creee"}}'
+# puis
+curl -H "authorization: Bearer $TOK" \
+  "$UMAMI/api/websites/$ID/stats?startAt=…&endAt=…&path=%2Fune-page-qui-vient-d-etre-creee"
+# → {"pageviews":1,"visitors":1,…}
+```
+
+**Ne pas écrire de synchronisation page ↔ Umami.** Ce serait un
+second modèle de données à tenir à jour, pour une API qui n'en veut pas.
+`analytics.forPath` interroge le chemin, et c'est tout — même mécanisme
+pour une page, un article, ou une route qui n'existe dans aucune table.
+
+Ce qui, en revanche, se configure **une fois par site** dans Umami et ne
+concerne pas les pages : les objectifs (Goals), les entonnoirs (Funnels),
+les segments, la rétention, l'UTM et les revenus. Ce sont des analyses, pas
+des déclarations de contenu.
+
+## Replays et Heatmaps : deux interrupteurs, pas un
+
+Ils ne marchent pas avec le seul script de comptage.
+
+1. **Dans Umami** — *Settings → le site → Replays & Heatmaps*. Le bloc
+   « Tracking code » affiche alors une **seconde balise**, `recorder.js`.
+2. **Sur le site** — `PUBLIC_UMAMI_RECORDER=true`, puis **reconstruire**
+   (la variable est figée au build comme les deux autres).
+
+L'un sans l'autre ne produit rien, et sans erreur. Le contrôle qui tranche,
+dans l'onglet réseau : `GET /recorder.js` → 200, puis
+`GET /api/websites/<id>/recorder` → 200 — c'est l'enregistreur qui demande
+sa configuration au serveur, donc l'interrupteur d'Umami commande bien.
+
+**Ce n'est pas la même promesse que le comptage**, et c'est pourquoi la
+variable est séparée et éteinte par défaut. Compter note qu'une page a été
+vue ; un replay rejoue ce qu'une personne y a fait, saisies comprises selon
+la configuration. La charge utile de §13.3 ne décrit plus ce qui part, et
+l'argument « sans donnée personnelle, donc sans bandeau de consentement »
+ne tient plus tel quel. `recorder.js` pèse ~190 ko, et chaque session
+s'écrit dans la base à sauvegarder.
+
 ## Idées reçues corrigées
 
 - **« Umami ne compte pas `localhost`. »** Faux, et ce document l'a affirmé
@@ -130,6 +185,9 @@ restent ouvertes aux trois rôles.
   magasin, les deux divergent au premier changement sans que personne le
   voie, et il faut **quand même** le taper sur le formulaire d'Umami. Le SSO
   ci-dessus fait mieux sur les trois points.
+- **« Il faut déclarer chaque page dans Umami. »** Non — voir plus haut.
+  L'API n'a pas de notion de page, et écrire cette synchronisation
+  créerait un second modèle de données pour rien.
 - **« Un jeton dans l'URL, c'est toujours à proscrire. »** Le jeton du
   *compte*, oui : une URL se dépose dans l'historique, dans les en-têtes
   `Referer` et dans les journaux des proxys. Le jeton d'*échange* d'Umami est

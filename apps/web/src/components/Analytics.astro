@@ -1,30 +1,26 @@
 ---
-// The measurement script, and the switch that keeps it optional.
+// Les scripts de mesure, et l'interrupteur qui les garde optionnels.
 //
-// Loaded only when both variables are set. An adopter who wants no
-// analytics at all must not see a single request leave for a third party
-// just because this component exists in the template — so the absence of
-// configuration is the off switch, not a boolean somewhere else.
+// La décision — lesquels charger, et si l'on en charge — vit dans
+// `lib/analyticsScripts.ts`, qui est testé. Ici il ne reste que le rendu :
+// c'est ce qui permet de vérifier « le site ne parle à personne sans
+// configuration » sans avoir à rendre une page.
 //
-// Both are `PUBLIC_` and both are meant to be: the script URL and the site
-// id are visible in the page source of every site using Umami, by design.
-// The credentials that *read* the statistics are a different matter and
-// never come near the browser — see `convex/analytics.ts`.
-const umamiUrl = import.meta.env.PUBLIC_UMAMI_URL
-const websiteId = import.meta.env.PUBLIC_UMAMI_WEBSITE_ID
+// Les deux variables sont `PUBLIC_` et doivent l'être : l'URL du script et
+// l'identifiant du site apparaissent dans le source de chaque page de tout
+// site mesuré par Umami. Les identifiants qui *lisent* les statistiques sont
+// une autre affaire et n'approchent jamais le navigateur — voir
+// `convex/analytics.ts`.
+import { analyticsScripts } from "../lib/analyticsScripts"
 
-const enabled = Boolean(umamiUrl && websiteId)
+const scripts = analyticsScripts(import.meta.env)
 ---
 
 {
-  enabled && (
-    // `defer` rather than `async`: it must not compete with the page's own
-    // rendering. A measurement that costs the visitor time is measuring a
-    // site it has itself made slower.
-    <script
-      defer
-      src={`${umamiUrl.replace(/\/$/, "")}/script.js`}
-      data-website-id={websiteId}
-    />
-  )
+  scripts.map((script) => (
+    // `defer` plutôt qu'`async` : la mesure ne doit pas concourir avec le
+    // rendu de la page. Une mesure qui coûte du temps au visiteur mesure un
+    // site qu'elle a elle-même ralenti.
+    <script defer src={script.src} data-website-id={script.websiteId} />
+  ))
 }

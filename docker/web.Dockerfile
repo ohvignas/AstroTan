@@ -42,6 +42,13 @@ ARG PUBLIC_UMAMI_URL
 ENV PUBLIC_UMAMI_URL=$PUBLIC_UMAMI_URL
 ARG PUBLIC_UMAMI_WEBSITE_ID
 ENV PUBLIC_UMAMI_WEBSITE_ID=$PUBLIC_UMAMI_WEBSITE_ID
+
+# `"true"` charge en plus `recorder.js` — Replays et Heatmaps. Éteint par
+# défaut, et séparé des deux variables ci-dessus parce que ce n'est pas la
+# même promesse : compter une visite n'est pas rejouer ce qu'une personne a
+# fait sur la page. Voir README §13.10.
+ARG PUBLIC_UMAMI_RECORDER
+ENV PUBLIC_UMAMI_RECORDER=$PUBLIC_UMAMI_RECORDER
 RUN test -n "$PUBLIC_CONVEX_URL" || (echo "PUBLIC_CONVEX_URL build-arg is required" && exit 1)
 RUN pnpm --filter @astrotan/web build
 

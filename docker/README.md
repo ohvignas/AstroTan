@@ -324,6 +324,7 @@ provenance — et la marche à suivre pour les poser à la main.
 | `VITE_WEB_SITE_URL` | Origine publique du site Astro (`https://example.com`), à laquelle le dashboard ajoute `/{slug}?t={token}` — l'aperçu s'ouvre à la vraie URL de la page, le jeton signant le slug (CLAUDE.md, invariant 2). Non secrète : seul le jeton l'est, et il est frappé par Convex. |
 | `PUBLIC_UMAMI_URL` | `https://<UMAMI_DOMAIN>` — l'adresse du script de mesure. **Pas un secret** : elle est dans le source de chaque page. Elle est ici parce qu'Astro la fige dans le bundle au build, donc elle doit exister au moment du `docker build`, pas au démarrage du conteneur. **Facultative** : sans elle, le site ne mesure rien et n'émet aucune requête vers un tiers. |
 | `PUBLIC_UMAMI_WEBSITE_ID` | L'identifiant rendu par Umami après *Add website* (13.1). Non secret, même raison, et facultatif de la même façon : il faut les deux ou aucune. |
+| `PUBLIC_UMAMI_RECORDER` | `true` pour charger `recorder.js` en plus — Replays et Heatmaps. Non secrète, facultative, **éteinte par défaut**. Lire 13.6 avant de la poser : ce n'est pas la même promesse que le comptage. |
 | `VPS_HOST` | Nom d'hôte ou IP du VPS. |
 | `VPS_USER` | L'utilisateur non-root de la section 1. |
 | `VPS_SSH_KEY` | Clé **privée** de déploiement, au format OpenSSH, en entier (`-----BEGIN…` à `-----END…` compris). La générer dédiée à cet usage — `ssh-keygen -t ed25519 -C deploy@astrotan -f ~/.ssh/astrotan_deploy` — et poser la publique dans `~/.ssh/authorized_keys` du VPS. Jamais une clé personnelle : elle n'est ni révocable ni traçable séparément. |
@@ -570,6 +571,7 @@ mêmes secrets ni le même lieu.
 | | Ce que c'est | Où ça vit |
 |---|---|---|
 | `PUBLIC_UMAMI_URL`, `PUBLIC_UMAMI_WEBSITE_ID` | le script de mesure chargé par chaque page | secrets GitHub → build-args, **figés dans le bundle au build** |
+| `PUBLIC_UMAMI_RECORDER` *(facultative)* | `"true"` charge en plus `recorder.js` — Replays et Heatmaps (13.6) | même chose, et **éteinte par défaut** |
 | `UMAMI_API_URL`, `UMAMI_API_WEBSITE_ID`, `UMAMI_API_USERNAME`, `UMAMI_API_PASSWORD` | les identifiants avec lesquels le dashboard **lit** les chiffres | déploiement Convex (`convex env set`) |
 | `UMAMI_API_SHARE_ID` *(optionnelle)* | l'identifiant du lien de partage, pour que le bouton « Statistiques » n'exige pas de reconnexion (13.4) | déploiement Convex (`convex env set`) |
 
@@ -864,9 +866,64 @@ docker compose --env-file .env.local \
   -f docker-compose.yml -f docker-compose.local.yml down
 ```
 
-`down` seul, **jamais `down -v`** : le `-v` détruirait le volume (13.7).
+`down` seul, **jamais `down -v`** : le `-v` détruirait le volume (13.8).
 
-### 13.6 Ce que l'API d'Umami 3 rend vraiment
+### 13.6 Replays et Heatmaps — ce qu'il faut activer des deux côtés
+
+Le menu d'Umami propose Replays et Heatmaps à côté du trafic. Ils ne
+marchent pas avec le seul script de comptage : il faut **deux
+interrupteurs**, et ils ne sont pas au même endroit.
+
+**1. Côté Umami** — *Settings → (votre site) → Replays & Heatmaps*, activer
+l'un ou l'autre. Le bloc « Tracking code » de cette page affiche alors une
+**seconde balise**, en plus de la première :
+
+```html
+<script defer src="https://<UMAMI_DOMAIN>/recorder.js" data-website-id="…"></script>
+```
+
+**2. Côté site** — poser `PUBLIC_UMAMI_RECORDER=true` (secret GitHub ou
+`apps/web/.env.local`) et **reconstruire**. `Analytics.astro` émet alors la
+seconde balise.
+
+Les deux sont nécessaires et l'ordre est indifférent, mais l'un sans
+l'autre ne produit rien : sans l'interrupteur d'Umami, `recorder.js` est
+chargé pour rien ; sans la variable, l'interrupteur n'a aucun script à
+commander. Le contrôle qui tranche, dans l'onglet réseau d'une page du
+site :
+
+```
+GET  /recorder.js                         → 200
+GET  /api/websites/<id>/recorder          → 200
+POST /api/send                            → 200
+```
+
+La deuxième ligne est la plus parlante : l'enregistreur demande sa
+configuration au serveur, donc l'interrupteur d'Umami commande vraiment.
+
+**Ce n'est pas la même promesse que le comptage, et c'est la raison pour
+laquelle cette variable est séparée et éteinte par défaut.** Compter une
+visite note qu'une page a été vue. Un *replay* rejoue ce qu'une personne a
+fait sur cette page : ses mouvements, ses clics, et selon la configuration
+ce qu'elle a saisi. Une *heatmap* agrège ces mêmes traces.
+
+Conséquences à peser avant d'allumer :
+
+- La charge utile n'est plus celle de §13.3. L'argument « sans cookie et
+  sans donnée personnelle, donc sans bandeau de consentement » ne tient
+  plus tel quel — en Europe, un enregistrement de session relève d'un autre
+  régime, et le formulaire de contact du site est exactement le genre
+  d'endroit où quelqu'un tape son nom et son adresse.
+- Le volume de données change d'ordre de grandeur. `recorder.js` pèse
+  ~190 ko, et chaque session écrit dans la base d'Umami — celle-là même
+  que §13.7 dit de sauvegarder.
+- Vérifiez ce qui est masqué dans les réglages d'Umami avant d'ouvrir aux
+  vrais visiteurs, pas après.
+
+Allumer est un choix légitime ; le faire sans avoir lu ces trois points ne
+l'est pas.
+
+### 13.7 Ce que l'API d'Umami 3 rend vraiment
 
 Trois différences avec Umami 2 ont été trouvées en interrogeant un 3.3.1
 réel. Les trois sont **silencieuses** : elles ne produisent pas d'erreur,
@@ -883,7 +940,7 @@ ces tests plutôt que le tableau de bord.
 Un quatrième point échoue franchement, lui : `type=url` sur `/metrics`
 répond 400. Le type s'appelle `path`.
 
-### 13.7 Sauvegarde — la première du projet
+### 13.8 Sauvegarde — la première du projet
 
 Le volume `astrotan_umami-db` est le **premier volume applicatif** de ce
 VPS. Jusqu'ici, la seule chose à ne pas perdre était `astrotan_acme`, et le
@@ -905,11 +962,11 @@ gunzip -c umami-<date>.sql.gz | ssh <user>@<host> \
 `docker compose down -v` détruit ce volume. **Ne jamais lancer `down -v` sur
 ce VPS** — `down` seul suffit à arrêter la pile.
 
-### 13.8 Mettre à jour Umami
+### 13.9 Mettre à jour Umami
 
 Le tag de l'image est épinglé exactement (`3.3.1`), jamais `latest`. Une
 montée de version applique des migrations Prisma sur la base au premier
-démarrage : **faire le dump de 13.7 avant**, puis changer le tag et
+démarrage : **faire le dump de 13.8 avant**, puis changer le tag et
 redéployer. Un retour arrière se fait par restauration du dump, pas par un
 retour au tag précédent — une base déjà migrée n'est plus lisible par
 l'ancienne version.
