@@ -1,6 +1,20 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
-import { roleValidator } from "./validators"
+import { roleValidator, pageStatusValidator } from "./validators"
+import { blockValidator } from "./blocks"
+
+// Mirrors design spec §6.5 ("Champs SEO par page"). All optional: a page
+// with no `seo` override falls back to `settings.defaultSeo` (a later
+// task; not created by this one). Length bounds on `title`/`description`/
+// `canonicalUrl` live in `blocks.ts` (`assertPageTextWithinLimits`) —
+// Convex's `v.string()` can't express a maximum itself.
+const seoValidator = v.object({
+  title: v.optional(v.string()),
+  description: v.optional(v.string()),
+  ogImageId: v.optional(v.id("_storage")),
+  canonicalUrl: v.optional(v.string()),
+  noindex: v.optional(v.boolean()),
+})
 
 export default defineSchema({
   // Pas de champ `role` ici : il vit sur l'utilisateur Better Auth.
@@ -46,4 +60,30 @@ export default defineSchema({
   })
     .index("by_token_hash", ["tokenHash"])
     .index("by_email", ["email"]),
+
+  // Task 1 of Lot 2: shapes only. Nothing here enforces the lot's
+  // invariant ("a draft is visible only to a valid preview-token holder,
+  // a published page needs no rebuild") — that's Task 2's public/preview
+  // query split. This table just has to make that split easy to write and
+  // hard to get wrong: `status` is a closed two-value union a public query
+  // can filter on with a plain `.eq`, not a free-form string a filter
+  // could silently fail to match.
+  pages: defineTable({
+    slug: v.string(),
+    title: v.string(),
+    status: pageStatusValidator,
+    blocks: v.array(blockValidator),
+    seo: v.optional(seoValidator),
+    publishedAt: v.optional(v.number()),
+    // `v.string()`, not `v.id()`: both hold a Better Auth user id, and
+    // Better Auth's tables live in a Convex *component* (Local Install,
+    // §5) — Convex doesn't type references across that boundary, the same
+    // reason `profiles.authUserId` is a bare string. Resolving either to a
+    // displayable name goes through `profiles.by_auth_user`.
+    createdBy: v.string(),
+    updatedBy: v.string(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_status", ["status"])
+    .index("by_created_by", ["createdBy"]),
 })

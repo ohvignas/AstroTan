@@ -28,3 +28,13 @@ export function parseRole(raw: unknown): Role | null {
     ? (raw as Role)
     : null
 }
+
+// `pages.status` (Lot 2). No revisions in v1 (design spec §4): a page is
+// either a `draft` only its author and preview-token holders can see, or
+// `published` and served by the public queries — nothing in between. Same
+// shape as `roleValidator` above: a closed `v.union` of `v.literal`s, so
+// Convex itself rejects any other string rather than silently accepting
+// it as an untyped status the renderer or the public-query filter (Task 2)
+// wouldn't recognize.
+export const pageStatusValidator = v.union(v.literal("draft"), v.literal("published"))
+export type PageStatus = "draft" | "published"
