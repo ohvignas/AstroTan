@@ -26,11 +26,6 @@ export function NavMain({
     isActive?: boolean
     /** Quitte l'admin : rendu en `<a>`, jamais en `<Link>` du routeur. */
     external?: boolean
-    /**
-     * Rendu en bouton plutôt qu'en lien : l'adresse n'existe pas encore au
-     * moment du clic, elle doit être demandée au serveur.
-     */
-    onSelect?: () => void
     items?: {
       title: string
       url: string
@@ -74,11 +69,7 @@ export function NavMain({
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton
                 tooltip={item.title}
-                {...(item.onSelect ? { onClick: item.onSelect } : {})}
                 render={
-                  item.onSelect ? (
-                    <button type="button" />
-                  ) : (
                   // Un `<Link>` du routeur sur une adresse externe tente une
                   // navigation interne et rend une 404 de l'admin. Il faut
                   // une vraie ancre — avec `noopener`, sans quoi la page
@@ -87,7 +78,7 @@ export function NavMain({
                     <a href={item.url} target="_blank" rel="noopener noreferrer" />
                   ) : (
                     <Link to={item.url} />
-                  ))
+                  )
                 }
               >
                 {item.icon}
@@ -96,7 +87,7 @@ export function NavMain({
                     dépliant : c'est là que l'œil cherche ce qui va se
                     passer. Elle prévient qu'on quitte l'administration —
                     l'onglet qui s'ouvre n'est pas une page de plus ici. */}
-                {(item.external || item.onSelect) && (
+                {item.external && (
                   <ExternalLinkIcon className="ml-auto size-3.5 opacity-60" />
                 )}
               </SidebarMenuButton>

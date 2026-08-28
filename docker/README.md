@@ -614,6 +614,14 @@ Le bouton « Statistiques » de l'administration ouvre Umami **déjà
 connecté**, avec les réglages — pas seulement les chiffres. Umami fournit
 le mécanisme ; il faut Redis pour qu'il fonctionne.
 
+Le bouton est une ancre ordinaire vers `/statistiques`, une page de
+l'administration qui frappe le jeton puis redirige. Ouvrir un onglet vide
+au clic pour le remplir après l'appel réseau paraissait plus direct : c'est
+bloqué par certains navigateurs et contextes embarqués même dans un vrai
+geste utilisateur, et le bouton ne faisait alors *rien*. Un lien qui ne
+fait rien est le pire résultat possible ; une ancre, aucun bloqueur ne
+l'arrête.
+
 **Comment ça marche.** Le déploiement Convex s'authentifie auprès d'Umami
 avec `UMAMI_API_USERNAME` / `UMAMI_API_PASSWORD`, puis demande à
 `POST /api/auth/sso` un **jeton d'échange**. Umami le dépose dans Redis, le

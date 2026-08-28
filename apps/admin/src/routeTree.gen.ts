@@ -16,6 +16,7 @@ import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as AuthedMediaRouteImport } from './routes/_authed/media'
 import { Route as AuthedRedirectsRouteImport } from './routes/_authed/redirects'
 import { Route as AuthedSettingsRouteImport } from './routes/_authed/settings'
+import { Route as AuthedStatistiquesRouteImport } from './routes/_authed/statistiques'
 import { Route as AuthedUsersRouteImport } from './routes/_authed/users'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as AuthedPagesIndexRouteImport } from './routes/_authed/pages/index'
@@ -56,6 +57,11 @@ const AuthedRedirectsRoute = AuthedRedirectsRouteImport.update({
 const AuthedSettingsRoute = AuthedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedStatistiquesRoute = AuthedStatistiquesRouteImport.update({
+  id: '/statistiques',
+  path: '/statistiques',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedUsersRoute = AuthedUsersRouteImport.update({
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/media': typeof AuthedMediaRoute
   '/redirects': typeof AuthedRedirectsRoute
   '/settings': typeof AuthedSettingsRoute
+  '/statistiques': typeof AuthedStatistiquesRoute
   '/users': typeof AuthedUsersRoute
   '/api/health': typeof ApiHealthRoute
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
@@ -115,6 +122,7 @@ export interface FileRoutesByTo {
   '/media': typeof AuthedMediaRoute
   '/redirects': typeof AuthedRedirectsRoute
   '/settings': typeof AuthedSettingsRoute
+  '/statistiques': typeof AuthedStatistiquesRoute
   '/users': typeof AuthedUsersRoute
   '/api/health': typeof ApiHealthRoute
   '/': typeof AuthedIndexRoute
@@ -132,6 +140,7 @@ export interface FileRoutesById {
   '/_authed/media': typeof AuthedMediaRoute
   '/_authed/redirects': typeof AuthedRedirectsRoute
   '/_authed/settings': typeof AuthedSettingsRoute
+  '/_authed/statistiques': typeof AuthedStatistiquesRoute
   '/_authed/users': typeof AuthedUsersRoute
   '/api/health': typeof ApiHealthRoute
   '/_authed/': typeof AuthedIndexRoute
@@ -150,6 +159,7 @@ export interface FileRouteTypes {
     | '/media'
     | '/redirects'
     | '/settings'
+    | '/statistiques'
     | '/users'
     | '/api/health'
     | '/pages/$pageId'
@@ -164,6 +174,7 @@ export interface FileRouteTypes {
     | '/media'
     | '/redirects'
     | '/settings'
+    | '/statistiques'
     | '/users'
     | '/api/health'
     | '/'
@@ -180,6 +191,7 @@ export interface FileRouteTypes {
     | '/_authed/media'
     | '/_authed/redirects'
     | '/_authed/settings'
+    | '/_authed/statistiques'
     | '/_authed/users'
     | '/api/health'
     | '/_authed/'
@@ -249,6 +261,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/statistiques': {
+      id: '/_authed/statistiques'
+      path: '/statistiques'
+      fullPath: '/statistiques'
+      preLoaderRoute: typeof AuthedStatistiquesRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/users': {
       id: '/_authed/users'
       path: '/users'
@@ -305,6 +324,7 @@ interface AuthedRouteChildren {
   AuthedMediaRoute: typeof AuthedMediaRoute
   AuthedRedirectsRoute: typeof AuthedRedirectsRoute
   AuthedSettingsRoute: typeof AuthedSettingsRoute
+  AuthedStatistiquesRoute: typeof AuthedStatistiquesRoute
   AuthedUsersRoute: typeof AuthedUsersRoute
   AuthedIndexRoute: typeof AuthedIndexRoute
   AuthedPagesPageIdRoute: typeof AuthedPagesPageIdRoute
@@ -317,6 +337,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedMediaRoute: AuthedMediaRoute,
   AuthedRedirectsRoute: AuthedRedirectsRoute,
   AuthedSettingsRoute: AuthedSettingsRoute,
+  AuthedStatistiquesRoute: AuthedStatistiquesRoute,
   AuthedUsersRoute: AuthedUsersRoute,
   AuthedIndexRoute: AuthedIndexRoute,
   AuthedPagesPageIdRoute: AuthedPagesPageIdRoute,
