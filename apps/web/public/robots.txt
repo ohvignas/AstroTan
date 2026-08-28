@@ -1,0 +1,14 @@
+# Servi tel quel depuis `public/` : ce fichier ne dépend d'aucune donnée et
+# doit répondre même si Convex est injoignable. Les exclusions par page se
+# règlent dans l'administration (`noindex`), pas ici — deux endroits pour
+# la même décision finiraient par se contredire.
+
+User-agent: *
+Allow: /
+
+# Les liens de prévisualisation portent `?t=` et rendent déjà un en-tête
+# `x-robots-tag: noindex`. Cette ligne est la ceinture en plus des
+# bretelles, pour un robot qui suivrait un lien partagé par erreur.
+Disallow: /*?t=
+
+Sitemap: /sitemap.xml
