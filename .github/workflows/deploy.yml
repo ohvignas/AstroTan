@@ -48,11 +48,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Règle tenue dans tout ce fichier : rien de `${{ … }}` n'apparaît dans
+      # le CORPS d'un `run:`. Les valeurs passent par le `env:` du step et
+      # sont lues en `"$VAR"`. Pour les secrets c'est la pratique recommandée
+      # par GitHub — interpolé, un secret est substitué TEXTUELLEMENT dans le
+      # script avant exécution, donc son contenu devient du shell. Pour le
+      # reste (`github.*`, `inputs.*`) c'est la même règle, appliquée
+      # uniformément pour qu'on n'ait pas à se demander, ligne par ligne, ce
+      # qui est du code et ce qui est de la donnée.
       - name: Compute the lowercase image prefix
         id: img
         # GHCR n'accepte que des noms de dépôt en minuscules, alors que le
         # propriétaire GitHub peut contenir des majuscules.
-        run: echo "prefix=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: echo "prefix=ghcr.io/$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -72,8 +82,15 @@ jobs:
           tags: |
             ${{ steps.img.outputs.prefix }}/astrotan-web:${{ github.sha }}
             ${{ steps.img.outputs.prefix }}/astrotan-web:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # `scope` obligatoire dès qu'un workflow construit plus d'une image.
+          # Le cache GHA est indexé par scope, et le scope par défaut est
+          # `buildkit` pour TOUT LE MONDE : sans ces deux lignes, le build
+          # `admin` ci-dessous écrit son cache par-dessus celui de `web`, et
+          # `web` fait pareil au run suivant. Les deux images se retrouvent à
+          # ne jamais réutiliser que le cache de l'autre, donc à tout
+          # reconstruire, à chaque exécution (docker/build-push-action#867).
+          cache-from: type=gha,scope=deploy-web
+          cache-to: type=gha,mode=max,scope=deploy-web
 
       - name: Build and push the admin image
         uses: docker/build-push-action@v6
@@ -88,21 +105,26 @@ jobs:
           tags: |
             ${{ steps.img.outputs.prefix }}/astrotan-admin:${{ github.sha }}
             ${{ steps.img.outputs.prefix }}/astrotan-admin:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Scope distinct de celui du build `web` ci-dessus — voir son
+          # commentaire pour la raison.
+          cache-from: type=gha,scope=deploy-admin
+          cache-to: type=gha,mode=max,scope=deploy-admin
 
       # La configuration qui tourne sur le VPS vient du dépôt, à chaque
       # déploiement — sinon un compose édité à la main sur la machine
       # diverge en silence, et le rollback ne reproduit plus rien.
       - name: Configure the SSH client
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_deploy
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
           # La clé d'hôte du VPS, vérifiée à chaque connexion. Jamais
           # `StrictHostKeyChecking=no` : ce serait livrer la clé de
           # déploiement à n'importe quel serveur répondant à cette adresse.
-          printf '%s\n' "${{ secrets.VPS_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
       # `--exclude '.env'` avec `--delete` : le `.env` du VPS n'est ni
@@ -112,24 +134,45 @@ jobs:
       # `VITE_CONVEX_SITE_URL` — et que `docker/docker-compose.yml` exige
       # par la syntaxe `${VAR:?message}`.
       - name: Ship the compose stack
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           rsync -az --delete \
             -e "ssh -i ~/.ssh/id_deploy" \
             --exclude '.env' \
-            docker/ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:~/astrotan/"
+            docker/ "$VPS_USER@$VPS_HOST:~/astrotan/"
 
       # ÉTAPE 3 DU PIPELINE — `IMAGE_TAG` est le sha, jamais `latest` : ce
       # qui tourne sur le VPS doit être nommable pour être reproductible.
       # `IMAGE_TAG` et `GHCR_OWNER` sont les deux seules variables passées
       # par la commande ; elles couvrent exactement ce que le déploiement
       # décide et que le `.env` du VPS ne peut pas savoir.
+      #
+      # `--wait` sur le `up` : sans lui, `up -d` rend la main dès que les
+      # conteneurs sont CRÉÉS, sans regarder les healthchecks — un conteneur
+      # qui démarre puis meurt donne un job vert et un site mort. Avec
+      # `--wait`, compose attend que chaque service soit running|healthy et
+      # sort en 1 sur `container <nom> is unhealthy` (mesuré : `up -d` seul
+      # renvoie 0 sur un conteneur dont le healthcheck échoue, `up -d --wait`
+      # renvoie 1). Le `&&` qui suit n'est donc plus atteint : un déploiement
+      # cassé n'écrit pas son sha dans DEPLOYED_SHA et fait échouer le job.
+      # Les healthchecks du compose sont bornés (`interval` × `retries` +
+      # `start_period`) ; si cette attente devait un jour être plafonnée
+      # explicitement, l'option est `--wait-timeout <secondes>`.
       - name: Pull and restart
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          IMAGE_TAG: ${{ github.sha }}
+          REPO_OWNER: ${{ github.repository_owner }}
         run: |
-          ssh -i ~/.ssh/id_deploy "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+          GHCR_OWNER=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
+          ssh -i ~/.ssh/id_deploy "$VPS_USER@$VPS_HOST" \
             "cd ~/astrotan \
-             && IMAGE_TAG=${{ github.sha }} GHCR_OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]') docker compose pull \
-             && IMAGE_TAG=${{ github.sha }} GHCR_OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]') docker compose up -d \
-             && echo ${{ github.sha }} > ~/astrotan/DEPLOYED_SHA \
+             && IMAGE_TAG=$IMAGE_TAG GHCR_OWNER=$GHCR_OWNER docker compose pull \
+             && IMAGE_TAG=$IMAGE_TAG GHCR_OWNER=$GHCR_OWNER docker compose up -d --wait \
+             && echo $IMAGE_TAG > ~/astrotan/DEPLOYED_SHA \
              && docker image prune -f"
 
       # Rend la cible d'un éventuel rollback évidente sans fouiller les logs
@@ -139,5 +182,7 @@ jobs:
         # contient « Rollback: », et un `: ` dans un scalaire simple fait
         # échouer le parseur YAML sur le workflow entier
         # (« mapping values are not allowed here »).
+        env:
+          DEPLOYED_SHA: ${{ github.sha }}
         run: |
-          echo "Deployed \`${{ github.sha }}\`. Rollback: run the Rollback workflow with the previous sha." >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed \`$DEPLOYED_SHA\`. Rollback: run the Rollback workflow with the previous sha." >> "$GITHUB_STEP_SUMMARY"

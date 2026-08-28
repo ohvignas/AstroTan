@@ -30,7 +30,10 @@ RUN test -n "$VITE_CONVEX_URL" && test -n "$VITE_CONVEX_SITE_URL" && test -n "$V
 RUN pnpm --filter @astrotan/admin build
 
 RUN pnpm deploy --legacy --filter @astrotan/admin --prod /out
-RUN cp -r apps/admin/dist /out/dist
+# `rm -rf` d'abord, comme dans docker/web.Dockerfile : si une version de pnpm
+# copie déjà `dist/` (pnpm#7286), la cible existe et `cp -r src dst` copie
+# dans la cible — `/out/dist/dist`, image verte, `CMD` cassé au démarrage.
+RUN rm -rf /out/dist && cp -r apps/admin/dist /out/dist
 
 FROM base AS runtime
 ENV NODE_ENV=production \

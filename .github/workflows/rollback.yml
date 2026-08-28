@@ -28,9 +28,19 @@ jobs:
           # l'objet de ce workflow.
           ref: ${{ inputs.sha }}
 
+      # Même règle que dans `deploy.yml` : rien de `${{ … }}` dans le corps
+      # d'un `run:`, tout passe par le `env:` du step et se lit en `"$VAR"`.
+      # Ici ce n'est pas qu'une question de style : `inputs.sha` est tapé à la
+      # main au lancement du workflow. Interpolé, il serait recollé
+      # textuellement dans le script AVANT exécution — donc exécutable. En
+      # variable d'environnement il reste une chaîne, y compris pendant la
+      # validation ci-dessous, qui est justement ce qui doit tourner en
+      # premier.
       - name: Refuser un sha mal formé
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
         run: |
-          echo "${{ inputs.sha }}" | grep -Eq '^[0-9a-f]{40}$' \
+          echo "$INPUT_SHA" | grep -Eq '^[0-9a-f]{40}$' \
             || (echo "sha must be a full 40-character commit sha" && exit 1)
 
       - uses: actions/setup-node@v4
@@ -62,23 +72,31 @@ jobs:
 
       - name: Compute the lowercase image prefix
         id: img
-        run: echo "prefix=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: echo "prefix=ghcr.io/$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       # Échouer ici plutôt que sur le VPS, à mi-chemin d'un `compose up`
       # dont un service ne démarrera jamais.
       - name: Vérifier que les deux images de ce sha existent
+        env:
+          IMG_PREFIX: ${{ steps.img.outputs.prefix }}
+          INPUT_SHA: ${{ inputs.sha }}
         run: |
-          docker manifest inspect ${{ steps.img.outputs.prefix }}/astrotan-web:${{ inputs.sha }} >/dev/null
-          docker manifest inspect ${{ steps.img.outputs.prefix }}/astrotan-admin:${{ inputs.sha }} >/dev/null
+          docker manifest inspect "$IMG_PREFIX/astrotan-web:$INPUT_SHA" >/dev/null
+          docker manifest inspect "$IMG_PREFIX/astrotan-admin:$INPUT_SHA" >/dev/null
 
       - name: Configure the SSH client
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_deploy
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
           # Comme dans `deploy.yml` : la clé d'hôte est vérifiée, jamais
           # contournée par `StrictHostKeyChecking=no`.
-          printf '%s\n' "${{ secrets.VPS_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
       # Le compose et la config Traefik du sha visé, pas ceux de `main` :
@@ -86,20 +104,37 @@ jobs:
       # `.env` du VPS reste intact (`--exclude '.env'`), il porte les
       # variables que la commande ci-dessous ne passe pas.
       - name: Ship the compose stack of that sha
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           rsync -az --delete \
             -e "ssh -i ~/.ssh/id_deploy" \
             --exclude '.env' \
-            docker/ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:~/astrotan/"
+            docker/ "$VPS_USER@$VPS_HOST:~/astrotan/"
 
+      # `--wait` comme dans `deploy.yml` : `up -d` seul rend la main dès la
+      # création des conteneurs et renvoie 0 même si l'un d'eux meurt aussitôt
+      # après. C'est encore moins acceptable ici — un rollback qu'on croit
+      # réussi est un incident qu'on croit clos. Avec `--wait`, compose attend
+      # running|healthy et sort en 1 sur `container <nom> is unhealthy`, donc
+      # DEPLOYED_SHA n'est pas réécrit et le job échoue.
       - name: Pull and restart at that sha
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          IMAGE_TAG: ${{ inputs.sha }}
+          REPO_OWNER: ${{ github.repository_owner }}
         run: |
-          ssh -i ~/.ssh/id_deploy "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+          GHCR_OWNER=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
+          ssh -i ~/.ssh/id_deploy "$VPS_USER@$VPS_HOST" \
             "cd ~/astrotan \
-             && IMAGE_TAG=${{ inputs.sha }} GHCR_OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]') docker compose pull \
-             && IMAGE_TAG=${{ inputs.sha }} GHCR_OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]') docker compose up -d \
-             && echo ${{ inputs.sha }} > ~/astrotan/DEPLOYED_SHA"
+             && IMAGE_TAG=$IMAGE_TAG GHCR_OWNER=$GHCR_OWNER docker compose pull \
+             && IMAGE_TAG=$IMAGE_TAG GHCR_OWNER=$GHCR_OWNER docker compose up -d --wait \
+             && echo $IMAGE_TAG > ~/astrotan/DEPLOYED_SHA"
 
       - name: Record the rollback
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
         run: |
-          echo "Rolled back to \`${{ inputs.sha }}\` — Convex functions redeployed from that tree, images repinned." >> "$GITHUB_STEP_SUMMARY"
+          echo "Rolled back to \`$INPUT_SHA\` — Convex functions redeployed from that tree, images repinned." >> "$GITHUB_STEP_SUMMARY"

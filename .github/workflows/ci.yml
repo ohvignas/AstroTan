@@ -78,8 +78,15 @@ jobs:
             VITE_CONVEX_URL=http://ci.invalid
             VITE_CONVEX_SITE_URL=http://ci.invalid
             VITE_WEB_SITE_URL=http://ci.invalid
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Scope explicite : le cache GHA est indexé par scope et le défaut
+          # est `buildkit`, partagé par tous les builds du dépôt. Distinct de
+          # `deploy-admin` (workflow Deploy) volontairement — ce build-ci
+          # tourne sur chaque PR, avec des build-args bidons (`ci.invalid`),
+          # et écrire dans le même scope ferait de chaque PR une réécriture du
+          # cache dont dépend le déploiement de `main`, dans les deux sens
+          # (docker/build-push-action#867).
+          cache-from: type=gha,scope=ci-admin
+          cache-to: type=gha,mode=max,scope=ci-admin
 
       # Ces variables sont exactement celles que `docker-compose.yml` exige
       # par `${VAR:?message}` — ni plus, ni moins. `ACME_CA_SERVER` n'y est

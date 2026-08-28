@@ -41,7 +41,15 @@ RUN pnpm --filter @astrotan/web build
 RUN pnpm deploy --legacy --filter @astrotan/web --prod /out
 # `deploy` copie les sources du package, pas ses artefacts de build
 # (`dist/` est ignoré) : le résultat du build se copie explicitement.
-RUN cp -r apps/web/dist /out/dist
+#
+# Le `rm -rf` n'est pas cosmétique. Le fait que `pnpm deploy` ignore `dist/`
+# dépend du `.gitignore` qui s'applique au package, et ce comportement a déjà
+# changé d'une version de pnpm à l'autre (pnpm#7286). Si une version copie
+# `dist/`, la cible existe, et `cp -r src dst` copie ALORS *dans* la cible :
+# on obtient `/out/dist/dist`. L'image se construit sans erreur et le `CMD`
+# échoue au démarrage, sur un chemin qui n'existe pas. Effacer d'abord rend
+# la commande idempotente quel que soit ce que `deploy` a laissé.
+RUN rm -rf /out/dist && cp -r apps/web/dist /out/dist
 
 FROM base AS runtime
 ENV NODE_ENV=production \
