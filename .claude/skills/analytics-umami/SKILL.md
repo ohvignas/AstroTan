@@ -142,6 +142,15 @@ curl -H "authorization: Bearer $TOK" \
 # → {"pageviews":1,"visitors":1,…}
 ```
 
+**Le `User-Agent` décide si l'événement est gardé, et l'échec porte un code
+de succès.** Mesuré : `curl/8.7.1`, `python-requests/…` ou `Googlebot/2.1`
+font répondre **`200 {"beep":"boop"}`** et l'événement est **jeté** ;
+absent, vide ou ressemblant à un navigateur, il est écrit. Le piège est à
+l'envers de ce qu'on croit — ce n'est pas l'absence qui bloque, c'est de
+ressembler à un outil. Un script qui ne regarde que le code de statut ne
+verra jamais rien. Si un rapport reste vide après une injection, chercher
+`beep` avant toute autre hypothèse.
+
 **Ne pas écrire de synchronisation page ↔ Umami.** Ce serait un
 second modèle de données à tenir à jour, pour une API qui n'en veut pas.
 `analytics.forPath` interroge le chemin, et c'est tout — même mécanisme

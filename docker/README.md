@@ -856,8 +856,21 @@ curl -s -X POST http://127.0.0.1:3002/api/send \
   -d "{\"type\":\"event\",\"payload\":{\"website\":\"$ID\",\"hostname\":\"localhost\",\"url\":\"/contact\",\"referrer\":\"https://www.google.com/\"}}"
 ```
 
-L'en-tête `User-Agent` n'est pas décoratif : sans lui, Umami rejette
-l'événement.
+**L'en-tête `User-Agent` décide si l'événement est gardé, et l'échec est
+silencieux.** Mesuré sur 3.3.1 :
+
+| En-tête envoyé | Réponse | Résultat |
+|---|---|---|
+| absent ou vide | jeton de cache | **écrit** |
+| `Mozilla/5.0 … Chrome/140 …` | jeton de cache | **écrit** |
+| `curl/8.7.1`, `python-requests/…`, `Googlebot/2.1` | `200 {"beep":"boop"}` | **jeté** |
+
+Une version antérieure de ce document disait « sans lui, Umami rejette
+l'événement » : c'est faux dans les deux sens. Ce qui est rejeté, c'est ce
+qui *ressemble à un outil* — et le rejet arrive en **HTTP 200**, ce qui le
+rend invisible d'un script qui ne regarde que le code de statut. Si un
+rapport reste vide après une injection, `{"beep":"boop"}` est la première
+chose à chercher.
 
 **6. Arrêter.**
 
