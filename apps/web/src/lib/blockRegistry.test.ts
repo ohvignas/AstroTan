@@ -95,4 +95,63 @@ describe("block components render their own block variant", () => {
     expect(html).not.toContain("<script")
     expect(html).toContain("world")
   })
+
+  // M5 (whole-lot review): the reviewer verified RichText.astro's
+  // `sanitize-html` allowlist against the library's own source and
+  // confirmed `on*`, `style`, `iframe`, `srcdoc`, and `javascript:`/`data:`
+  // schemes are all genuinely blocked — but this file only ever asserted
+  // that a bare `<script>` tag was stripped. That single assertion is
+  // consistent with an allowlist that also happens to permit `iframe` or
+  // `style` — nothing here would have caught it. One assertion per
+  // vector, each independently checking the corresponding markup is
+  // entirely absent from the rendered output, so a future change that
+  // loosens `allowedTags`/`allowedAttributes`/`allowedSchemes` to
+  // reintroduce any one of them fails here specifically, not just
+  // generically "some sanitizer test failed".
+  describe("richText blocks each XSS vector the allowlist claims to block", () => {
+    const vectors: { name: string; html: string; mustNotContain: string[] }[] = [
+      {
+        name: "inline event handler (onerror=)",
+        html: '<img src="https://example.com/a.png" onerror="alert(1)">',
+        mustNotContain: ["onerror"],
+      },
+      {
+        name: "javascript: href",
+        html: '<a href="javascript:alert(1)">click me</a>',
+        mustNotContain: ["javascript:"],
+      },
+      {
+        name: "<style> tag",
+        html: "<style>body{display:none}</style><p>still here</p>",
+        mustNotContain: ["<style", "display:none"],
+      },
+      {
+        name: "data: img src",
+        html: '<img src="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==" alt="x">',
+        mustNotContain: ["data:"],
+      },
+      {
+        name: "<iframe>",
+        html: '<iframe src="https://evil.example.com"></iframe><p>still here</p>',
+        mustNotContain: ["<iframe"],
+      },
+      {
+        name: "style attribute",
+        html: '<p style="background:url(javascript:alert(1))">text</p>',
+        mustNotContain: ['style="'],
+      },
+    ]
+
+    for (const vector of vectors) {
+      test(vector.name, async () => {
+        const container = await AstroContainer.create()
+        const html = await container.renderToString(blockRegistry.richText, {
+          props: { block: { type: "richText", html: vector.html } },
+        })
+        for (const forbidden of vector.mustNotContain) {
+          expect(html.toLowerCase()).not.toContain(forbidden.toLowerCase())
+        }
+      })
+    }
+  })
 })
