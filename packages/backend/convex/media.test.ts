@@ -2,6 +2,7 @@ import type { TestConvex } from "convex-test"
 import { afterEach, beforeEach, expect, test } from "vitest"
 import schema from "./schema"
 import { api } from "./_generated/api"
+import type { Id } from "./_generated/dataModel"
 import {
   ALLOWED_MIME_TYPES,
   MAX_ALT_LENGTH,
@@ -453,4 +454,36 @@ test("remove refuse un média utilisé comme couverture d'article", async () => 
   await expect(
     owner.identity.mutation(api.media.remove, { id: mediaId }),
   ).rejects.toMatchObject({ data: { code: "MEDIA_IN_USE" } })
+})
+
+test("supprimer un média servant de logo, d'icône ou d'image par défaut est refusé", async () => {
+  const t = makeTestConvex()
+  const { identity: owner } = await seedActor(t, "owner")
+
+  for (const champ of ["logoId", "iconId", "ogImage"] as const) {
+    const storageId = (await t.run((ctx: any) =>
+      ctx.storage.store(new Blob(["x"])),
+    )) as Id<"_storage">
+    const mediaId = await owner.mutation(api.media.register, {
+      storageId,
+      filename: `${champ}.png`,
+      mime: "image/png",
+      size: 1,
+      alt: "Image de réglage",
+    })
+
+    await owner.mutation(api.settings.update, {
+      siteName: "AstroTan",
+      ...(champ === "logoId" ? { logoId: storageId } : {}),
+      ...(champ === "iconId" ? { iconId: storageId } : {}),
+      ...(champ === "ogImage" ? { defaultSeo: { ogImageId: storageId } } : {}),
+    })
+
+    // Autoriser la suppression laissait une référence pendante : le site
+    // continuait de demander un fichier absent, et l'écran des réglages
+    // affichait « fichier hors médiathèque » sans expliquer pourquoi.
+    await expect(
+      owner.mutation(api.media.remove, { id: mediaId }),
+    ).rejects.toThrow(/MEDIA_IN_USE/)
+  }
 })

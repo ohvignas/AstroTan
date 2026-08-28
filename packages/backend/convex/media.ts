@@ -289,7 +289,7 @@ export const replaceFile = mutation({
  * references — the test for `MEDIA_IN_USE` is what catches that.
  */
 async function isReferenced(
-  ctx: { db: { query: (table: "pages" | "posts") => any } },
+  ctx: { db: { query: (table: "pages" | "posts" | "settings") => any } },
   storageId: Id<"_storage">
 ): Promise<boolean> {
   const pages = await ctx.db.query("pages").collect()
@@ -306,9 +306,30 @@ async function isReferenced(
   // about: deleting an image still used as an article's cover was allowed,
   // leaving that article pointing at a file that no longer exists.
   const posts = await ctx.db.query("posts").collect()
-  return posts.some(
-    (post: { coverId?: Id<"_storage">; seo?: { ogImageId?: Id<"_storage"> } }) =>
-      post.coverId === storageId || post.seo?.ogImageId === storageId
+  if (
+    posts.some(
+      (post: { coverId?: Id<"_storage">; seo?: { ogImageId?: Id<"_storage"> } }) =>
+        post.coverId === storageId || post.seo?.ogImageId === storageId
+    )
+  ) {
+    return true
+  }
+
+  // Les réglages du site — troisième oubli du même genre, et celui qui se
+  // voit le plus : supprimer le média servant de logo était autorisé, la
+  // référence restait, et l'écran des réglages affichait « fichier hors
+  // médiathèque » sans que personne comprenne pourquoi. Trois champs, et
+  // ils tiennent dans une seule ligne.
+  const settings = await ctx.db.query("settings").collect()
+  return settings.some(
+    (row: {
+      logoId?: Id<"_storage">
+      iconId?: Id<"_storage">
+      defaultSeo?: { ogImageId?: Id<"_storage"> }
+    }) =>
+      row.logoId === storageId ||
+      row.iconId === storageId ||
+      row.defaultSeo?.ogImageId === storageId
   )
 }
 

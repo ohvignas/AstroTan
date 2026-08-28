@@ -10,7 +10,9 @@ import {
 import type { Doc, Id } from "./_generated/dataModel"
 import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
-import { requireRole } from "./lib/authz"
+import { isCurrentlyBanned, requireRole } from "./lib/authz"
+import { makeResend } from "./lib/resend"
+import { listUsersWithRole } from "./users"
 import { timingSafeEqualHex } from "./lib/previewToken"
 import {
   LEAD_STATUSES,
@@ -133,13 +135,27 @@ export const submit = mutation({
     // advienne du tiers. Planifier avant, ou appeler pendant, ferait
     // dépendre un message reçu de la santé d'un service qu'on ne contrôle
     // pas.
+    const messageCount = existing === null ? 1 : existing.messageCount + 1
     await ctx.scheduler.runAfter(0, internal.leads.deliverWebhook, {
       leadId,
       name,
       email,
       subject,
       body,
-      messageCount: existing === null ? 1 : existing.messageCount + 1,
+      messageCount,
+    })
+
+    // Même raisonnement, même ordre : prévenir les responsables est un
+    // effet de bord de l'écriture, jamais une condition de l'écriture. Une
+    // panne de Resend, une clé absente, un domaine non vérifié — rien de
+    // tout cela ne doit faire disparaître un message qu'une personne a
+    // pris la peine d'écrire.
+    await ctx.scheduler.runAfter(0, internal.leads.notifyStaff, {
+      name,
+      email,
+      subject,
+      body,
+      messageCount,
     })
 
     return null
@@ -392,6 +408,148 @@ export const recordWebhookResult = internalMutation({
       leadWebhookLastStatus: args.status,
       leadWebhookLastAt: Date.now(),
     })
+    return null
+  },
+})
+
+// --- Prévenir les responsables -------------------------------------------
+
+/**
+ * Les adresses à prévenir : les comptes `owner` et `admin`, personne
+ * d'autre.
+ *
+ * Pas « qui peut lire » mais « qui doit répondre » — un éditeur classe les
+ * fiches sans avoir à recevoir chaque message dans sa boîte. Le rôle est lu
+ * sur l'utilisateur Better Auth (invariant 4), par la même primitive que
+ * `users.ts` utilise pour compter les owners, et non par une seconde
+ * interrogation maison de la table du composant.
+ *
+ * Un compte banni est retiré : lui envoyer par email ce qu'on vient de lui
+ * interdire de lire ferait du ban une décoration, exactement comme
+ * `decideAccess` l'évite côté lecture.
+ */
+export const staffRecipients = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<string[]> => {
+    const [owners, admins] = await Promise.all([
+      listUsersWithRole(ctx, "owner"),
+      listUsersWithRole(ctx, "admin"),
+    ])
+    const emails = [...owners, ...admins]
+      .filter((user) => !isCurrentlyBanned(user))
+      .map((user) => user.email)
+    // Dédupliqué : deux rôles ne peuvent pas coexister sur un compte
+    // aujourd'hui, mais une adresse en double enverrait deux fois le même
+    // email, et c'est le genre de défaut qu'on ne remarque qu'en production.
+    return [...new Set(emails)]
+  },
+})
+
+/** `&`, `<`, `>` et `"` échappés : le corps du message vient d'Internet. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+}
+
+/**
+ * Une seule ligne, sans retour chariot.
+ *
+ * Le nom et le sujet sont saisis par le visiteur et atterrissent dans
+ * l'en-tête `Subject:` d'un email. Un retour à la ligne y ouvre la porte à
+ * l'injection d'en-têtes ; les bornes de longueur de `content.ts` ne
+ * disent rien des caractères de contrôle.
+ */
+function singleLine(value: string): string {
+  return value.replace(/[\r\n\t]+/g, " ").trim()
+}
+
+/**
+ * Prévenir les responsables qu'un message est arrivé.
+ *
+ * Une `internalAction` planifiée APRÈS l'écriture — voir `submit`. Elle
+ * emprunte le chemin Resend déjà tracé par `invitations.ts` (même
+ * composant, même configuration partagée via `lib/resend.ts`), et non un
+ * second mécanisme d'envoi.
+ *
+ * Deux silences délibérés, et un seul cri :
+ *
+ * - **Pas de `RESEND_API_KEY`** : on ne tente rien. Un template qu'on
+ *   essaie avant d'avoir ouvert un compte Resend ne doit pas afficher un
+ *   job en échec à la première prise de contact. La clé absente est une
+ *   configuration incomplète, pas une panne.
+ * - **Aucun compte owner ni admin** : il n'y a personne à prévenir. C'est
+ *   l'état normal d'un déploiement neuf, où un visiteur peut écrire avant
+ *   que le premier compte n'existe.
+ * - **`SITE_URL` absente** : là, on lève. La variable est censée être
+ *   posée (c'est déjà ce que fait `sendInvitationEmail`), et un lien vers
+ *   le dashboard ne se devine pas depuis Convex — un job en échec, visible
+ *   dans le tableau de bord, vaut mieux qu'un email amputé de ce qui
+ *   permet d'agir. Le lead, lui, est déjà en base.
+ */
+export const notifyStaff = internalAction({
+  args: {
+    name: v.string(),
+    email: v.string(),
+    subject: v.optional(v.string()),
+    body: v.string(),
+    messageCount: v.number(),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    if (!process.env.RESEND_API_KEY) return null
+
+    const recipients = await ctx.runQuery(internal.leads.staffRecipients, {})
+    if (recipients.length === 0) return null
+
+    const siteUrl = process.env.SITE_URL
+    if (!siteUrl) throw new Error("SITE_URL is not set on this Convex deployment")
+    const link = `${siteUrl}/leads`
+
+    const name = singleLine(args.name)
+    const subject = args.subject ? singleLine(args.subject) : "(sans sujet)"
+    // Une relance se répond autrement qu'une première prise de contact :
+    // le dire dans l'email évite d'avoir à ouvrir la fiche pour le
+    // découvrir.
+    const relance =
+      args.messageCount > 1 ? `${args.messageCount}e message de cette personne.` : null
+
+    const text = [
+      `${name} <${args.email}> a écrit depuis le formulaire de contact.`,
+      ...(relance ? [relance] : []),
+      ``,
+      `Sujet : ${subject}`,
+      ``,
+      args.body,
+      ``,
+      `Répondre depuis le dashboard : ${link}`,
+    ].join("\n")
+
+    const html = [
+      `<p><strong>${escapeHtml(name)}</strong> &lt;${escapeHtml(args.email)}&gt; a écrit depuis le formulaire de contact.</p>`,
+      relance ? `<p>${escapeHtml(relance)}</p>` : "",
+      `<p><strong>Sujet :</strong> ${escapeHtml(subject)}</p>`,
+      `<p style="white-space:pre-wrap">${escapeHtml(args.body)}</p>`,
+      `<p><a href="${escapeHtml(link)}">Répondre depuis le dashboard</a></p>`,
+    ].join("")
+
+    const resend = makeResend()
+    for (const to of recipients) {
+      // Un email par destinataire, pas un seul avec plusieurs `to` : une
+      // notification interne n'a pas à révéler à chacun la liste des
+      // adresses des autres.
+      await resend.sendEmail(ctx, {
+        from: "AstroTan <onboarding@resend.dev>",
+        to,
+        subject: singleLine(`Nouveau message de ${name}`),
+        html,
+        text,
+        // Répondre à cet email, c'est répondre à la personne qui a écrit.
+        replyTo: [args.email],
+      })
+    }
+
     return null
   },
 })

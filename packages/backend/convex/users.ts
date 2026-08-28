@@ -20,9 +20,27 @@ import { MUTATION_REGISTRY } from "./_registry"
 // silently truncated if that ever stops being true.
 const LIST_PAGE_SIZE = 200
 
-async function countUsersWithRole(ctx: QueryCtx | MutationCtx, role: Role): Promise<number> {
+// Les comptes portant un rôle donné, page par page — la primitive que
+// `countUsersWithRole` (ci-dessous) et `leads.staffRecipients` partagent.
+// Exportée plutôt que recopiée : le rôle vit sur l'utilisateur Better Auth
+// (invariant 4), et une deuxième façon d'interroger la table `user` du
+// composant serait une deuxième chose à corriger le jour où l'adaptateur
+// change. `banned`/`banExpires` remontent avec le reste parce qu'un compte
+// banni n'est plus un destinataire (voir `leads.staffRecipients`) : les
+// omettre ici obligerait l'appelant à refaire une requête pour les obtenir.
+export type StaffUser = {
+  id: string
+  email: string
+  banned: boolean | null
+  banExpires: number | null
+}
+
+export async function listUsersWithRole(
+  ctx: QueryCtx | MutationCtx,
+  role: Role,
+): Promise<StaffUser[]> {
   let cursor: string | null = null
-  let total = 0
+  const users: StaffUser[] = []
   for (;;) {
     const page: PaginationResult<GenericDocument> = await ctx.runQuery(
       components.betterAuth.adapter.findMany,
@@ -32,10 +50,21 @@ async function countUsersWithRole(ctx: QueryCtx | MutationCtx, role: Role): Prom
         paginationOpts: { numItems: LIST_PAGE_SIZE, cursor },
       },
     )
-    total += page.page.length
-    if (page.isDone) return total
+    for (const doc of page.page) {
+      users.push({
+        id: String(doc._id),
+        email: String(doc.email),
+        banned: typeof doc.banned === "boolean" ? doc.banned : null,
+        banExpires: typeof doc.banExpires === "number" ? doc.banExpires : null,
+      })
+    }
+    if (page.isDone) return users
     cursor = page.continueCursor
   }
+}
+
+async function countUsersWithRole(ctx: QueryCtx | MutationCtx, role: Role): Promise<number> {
+  return (await listUsersWithRole(ctx, role)).length
 }
 
 // `assertOwnerInvariant` throws a plain `OwnerInvariantError` with a

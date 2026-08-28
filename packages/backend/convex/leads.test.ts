@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
-import { api } from "./_generated/api"
+import { Resend } from "@convex-dev/resend"
+import { api, components } from "./_generated/api"
 import {
   ORIGIN,
   identityFor,
@@ -223,4 +224,184 @@ test("l'envoi est signé, et ne part pas sans configuration", async () => {
     type: "lead.created",
     lead: { email: "autre@example.com", name: "Camille Dupont" },
   })
+})
+
+// --- Prévenir les responsables -------------------------------------------
+//
+// L'email est un EFFET DE BORD. La fiche est déjà écrite quand la
+// notification part ; c'est ce qui rend acceptable qu'elle échoue. Les
+// tests ci-dessous exercent surtout les quatre façons dont elle peut ne
+// pas partir — aucune ne doit faire perdre un message.
+
+type EnvoiCapture = {
+  to: string | string[]
+  subject: string
+  html?: string
+  text?: string
+  replyTo?: string[]
+}
+
+/**
+ * Espionne l'envoi au niveau du prototype, et non d'une instance : le
+ * client Resend est construit à l'appel (voir `lib/resend.ts`), donc il
+ * n'existe aucune instance à intercepter avant que l'action ne tourne.
+ */
+function capturerLesEnvois(): EnvoiCapture[] {
+  const envoyes: EnvoiCapture[] = []
+  vi.spyOn(Resend.prototype, "sendEmail").mockImplementation((async (
+    _ctx: unknown,
+    options: EnvoiCapture,
+  ) => {
+    envoyes.push(options)
+    return "email-de-test"
+  }) as unknown as Resend["sendEmail"])
+  return envoyes
+}
+
+/** Renvoie le compteur de tentatives : sans lui, un test « le lead
+ *  survit » passerait même si plus aucun envoi n'était tenté. */
+function faireEchouerLesEnvois(): { tentatives: number } {
+  const compteur = { tentatives: 0 }
+  vi.spyOn(Resend.prototype, "sendEmail").mockImplementation((() => {
+    compteur.tentatives += 1
+    return Promise.reject(new Error("Resend est en panne"))
+  }) as unknown as Resend["sendEmail"])
+  return compteur
+}
+
+async function seedStaff(
+  t: TestConvex<typeof schema>,
+  role: "owner" | "admin" | "editor",
+  email: string,
+) {
+  return await seedUser(t, {
+    email,
+    password: "correct horse battery staple staff",
+    name: `Staff ${role}`,
+    role,
+  })
+}
+
+/** Les jobs planifiés qui ont échoué — « rien ne lève » se vérifie ici. */
+async function jobsEnEchec(t: TestConvex<typeof schema>): Promise<number> {
+  const jobs = await t.run(async (ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect(),
+  )
+  return jobs.filter((job) => job.state.kind === "failed").length
+}
+
+test("la notification part aux comptes owner et admin, à personne d'autre", async () => {
+  const t = makeTestConvex()
+  process.env.RESEND_API_KEY = "re_test_key"
+  const envoyes = capturerLesEnvois()
+
+  await seedStaff(t, "owner", "patronne@example.com")
+  await seedStaff(t, "admin", "admin@example.com")
+  // L'éditeur classe les fiches ; il n'est pas prévenu. Le destinataire
+  // d'une notification n'est pas « qui peut lire », c'est « qui doit
+  // répondre ».
+  await seedStaff(t, "editor", "editrice@example.com")
+
+  await t.mutation(api.leads.submit, { ...MESSAGE, subject: "Devis toiture" })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(envoyes.map((e) => e.to).sort()).toEqual([
+    "admin@example.com",
+    "patronne@example.com",
+  ])
+
+  const premier = envoyes[0]!
+  expect(premier.subject).toContain("Camille Dupont")
+  // Qui a écrit, son adresse, le sujet, le message, et où aller lire.
+  expect(premier.text).toContain("camille@example.com")
+  expect(premier.text).toContain("Devis toiture")
+  expect(premier.text).toContain("Bonjour, je voudrais un devis.")
+  expect(premier.text).toContain(`${ORIGIN}/leads`)
+  expect(premier.html).toContain(`${ORIGIN}/leads`)
+  // Répondre à l'email, c'est répondre à la personne — pas à nous-mêmes.
+  expect(premier.replyTo).toEqual(["camille@example.com"])
+})
+
+test("un compte banni ne reçoit plus rien", async () => {
+  const t = makeTestConvex()
+  process.env.RESEND_API_KEY = "re_test_key"
+  const envoyes = capturerLesEnvois()
+
+  await seedStaff(t, "admin", "encore-la@example.com")
+  await seedStaff(t, "admin", "banni@example.com")
+  // Écrit directement dans la table du composant : `auth.api.banUser`
+  // refuse qu'un admin agisse sur un admin (`ADMIN_ROLE_BOUNDARY`, voir
+  // `auth.ts`), et le chemin du ban n'est pas le sujet de ce test — l'état
+  // « banni » l'est.
+  await t.run(async (ctx) =>
+    ctx.runMutation(components.betterAuth.adapter.updateOne, {
+      input: {
+        model: "user",
+        where: [{ field: "email", operator: "eq", value: "banni@example.com" }],
+        update: { banned: true },
+      },
+    }),
+  )
+
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  // Un compte coupé de l'accès ne doit pas continuer à recevoir par email
+  // ce qu'on vient de lui interdire de lire.
+  expect(envoyes.map((e) => e.to)).toEqual(["encore-la@example.com"])
+})
+
+test("un échec d'envoi ne perd pas le lead", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.RESEND_API_KEY = "re_test_key"
+  const resend = faireEchouerLesEnvois()
+
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  // L'envoi a bien été tenté, et il a bien échoué — sans quoi ce test
+  // passerait aussi le jour où plus rien ne serait envoyé du tout.
+  expect(resend.tentatives).toBe(1)
+
+  // Le point central du lot : le message est déjà écrit quand la
+  // notification part. Resend peut tomber, la fiche reste.
+  const board = await admin.query(api.leads.board, {})
+  expect(board.new).toHaveLength(1)
+  expect(board.new[0]).toMatchObject({ email: "camille@example.com", messageCount: 1 })
+  const messages = await admin.query(api.leads.messages, { id: board.new[0]!._id })
+  expect(messages.map((m) => m.body)).toEqual(["Bonjour, je voudrais un devis."])
+})
+
+test("sans compte owner ni admin, rien ne part et rien ne lève", async () => {
+  const t = makeTestConvex()
+  process.env.RESEND_API_KEY = "re_test_key"
+  const envoyes = capturerLesEnvois()
+  // Le cas d'un déploiement neuf : le premier visiteur peut écrire avant
+  // que qui que ce soit n'ait de compte.
+  await seedStaff(t, "editor", "editrice@example.com")
+
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(envoyes).toHaveLength(0)
+  expect(await jobsEnEchec(t)).toBe(0)
+})
+
+test("sans RESEND_API_KEY, rien ne part et rien ne lève", async () => {
+  const t = makeTestConvex()
+  delete process.env.RESEND_API_KEY
+  const envoyes = capturerLesEnvois()
+  await seedStaff(t, "admin", "admin@example.com")
+
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  // Un template qu'on essaie sans clé d'API ne doit pas casser à la
+  // première prise de contact. Le lead arrive, et le job ne rougit pas.
+  expect(envoyes).toHaveLength(0)
+  expect(await jobsEnEchec(t)).toBe(0)
+
+  const admin = await seedActor(t, "admin")
+  expect((await admin.query(api.leads.board, {})).new).toHaveLength(1)
 })

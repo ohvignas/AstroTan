@@ -21,6 +21,7 @@ import type * as lib_authz from "../lib/authz.js";
 import type * as lib_ownerGuard from "../lib/ownerGuard.js";
 import type * as lib_passwordStrength from "../lib/passwordStrength.js";
 import type * as lib_previewToken from "../lib/previewToken.js";
+import type * as lib_resend from "../lib/resend.js";
 import type * as lib_safeHref from "../lib/safeHref.js";
 import type * as lib_servedPaths from "../lib/servedPaths.js";
 import type * as lib_signInRateLimit from "../lib/signInRateLimit.js";
@@ -61,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   "lib/ownerGuard": typeof lib_ownerGuard;
   "lib/passwordStrength": typeof lib_passwordStrength;
   "lib/previewToken": typeof lib_previewToken;
+  "lib/resend": typeof lib_resend;
   "lib/safeHref": typeof lib_safeHref;
   "lib/servedPaths": typeof lib_servedPaths;
   "lib/signInRateLimit": typeof lib_signInRateLimit;

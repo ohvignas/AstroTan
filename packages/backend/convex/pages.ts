@@ -158,7 +158,22 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     await requireRole(ctx, ["owner", "admin", "editor"])
-    return ctx.db.query("pages").order("desc").collect()
+    const pages = await ctx.db.query("pages").order("desc").collect()
+
+    // Une page est un COUPLE : cette ligne et un fichier `.astro`. Quand le
+    // fichier disparaît — une page fusionnée avec une autre, un fichier
+    // supprimé dans une branche — la ligne reste, et l'écran affichait
+    // « Publiée » pour une route qui rend 404. La liste porte donc l'autre
+    // moitié de la vérité.
+    //
+    // La ligne n'est PAS supprimée automatiquement : le code et la base se
+    // déploient séparément, et un fichier retiré dans une branche ne doit
+    // pas effacer des données de production. C'est à un humain de trancher,
+    // en connaissance de cause.
+    return pages.map((page) => ({
+      ...page,
+      servedByRoute: isServedByRoute(page.slug),
+    }))
   },
 })
 

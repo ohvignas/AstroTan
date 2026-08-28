@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values"
-import { Resend } from "@convex-dev/resend"
+import type { Resend } from "@convex-dev/resend"
 import { internalAction, internalMutation, mutation, query } from "./_generated/server"
 import { api, components, internal } from "./_generated/api"
 import { decideAccess, requireRole } from "./lib/authz"
@@ -10,18 +10,17 @@ import { MIN_PASSWORD_SCORE, scorePassword } from "./lib/passwordStrength"
 import { roleValidator } from "./validators"
 import { MAX_DISPLAY_NAME_LENGTH } from "./profiles"
 import { MUTATION_REGISTRY } from "./_registry"
+import { makeResend } from "./lib/resend"
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
 // Module-level client, exactly as `@convex-dev/resend`'s own README sets
-// it up. `testMode` is read from the environment (review I3) rather than
-// hard-coded, so going live in production is a configuration change
-// (`RESEND_TEST_MODE=false` + a verified sending domain), not a code
-// change — `!== "false"` keeps the component's own safe default (`true`)
-// for every value except the literal string `"false"`, including unset.
-const resend: Resend = new Resend(components.resend, {
-  testMode: process.env.RESEND_TEST_MODE !== "false",
-})
+// it up. Its configuration — `testMode` read from the environment (review
+// I3) rather than hard-coded — now lives in `lib/resend.ts`, shared with
+// `leads.ts`'s own notification send: one place decides how this project
+// talks to Resend, so the two can't drift into disagreeing about test
+// mode.
+const resend: Resend = makeResend()
 
 // Le seul chemin par lequel un compte peut naître dans ce système : une
 // invitation valide, jamais expirée, jamais déjà consommée, pour l'email et

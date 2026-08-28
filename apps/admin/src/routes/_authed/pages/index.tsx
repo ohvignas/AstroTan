@@ -44,7 +44,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { HomeIcon, PlusIcon } from "lucide-react"
+import { HomeIcon, PlusIcon, TriangleAlertIcon } from "lucide-react"
 
 export const Route = createFileRoute("/_authed/pages/")({
   component: PagesListPage,
@@ -176,6 +176,15 @@ function PagesTable({
                     >
                       {page.title}
                     </Link>
+                    {page.servedByRoute === false && (
+                      <span
+                        title="Aucun fichier de route ne sert ce chemin : la page rend 404 malgré son statut. Créez src/pages/<slug>.astro, ou supprimez cette ligne."
+                        className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive"
+                      >
+                        <TriangleAlertIcon className="size-3" aria-hidden="true" />
+                        Sans fichier
+                      </span>
+                    )}
                     {page.slug === homePageSlug && (
                       <span
                         title="Page d'accueil : c'est elle que le site sert à /. Se change dans Réglages."
