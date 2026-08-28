@@ -14,6 +14,7 @@ import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
 import type * as lib_authz from "../lib/authz.js";
 import type * as lib_ownerGuard from "../lib/ownerGuard.js";
+import type * as lib_signInRateLimit from "../lib/signInRateLimit.js";
 import type * as lib_token from "../lib/token.js";
 import type * as profiles from "../profiles.js";
 import type * as users from "../users.js";
@@ -32,6 +33,7 @@ declare const fullApi: ApiFromModules<{
   invitations: typeof invitations;
   "lib/authz": typeof lib_authz;
   "lib/ownerGuard": typeof lib_ownerGuard;
+  "lib/signInRateLimit": typeof lib_signInRateLimit;
   "lib/token": typeof lib_token;
   profiles: typeof profiles;
   users: typeof users;
@@ -67,4 +69,5 @@ export declare const internal: FilterApi<
 export declare const components: {
   betterAuth: import("../betterAuth/_generated/component.js").ComponentApi<"betterAuth">;
   resend: import("@convex-dev/resend/_generated/component.js").ComponentApi<"resend">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

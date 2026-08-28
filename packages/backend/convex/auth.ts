@@ -1,16 +1,23 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal"
 import { admin } from "better-auth/plugins"
-import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api"
+import { APIError, createAuthMiddleware, getIp, getSessionFromCtx } from "better-auth/api"
 import { createAccessControl } from "better-auth/plugins/access"
 import { defaultStatements } from "better-auth/plugins/admin/access"
 import { convex } from "@convex-dev/better-auth/plugins"
 import { createClient, type GenericCtx } from "@convex-dev/better-auth"
+import { RateLimiter } from "@convex-dev/rate-limiter"
 import { components, internal } from "./_generated/api"
 import type { DataModel } from "./_generated/dataModel"
 import authSchema from "./betterAuth/schema"
 import authConfig from "./auth.config"
 import { parseRole } from "./validators"
 import { assertOwnerInvariant, OwnerInvariantError } from "./lib/ownerGuard"
+import {
+  SIGN_IN_RATE_LIMIT_CONFIG,
+  SIGN_IN_RATE_LIMIT_NAME,
+  UNRESOLVED_SIGN_IN_ORIGIN,
+  buildSignInRateLimitKey,
+} from "./lib/signInRateLimit"
 
 // La synchronisation `profiles` <-> utilisateur Better Auth passe par les
 // `triggers` du composant, pas par une mutation `ensure` appelée à la
@@ -114,6 +121,96 @@ export const authComponent: AuthComponent = createClient<DataModel, typeof authS
 // pointe vers `internal.auth.onCreate/onUpdate/onDelete`, qui n'existent
 // que parce qu'ils sont exportés ici.
 export const { onCreate, onUpdate, onDelete } = authComponent.triggersApi()
+
+// Rate limiting for `/sign-in/email` (Lot 1's deferred gate — see
+// `lib/signInRateLimit.ts` for the full rationale, including why the key
+// is (origin, email) rather than either alone). Better Auth's own rate
+// limiter (`options.rateLimit`) defaults to `storage: "memory"`, which
+// cannot persist or be shared across Convex HTTP-action isolates — each
+// request may land on a fresh isolate with empty in-memory state, making
+// that limiter a no-op here regardless of `enabled`. `@convex-dev/rate
+// -limiter` persists in the database instead, so it actually works across
+// requests.
+//
+// One instance at module scope, exactly like `authComponent` above: the
+// config is static, and the per-request Convex ctx (needed for the
+// `.limit()` call itself) is only ever supplied later, at call time —
+// see `guardSignInRateLimit`'s `convexCtx` parameter below.
+const signInRateLimiter = new RateLimiter(components.rateLimiter, {
+  [SIGN_IN_RATE_LIMIT_NAME]: SIGN_IN_RATE_LIMIT_CONFIG,
+})
+
+// Wiring-boundary translation, same role as `guardOwnerInvariant` below:
+// the decision (config, key) lives in the dependency-free
+// `lib/signInRateLimit` module; this is the one place that (a) makes the
+// real `ctx.runMutation` call through the rate-limiter component and (b)
+// turns an exceeded limit into a better-auth `APIError` the router
+// actually inspects for (an ordinary thrown `Error` would surface as an
+// empty-bodied 500 — see `guardOwnerInvariant`'s own comment for the same
+// pitfall, measured there first).
+//
+// `authCtx` is intentionally left untyped (inferred from the
+// `createAuthMiddleware` callback that calls this — see `hooks.before`
+// below): `GenericEndpointContext` isn't exported from `better-auth/api`,
+// and the two fields this reads (`body`, and one of `request`/`headers`)
+// are already part of the *statically typed* `EndpointContext` from
+// `better-call` (unlike `context.session`/`context.internalAdapter` below,
+// which needed the narrow `OwnerHookEndpointContext` cast) — unlike that
+// case, there is nothing here worth fighting the type system to name.
+async function guardSignInRateLimit(
+  convexCtx: GenericCtx<DataModel>,
+  authCtx: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0],
+): Promise<void> {
+  // `GenericCtx<DataModel>` (`@convex-dev/better-auth`'s own type) is a
+  // union of query/mutation/action ctx, because `createAuth` is typed to
+  // accept whichever one a caller has on hand — but `signInRateLimiter
+  // .limit()` needs `runMutation`, which only the latter two carry.
+  // `/sign-in/email` is only ever reached via the HTTP action `http.ts`
+  // constructs `createAuth` with per request, which always has it — this
+  // is a static-typing gap, not a reachable runtime state — but fail
+  // closed rather than assume: an `as` cast here would silently compile
+  // even if that stopped being true.
+  if (!("runMutation" in convexCtx)) {
+    throw APIError.from("INTERNAL_SERVER_ERROR", {
+      code: "SIGN_IN_RATE_LIMIT_UNAVAILABLE",
+      message:
+        "SIGN_IN_RATE_LIMIT_UNAVAILABLE: contexte insuffisant pour appliquer la limitation de débit, connexion refusée par prudence",
+    })
+  }
+
+  const body = authCtx.body as { email?: unknown } | undefined
+
+  // `request`/`headers` are only populated for a call that actually went
+  // through the HTTP router (or `auth.api.*`, which re-enters the same
+  // pipeline) with a real `Request` — an internal call like this file's
+  // own `seedUser` fixture's `auth.api.createUser({body: user})` supplies
+  // neither. `/sign-in/email` is never called that way in this app, but
+  // fail safe rather than throw a type error if it ever were: still rate
+  // limit, under a fixed sentinel that can never collide with a real IP
+  // (see `UNRESOLVED_SIGN_IN_ORIGIN`'s own comment).
+  const requestLike = authCtx.request ?? authCtx.headers
+  const ip = requestLike
+    ? (getIp(requestLike, authCtx.context.options) ?? UNRESOLVED_SIGN_IN_ORIGIN)
+    : UNRESOLVED_SIGN_IN_ORIGIN
+
+  const key = buildSignInRateLimitKey(body?.email, ip)
+  const status = await signInRateLimiter.limit(convexCtx, SIGN_IN_RATE_LIMIT_NAME, { key })
+  if (status.ok) return
+
+  const retrySeconds = Math.ceil((status.retryAfter ?? 0) / 1000)
+  throw APIError.from("TOO_MANY_REQUESTS", {
+    code: "SIGN_IN_RATE_LIMITED",
+    message: `SIGN_IN_RATE_LIMITED: trop de tentatives de connexion pour ce compte depuis cette origine, réessayez dans ${retrySeconds}s`,
+  })
+}
+
+// Path checked by the sign-in rate limiter above, kept as its own `Set`
+// deliberately parallel to (not merged into) `OWNER_PROTECTED_PATHS`
+// further down: same shape — a path-matching guard wired into
+// `hooks.before` — but a different concern with a different lifecycle, and
+// merging the two sets would make a future edit to one silently affect the
+// other's matching.
+const SIGN_IN_PATHS = new Set(["/sign-in/email"])
 
 // `defaultStatements` (from better-auth@1.6.17's admin plugin):
 //   user: ["create", "list", "set-role", "ban", "impersonate",
@@ -241,8 +338,14 @@ export const MAX_PASSWORD_LENGTH = 128
 // the actual auth server, mounted in http.ts on the app side where the
 // vars do exist and where a missing secret would otherwise silently fall
 // back to a publicly-known default constant.
-export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
-  ({
+export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
+  // Captured under a different name than the `hooks.before` callback's own
+  // `ctx` parameter below, which shadows this one within that closure —
+  // `guardSignInRateLimit` needs *this* (the real, per-request Convex ctx,
+  // with `runMutation`/`runQuery`) to call the rate limiter, not the
+  // better-auth endpoint context the inner `ctx` refers to there.
+  const convexCtx = ctx
+  return {
     secret: process.env.BETTER_AUTH_SECRET,
     baseURL: process.env.SITE_URL,
     database: authComponent.adapter(ctx), // requis — omis, rien ne persiste
@@ -666,6 +769,16 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
     // the oracle again, it reopens this: don't.
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        // Checked first, unconditionally, independent of everything below:
+        // a different concern (brute-force sign-in guessing, not the
+        // single-owner invariant), a different path set
+        // (`SIGN_IN_PATHS`, not `OWNER_PROTECTED_PATHS`), no shared state.
+        // Throws (via `guardSignInRateLimit`) rather than returning early
+        // when exceeded, same control-flow shape as every refusal below.
+        if (SIGN_IN_PATHS.has(ctx.path)) {
+          await guardSignInRateLimit(convexCtx, ctx)
+        }
+
         const isRevokeSingle = ctx.path === "/admin/revoke-user-session"
         if (!OWNER_PROTECTED_PATHS.has(ctx.path) && !isRevokeSingle) return
 
@@ -756,7 +869,8 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) =>
         })
       }),
     },
-  }) satisfies BetterAuthOptions
+  } satisfies BetterAuthOptions
+}
 
 
 // Paths where better-auth can destroy the owner's sessions and/or

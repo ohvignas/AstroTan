@@ -4,6 +4,7 @@ import betterAuthSchema from "../convex/betterAuth/schema"
 import { createAuth } from "../convex/auth"
 import { components } from "../convex/_generated/api"
 import resendTest from "@convex-dev/resend/test"
+import rateLimiterTest from "@convex-dev/rate-limiter/test"
 
 // Fixture partagée entre `lib/authz.test.ts` (la matrice de permissions du
 // registre), `profiles.test.ts` (les triggers Better Auth) et
@@ -52,6 +53,13 @@ export function makeTestConvex(): TestConvex<typeof schema> {
   // (the default name both the helper and `defineComponent("resend")`
   // agree on).
   resendTest.register(t)
+  // `auth.ts`'s `hooks.before` calls the rate limiter on every
+  // `/sign-in/email` request (see `lib/signInRateLimit.ts`), including the
+  // ones this fixture's own `signIn()` helper makes — so every test that
+  // signs in at all, not just the rate-limit tests themselves, now goes
+  // through this component. Same registration pattern as `resendTest`
+  // above: the component's own `/test` helper, not a hand-rolled one.
+  rateLimiterTest.register(t)
   return t
 }
 
