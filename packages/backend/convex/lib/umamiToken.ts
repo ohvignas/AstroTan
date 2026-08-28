@@ -30,10 +30,14 @@ let cached: { value: string; expiresAt: number } | null = null
 export function readUmamiConfig(
   env: Record<string, string | undefined>
 ): UmamiConfig | null {
-  const url = env.UMAMI_URL?.replace(/\/$/, "")
-  const websiteId = env.UMAMI_WEBSITE_ID
-  const username = env.UMAMI_USERNAME
-  const password = env.UMAMI_PASSWORD
+  // `UMAMI_API_*`, and not `UMAMI_*`: the VPS `.env` already carries
+  // `UMAMI_DB_PASSWORD` and `UMAMI_APP_SECRET`, which are different secrets
+  // for a different purpose. The infix is what keeps someone from pasting
+  // one into the other's slot.
+  const url = env.UMAMI_API_URL?.replace(/\/$/, "")
+  const websiteId = env.UMAMI_API_WEBSITE_ID
+  const username = env.UMAMI_API_USERNAME
+  const password = env.UMAMI_API_PASSWORD
   // All four or nothing: a half-configured integration fails at the call
   // site with a confusing error, where "not configured" is a clear answer.
   if (!url || !websiteId || !username || !password) return null

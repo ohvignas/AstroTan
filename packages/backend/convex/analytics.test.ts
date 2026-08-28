@@ -40,10 +40,10 @@ async function seedActor(
 }
 
 function configure() {
-  process.env.UMAMI_URL = "https://umami.illith.test"
-  process.env.UMAMI_WEBSITE_ID = "site-1"
-  process.env.UMAMI_USERNAME = "lecture"
-  process.env.UMAMI_PASSWORD = "secret"
+  process.env.UMAMI_API_URL = "https://umami.illith.test"
+  process.env.UMAMI_API_WEBSITE_ID = "site-1"
+  process.env.UMAMI_API_USERNAME = "lecture"
+  process.env.UMAMI_API_PASSWORD = "secret"
 }
 
 test("refuse un appelant sans session", async () => {
@@ -57,7 +57,7 @@ test("refuse un appelant sans session", async () => {
 test("sans configuration, rend un état lisible plutôt qu'une erreur", async () => {
   const t = makeTestConvex()
   const editor = await seedActor(t, "editor")
-  delete process.env.UMAMI_URL
+  delete process.env.UMAMI_API_URL
 
   // Un template livré sans statistiques ne doit pas avoir l'air cassé.
   const result = await editor.identity.action(api.analytics.forPath, { path: "/" })

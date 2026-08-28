@@ -25,7 +25,7 @@ const EXPLANATIONS: Record<Exclude<AnalyticsResult["status"], "ok">, string> = {
   unreachable:
     "Le service de statistiques est injoignable. Les chiffres réapparaîtront dès qu'il répondra.",
   unauthorized:
-    "Les identifiants de lecture ont été refusés. Vérifiez UMAMI_USERNAME et UMAMI_PASSWORD sur le déploiement Convex.",
+    "Les identifiants de lecture ont été refusés. Vérifiez UMAMI_API_USERNAME et UMAMI_API_PASSWORD sur le déploiement Convex.",
 }
 
 function Window({

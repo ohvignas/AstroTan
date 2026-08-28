@@ -35,3 +35,25 @@ services:
       - "host.docker.internal:host-gateway"
     labels:
       traefik.enable: "false"
+
+  # Umami en local : même image et même base que sur le VPS, publié sur
+  # l'hôte et retiré de Traefik. 3002 parce que 3000 est occupé sur la
+  # machine de dev et que 3001 est déjà pris par l'admin ci-dessus.
+  #
+  # Pour l'essayer :
+  #   docker compose -f docker/docker-compose.yml \
+  #     -f docker/docker-compose.local.yml up -d umami
+  #   curl -s -o /dev/null -w 'umami=%{http_code}\n' \
+  #     http://127.0.0.1:3002/api/heartbeat
+  # puis http://localhost:3002 — identifiants `admin` / `umami`.
+  #
+  # Ensuite, pour que `apps/web` charge réellement le script, poser dans
+  # `apps/web/.env.local` :
+  #   PUBLIC_UMAMI_URL=http://localhost:3002
+  #   PUBLIC_UMAMI_WEBSITE_ID=<l'id affiché par Umami après « Add website »>
+  # Détail et piège du localhost : README §13.
+  umami:
+    ports:
+      - "3002:3000"
+    labels:
+      traefik.enable: "false"

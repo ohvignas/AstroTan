@@ -538,7 +538,109 @@ laisser `packageManager` décider.
   exporter dans le shell. Il retire Traefik du chemin — pas de domaine, pas
   d'ACME — et publie l'admin sur 3001 côté hôte.)
 
-## 13. Mise à jour depuis une version antérieure du template
+## 13. Umami : mise en service, lecture et sauvegarde
+
+Umami mesure l'audience du site public. Il tourne dans le même `docker
+compose` que le reste, avec sa propre base : **aucune donnée d'audience ne
+quitte le VPS**, ce qui est la raison de l'auto-héberger plutôt que
+d'utiliser un service tiers. Le prix est écrit franchement : un service et
+une base de plus à faire tourner, mettre à jour et sauvegarder.
+
+### 13.1 Le compte d'administration, à changer immédiatement
+
+Umami crée au premier démarrage le compte `admin` / `umami`. Il est le même
+sur toutes les installations du monde, et le sous-domaine `UMAMI_DOMAIN` est
+public.
+
+**Ouvrir `https://<UMAMI_DOMAIN>` et changer ce mot de passe avant toute
+autre chose.** Tant qu'il est celui par défaut, n'importe qui connaissant le
+sous-domaine lit vos statistiques et peut les effacer.
+
+Ajouter ensuite le site à mesurer (*Settings → Websites → Add website*) : le
+domaine public du site, pas celui d'Umami. Umami rend alors un **Website
+ID** — c'est lui qui identifie le site partout ailleurs dans cette section.
+
+### 13.2 Les deux moitiés, et pourquoi elles ne vivent pas au même endroit
+
+La mesure a un côté qui **écrit** et un côté qui **lit**, et ils n'ont ni les
+mêmes secrets ni le même lieu.
+
+| | Ce que c'est | Où ça vit |
+|---|---|---|
+| `PUBLIC_UMAMI_URL`, `PUBLIC_UMAMI_WEBSITE_ID` | le script de mesure chargé par chaque page | secrets GitHub → build-args, **figés dans le bundle au build** |
+| `UMAMI_API_URL`, `UMAMI_API_WEBSITE_ID`, `UMAMI_API_USERNAME`, `UMAMI_API_PASSWORD` | les identifiants avec lesquels le dashboard **lit** les chiffres | déploiement Convex (`convex env set`) |
+
+Les premières sont publiques par construction : elles apparaissent dans le
+source de chaque page de tout site mesuré par Umami. Les secondes ne le sont
+pas, et c'est pour cela que la lecture passe par une `action` Convex
+(`convex/analytics.ts`) et non par un appel depuis le navigateur : **un
+appel depuis l'admin exposerait ces identifiants à quiconque ouvre les
+outils de développement.**
+
+Umami auto-hébergé n'a **pas** de clé d'API — ce mécanisme est réservé à son
+offre Cloud. On s'authentifie par `POST /api/auth/login` avec un nom
+d'utilisateur et un mot de passe, qui rend un JWT. Les identifiants de
+lecture sont donc ceux d'un **compte Umami**, créé dans l'interface d'Umami.
+
+Créer un compte dédié à la lecture (*Settings → Users → Create user*, rôle
+`view-only`) plutôt que de réutiliser `admin` : si ce mot de passe fuite, il
+ne donne que la lecture, et le révoquer ne vous déconnecte pas vous-même.
+
+```bash
+cd packages/backend
+npx convex env set UMAMI_API_URL        https://<UMAMI_DOMAIN>
+npx convex env set UMAMI_API_WEBSITE_ID <le Website ID de 13.1>
+npx convex env set UMAMI_API_USERNAME   <le compte view-only>
+npx convex env set UMAMI_API_PASSWORD   <son mot de passe>
+```
+
+Les quatre ou aucune : une configuration à moitié posée est traitée comme
+absente, et l'éditeur affiche « aucune mesure configurée » plutôt qu'une
+erreur. C'est voulu — **un template livré sans Umami ne doit pas avoir l'air
+cassé**, et un service d'audience en panne ne doit jamais empêcher d'écrire
+une page.
+
+### 13.3 Le piège du localhost
+
+**Umami ne compte pas les visites depuis `localhost`.** C'est un
+comportement d'Umami, pas une panne de cette installation : le script se
+charge, ne renvoie rien, et l'éditeur affiche donc zéro. Ne pas en conclure
+que l'intégration est cassée — vérifier sur le domaine réel.
+
+### 13.4 Sauvegarde — la première du projet
+
+Le volume `astrotan_umami-db` est le **premier volume applicatif** de ce
+VPS. Jusqu'ici, la seule chose à ne pas perdre était `astrotan_acme`, et le
+contenu du site vit dans Convex, qui a ses propres sauvegardes. Ce n'est
+plus vrai : les données d'audience n'existent qu'ici.
+
+```bash
+ssh <user>@<host> 'cd ~/astrotan && docker compose exec -T umami-db \
+  pg_dump -U umami umami | gzip' > umami-$(date +%F).sql.gz
+```
+
+Restauration :
+
+```bash
+gunzip -c umami-<date>.sql.gz | ssh <user>@<host> \
+  'cd ~/astrotan && docker compose exec -T umami-db psql -U umami umami'
+```
+
+`docker compose down -v` détruit ce volume. **Ne jamais lancer `down -v` sur
+ce VPS** — `down` seul suffit à arrêter la pile.
+
+### 13.5 Mettre à jour Umami
+
+Le tag de l'image est épinglé exactement (`3.3.1`), jamais `latest`. Une
+montée de version applique des migrations Prisma sur la base au premier
+démarrage : **faire le dump de 13.4 avant**, puis changer le tag et
+redéployer. Un retour arrière se fait par restauration du dump, pas par un
+retour au tag précédent — une base déjà migrée n'est plus lisible par
+l'ancienne version.
+
+---
+
+## 14. Mise à jour depuis une version antérieure du template
 
 Si votre VPS tourne déjà avec une version de ce dépôt antérieure au passage
 de Traefik en configuration par variables d'environnement, **lisez ceci

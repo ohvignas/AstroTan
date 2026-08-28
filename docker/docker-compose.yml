@@ -124,9 +124,122 @@ services:
       traefik.http.routers.admin.tls.certresolver: letsencrypt
       traefik.http.services.admin.loadbalancer.server.port: "3000"
 
+  # ── Umami — mesure d'audience auto-hébergée (lot 6, spec §6.5) ──────────
+  #
+  # Auto-hébergé et pas SaaS pour la même raison que le reste de ce fichier :
+  # aucune donnée de visite ne quitte le VPS. Le coût est réel et il est
+  # écrit dans le README (§13) : un service de plus à mettre à jour, et une
+  # BASE DE DONNÉES de plus à sauvegarder — la première du projet, puisque
+  # le contenu vit dans Convex.
+  #
+  # Deux façons de le retirer si on n'en veut pas : ne pas poser les
+  # variables `PUBLIC_UMAMI_*` au build du site (le script n'est alors pas
+  # rendu, cf. apps/web/src/components/Analytics.astro), et supprimer les
+  # deux services ci-dessous.
+  umami:
+    # Tag EXACT, jamais `latest` ni `postgresql-latest` : ces deux alias
+    # pointent aujourd'hui sur 3.3.1 et bougeront au prochain amont.
+    # Depuis Umami 3, l'image ne porte plus le préfixe `postgresql-` (v3 ne
+    # supporte plus que PostgreSQL) ; `postgresql-latest` n'est qu'un alias
+    # conservé. Digest vérifié le 2026-08-28 :
+    # sha256:fa32d116cf20cad52cbc3fad9a63b46e7fa02299d8f967168eb453d49c476b4a
+    image: ghcr.io/umami-software/umami:3.3.1
+    restart: unless-stopped
+    # Next.js n'est pas PID 1 correctement : sans `init`, les signaux
+    # d'arrêt ne descendent pas et le conteneur met 10 s à mourir à chaque
+    # déploiement. C'est aussi ce que fait le compose officiel d'Umami.
+    init: true
+    depends_on:
+      umami-db:
+        condition: service_healthy
+    environment:
+      # Secrets d'exécution, jamais dans l'image ni en build-arg : ils
+      # viennent du `.env` du VPS, qui n'est pas commité.
+      #
+      # Le mot de passe entre dans une URL : le garder en hexadécimal
+      # (`openssl rand -hex 32`) évite d'avoir à l'encoder. Un `@` ou un
+      # `/` dans un mot de passe non encodé coupe l'URL en silence et
+      # Umami échoue sur un hôte qui n'existe pas.
+      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD:?UMAMI_DB_PASSWORD is required}@umami-db:5432/umami
+      # Signe les jetons d'authentification d'Umami, y compris celui que
+      # `POST /api/auth/login` rend à l'action Convex qui lit les
+      # statistiques. Le changer déconnecte tout le monde.
+      APP_SECRET: ${UMAMI_APP_SECRET:?UMAMI_APP_SECRET is required}
+      # Chiffre les secrets TOTP. Umami REFUSE l'activation de la 2FA sans
+      # elle, et la panne n'apparaît qu'au moment où quelqu'un essaie
+      # d'activer la 2FA — c'est-à-dire trop tard. On la pose tout de suite.
+      TWO_FACTOR_ENCRYPTION_KEY: ${UMAMI_TWO_FACTOR_ENCRYPTION_KEY:?UMAMI_TWO_FACTOR_ENCRYPTION_KEY is required}
+      # Umami envoie par défaut une télémétrie anonyme à umami.is. Anonyme
+      # ou non, c'est une sortie réseau que ce lot dit ne pas faire.
+      # Pour couper AUSSI les favicons (récupérés chez DuckDuckGo) et toute
+      # autre sortie : ajouter `PRIVATE_MODE: "1"`.
+      DISABLE_TELEMETRY: "1"
+    networks: [edge, analytics]
+    healthcheck:
+      # `/api/heartbeat` est l'endpoint de santé d'Umami (c'est celui de son
+      # compose officiel). `curl` est présent dans l'image ; `wget` ne l'est
+      # pas, contrairement aux images `web` et `admin` basées sur Alpine.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/api/heartbeat || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Le premier démarrage applique les migrations Prisma et crée le
+      # compte `admin` : il est nettement plus long que les autres services.
+      start_period: 90s
+    labels:
+      # EXPOSITION VOLONTAIRE. L'interface d'Umami est une application
+      # protégée par mot de passe : elle est publiée sur son propre
+      # sous-domaine parce qu'un humain doit pouvoir s'y connecter depuis
+      # n'importe où. Ce n'est PAS un oubli.
+      # Corollaire non négociable : le compte livré par défaut est
+      # `admin` / `umami`, et il faut le changer à la première connexion.
+      # Voir README §13.
+      traefik.enable: "true"
+      traefik.http.routers.umami.rule: Host(`${UMAMI_DOMAIN:?UMAMI_DOMAIN is required}`)
+      traefik.http.routers.umami.entrypoints: websecure
+      traefik.http.routers.umami.tls.certresolver: letsencrypt
+      traefik.http.services.umami.loadbalancer.server.port: "3000"
+
+  umami-db:
+    # Version majeure ET mineure épinglées. La majeure surtout : un
+    # `postgres:17` qui passerait tout seul en 18 refuserait de démarrer sur
+    # un répertoire de données écrit par la 17 (`database files are
+    # incompatible with server`). Une montée de majeure se fait par
+    # dump/restore, jamais par un changement de tag (README §13).
+    image: postgres:17.11-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: ${UMAMI_DB_PASSWORD:?UMAMI_DB_PASSWORD is required}
+      # UTC, comme Umami le recommande : un fuseau régional décale les
+      # agrégats horaires et le décalage change deux fois par an.
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - umami-db:/var/lib/postgresql/data
+    # Réseau `analytics` UNIQUEMENT : la base n'est jamais sur `edge`, donc
+    # Traefik ne peut pas la voir et elle n'a aucune route vers internet.
+    networks: [analytics]
+    healthcheck:
+      # `depends_on: service_healthy` d'`umami` s'appuie dessus : sans lui,
+      # Umami démarre avant Postgres et meurt sur la migration Prisma.
+      test: ["CMD-SHELL", "pg_isready -U umami -d umami"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 networks:
   edge:
     name: astrotan_edge
+  # Réseau privé de la base d'Umami. `internal: true` lui retire toute
+  # route sortante : Postgres n'a rien à faire sur internet, et une base
+  # d'analytics est exactement le genre de conteneur qu'on préfère
+  # injoignable. Seul `umami` a un pied dans les deux réseaux.
+  analytics:
+    name: astrotan_analytics
+    internal: true
 
 volumes:
   # Stockage des certificats Let's Encrypt (`/acme/acme.json`). Volume
@@ -143,3 +256,10 @@ volumes:
   # minutes. Ne pas le supprimer pour « repartir propre » (voir
   # `ACME_CA_SERVER` dans `.env.example` pour tester sans risque).
   acme:
+
+  # Les données d'audience d'Umami. C'est le PREMIER volume applicatif du
+  # projet — le contenu vit dans Convex, qui a ses propres sauvegardes — et
+  # c'est donc la première chose à sauvegarder sur ce VPS. Procédure dans
+  # le README §13. `docker compose down -v` le détruit : ne jamais lancer
+  # cette commande sur le VPS.
+  umami-db:
