@@ -5,6 +5,7 @@ import type {
   Metric,
   SeriesPoint,
   SiteSummary,
+  UmamiLinks,
 } from "@astrotan/backend/convex/analytics"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ExternalLinkIcon } from "lucide-react"
@@ -141,11 +142,11 @@ function Ranking({
 
 export function SiteDashboard({
   summary,
-  umamiUrl,
+  umami,
 }: {
   /** `undefined` tant que l'action est en vol. */
   summary: SiteSummary | undefined
-  umamiUrl: string | null | undefined
+  umami: UmamiLinks | null | undefined
 }) {
   return (
     <Card>
@@ -182,23 +183,48 @@ export function SiteDashboard({
           </>
         )}
 
-        {umamiUrl && (
-          <a
-            href={umamiUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 self-start text-sm underline"
-          >
-            Ouvrir Umami
-            <ExternalLinkIcon className="size-3" />
-          </a>
+        {umami && (
+          <div className="flex flex-wrap gap-4">
+            {/* Deux liens parce qu'il y a deux besoins, et qu'un seul
+                intitulé les confondrait. Le partage ouvre les chiffres sans
+                connexion, mais il est en LECTURE SEULE : ajouter un site ou
+                changer un réglage passe par la racine et un mot de passe.
+                Umami ne propose rien entre les deux — sa connexion ne pose
+                aucun cookie et son jeton reste dans le navigateur, donc
+                l'administration ne peut pas ouvrir de session à votre
+                place. */}
+            <a
+              href={umami.dashboard}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-sm underline"
+            >
+              {umami.shared ? "Tout le détail" : "Ouvrir Umami"}
+              <ExternalLinkIcon className="size-3" />
+            </a>
+            {umami.shared && (
+              <a
+                href={umami.admin}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-sm text-muted-foreground underline"
+              >
+                Administrer Umami (connexion requise)
+                <ExternalLinkIcon className="size-3" />
+              </a>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>
   )
 }
 
-export function SiteDashboardPanel({ umamiUrl }: { umamiUrl: string | null | undefined }) {
+export function SiteDashboardPanel({
+  umami,
+}: {
+  umami: UmamiLinks | null | undefined
+}) {
   const siteSummary = useAction(api.analytics.siteSummary)
   const [summary, setSummary] = useState<SiteSummary | undefined>(undefined)
 
@@ -227,5 +253,5 @@ export function SiteDashboardPanel({ umamiUrl }: { umamiUrl: string | null | und
     }
   }, [siteSummary])
 
-  return <SiteDashboard summary={summary} umamiUrl={umamiUrl} />
+  return <SiteDashboard summary={summary} umami={umami} />
 }

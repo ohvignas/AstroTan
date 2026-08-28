@@ -160,31 +160,35 @@ test("le jeton est réutilisé plutôt que redemandé à chaque appel", async ()
   expect(logins).toBe(1)
 })
 
-test("umamiUrl refuse un appelant sans session", async () => {
+test("umamiLinks refuse un appelant sans session", async () => {
   const t = makeTestConvex()
   configure()
-  await expect(t.query(api.analytics.umamiUrl, {})).rejects.toThrow()
+  await expect(t.query(api.analytics.umamiLinks, {})).rejects.toThrow()
 })
 
-test("umamiUrl rend null quand rien n'est configuré — le menu cache alors le bouton", async () => {
+test("umamiLinks rend null quand rien n'est configuré — le menu cache alors le bouton", async () => {
   const t = makeTestConvex()
   const editor = await seedActor(t, "editor")
   delete process.env.UMAMI_API_URL
 
   // Un bouton mort est pire que pas de bouton.
-  expect(await editor.identity.query(api.analytics.umamiUrl, {})).toBeNull()
+  expect(await editor.identity.query(api.analytics.umamiLinks, {})).toBeNull()
 })
 
-test("umamiUrl rend l'adresse, sans jamais les identifiants", async () => {
+test("umamiLinks rend les adresses, sans jamais les identifiants", async () => {
   const t = makeTestConvex()
   const editor = await seedActor(t, "editor")
   configure()
 
-  const url = await editor.identity.query(api.analytics.umamiUrl, {})
-  expect(url).toBe("https://umami.illith.test")
-  // Ce que le navigateur reçoit est une adresse publique et rien d'autre.
-  expect(JSON.stringify(url)).not.toContain("secret")
-  expect(JSON.stringify(url)).not.toContain("lecture")
+  const links = await editor.identity.query(api.analytics.umamiLinks, {})
+  expect(links).toEqual({
+    dashboard: "https://umami.illith.test",
+    admin: "https://umami.illith.test",
+    shared: false,
+  })
+  // Ce que le navigateur reçoit, ce sont des adresses publiques, rien d'autre.
+  expect(JSON.stringify(links)).not.toContain("secret")
+  expect(JSON.stringify(links)).not.toContain("lecture")
 })
 
 function stubSite() {
@@ -323,20 +327,24 @@ test("siteSummary demande explicitement la comparaison et le bon type de palmar�
   expect(urls.some((u) => u.includes("type=url"))).toBe(false)
 })
 
-test("umamiUrl rend le lien de partage quand il est activé", async () => {
+test("le partage change où l'on consulte, jamais où l'on administre", async () => {
   const t = makeTestConvex()
   const editor = await seedActor(t, "editor")
   configure()
   process.env.UMAMI_API_SHARE_ID = "astrotan-demo"
 
-  // `/share/<id>` affiche le tableau de bord d'Umami en lecture seule, sans
-  // connexion et sans qu'aucun identifiant ne voyage.
-  expect(await editor.identity.query(api.analytics.umamiUrl, {})).toBe(
-    "https://umami.illith.test/share/astrotan-demo",
-  )
+  const links = await editor.identity.query(api.analytics.umamiLinks, {})
+  // `/share/<id>` affiche le tableau de bord en lecture seule, sans
+  // connexion. Régler Umami passe toujours par la racine et un mot de
+  // passe : aucun lien ne donne l'administration sans se connecter.
+  expect(links).toEqual({
+    dashboard: "https://umami.illith.test/share/astrotan-demo",
+    admin: "https://umami.illith.test",
+    shared: true,
+  })
 })
 
-test("sans partage activé, le bouton mène à la connexion d'Umami", async () => {
+test("sans partage activé, consulter passe aussi par la connexion", async () => {
   const t = makeTestConvex()
   const editor = await seedActor(t, "editor")
   configure()
@@ -345,7 +353,7 @@ test("sans partage activé, le bouton mène à la connexion d'Umami", async () =
   // Le partage reste une décision d'opérateur : le lien est un secret
   // porteur, et l'activer par défaut exposerait des statistiques que
   // personne n'a choisi de publier.
-  expect(await editor.identity.query(api.analytics.umamiUrl, {})).toBe(
-    "https://umami.illith.test",
-  )
+  const links = await editor.identity.query(api.analytics.umamiLinks, {})
+  expect(links?.dashboard).toBe("https://umami.illith.test")
+  expect(links?.shared).toBe(false)
 })

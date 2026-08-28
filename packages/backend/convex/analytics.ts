@@ -184,37 +184,59 @@ export interface SiteSummary {
   status: AnalyticsResult["status"]
 }
 
+export interface UmamiLinks {
+  /**
+   * Où aller pour REGARDER les chiffres. Le lien de partage quand il est
+   * activé — tableau de bord complet, lecture seule, aucune connexion —
+   * sinon la racine d'Umami, qui en demandera une.
+   */
+  dashboard: string
+  /**
+   * Où aller pour RÉGLER Umami : ajouter un site, créer un compte, activer
+   * un partage. Toujours la racine, et toujours derrière une connexion.
+   */
+  admin: string
+  /** `true` quand `dashboard` est un partage, donc consultable sans compte. */
+  shared: boolean
+}
+
 /**
- * L'adresse qu'ouvre le bouton « Statistiques ».
+ * Les deux adresses d'Umami, pour les deux boutons de l'administration.
  *
- * Une `query` et non une variable de build de l'admin : une seconde source
- * pourrait diverger de celle que les actions interrogent, et le lien
- * enverrait alors ailleurs que là où les chiffres sont lus. Elle ne rend que
- * l'adresse — jamais le nom d'utilisateur ni le mot de passe, qui sont dans
+ * Une `query` et non des variables de build de l'admin : une seconde source
+ * pourrait diverger de celle que les actions interrogent, et les liens
+ * enverraient ailleurs que là où les chiffres sont lus. Elle ne rend que des
+ * adresses — jamais le nom d'utilisateur ni le mot de passe, qui sont dans
  * le même bloc de configuration.
  *
- * Avec `UMAMI_API_SHARE_ID`, elle rend le **lien de partage** d'Umami
- * (`/share/<id>`), qui affiche le tableau de bord complet en lecture seule
- * sans demander de connexion. C'est la seule façon correcte d'enchaîner
- * depuis l'administration : faire voyager un jeton dans l'URL le déposerait
- * dans l'historique du navigateur, dans les en-têtes `Referer` et dans les
- * journaux de tout proxy traversé — et ce jeton-là ouvre un compte qui peut
- * écrire.
- *
- * La variable est optionnelle **et doit le rester** : un lien de partage est
- * un secret porteur, qui le détient voit les statistiques. L'activer est une
- * décision d'opérateur, pas un défaut qu'on impose. Sans elle, le bouton
- * ouvre Umami, qui demande une connexion.
+ * **Il n'existe pas de troisième lien qui donnerait l'accès d'administration
+ * sans connexion.** Vérifié contre 3.3.1 : `POST /api/auth/login` ne pose
+ * aucun cookie, et le jeton qu'il rend est un blob chiffré gardé par le
+ * navigateur. L'administration n'a donc aucun moyen d'ouvrir une session
+ * Umami à votre place. La fabriquer supposerait de recopier
+ * `UMAMI_APP_SECRET` dans un second service et d'y réimplémenter le
+ * chiffrement d'Umami — un secret dupliqué et une réimplémentation qui
+ * casse à la première montée de version. Faire voyager le jeton dans l'URL
+ * serait pire encore : il ouvre un compte qui peut écrire, et une URL se
+ * dépose dans l'historique, dans les en-têtes `Referer` et dans les
+ * journaux de tout proxy traversé.
  */
-export const umamiUrl = query({
+export const umamiLinks = query({
   args: {},
-  handler: async (ctx): Promise<string | null> => {
+  handler: async (ctx): Promise<UmamiLinks | null> => {
     await requireRole(ctx, ["owner", "admin", "editor"])
     const url = readUmamiConfig(process.env)?.url ?? null
     if (url === null) return null
 
+    // Optionnelle, et elle doit le rester : un lien de partage est un
+    // secret porteur, qui le détient voit les chiffres. L'activer est une
+    // décision d'opérateur, pas un défaut qu'on impose.
     const shareId = process.env.UMAMI_API_SHARE_ID
-    return shareId ? `${url}/share/${shareId}` : url
+    return {
+      dashboard: shareId ? `${url}/share/${shareId}` : url,
+      admin: url,
+      shared: Boolean(shareId),
+    }
   },
 })
 

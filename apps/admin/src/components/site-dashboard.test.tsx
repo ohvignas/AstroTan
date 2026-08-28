@@ -3,7 +3,7 @@
 // courbe à l'envers, un « +100 % » calculé depuis rien.
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import type { SiteSummary } from "@astrotan/backend/convex/analytics"
+import type { SiteSummary, UmamiLinks } from "@astrotan/backend/convex/analytics"
 import { SiteDashboard, Sparkline, trend } from "./site-dashboard"
 
 const OK: SiteSummary = {
@@ -20,10 +20,14 @@ const OK: SiteSummary = {
   status: "ok",
 }
 
-function render(summary: SiteSummary | undefined, umamiUrl: string | null = null) {
-  return renderToStaticMarkup(
-    <SiteDashboard summary={summary} umamiUrl={umamiUrl} />
-  )
+const SHARED: UmamiLinks = {
+  dashboard: "https://umami.illith.test/share/demo",
+  admin: "https://umami.illith.test",
+  shared: true,
+}
+
+function render(summary: SiteSummary | undefined, umami: UmamiLinks | null = null) {
+  return renderToStaticMarkup(<SiteDashboard summary={summary} umami={umami} />)
 }
 
 describe("trend", () => {
@@ -66,17 +70,34 @@ describe("Sparkline", () => {
 
 describe("SiteDashboard", () => {
   test("affiche chiffres, tendances et palmarès", () => {
-    const html = render(OK, "https://umami.illith.test")
+    const html = render(OK, SHARED)
     expect(html).toContain("44")
     expect(html).toContain("13 % vs")
     expect(html).toContain("/blog/bienvenue")
     expect(html).toContain("Accès direct")
+  })
+
+  test("avec un partage, distingue consulter et administrer", () => {
+    const html = render(OK, SHARED)
+    // Le partage est en lecture seule ; confondre les deux liens ferait
+    // chercher les réglages là où ils ne sont pas.
+    expect(html).toContain("/share/demo")
+    expect(html).toContain("Administrer Umami")
+  })
+
+  test("sans partage, un seul lien et pas de promesse d'administration", () => {
+    const html = render(OK, {
+      dashboard: "https://umami.illith.test",
+      admin: "https://umami.illith.test",
+      shared: false,
+    })
     expect(html).toContain("Ouvrir Umami")
+    expect(html).not.toContain("Administrer Umami")
   })
 
   test("sans Umami configuré, aucun lien mort", () => {
     const html = render(OK, null)
-    expect(html).not.toContain("Ouvrir Umami")
+    expect(html).not.toContain("umami.illith.test")
   })
 
   test.each([

@@ -643,8 +643,20 @@ plutôt qu'un partage créé automatiquement. Pour révoquer : désactiver le
 Share URL dans Umami, l'ancien identifiant cesse immédiatement de
 répondre.
 
-Administrer Umami (ajouter un site, changer un réglage) demande toujours
-une vraie connexion : le partage ne donne que la lecture.
+**Administrer Umami demande toujours une vraie connexion.** Le partage ne
+donne que la lecture, et il n'existe pas de troisième lien qui donnerait
+l'accès d'administration sans mot de passe. Vérifié contre 3.3.1 :
+`POST /api/auth/login` ne pose **aucun cookie**, et le jeton qu'il rend est
+un blob chiffré que le navigateur garde lui-même. L'administration n'a donc
+aucun moyen d'ouvrir une session Umami à votre place. La fabriquer
+supposerait de recopier `UMAMI_APP_SECRET` dans un second service et d'y
+réimplémenter le chiffrement d'Umami — un secret dupliqué, et une
+réimplémentation qui casse à la première montée de version.
+
+C'est pourquoi l'administration affiche **deux liens** quand le partage est
+actif : « Tout le détail », qui ouvre les chiffres sans connexion, et
+« Administrer Umami », qui va à la racine et en demandera une. Un seul
+intitulé ferait chercher les réglages là où ils ne sont pas.
 
 ### 13.5 Umami en local, avant de toucher au VPS
 

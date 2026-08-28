@@ -9,10 +9,10 @@ export const Route = createFileRoute("/_authed/")({
 
 function DashboardPage() {
   // `undefined` pendant le chargement, `null` si Umami n'est pas configuré.
-  const umamiUrl = useQuery(api.analytics.umamiUrl)
+  const umami = useQuery(api.analytics.umamiLinks)
 
   // L'accueil ne répond qu'à une question : comment va le site. L'identité
   // de la session et le rôle sont déjà dans la barre latérale — les répéter
   // ici occupait la première place de l'écran sans rien apprendre.
-  return <SiteDashboardPanel umamiUrl={umamiUrl} />
+  return <SiteDashboardPanel umami={umami} />
 }

@@ -101,13 +101,17 @@ export function AppSidebar({
   profile: FunctionReturnType<typeof api.profiles.me> | undefined
 }) {
   // `undefined` pendant le chargement, `null` si Umami n'est pas configuré.
-  const umamiUrl = useQuery(api.analytics.umamiUrl)
+  const umami = useQuery(api.analytics.umamiLinks)
 
   const base =
     profile?.role === "owner" || profile?.role === "admin"
       ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, USERS_ITEM, REDIRECTS_ITEM, SETTINGS_ITEM]
       : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM]
-  const navMain = umamiUrl ? [...base, statsItem(umamiUrl)] : base
+  // Le lien de CONSULTATION : avec un partage activé, il ouvre les chiffres
+  // sans redemander de mot de passe. Régler Umami se fait depuis le lien
+  // « Administrer Umami » du tableau de bord — aucune adresse ne donne
+  // l'administration sans connexion.
+  const navMain = umami ? [...base, statsItem(umami.dashboard)] : base
 
   return (
     <Sidebar collapsible="icon" {...props}>
