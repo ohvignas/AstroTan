@@ -20,7 +20,7 @@ export default tseslint.config(
     ignores: ["convex/_generated/**", "convex/betterAuth/**", "dist/**"],
   },
   {
-    files: ["convex/**/*.ts", "testing/**/*.ts"],
+    files: ["convex/**/*.ts", "testing/**/*.ts", "e2e/**/*.ts"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -28,9 +28,9 @@ export default tseslint.config(
         // which can distinguish `Promise<T>` from `T` without real type
         // information. Uses the same tsconfig project discovery `tsc`
         // itself does, so it resolves against this package's own
-        // `tsconfig.json` (`include: ["convex", "testing",
-        // "vitest.config.ts"]`) rather than a second, hand-maintained
-        // file list that could drift from it.
+        // `tsconfig.json` (`include`, kept in sync with the `files` glob
+        // above) rather than a second, hand-maintained file list that
+        // could drift from it.
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },

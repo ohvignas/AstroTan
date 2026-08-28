@@ -4,5 +4,5 @@
     "types": ["vite/client", "node"],
     "noEmit": true
   },
-  "include": ["convex", "testing", "vitest.config.ts"]
+  "include": ["convex", "testing", "e2e", "vitest.config.ts", "vitest.e2e.config.ts"]
 }
