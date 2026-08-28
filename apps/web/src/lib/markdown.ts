@@ -95,3 +95,23 @@ export function markdownToPlainText(body: string, maxLength = 200): string {
   const lastSpace = cut.lastIndexOf(" ")
   return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
 }
+
+/**
+ * Render a declared "rich" content field: inline markup only.
+ *
+ * `marked.parseInline` never emits block elements, so a stray `# ` or a
+ * blank line in the field cannot break out of the heading or the button it
+ * sits inside — which is the whole reason this is a separate function from
+ * `renderMarkdown` rather than the same one with a narrower allowlist. The
+ * sanitiser then keeps only the four tags that make sense mid-sentence.
+ */
+export function renderInline(text: string): string {
+  return sanitizeHtml(marked.parseInline(text, { async: false }), {
+    allowedTags: ["strong", "b", "em", "i", "a", "br"],
+    allowedAttributes: { a: ["href", "title", "target", "rel"] },
+    allowedSchemes: ["http", "https", "mailto", "tel"],
+    transformTags: {
+      a: sanitizeHtml.simpleTransform("a", { rel: "noopener noreferrer" }, true),
+    },
+  })
+}

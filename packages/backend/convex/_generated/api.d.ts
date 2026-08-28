@@ -23,6 +23,7 @@ import type * as lib_token from "../lib/token.js";
 import type * as pages from "../pages.js";
 import type * as profiles from "../profiles.js";
 import type * as revalidate from "../revalidate.js";
+import type * as siteContent from "../siteContent.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   pages: typeof pages;
   profiles: typeof profiles;
   revalidate: typeof revalidate;
+  siteContent: typeof siteContent;
   users: typeof users;
   validators: typeof validators;
 }>;

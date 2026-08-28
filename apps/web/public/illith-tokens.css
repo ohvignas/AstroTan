@@ -1,0 +1,260 @@
+/* =====================================================
+   ILLITH — Design Tokens
+   Colors, Typography, Spacing, Radii, Shadows
+   ===================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* --- Poppins (primary brand font) — self-hosted from /fonts --- */
+@font-face { font-family:'Poppins'; font-weight:100; font-style:normal;
+  src:url('fonts/Poppins-Thin.otf') format('opentype'); font-display:swap; }
+@font-face { font-family:'Poppins'; font-weight:200; font-style:normal;
+  src:url('fonts/Poppins-ExtraLight.otf') format('opentype'); font-display:swap; }
+@font-face { font-family:'Poppins'; font-weight:300; font-style:normal;
+  src:url('fonts/Poppins-Light.otf') format('opentype'); font-display:swap; }
+@font-face { font-family:'Poppins'; font-weight:300; font-style:italic;
+  src:url('fonts/Poppins-LightItalic.otf') format('opentype'); font-display:swap; }
+@font-face { font-family:'Poppins'; font-weight:400; font-style:normal;
+  src:url('fonts/Poppins-Regular.otf') format('opentype'); font-display:swap; }
+@font-face { font-family:'Poppins'; font-weight:400; font-style:italic;
+  src:url('fonts/Poppins-Italic.otf') format('opentype'); font-display:swap; }
+@font-face { font-family:'Poppins'; font-weight:500; font-style:normal;
+  src:url('fonts/Poppins-Medium.otf') format('opentype'); font-display:swap; }
+@font-face { font-family:'Poppins'; font-weight:600; font-style:normal;
+  src:url('fonts/Poppins-SemiBold.otf') format('opentype'); font-display:swap; }
+@font-face { font-family:'Poppins'; font-weight:600; font-style:italic;
+  src:url('fonts/Poppins-SemiBoldItalic.otf') format('opentype'); font-display:swap; }
+@font-face { font-family:'Poppins'; font-weight:700; font-style:normal;
+  src:url('fonts/Poppins-Bold.otf') format('opentype'); font-display:swap; }
+@font-face { font-family:'Poppins'; font-weight:800; font-style:normal;
+  src:url('fonts/Poppins-ExtraBold.otf') format('opentype'); font-display:swap; }
+
+/* --- Ballpark Weiner (script font for the "illith" signature lockup) ---
+   Brand script — use ONLY for the stylised "illith" signature; never for UI copy.
+   Always set in lowercase. */
+@font-face {
+  font-family: 'Ballpark Weiner';
+  font-weight: 400;
+  font-style: normal;
+  src: url('fonts/BallparkWeiner.ttf') format('truetype');
+  font-display: swap;
+}
+
+:root {
+  /* ---------- BRAND COLORS ---------- */
+  --illith-fuchsia:       #E8008A;   /* primary identity */
+  --illith-fuchsia-700:   #b8006d;   /* hover / pressed */
+  --illith-fuchsia-300:   #ff4fb1;   /* soft accent */
+  --illith-fuchsia-100:   #ffd4ec;   /* tint bg */
+
+  --illith-yellow:        #FFC037;   /* energy / CTA */
+  --illith-yellow-700:    #e5a618;
+  --illith-yellow-100:    #fff1cf;
+
+  --illith-anthracite:    #1A1A2E;   /* footer only — NEVER pure black */
+  --illith-anthracite-80: #2a2a45;
+
+  /* ---------- NEUTRALS ---------- */
+  --illith-white:         #FFFFFF;
+  --illith-cream:         #FDF6F0;   /* warm alt bg */
+  --illith-gray-100:      #F3F0F0;   /* soft divider / secondary zones */
+  --illith-gray-200:      #E6E1E1;
+  --illith-gray-400:      #9A9199;
+  --illith-gray-600:      #5A545A;
+
+  /* ---------- SEMANTIC COLORS ---------- */
+  --bg:            var(--illith-white);
+  --bg-warm:       var(--illith-cream);
+  --bg-muted:      var(--illith-gray-100);
+  --bg-footer:     var(--illith-anthracite);
+
+  --fg:            var(--illith-anthracite);   /* primary text on light */
+  --fg-muted:      var(--illith-gray-600);
+  --fg-subtle:     var(--illith-gray-400);
+  --fg-on-dark:    var(--illith-white);
+  --fg-on-pink:    var(--illith-white);
+
+  --accent:        var(--illith-fuchsia);
+  --accent-soft:   var(--illith-fuchsia-100);
+  --accent-hover:  var(--illith-fuchsia-700);
+
+  --highlight:     var(--illith-yellow);
+  --highlight-hover: var(--illith-yellow-700);
+
+  --border:        var(--illith-gray-200);
+  --border-strong: var(--illith-anthracite);
+
+  /* ---------- TYPOGRAPHY ---------- */
+  --font-sans:    'Poppins', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-body:    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-script:  'Ballpark Weiner', cursive;   /* signature only, always lowercase */
+
+  /* Base type scale */
+  --fs-12: 0.75rem;
+  --fs-14: 0.875rem;
+  --fs-16: 1rem;
+  --fs-18: 1.125rem;
+  --fs-20: 1.25rem;
+  --fs-24: 1.5rem;
+  --fs-32: 2rem;
+  --fs-40: 2.5rem;
+  --fs-56: 3.5rem;
+  --fs-72: 4.5rem;
+  --fs-96: 6rem;
+
+  /* Weights used by brand (Poppins: Thin 100 → ExtraBold 800) */
+  --fw-light:    300;      /* @kind font */
+  --fw-regular:  400;      /* @kind font */
+  --fw-medium:   500;      /* @kind font */
+  --fw-semi:     600;      /* @kind font */
+  --fw-bold:     700;      /* @kind font */
+  --fw-black:    800;      /* @kind font */
+
+  /* Line heights */
+  --lh-tight:    1.05;     /* @kind font */
+  --lh-snug:     1.2;      /* @kind font */
+  --lh-normal:   1.45;     /* @kind font */
+  --lh-loose:    1.7;      /* @kind font */
+
+  /* Tracking */
+  --tr-tight:    -0.02em;   /* @kind font */
+  --tr-normal:   0;         /* @kind font */
+  --tr-wide:     0.08em;    /* @kind font */
+  --tr-xwide:    0.16em;    /* @kind font */
+
+  /* ---------- SPACING (8pt grid) ---------- */
+  --sp-2:  2px;
+  --sp-4:  4px;
+  --sp-8:  8px;
+  --sp-12: 12px;
+  --sp-16: 16px;
+  --sp-24: 24px;
+  --sp-32: 32px;
+  --sp-48: 48px;
+  --sp-64: 64px;
+  --sp-96: 96px;
+  --sp-128: 128px;
+
+  /* ---------- RADII ---------- */
+  --r-sm:    6px;
+  --r-md:    12px;
+  --r-lg:    20px;
+  --r-xl:    32px;
+  --r-2xl:   48px;
+  --r-pill:  999px;
+  --r-btn:   8px;
+
+  /* ---------- SHADOWS ---------- */
+  --shadow-xs:   0 1px 2px rgba(26,26,46,0.06);
+  --shadow-sm:   0 2px 6px rgba(26,26,46,0.06), 0 1px 2px rgba(26,26,46,0.04);
+  --shadow-md:   0 8px 24px rgba(26,26,46,0.08), 0 2px 6px rgba(26,26,46,0.04);
+  --shadow-lg:   0 16px 48px rgba(26,26,46,0.10), 0 4px 12px rgba(26,26,46,0.06);
+  --shadow-glow-pink: 0 6px 20px rgba(232,0,138,0.14);
+  --shadow-glow-yellow: 0 8px 28px rgba(255,192,55,0.22);
+
+  /* ---------- MOTION ---------- */
+  --ease-out:    cubic-bezier(.22,.61,.36,1);   /* @kind other */
+  --ease-in-out: cubic-bezier(.65,0,.35,1);     /* @kind other */
+  --dur-fast:    160ms;    /* @kind other */
+  --dur-med:     260ms;    /* @kind other */
+  --dur-slow:    420ms;    /* @kind other */
+}
+
+/* =====================================================
+   Semantic type classes — use these in HTML
+   ===================================================== */
+
+body, .ill-body {
+  font-family: var(--font-body);
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-16);
+  line-height: var(--lh-normal);
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.ill-display {
+  font-family: var(--font-sans);
+  font-weight: 800;
+  font-size: clamp(3rem, 6vw, var(--fs-96));
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tight);
+  text-wrap: balance;
+}
+
+.ill-h1 {
+  font-family: var(--font-sans);
+  font-weight: var(--fw-bold);
+  font-size: clamp(2rem, 4vw, var(--fs-56));
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tight);
+  text-wrap: balance;
+}
+
+.ill-h2 {
+  font-family: var(--font-sans);
+  font-weight: var(--fw-bold);
+  font-size: clamp(1.75rem, 3vw, var(--fs-40));
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tr-tight);
+  text-wrap: balance;
+}
+
+.ill-h3 {
+  font-family: var(--font-sans);
+  font-weight: var(--fw-semi);
+  font-size: var(--fs-24);
+  line-height: var(--lh-snug);
+}
+
+.ill-h4 {
+  font-family: var(--font-sans);
+  font-weight: var(--fw-semi);
+  font-size: var(--fs-20);
+  line-height: var(--lh-snug);
+}
+
+.ill-lede {
+  font-family: var(--font-body);
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-20);
+  line-height: var(--lh-normal);
+  color: var(--fg-muted);
+  text-wrap: pretty;
+}
+
+.ill-p {
+  font-family: var(--font-body);
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-16);
+  line-height: var(--lh-loose);
+  color: var(--fg);
+  text-wrap: pretty;
+}
+
+.ill-small {
+  font-family: var(--font-body);
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-14);
+  line-height: var(--lh-normal);
+  color: var(--fg-muted);
+}
+
+.ill-label {
+  font-family: var(--font-body);
+  font-weight: var(--fw-medium);
+  font-size: var(--fs-14);
+  letter-spacing: 0.02em;
+}
+
+.ill-signature {          /* the handwritten "illith" look — ALWAYS lowercase */
+  font-family: var(--font-script);
+  font-weight: 400;
+  font-style: normal;
+  text-transform: lowercase;
+  letter-spacing: 0;
+  line-height: 1;
+}
+

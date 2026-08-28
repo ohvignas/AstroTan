@@ -7,6 +7,7 @@ import { requireRole, requireOwnDocument, requirePublishedPageWritable } from ".
 import { authComponent } from "./auth"
 import { insertOutboxRow } from "./revalidate"
 import { geoValidator, seoValidator, assertPageTextWithinLimits } from "./content"
+import { assertContentValid, contentDefinitionFor } from "./siteContent"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // This task's own brief, verbatim: "the security-critical task of the
@@ -313,6 +314,7 @@ export const update = mutation({
     title: v.optional(v.string()),
     slug: v.optional(v.string()),
     body: v.optional(v.string()),
+    content: v.optional(v.record(v.string(), v.string())),
     seo: v.optional(seoValidator),
     geo: v.optional(geoValidator),
   },
@@ -345,6 +347,7 @@ export const update = mutation({
       title?: string
       slug?: string
       body?: string
+      content?: Record<string, string>
       seo?: typeof args.seo
       geo?: typeof args.geo
       updatedBy: string
@@ -362,6 +365,16 @@ export const update = mutation({
       patch.slug = slug
     }
     if (args.body !== undefined) patch.body = args.body
+    if (args.content !== undefined) {
+      // Validated against the slug the row will actually carry after this
+      // patch, not the one it had before: renaming a page and rewriting
+      // its texts in one save must be judged against the destination's
+      // field list, or the check silently applies the wrong contract.
+      const definition = contentDefinitionFor(patch.slug ?? page.slug)
+      const problem = assertContentValid(definition, args.content)
+      if (problem !== null) throw new ConvexError(problem)
+      patch.content = args.content
+    }
     if (args.seo !== undefined) patch.seo = args.seo
     if (args.geo !== undefined) patch.geo = args.geo
 

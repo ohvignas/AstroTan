@@ -731,3 +731,106 @@ test("publicationStatus renvoie published (pas unknown) pour une page publiée s
   const status = await owner.identity.query(api.pages.publicationStatus, { id })
   expect(status?.state).toBe("published")
 })
+
+// --- Le contrat de contenu : ce que le design déclare, et rien d'autre ---
+
+// `siteContent.ts` est la seule source de vérité sur les textes qu'une page
+// expose. Ces tests portent la moitié serveur de ce contrat : le formulaire
+// de l'admin est *généré* depuis la même liste, mais un appelant qui saute
+// le formulaire doit se heurter au même refus.
+
+test("update refuse une clé de contenu que la page ne déclare pas", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "accueil", createdBy: owner.id })
+
+  await expect(
+    owner.identity.mutation(api.pages.update, {
+      id,
+      content: { "hero.inexistant": "Texte fantôme" },
+    }),
+  ).rejects.toMatchObject({
+    data: { code: "UNKNOWN_CONTENT_FIELD", field: "hero.inexistant" },
+  })
+})
+
+test("update refuse tout contenu sur une page sans champs déclarés", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "page-sans-design", createdBy: owner.id })
+
+  await expect(
+    owner.identity.mutation(api.pages.update, {
+      id,
+      content: { "hero.badge": "Peu importe" },
+    }),
+  ).rejects.toMatchObject({ data: { code: "NO_CONTENT_FIELDS" } })
+})
+
+test("update refuse un texte au-delà de la borne déclarée pour ce champ", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "accueil", createdBy: owner.id })
+
+  await expect(
+    owner.identity.mutation(api.pages.update, {
+      id,
+      content: { "hero.badge": "x".repeat(81) },
+    }),
+  ).rejects.toMatchObject({
+    data: { code: "FIELD_TOO_LONG", field: "hero.badge", max: 80 },
+  })
+})
+
+test("update refuse un saut de ligne dans un champ d'une seule ligne", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "accueil", createdBy: owner.id })
+
+  // Un `\n` dans un titre ou un bouton ne rend pas un retour à la ligne —
+  // il fait juste mentir le balisage sur sa forme.
+  await expect(
+    owner.identity.mutation(api.pages.update, {
+      id,
+      content: { "hero.titreLigne1": "Deux\nlignes" },
+    }),
+  ).rejects.toMatchObject({
+    data: { code: "FIELD_NOT_A_LINE", field: "hero.titreLigne1" },
+  })
+})
+
+test("update enregistre les textes déclarés, verbatim", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "accueil", createdBy: owner.id })
+
+  await owner.identity.mutation(api.pages.update, {
+    id,
+    content: {
+      "hero.badge": "École No-Code · Bordeaux",
+      "hero.preuveSociale": "**4,9/5** sur les avis Google",
+    },
+  })
+  const page = await t.run((ctx) => ctx.db.get(id))
+  expect(page?.content).toEqual({
+    "hero.badge": "École No-Code · Bordeaux",
+    "hero.preuveSociale": "**4,9/5** sur les avis Google",
+  })
+})
+
+test("le contenu est validé contre le slug d'arrivée quand le slug change dans la même sauvegarde", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "accueil", createdBy: owner.id })
+
+  // Renommer vers un slug sans champs déclarés, tout en envoyant des
+  // textes : jugé contre la destination, donc refusé. Valider contre
+  // l'ancien slug laisserait passer un contenu que plus aucune page ne lit.
+  await expect(
+    owner.identity.mutation(api.pages.update, {
+      id,
+      slug: "ancienne-accueil",
+      content: { "hero.badge": "Texte orphelin" },
+    }),
+  ).rejects.toMatchObject({ data: { code: "NO_CONTENT_FIELDS" } })
+})

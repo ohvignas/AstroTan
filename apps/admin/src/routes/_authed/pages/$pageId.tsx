@@ -18,6 +18,8 @@ import {
   MAX_SEO_TITLE_LENGTH,
   MAX_SLUG_LENGTH,
 } from "@astrotan/backend/convex/content"
+import { contentDefinitionFor } from "@astrotan/backend/convex/siteContent"
+import { PageContentForm } from "@/components/page-content-form"
 import { describePageError } from "@/lib/pageErrors"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 import { Button } from "@/components/ui/button"
@@ -98,6 +100,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   const [title, setTitle] = useState(page.title)
   const [slug, setSlug] = useState(page.slug)
   const [body, setBody] = useState(page.body)
+  const [content, setContent] = useState<Record<string, string>>(page.content ?? {})
   const [seoTitle, setSeoTitle] = useState(page.seo?.title ?? "")
   const [seoDescription, setSeoDescription] = useState(
     page.seo?.description ?? ""
@@ -140,6 +143,14 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   const canWrite = profile.role !== "editor" || (isOwn && page.status !== "published")
   const canPublish = profile.role === "owner" || profile.role === "admin"
 
+  // Which content model this page uses is decided by one thing only: does
+  // `siteContent.ts` declare fields for its slug. A designed page (its
+  // markup written in code, its texts declared) gets the generated form; a
+  // page with no declaration gets the Markdown body. There is no switch in
+  // the database and none in this screen — the code that renders the page
+  // decides, which is the whole point of the split.
+  const definition = contentDefinitionFor(page.slug)
+
   async function handleSave() {
     setError(null)
     setSaving(true)
@@ -148,7 +159,10 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         id: page._id,
         title,
         slug,
-        body,
+        // A page is one thing or the other, never both: sending `body` for
+        // a designed page would store prose nothing renders, and sending
+        // `content` for a Markdown page is refused by the mutation.
+        ...(definition === null ? { body } : { content }),
         seo: {
           title: seoTitle.trim() || undefined,
           description: seoDescription.trim() || undefined,
@@ -388,6 +402,16 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         <CardHeader>
           <CardTitle>Contenu</CardTitle>
         </CardHeader>
+        {definition !== null ? (
+          <CardContent>
+            <PageContentForm
+              definition={definition}
+              values={content}
+              disabled={!canWrite}
+              onChange={setContent}
+            />
+          </CardContent>
+        ) : (
         <CardContent className="flex flex-col gap-2">
           {/* A plain textarea, deliberately. This field is read and written
               by an agent as often as by a person, and every rich-text layer
@@ -409,6 +433,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
             {MAX_BODY_LENGTH.toLocaleString("fr-FR")} caractères
           </p>
         </CardContent>
+        )}
       </Card>
 
       <Card>

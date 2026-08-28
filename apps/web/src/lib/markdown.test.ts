@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { markdownToPlainText, renderMarkdown } from "./markdown"
+import { markdownToPlainText, renderInline, renderMarkdown } from "./markdown"
 
 // `renderMarkdown`'s output goes straight into `set:html` on every public
 // page and every preview. Every case in the first block below is markup
@@ -106,5 +106,35 @@ describe("markdownToPlainText", () => {
     // Without the decoding pass this reads "Tom &amp; Jerry" in a
     // `<meta description>`, which is what the browser then displays.
     expect(markdownToPlainText("Tom & Jerry")).toBe("Tom & Jerry")
+  })
+})
+
+describe("renderInline — les champs de contenu déclarés « rich »", () => {
+  test("rend le gras et l'italique", () => {
+    expect(renderInline("**4,8/5** sur les avis Google")).toBe(
+      "<strong>4,8/5</strong> sur les avis Google"
+    )
+    expect(renderInline("_ILLITH_")).toContain("<em>ILLITH</em>")
+  })
+
+  test("n'émet jamais de balise de bloc, même si le texte en demande une", () => {
+    // The field sits inside a heading or a button. A `# ` that produced an
+    // `<h1>` there would break out of the element the design put it in —
+    // which is why this is a separate function rather than `renderMarkdown`
+    // with a narrower allowlist.
+    const html = renderInline("# Un titre\n\nUn paragraphe")
+    expect(html).not.toContain("<h1")
+    expect(html).not.toContain("<p>")
+  })
+
+  test("assainit comme le rendu de bloc", () => {
+    expect(renderInline("<script>alert(1)</script>")).not.toContain("<script")
+    expect(renderInline("[x](javascript:alert(1))")).not.toContain("javascript:")
+  })
+
+  test("laisse passer un lien légitime, avec rel=noopener", () => {
+    const html = renderInline("[ILLITH](https://illith.com)")
+    expect(html).toContain('href="https://illith.com"')
+    expect(html).toContain('rel="noopener noreferrer"')
   })
 })

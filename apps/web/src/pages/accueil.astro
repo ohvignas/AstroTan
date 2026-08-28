@@ -1,0 +1,87 @@
+---
+// Une page « designée » : son balisage est le design, écrit en code — ici
+// repris tel quel de l'export statique fourni. Rien de sa mise en page ne
+// vient de la base : seuls les textes que `siteContent.ts` déclare sont
+// lus depuis Convex, à travers `t()` ci-dessous.
+//
+// C'est la moitié visible du contrat décrit dans `siteContent.ts` : chaque
+// `t("clé")` ici a une entrée là-bas, et le formulaire de l'admin est
+// engendré depuis cette même liste. Ajouter un texte éditable, c'est
+// déclarer le champ puis l'appeler ici — il n'y a pas de troisième endroit.
+export const prerender = false
+
+import { api } from "@astrotan/backend/convex/_generated/api"
+import {
+  contentDefinitionFor,
+  resolveContent,
+} from "@astrotan/backend/convex/siteContent"
+import { getConvexClient } from "../lib/convexClient"
+import { renderInline } from "../lib/markdown"
+
+const SLUG = "accueil"
+
+const page = await getConvexClient().query(api.pages.getPublishedPage, { slug: SLUG })
+const definition = contentDefinitionFor(SLUG)
+
+if (page === null) {
+  // The page has to exist and be published in Convex for its texts to be
+  // editable at all. A 404 here says exactly that, rather than silently
+  // rendering the fallbacks and leaving the dashboard with nothing to
+  // attach to.
+  Astro.response.status = 404
+  Astro.cache.set(false)
+} else {
+  // Same tags as every other CMS page, so `publishPage`'s outbox
+  // invalidates this one through the identical path.
+  Astro.cache.set({ maxAge: 300, swr: 600, tags: ["pages", `page:${SLUG}`] })
+}
+
+// The single accessor the markup below uses. Falls back to the text
+// declared in `siteContent.ts` whenever nothing has been saved, so the
+// page is complete before anyone has edited a word.
+const t = (key: string) => resolveContent(definition, page?.content, key)
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{page?.seo?.title || page?.title || "ILLITH — Accueil"}</title>
+    {page?.seo?.description && <meta name="description" content={page.seo.description} />}
+    <link rel="stylesheet" href="/illith-tokens.css" />
+    <style is:global>
+      html, body { margin: 0; background: #fff; font-family: 'Poppins', system-ui, sans-serif; color: #1A1A2E; }
+      a { color: #E8008A; }
+      a:hover { color: #B8006D; }
+      /* The design carried this weight as an inline `style` on a `<b>`.
+         The text is now editable Markdown, which renders `<strong>` with
+         no attributes, so the colour moves here. */
+      .ill-hero-proof strong { color: #1A1A2E; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    {page === null ? (
+      <main style="max-width:40rem;margin:0 auto;padding:6rem 1.5rem;text-align:center">
+        <h1 style="font-size:2rem;margin:0">404</h1>
+        <p style="color:#5A545A">Cette page n'existe pas.</p>
+      </main>
+    ) : (
+<section style="position:relative;overflow:hidden;height:670px;display:grid;grid-template-columns:1.05fr 1fr;gap:32px;padding:80px 48px 52px;align-items:center;background:#FFFFFF;box-sizing:border-box"><style>
+        @keyframes ill-fadeup { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+        @keyframes ill-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes ill-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(232,0,138,.35); } 50% { box-shadow: 0 0 0 6px rgba(232,0,138,0); } }
+        .ill-hero-fade1 { animation: ill-fadeup .7s cubic-bezier(.2,.7,.3,1) both; }
+        .ill-hero-fade2 { animation: ill-fadeup .7s .12s cubic-bezier(.2,.7,.3,1) both; }
+        .ill-hero-fade3 { animation: ill-fadeup .7s .24s cubic-bezier(.2,.7,.3,1) both; }
+        .ill-hero-fade4 { animation: ill-fadeup .7s .36s cubic-bezier(.2,.7,.3,1) both; }
+        .ill-hero-card { animation: ill-fadeup .7s .5s cubic-bezier(.2,.7,.3,1) both, ill-float 5s 1.4s ease-in-out infinite; }
+        .ill-hero-card2 { animation: ill-fadeup .7s .65s cubic-bezier(.2,.7,.3,1) both, ill-float 6s 1.8s ease-in-out infinite; }
+        .ill-hero-btn { transition: transform .18s ease, box-shadow .18s ease, background .18s ease; }
+        .ill-hero-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(232,0,138,.28); background: #B8006D !important; }
+        .ill-hero-ghost { transition: transform .18s ease, background .18s ease; }
+        .ill-hero-ghost:hover { transform: translateY(-2px); background: #1A1A2E !important; color: #fff !important; }
+      </style><div style="position:absolute;inset:0;background-image:radial-gradient(rgba(26,26,46,.055) 1px, transparent 1px);background-size:26px 26px;mask-image:radial-gradient(ellipse 90% 80% at 30% 20%, black, transparent 70%);-webkit-mask-image:radial-gradient(ellipse 90% 80% at 30% 20%, black, transparent 70%)"></div><div style="position:absolute;right:-12%;top:-25%;width:640px;height:640px;border-radius:50%;background:radial-gradient(circle, rgba(232,0,138,.10), transparent 65%);pointer-events:none"></div><div style="display:flex;flex-direction:column;gap:24px;position:relative"><span class="ill-hero-fade1" style="display:inline-flex;align-items:center;gap:9px;align-self:flex-start;font-size:13px;font-weight:500;color:#1A1A2E;background:#FFFFFF;border:1px solid #E6E1E1;border-radius:999px;padding:8px 15px;box-shadow:0 1px 2px rgba(26,26,46,.05)"><span style="width:7px;height:7px;border-radius:999px;background:#E8008A;animation:ill-pulse 2.4s infinite"></span>{t("hero.badge")}</span><h1 class="ill-hero-fade2" style="font-family:var(--font-sans, 'Poppins', sans-serif);font-size:clamp(36px, 4vw, 54px);font-weight:800;line-height:1.18;letter-spacing:-0.03em;margin:0;color:#1A1A2E"><span style="white-space:nowrap">{t("hero.titreLigne1")}</span><br><span style="color:#E8008A;position:relative;display:inline-block;white-space:nowrap">{t("hero.titreLigne2")}</span></h1><p class="ill-hero-fade3" style="font-size:19px;line-height:1.55;color:#5A545A;max-width:500px;margin:0;text-wrap:pretty">{t("hero.accroche")}</p><div class="ill-hero-fade4" style="display:flex;gap:14px;margin-top:8px;flex-wrap:wrap"><a href="#formations" class="ill-hero-btn" style="display:inline-block;background:#E8008A;color:#fff;padding:16px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;box-shadow:0 6px 16px rgba(232,0,138,.22)">{t("hero.ctaPrincipal")}</a><a href="#" class="ill-hero-ghost" style="display:inline-block;background:transparent;color:#1A1A2E;padding:16px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;border:1.5px solid #1A1A2E">{t("hero.ctaSecondaire")}</a></div><div class="ill-hero-fade4" style="display:flex;gap:14px;align-items:center;margin-top:10px"><span style="display:flex;align-items:center"><img src="/assets/avatar-claire.jpg" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2.5px solid #FFFFFF;box-shadow:0 1px 3px rgba(26,26,46,.15);margin-left:0"><img src="/assets/avatar-mehdi.jpg" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2.5px solid #FFFFFF;box-shadow:0 1px 3px rgba(26,26,46,.15);margin-left:-10px"><img src="/assets/avatar-sophie.jpg" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2.5px solid #FFFFFF;box-shadow:0 1px 3px rgba(26,26,46,.15);margin-left:-10px"></span><span style="display:flex;flex-direction:column;gap:2px"><span style="display:flex;gap:2px;align-items:center"><svg viewBox="0 0 48 48" width="15" height="15" aria-hidden="true" style="margin-right:4px"><path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h11.8c-.5 2.7-2 5-4.4 6.6v5.5h7.1c4.1-3.8 6.6-9.4 6.6-16.1z"></path><path fill="#34A853" d="M24 46c5.9 0 10.9-2 14.5-5.4l-7.1-5.5c-2 1.3-4.5 2.1-7.4 2.1-5.7 0-10.5-3.8-12.2-9H4.5v5.7C8.1 41.1 15.4 46 24 46z"></path><path fill="#FBBC05" d="M11.8 28.2c-.4-1.3-.7-2.7-.7-4.2s.2-2.9.7-4.2v-5.7H4.5C3 17.1 2.1 20.4 2.1 24s.9 6.9 2.4 9.9l7.3-5.7z"></path><path fill="#EA4335" d="M24 10.8c3.2 0 6.1 1.1 8.4 3.3l6.3-6.3C34.9 4.1 29.9 2 24 2 15.4 2 8.1 6.9 4.5 14.1l7.3 5.7c1.7-5.2 6.5-9 12.2-9z"></path></svg><svg viewBox="0 0 24 24" width="13" height="13" fill="#FFC037"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"></path></svg><svg viewBox="0 0 24 24" width="13" height="13" fill="#FFC037"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"></path></svg><svg viewBox="0 0 24 24" width="13" height="13" fill="#FFC037"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"></path></svg><svg viewBox="0 0 24 24" width="13" height="13" fill="#FFC037"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"></path></svg><svg viewBox="0 0 24 24" width="13" height="13" fill="#FFC037"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"></path></svg></span><span class="ill-hero-proof" style="font-size:13.5px;color:#5A545A" set:html={renderInline(t("hero.preuveSociale"))}></span></span></div></div><div style="position:relative;height:100%;min-height:0"><div style="width:100%;height:100%;overflow:hidden;border-radius:24px;box-shadow:0 24px 60px rgba(26,26,46,.14)"><img src="/assets/brand-homepage-hero.jpg" alt="" style="width:100%;height:100%;object-fit:cover"></div></div></section>
+    )}
+  </body>
+</html>
