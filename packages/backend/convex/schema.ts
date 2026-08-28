@@ -93,6 +93,28 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_created_by", ["createdBy"]),
 
+  // Métadonnées des fichiers de Convex storage. Table *sidecar* : les
+  // champs qui désignent un fichier (`seo.ogImageId`, et le `coverId` des
+  // articles) référencent `_storage` directement, et cette table s'y
+  // raccroche par `by_storage`. Conséquence assumée : un `storageId` peut
+  // exister sans ligne ici — un fichier téléversé hors médiathèque — et
+  // c'est un `alt` manquant, jamais une erreur.
+  media: defineTable({
+    storageId: v.id("_storage"),
+    filename: v.string(),
+    mime: v.string(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    // Obligatoire, jamais optionnel : une image sans alternative textuelle
+    // est un défaut d'accessibilité qu'aucune interface ne rattrape, et un
+    // champ qu'on peut remplir plus tard n'est jamais rempli.
+    alt: v.string(),
+    size: v.number(),
+    createdBy: v.string(),
+  })
+    .index("by_storage", ["storageId"])
+    .index("by_created_by", ["createdBy"]),
+
   // Lot 2, Task 3; design spec §6.2 ("Boucle de publication — outbox
   // durable"). Convex does not retry scheduled actions, so a lost
   // invalidation would otherwise leave a page whose `status` says

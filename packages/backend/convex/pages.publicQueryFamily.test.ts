@@ -150,6 +150,15 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
       args = {}
     } else if (q.argFields.length === 1 && q.argFields[0] === "slug") {
       args = { slug: "brouillon-confidentiel" }
+    } else if (q.argFields.length === 1 && q.argFields[0] === "storageId") {
+      // `media.byStorageId` (Lot 3, Task 1) : session-gated comme
+      // `pages.get` juste en dessous, donc l'appel non authentifié de cette
+      // boucle lève avant même que l'argument ne soit lu. La valeur n'a
+      // donc aucune importance — ce qui compte est que cette forme soit
+      // *déclarée* ici plutôt que de tomber dans le `throw` du bas, qui
+      // est là pour forcer exactement cette décision au lieu de la laisser
+      // passer en silence.
+      args = { storageId: "kg000000000000000000000000000000" }
     } else if (q.argFields.length === 1 && q.argFields[0] === "id") {
       // Task 8's `pages.get`/`pages.publicationStatus`: both session-gated
       // (`requireRole`), so calling them with no identity at all (this
