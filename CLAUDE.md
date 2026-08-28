@@ -7,6 +7,11 @@ Convex partagé, Docker sur VPS Hostinger derrière Traefik.
 décision technique. Elle contient le schéma de données, les invariants de sécurité,
 la stratégie de cache et la procédure de rollback.
 
+[`AGENTS.md`](AGENTS.md) est la version courte destinée aux agents tiers qui ne
+lisent pas ce fichier (Cursor, Codex, Copilot, Gemini CLI, Zed…) : commandes,
+mise en service pas à pas, pièges d'environnement. Ce fichier-ci reste la
+référence détaillée — modifier l'un sans l'autre les fait diverger.
+
 ## Structure
 
 ```
