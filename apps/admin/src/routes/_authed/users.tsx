@@ -516,23 +516,37 @@ function InviteDialog() {
         </DialogHeader>
 
         {result ? (
-          <div className="flex flex-col gap-3">
+          /* `min-w-0` has to be on every link in the chain from the dialog's
+             grid down to the URL, not just the innermost one: a grid or flex
+             item defaults to `min-width: auto`, so any ancestor missing it
+             refuses to shrink below the ~110-character URL's intrinsic width
+             and drags the whole column past the dialog's 384px, pushing
+             Copier and Fermer out of reach. Measured: without these the row
+             renders 857px wide inside a 384px dialog. */
+          <div className="flex min-w-0 flex-col gap-3">
             <p className="text-sm">
               Invité·e : <span className="font-medium">{result.email}</span> (
               {ROLE_LABELS[result.role]})
             </p>
-            <Field>
+            <Field className="min-w-0">
               <FieldLabel htmlFor="invite-link">Lien d'invitation</FieldLabel>
               {/* A text-bearing element, not an `<input>`: the link needs
                   to be readable and copyable, and this is also what
                   survives a plain-text read (e.g. Playwright's
                   `innerText()`) the way a form control's `.value` would
                   not. */}
-              <div className="flex items-center gap-2">
+              {/* `min-w-0` on both the row and the link is load-bearing, not
+                  decoration: a flex item defaults to `min-width: auto`, so it
+                  refuses to shrink below its content's intrinsic width. With
+                  `whitespace-nowrap` that width is the whole ~110-character
+                  URL, so `overflow-x-auto` never engages — the item grows
+                  instead, pushing Copier and Fermer outside the dialog and
+                  out of reach. */}
+              <div className="flex min-w-0 items-center gap-2">
                 <div
                   id="invite-link"
                   data-testid="invite-link"
-                  className="flex-1 overflow-x-auto rounded-lg border border-input bg-muted px-2.5 py-1.5 font-mono text-xs whitespace-nowrap"
+                  className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-input bg-muted px-2.5 py-1.5 font-mono text-xs whitespace-nowrap"
                 >
                   {inviteLink}
                 </div>
