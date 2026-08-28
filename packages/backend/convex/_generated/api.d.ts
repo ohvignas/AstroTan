@@ -16,6 +16,7 @@ import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
 import type * as lib_authz from "../lib/authz.js";
 import type * as lib_ownerGuard from "../lib/ownerGuard.js";
+import type * as lib_passwordStrength from "../lib/passwordStrength.js";
 import type * as lib_previewToken from "../lib/previewToken.js";
 import type * as lib_signInRateLimit from "../lib/signInRateLimit.js";
 import type * as lib_token from "../lib/token.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   invitations: typeof invitations;
   "lib/authz": typeof lib_authz;
   "lib/ownerGuard": typeof lib_ownerGuard;
+  "lib/passwordStrength": typeof lib_passwordStrength;
   "lib/previewToken": typeof lib_previewToken;
   "lib/signInRateLimit": typeof lib_signInRateLimit;
   "lib/token": typeof lib_token;
