@@ -1,0 +1,9 @@
+/* apps/web/src/styles/global.css
+ *
+ * The single CSS entrypoint for the public site. Pulls in Tailwind and the
+ * shared design tokens from `packages/tokens/theme.css` — that file (not
+ * this one) is where a template adopter customises colors and typography.
+ * Keep this file free of visual opinions; it only wires the pipeline
+ * together.
+ */
+@import "@astrotan/tokens/theme.css";

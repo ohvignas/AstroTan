@@ -1,0 +1,40 @@
+---
+// Placeholder landing page for the public site scaffold (Lot 2, Task 4).
+// Prerendered by default under `output: 'static'` — no `prerender = false`
+// here, this isn't a CMS route. The real `/[...slug]` catch-all that reads
+// pages through the block registry arrives in Task 6.
+//
+// The `listPublishedPages` call below exists to actually exercise the
+// wiring this task is responsible for: `ConvexHttpClient` built from
+// `PUBLIC_CONVEX_URL`, calling a public query that filters
+// `status === "published"` server-side — no session, no admin key, per
+// CLAUDE.md invariant #1. It runs at build time (static output), which is
+// also why `PUBLIC_CONVEX_URL` is passed as a build-arg in the Docker image
+// (spec §7): prerendered pages read Convex at build, not at request time.
+import { api } from "@astrotan/backend/convex/_generated/api"
+import { getConvexClient } from "../lib/convexClient"
+import "../styles/global.css"
+
+const publishedPages = await getConvexClient().query(
+  api.pages.listPublishedPages,
+  {},
+)
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AstroTan</title>
+  </head>
+  <body>
+    <main>
+      <h1>AstroTan</h1>
+      <p>
+        Public site scaffold. Connected to Convex at build time via a public,
+        published-only query — {publishedPages.length} published page(s) found.
+      </p>
+    </main>
+  </body>
+</html>
