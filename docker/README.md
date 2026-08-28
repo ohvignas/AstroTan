@@ -158,7 +158,7 @@ ni moins — la liste est vérifiable par
 | `PUBLIC_CONVEX_URL` | URL `https://<deployment>.convex.cloud` du déploiement de production. **Pas un secret** — elle finit dans le bundle du site. Elle est ici parce que le build de l'image `web` en a besoin en build-arg, pas parce qu'elle serait confidentielle. |
 | `VITE_CONVEX_URL` | La même URL, pour le build de l'image `admin` (`src/router.tsx` construit son `ConvexReactClient` avec). Non secrète, même raison. |
 | `VITE_CONVEX_SITE_URL` | URL `https://<deployment>.convex.site` — l'origine HTTP du déploiement, celle que Better Auth interroge. Non secrète. |
-| `VITE_WEB_SITE_URL` | Origine publique du site Astro (`https://illith.com`), à laquelle le dashboard ajoute `/preview/page/{id}?t={token}`. Non secrète : seul le jeton l'est, et il est frappé par Convex. |
+| `VITE_WEB_SITE_URL` | Origine publique du site Astro (`https://illith.com`), à laquelle le dashboard ajoute `/{slug}?t={token}` — l'aperçu s'ouvre à la vraie URL de la page, le jeton signant le slug (CLAUDE.md, invariant 2). Non secrète : seul le jeton l'est, et il est frappé par Convex. |
 | `VPS_HOST` | Nom d'hôte ou IP du VPS. |
 | `VPS_USER` | L'utilisateur non-root de la section 1. |
 | `VPS_SSH_KEY` | Clé **privée** de déploiement, au format OpenSSH, en entier (`-----BEGIN…` à `-----END…` compris). La générer dédiée à cet usage — `ssh-keygen -t ed25519 -C deploy@astrotan -f ~/.ssh/astrotan_deploy` — et poser la publique dans `~/.ssh/authorized_keys` du VPS. Jamais une clé personnelle : elle n'est ni révocable ni traçable séparément. |

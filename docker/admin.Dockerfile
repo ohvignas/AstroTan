@@ -15,8 +15,10 @@ RUN pnpm install --frozen-lockfile
 
 # Trois valeurs publiques, figées dans le bundle client par Vite. Aucune
 # n'est un secret : URL du déploiement Convex, URL de son site HTTP, et
-# origine publique du site Astro (le bouton « Prévisualiser » y ajoute
-# `/preview/page/{id}?t={token}` — le jeton, lui, est frappé par Convex).
+# origine publique du site Astro. Le bouton « Prévisualiser » ouvre cette
+# dernière à la VRAIE URL de la page — `/{slug}?t={token}`, pas une route
+# `/preview/...` parallèle : le jeton signe le slug (CLAUDE.md, invariant 2)
+# et c'est Convex qui le frappe.
 ARG VITE_CONVEX_URL
 ARG VITE_CONVEX_SITE_URL
 ARG VITE_WEB_SITE_URL
