@@ -156,7 +156,7 @@ function PagesTable({
         <TableHeader>
           <TableRow>
             <TableHead>Titre</TableHead>
-            <TableHead>Slug</TableHead>
+            <TableHead>Chemin</TableHead>
             <TableHead>Statut</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -199,7 +199,7 @@ function PagesTable({
                   </span>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  /{page.slug}
+                  {page.path}
                 </TableCell>
                 <TableCell>
                   <Badge

@@ -180,11 +180,19 @@ export const list = query({
     const settings = await ctx.db.query("settings").first()
     const homeSlug = settings?.homePageSlug
 
-    return pages.map((page) => ({
-      ...page,
-      servedByRoute:
-        page.slug === homeSlug ? isServedByRoute("/") : isServedByRoute(page.slug),
-    }))
+    return pages.map((page) => {
+      const isHome = page.slug === homeSlug
+      // Le chemin réel, calculé ICI et pas dans l'écran : l'accueil répond
+      // à `/`, et afficher `/accueil` donnait une adresse qui rend 404.
+      // Deux endroits qui dérivent l'un de l'autre finissent par ne plus
+      // être d'accord — c'est déjà arrivé trois fois sur ce sujet.
+      const path = isHome ? "/" : `/${page.slug}`
+      return {
+        ...page,
+        path,
+        servedByRoute: isServedByRoute(path),
+      }
+    })
   },
 })
 

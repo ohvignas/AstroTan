@@ -767,6 +767,11 @@ test("la page d'accueil n'est pas signalée « sans fichier »", async () => {
   // `accueil` n'est PAS dans le manifeste — c'est `/` qui l'est, servi par
   // `index.astro`. Sans l'exception, la page la plus servie du site était
   // signalée comme absente.
+  // Le chemin affiché est celui qui répond, pas le slug : montrer
+  // `/accueil` donnait une adresse qui rend 404, sur la page la plus
+  // visitée du site.
+  expect(par("accueil")?.path).toBe("/")
+  expect(par("contact")?.path).toBe("/contact")
   expect(par("accueil")?.servedByRoute).toBe(true)
   expect(par("contact")?.servedByRoute).toBe(true)
   // Celle-là n'a vraiment aucun fichier : le signalement doit rester utile.
