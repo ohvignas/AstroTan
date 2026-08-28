@@ -405,3 +405,28 @@ test("sans RESEND_API_KEY, rien ne part et rien ne lève", async () => {
   const admin = await seedActor(t, "admin")
   expect((await admin.query(api.leads.board, {})).new).toHaveLength(1)
 })
+
+test("un scénario supprimé est expliqué, pas codé en chiffres", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await admin.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    leadWebhookUrl: "https://hook.exemple.fr/leads",
+    leadWebhookSecret: "un-secret-de-signature",
+  })
+  // 410 : ce que Make renvoie quand le scénario a été supprimé. Le cas est
+  // fréquent et « échec 410 » n'apprend rien à qui lit l'écran des
+  // réglages — cette personne veut savoir quoi faire, pas quel nombre.
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 410 }))
+
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  const settings = await admin.query(api.settings.get, {})
+  expect(settings?.leadWebhookLastStatus).toContain("n'existe plus")
+  expect(settings?.leadWebhookLastStatus).toContain("410")
+
+  // Et le lead est là malgré tout : c'est l'invariant du webhook.
+  const board = await admin.query(api.leads.board, {})
+  expect(board.new).toHaveLength(1)
+})

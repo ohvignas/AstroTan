@@ -365,15 +365,44 @@ export const deliverWebhook = internalAction({
         // ouverte indéfiniment.
         signal: AbortSignal.timeout(10_000),
       })
-      status = response.ok ? `ok ${response.status}` : `échec ${response.status}`
+      status = response.ok ? `Envoyé (${response.status})` : decrire(response.status)
     } catch (error) {
-      status = `injoignable : ${error instanceof Error ? error.name : "erreur"}`
+      // `TimeoutError` vient de notre propre `AbortSignal.timeout`, et
+      // signifie autre chose qu'une adresse morte : le service a accepté la
+      // connexion mais n'a pas répondu.
+      status =
+        error instanceof Error && error.name === "TimeoutError"
+          ? "Pas de réponse en 10 s — le service a peut-être mis trop de temps"
+          : "Adresse injoignable — vérifiez l'URL et que le service tourne"
     }
 
     await ctx.runMutation(internal.leads.recordWebhookResult, { status })
     return null
   },
 })
+
+/**
+ * Un code HTTP en une phrase que quelqu'un peut suivre.
+ *
+ * « échec 410 » n'apprend rien à qui n'a pas les codes HTTP en tête, et
+ * c'est précisément la personne qui lit cet écran : elle veut savoir si
+ * elle doit corriger l'URL, rallumer un scénario, ou attendre.
+ */
+function decrire(status: number): string {
+  if (status === 404 || status === 410) {
+    return `Le scénario n'existe plus à cette adresse (${status}) — il a été supprimé ou désactivé`
+  }
+  if (status === 401 || status === 403) {
+    return `Envoi refusé (${status}) — le service demande une authentification que nous n'envoyons pas`
+  }
+  if (status === 429) {
+    return `Trop d'envois (${status}) — le service nous demande de ralentir`
+  }
+  if (status >= 500) {
+    return `Le service a échoué de son côté (${status})`
+  }
+  return `Envoi refusé (${status})`
+}
 
 async function sign(payload: string, secret: string): Promise<string> {
   const key = await crypto.subtle.importKey(

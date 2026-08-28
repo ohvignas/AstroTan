@@ -128,9 +128,23 @@ export function AppSidebar({
 
   const base =
     profile?.role === "owner" || profile?.role === "admin"
-      ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, LEADS_ITEM, USERS_ITEM, REDIRECTS_ITEM, SETTINGS_ITEM]
+      ? [
+          // L'ordre suit une journée de travail : on regarde comment va le
+          // site, on écrit, on range, on répond, puis on administre.
+          DASHBOARD_ITEM,
+          PAGES_ITEM,
+          POSTS_ITEM,
+          MEDIA_ITEM,
+          LEADS_ITEM,
+          USERS_ITEM,
+          REDIRECTS_ITEM,
+        ]
       : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, LEADS_ITEM]
   const canSso = profile?.role === "owner" || profile?.role === "admin"
+  // Même périmètre que l'ancienne place des réglages dans la liste : un
+  // éditeur ne les voyait pas, et déplacer l'entrée ne doit pas les lui
+  // ouvrir.
+  const canWriteSettings = canSso
 
   // Un owner ou un admin arrive connecté, avec les réglages d'Umami. Un
   // éditeur suit le lien de consultation : le SSO prête un compte partagé,
@@ -175,6 +189,12 @@ export function AppSidebar({
         <NavMain items={navMain} />
       </SidebarContent>
       <SidebarFooter>
+        {/* Les réglages descendent ici, juste au-dessus du compte : on y va
+            rarement, et une entrée rare posée au milieu des entrées
+            quotidiennes se traverse vingt fois par jour pour rien. Le bas
+            de la barre est l'endroit conventionnel de ce qui configure
+            plutôt que de ce qui produit. */}
+        {canWriteSettings && <NavMain items={[SETTINGS_ITEM]} label={null} />}
         <NavUser profile={profile} />
       </SidebarFooter>
       <SidebarRail />

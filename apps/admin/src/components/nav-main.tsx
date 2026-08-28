@@ -18,7 +18,12 @@ import { ChevronRightIcon, ExternalLinkIcon } from "lucide-react"
 
 export function NavMain({
   items,
+  label = "Administration",
 }: {
+  /** Titre du groupe. `null` pour n'en afficher aucun — le groupe des
+      réglages, en pied de barre, n'a rien à annoncer : une entrée seule
+      sous un titre pèse plus que l'entrée elle-même. */
+  label?: string | null
   items: {
     title: string
     url: string
@@ -34,7 +39,7 @@ export function NavMain({
 }) {
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>Administration</SidebarGroupLabel>
+      {label !== null && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
       <SidebarMenu>
         {items.map((item) =>
           item.items && item.items.length > 0 ? (
