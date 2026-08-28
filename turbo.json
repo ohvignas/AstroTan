@@ -3,6 +3,7 @@
   "tasks": {
     "codegen": { "cache": false },
     "typecheck": { "dependsOn": ["^codegen"] },
+    "lint": { "dependsOn": ["^codegen"] },
     "test": { "dependsOn": ["^codegen"] },
     "build": { "dependsOn": ["^codegen", "^build"], "outputs": ["dist/**", ".output/**"] },
     "dev": { "cache": false, "persistent": true }

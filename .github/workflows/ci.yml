@@ -1,0 +1,38 @@
+name: CI
+
+# I7 (Lot 1 final review): there was no CI at all before this — a missing
+# `await` on an auth guard, a stale `convex/_generated`, or a lint
+# regression could only ever be caught by someone remembering to run the
+# right command locally. `packages/backend`'s own `codegen` script never
+# pushes to a deployment (see its comment in package.json) — it only
+# checks that the *committed* `convex/_generated` is present — so this
+# workflow needs no Convex credentials or running deployment to do its job.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test

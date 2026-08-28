@@ -1,4 +1,5 @@
-import { Component, type ReactNode } from "react"
+import { Component  } from "react"
+import type {ReactNode} from "react";
 import { useNavigate } from "@tanstack/react-router"
 import { ConvexError } from "convex/values"
 import { authClient } from "@/lib/auth-client"
