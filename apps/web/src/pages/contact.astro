@@ -22,26 +22,36 @@ export const prerender = false
 import { loadPage } from "../lib/loadPage"
 import BaseLayout from "../layouts/BaseLayout.astro"
 import Hero from "../components/hero/Hero.astro"
-import Icon from "../components/ui/primitives/Icon/Icon.astro"
+import {
+  MAX_LEAD_BODY_LENGTH,
+  MAX_LEAD_EMAIL_LENGTH,
+  MAX_LEAD_NAME_LENGTH,
+  MAX_LEAD_SUBJECT_LENGTH,
+} from "@astrotan/backend/convex/content"
 
 const { page } = await loadPage(Astro)
 
-const channels = [
-  {
-    icon: "lucide:mail",
-    label: "Par courriel",
-    value: "contact@example.com",
-    href: "mailto:contact@example.com",
-    note: "Remplacez cette adresse par la vôtre — elle est écrite dans ce fichier.",
-  },
-  {
-    icon: "lucide:github",
-    label: "Sur GitHub",
-    value: "Ouvrir une issue",
-    href: "https://github.com/OhVignas/AstroTan/issues",
-    note: "Pour un bogue ou une question sur le template lui-même.",
-  },
-]
+// L'issue de l'envoi précédent, transmise par la redirection de
+// `/api/contact`. Passer par l'URL plutôt que par une session garde la page
+// sans état : rafraîchir n'affiche pas deux fois le même message, et rien
+// n'est stocké côté serveur pour un simple accusé de réception.
+const envoye = Astro.url.searchParams.get("envoye") === "1"
+const erreur = Astro.url.searchParams.get("erreur")
+
+// Les bornes sont les MÊMES que celles que la mutation applique : le
+// `maxlength` du navigateur est un confort, la vérification qui compte est
+// côté serveur. Les importer plutôt que les recopier évite qu'ils divergent.
+const MESSAGES_ERREUR: Record<string, string> = {
+  invalid_email: "Cette adresse email ne semble pas valide. Vérifiez-la et renvoyez.",
+  empty: "Le nom et le message ne peuvent pas être vides.",
+  too_long: `Le message dépasse ${MAX_LEAD_BODY_LENGTH} caractères. Raccourcissez-le, ou écrivez-nous directement par email.`,
+  illisible: "Le formulaire n'a pas pu être lu. Réessayez.",
+  // Une panne de notre côté. Le dire franchement, et donner l'autre chemin :
+  // quelqu'un qui a une question n'a pas à attendre que nous soyons réparés.
+  indisponible:
+    "L'envoi est momentanément indisponible. Écrivez-nous par email, votre message arrivera au même endroit.",
+}
+
 ---
 
 <BaseLayout page={page} fallbackTitle="Page introuvable">
@@ -57,37 +67,69 @@ const channels = [
         size="md"
         eyebrow="Contact"
         headline="Écrivez-nous"
-        subheadline="Une question sur le template, une reprise à faire, un doute sur une décision d'architecture : les deux chemins ci-dessous arrivent au même endroit."
+        subheadline="Une question sur le template, une reprise à faire, un doute sur une décision d'architecture : écrivez-nous ci-dessous, on répond sous un jour ouvré."
       />
 
       <section class="container contact">
-        <ul class="contact__list">
-          {channels.map((channel) => (
-            <li class="contact__card">
-              <span class="contact__icon" aria-hidden="true">
-                <Icon name={channel.icon} />
-              </span>
-              <div>
-                <h2>{channel.label}</h2>
-                <a
-                  href={channel.href}
-                  rel={channel.href.startsWith("http") ? "noopener noreferrer" : undefined}
-                  target={channel.href.startsWith("http") ? "_blank" : undefined}
-                >
-                  {channel.value}
-                </a>
-                <p>{channel.note}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
+        {/* Le formulaire poste vers `/api/contact` en HTTP natif. Pas de
+            JavaScript : il fonctionne script bloqué, script en échec, ou
+            avant que quoi que ce soit ait chargé — et sur un formulaire de
+            contact, un message perdu ne se voit jamais. */}
+        <form class="contact__form" method="post" action="/api/contact">
+          <h2 class="contact__form-title">Écrivez-nous</h2>
 
-        <p class="contact__note">
-          Pas de formulaire sur cette page : ce template ne fournit pas
-          d'endpoint d'envoi, et un bouton « Envoyer » qui ne part nulle part
-          serait une promesse cassée. La marche à suivre pour en brancher un
-          est en commentaire en tête de ce fichier.
-        </p>
+          {envoye && (
+            <p class="contact__flash contact__flash--ok" role="status">
+              Message reçu. Nous répondons sous un jour ouvré.
+            </p>
+          )}
+          {erreur && (
+            <p class="contact__flash contact__flash--ko" role="alert">
+              {MESSAGES_ERREUR[erreur] ??
+                "Le message n'a pas pu être envoyé. Réessayez, ou écrivez-nous par email."}
+            </p>
+          )}
+
+          <div class="contact__row">
+            <label class="contact__field">
+              <span>Votre nom</span>
+              <input type="text" name="name" required maxlength={MAX_LEAD_NAME_LENGTH} autocomplete="name" />
+            </label>
+            <label class="contact__field">
+              <span>Votre adresse email</span>
+              <input type="email" name="email" required maxlength={MAX_LEAD_EMAIL_LENGTH} autocomplete="email" />
+            </label>
+          </div>
+
+          <label class="contact__field">
+            <span>Sujet <em>(facultatif)</em></span>
+            <input type="text" name="subject" maxlength={MAX_LEAD_SUBJECT_LENGTH} />
+          </label>
+
+          <label class="contact__field">
+            <span>Votre message</span>
+            <textarea name="message" rows="6" required maxlength={MAX_LEAD_BODY_LENGTH}></textarea>
+          </label>
+
+          {/* Le pot de miel : caché à l'œil, pas au robot. `aria-hidden` et
+              `tabindex="-1"` le retirent aussi du parcours clavier et des
+              lecteurs d'écran, sinon c'est un piège pour les humains qui
+              n'utilisent pas la souris. Rempli, le serveur répond comme à
+              un succès — dire « raté » à un robot, c'est lui apprendre à
+              réussir. */}
+          <div class="contact__honeypot" aria-hidden="true">
+            <label>
+              Site web
+              <input type="text" name="site_web" tabindex="-1" autocomplete="off" />
+            </label>
+          </div>
+
+          <button type="submit" class="contact__submit">Contacter maintenant</button>
+        </form>
+
+
+
+
       </section>
     </>
   )}
@@ -98,55 +140,11 @@ const channels = [
     padding-block: var(--space-3xl);
   }
 
-  .contact__list {
-    display: grid;
-    gap: var(--space-lg);
-    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-    max-width: 52rem;
-    margin: 0 auto;
-    padding: 0;
-    list-style: none;
-  }
 
-  .contact__card {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-    padding: 1.75rem;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-2xl);
-    background: var(--card);
-    box-shadow: var(--shadow-sm);
-  }
 
-  .contact__icon {
-    display: inline-grid;
-    place-items: center;
-    flex-shrink: 0;
-    width: 2.75rem;
-    height: 2.75rem;
-    border-radius: var(--radius-full);
-    border: 1px solid var(--color-border);
-    background: var(--color-bg-secondary);
-  }
 
-  .contact__card h2 {
-    margin: 0 0 0.35rem;
-    font-size: 1rem;
-  }
 
-  .contact__card a {
-    color: var(--foreground);
-    font-weight: 600;
-    text-underline-offset: 3px;
-  }
 
-  .contact__card p {
-    margin: 0.5rem 0 0;
-    font-size: 0.8125rem;
-    line-height: 1.6;
-    color: var(--faint-foreground);
-  }
 
   .contact__note {
     max-width: 44rem;
@@ -175,5 +173,111 @@ const channels = [
   .empty-state p {
     margin: 0;
     color: var(--muted-foreground);
+  }
+
+  .contact__form {
+    display: grid;
+    gap: var(--space-md);
+    padding: var(--space-xl);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-2xl);
+    background: var(--color-bg-secondary);
+  }
+
+  .contact__form-title {
+    margin: 0;
+    font-size: clamp(1.25rem, 2vw, 1.5rem);
+    letter-spacing: -0.01em;
+  }
+
+  /* Deux colonnes sur large, une seule dès qu'on manque de place — un champ
+     de saisie à moitié large est plus pénible qu'un champ empilé. */
+  .contact__row {
+    display: grid;
+    gap: var(--space-md);
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  }
+
+  .contact__field {
+    display: grid;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .contact__field em {
+    font-style: normal;
+    font-weight: 400;
+    color: var(--color-text-secondary);
+  }
+
+  .contact__field input,
+  .contact__field textarea {
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font: inherit;
+    font-weight: 400;
+  }
+
+  .contact__field textarea {
+    resize: vertical;
+    min-height: 8rem;
+  }
+
+  .contact__field input:focus-visible,
+  .contact__field textarea:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 1px;
+  }
+
+  /* Hors écran, pas `display: none` : un champ masqué ainsi est ignoré par
+     une partie des robots, ce qui viderait le piège de son intérêt. */
+  .contact__honeypot {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .contact__submit {
+    justify-self: start;
+    padding: 0.75rem 1.5rem;
+    border: 0;
+    border-radius: var(--radius-full);
+    background: var(--color-text-primary);
+    color: var(--color-bg-primary);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .contact__submit:hover {
+    opacity: 0.9;
+  }
+
+  .contact__flash {
+    margin: 0;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-lg);
+    font-size: 0.875rem;
+    border: 1px solid var(--color-border);
+  }
+
+  .contact__flash--ok {
+    border-color: color-mix(in srgb, var(--brand) 40%, transparent);
+    background: color-mix(in srgb, var(--brand) 8%, transparent);
+  }
+
+  .contact__flash--ko {
+    border-color: color-mix(in srgb, red 35%, var(--color-border));
   }
 </style>

@@ -36,11 +36,16 @@ const plans = [
   {
     name: "Complet",
     price: "9,99 €",
-    period: "par mois",
+    // Paiement unique, pas un abonnement. Le composant affiche `period`
+    // juste après le prix : y écrire « une fois » évite la lecture par
+    // défaut, qui est mensuelle dès qu'un tarif est affiché à côté d'une
+    // offre gratuite.
+    period: "une fois",
     description:
       "Le site, plus l'administration qui va avec — et de quoi savoir ce qu'elle produit.",
     features: [
       "Tout ce que comprend l'offre gratuite",
+      "Payé une fois, pas d'abonnement",
       "Le tableau de bord : pages, articles, médias, redirections",
       "Les statistiques d'audience, par page",
       "Le suivi des messages reçus",
@@ -80,8 +85,8 @@ const plans = [
         variant="centered"
         size="md"
         eyebrow="Tarifs"
-        headline="Le site est gratuit. Le reste est à 9,99 €"
-        subheadline="Trois offres, aucune ligne cachée. Le site vitrine ne coûte rien et n'expire pas ; ce qui se paie, c'est l'administration qui va avec."
+        headline="Le site est gratuit. Le reste est à 9,99 €, une fois"
+        subheadline="Trois offres, aucune ligne cachée, aucun abonnement. Le site vitrine ne coûte rien et n'expire pas ; l'administration qui va avec se paie une seule fois."
       />
 
       <div data-animate>

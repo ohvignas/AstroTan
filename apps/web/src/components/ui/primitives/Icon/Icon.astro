@@ -11,8 +11,13 @@
 // Ajouter une icône : copier le contenu d'un SVG Lucide 24×24 (les seuls
 // enfants, sans la balise `<svg>`) dans la table ci-dessous.
 //
-// Un nom inconnu ne rend rien plutôt que d'échouer : une icône manquante
-// est un défaut cosmétique, pas une raison de renvoyer une page en erreur.
+// Un nom inconnu ÉCHOUE au développement et rend une case vide en
+// production. La règle d'origine — ne jamais échouer — partait d'une bonne
+// intention et a coûté six icônes absentes d'une page entière : rien ne se
+// voyait dans le build, dans `astro check` ni dans les tests, seulement à
+// l'œil, et seulement si on regardait le bon endroit. Une faute de frappe
+// dans un nom d'icône doit se signaler pendant qu'on l'écrit, pas pendant
+// qu'un visiteur lit la page.
 
 export interface Props {
   name: string
@@ -62,6 +67,22 @@ const PATHS: Record<string, string> = {
     '<path d="M22 7.7c0-.6-.4-1.2-.8-1.5l-6.3-3.9a1.72 1.72 0 0 0-1.7 0l-10.3 6c-.5.2-.9.8-.9 1.4v6.6c0 .5.4 1.2.8 1.5l6.3 3.9a1.72 1.72 0 0 0 1.7 0l10.3-6c.5-.3.9-1 .9-1.5z"/><path d="M10 21.9V14L2.1 9.1"/><path d="m10 14 11.9-6.9"/><path d="M14 19.8v-8.1"/><path d="M18 17.5V9.4"/>',
   "lucide:bar-chart":
     '<path d="M3 3v18h18"/><rect width="4" height="7" x="7" y="10"/><rect width="4" height="12" x="15" y="5"/>',
+  // Ajoutées pour la page des fonctionnalités. Un nom d'icône absent de
+  // cette table ne rend RIEN — pas d'erreur, pas de carré vide, juste une
+  // case blanche que seul l'œil attrape. C'est pour ça qu'on ajoute le
+  // tracé plutôt que de rabattre le libellé sur une icône approchante.
+  "lucide:lock":
+    '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  "lucide:route":
+    '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
+  "lucide:eye-off":
+    '<path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.5 13.5 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4"/><path d="m2 2 20 20"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>',
+  "lucide:image":
+    '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>',
+  "lucide:inbox":
+    '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  "lucide:activity":
+    '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
 }
 
 const {
@@ -73,6 +94,17 @@ const {
 } = Astro.props as Props
 
 const body = PATHS[name] ?? ""
+
+// `import.meta.env.DEV` : en production, une icône manquante reste un défaut
+// cosmétique et ne justifie pas de renvoyer une page en erreur à un
+// visiteur. En développement, elle justifie d'arrêter tout de suite.
+if (body === "" && import.meta.env.DEV) {
+  throw new Error(
+    `Icon : « ${name} » n'existe pas. Ajouter son tracé dans ` +
+      `src/components/ui/primitives/Icon/Icon.astro, ou corriger le nom. ` +
+      `Disponibles : ${Object.keys(PATHS).join(", ")}`,
+  )
+}
 ---
 
 {

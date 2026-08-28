@@ -51,16 +51,19 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // Un déploiement sans secret refuse, jamais ne laisse passer : l'oubli de
   // configuration est le cas fréquent, et c'est celui où une porte ouverte
   // ne se voit pas.
-  if (!secret) return new Response(null, { status: 503 })
+  // Toute issue ramène sur la page, jamais sur un écran vide : une réponse
+  // sans corps affiche la page d'erreur du navigateur, et la personne perd
+  // ce qu'elle venait d'écrire sans comprendre pourquoi.
+  if (!secret) return redirect("/contact?erreur=indisponible")
 
   const length = Number(request.headers.get("content-length") ?? "0")
-  if (length > MAX_BODY_BYTES) return new Response(null, { status: 413 })
+  if (length > MAX_BODY_BYTES) return redirect("/contact?erreur=too_long")
 
   let form: FormData
   try {
     form = await request.formData()
   } catch {
-    return new Response(null, { status: 400 })
+    return redirect("/contact?erreur=illisible")
   }
 
   // Le pot de miel : un champ caché par le CSS, que personne ne voit et
@@ -99,7 +102,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     if (code === "INVALID_EMAIL" || code === "EMPTY" || code === "TOO_LONG") {
       return redirect(`/contact?erreur=${code.toLowerCase()}`)
     }
-    return new Response(null, { status: 500 })
+    // Panne inattendue — Convex injoignable, secret refusé. La personne
+    // n'y peut rien, mais elle doit savoir que son message n'est pas parti.
+    return redirect("/contact?erreur=indisponible")
   }
 
   // `clientAddress` est lu ici et pas plus haut : il n'a de sens qu'une fois
