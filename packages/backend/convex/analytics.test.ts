@@ -357,3 +357,66 @@ test("sans partage activé, consulter passe aussi par la connexion", async () =>
   expect(links?.dashboard).toBe("https://umami.illith.test")
   expect(links?.shared).toBe(false)
 })
+
+test("ssoLink refuse un éditeur — le lien prête un compte partagé", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+
+  // Les chiffres sont ouverts aux trois rôles ; ce lien-ci ouvre une
+  // session Umami avec le compte configuré, donc tout ce que ce compte
+  // peut y faire. Ce n'est pas la même chose, et ce n'est pas le même
+  // périmètre.
+  await expect(
+    editor.identity.action(api.analytics.ssoLink, {}),
+  ).rejects.toThrow()
+})
+
+test("ssoLink frappe un jeton d'échange et construit le lien", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  configure()
+
+  const posts: string[] = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      const u = String(url)
+      posts.push(u)
+      if (u.includes("/api/auth/login")) {
+        return { ok: true, status: 200, json: async () => ({ token: "compte" }) }
+      }
+      return { ok: true, status: 200, json: async () => ({ token: "echange/+jeton" }) }
+    }),
+  )
+
+  const link = await admin.identity.action(api.analytics.ssoLink, {})
+
+  // `url` est obligatoire : sans lui, la page `/sso` consomme le jeton et
+  // s'arrête sur un écran vide.
+  expect(link).toBe(
+    "https://umami.illith.test/sso?url=%2F&token=echange%2F%2Bjeton",
+  )
+  // Ce qui voyage est le jeton d'ÉCHANGE, jamais celui du compte.
+  expect(link).not.toContain("compte")
+  expect(posts.some((u) => u.includes("/api/auth/sso"))).toBe(true)
+})
+
+test("sans Redis, Umami refuse et le lien vaut null plutôt que de casser", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  configure()
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      String(url).includes("/api/auth/login")
+        ? { ok: true, status: 200, json: async () => ({ token: "compte" }) }
+        : // « Redis is disabled » : la route existe mais son magasin de
+          // jetons manque. L'interface doit alors proposer la connexion
+          // normale, pas afficher une erreur.
+          { ok: false, status: 500, json: async () => ({}) },
+    ),
+  )
+
+  expect(await admin.identity.action(api.analytics.ssoLink, {})).toBeNull()
+})

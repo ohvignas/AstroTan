@@ -608,7 +608,68 @@ comportement d'Umami, pas une panne de cette installation : le script se
 charge, ne renvoie rien, et l'éditeur affiche donc zéro. Ne pas en conclure
 que l'intégration est cassée — vérifier sur le domaine réel.
 
-### 13.4 Arriver sur Umami sans se reconnecter
+### 13.4 Arriver sur Umami déjà connecté, en un clic
+
+Le bouton « Statistiques » de l'administration ouvre Umami **déjà
+connecté**, avec les réglages — pas seulement les chiffres. Umami fournit
+le mécanisme ; il faut Redis pour qu'il fonctionne.
+
+**Comment ça marche.** Le déploiement Convex s'authentifie auprès d'Umami
+avec `UMAMI_API_USERNAME` / `UMAMI_API_PASSWORD`, puis demande à
+`POST /api/auth/sso` un **jeton d'échange**. Umami le dépose dans Redis, le
+navigateur l'apporte à `/sso?url=/&token=…`, et Umami le consomme en
+ouvrant une session.
+
+Ce qui voyage dans l'URL n'est donc pas le mot de passe, ni le jeton du
+compte : c'est un jeton à **usage unique et à vie courte**, exactement
+comme un lien de connexion par email. Les identifiants, eux, ne quittent
+jamais le déploiement Convex.
+
+**Redis est ce qui l'active.** Sans lui, `POST /api/auth/sso` répond
+« Redis is disabled » et le bouton retombe sur la page de connexion
+d'Umami. Le service `umami-redis` du compose est là pour ça — pas pour la
+performance. Il ne persiste rien sur disque : ces jetons expirent en
+quelques minutes, et les écrire ferait des sessions un fichier à protéger.
+
+**Le compromis, en clair.** Umami ouvre la session du compte configuré :
+ce lien **prête un compte partagé**, il ne délègue pas l'identité de qui
+clique. Deux conséquences à assumer :
+
+- L'historique d'Umami ne distinguera pas les personnes. Toutes les actions
+  y apparaîtront sous ce compte.
+- Ce que le compte peut faire, celui qui clique peut le faire. Si
+  `UMAMI_API_USERNAME` est un compte administrateur, le bouton donne
+  l'administration d'Umami.
+
+C'est pourquoi **le bouton n'est proposé qu'aux rôles `owner` et `admin`**.
+Un éditeur reçoit le lien de consultation à la place — les chiffres du
+tableau de bord, eux, restent lisibles par les trois rôles.
+
+Si vous préférez que personne n'arrive administrateur, mettez un compte
+`view-only` dans `UMAMI_API_USERNAME` : le clic ouvrira alors une session
+en lecture, et régler Umami redemandera un mot de passe.
+
+**Il n'y a rien à faire pour l'activer** au-delà de démarrer la pile : le
+compose contient Redis, et les variables `UMAMI_API_*` sont déjà celles
+qui servent à lire les chiffres.
+
+### 13.4.1 La solution qu'on n'a pas retenue : deux comptes identiques
+
+Créer, au moment où le propriétaire du site est créé, un compte Umami avec
+les mêmes identifiants aurait l'air plus simple. Ça ne l'est pas :
+
+- Le mot de passe en clair devrait partir vers un second service, qui le
+  stockerait à son tour. Deux magasins de mots de passe au lieu d'un.
+- Ils divergeraient au premier changement : modifier son mot de passe dans
+  l'administration ne toucherait pas la copie d'Umami, et personne ne s'en
+  apercevrait avant d'en avoir besoin.
+- Et ça ne résoudrait pas la question posée : il faudrait **quand même**
+  taper ce mot de passe sur le formulaire d'Umami.
+
+Le SSO ci-dessus fait mieux sur les trois points : un seul magasin de mots
+de passe, aucune divergence possible, et rien à taper.
+
+### 13.4.2 Le partage en lecture seule, si vous n'utilisez pas le SSO
 
 Le bouton « Statistiques » de l'administration ouvre Umami, qui redemande
 un mot de passe. Umami sait éviter ça, et une seule des façons d'y arriver

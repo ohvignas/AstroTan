@@ -343,3 +343,58 @@ export const siteSummary = action({
     }
   },
 })
+
+/**
+ * Un lien d'arrivée directe sur Umami, déjà connecté.
+ *
+ * Une `action` : elle demande à Umami de frapper un jeton d'échange, ce
+ * qu'une `query` ne peut pas faire.
+ *
+ * Le jeton qui voyage dans l'URL n'est PAS celui du compte. C'est un jeton
+ * d'échange à usage unique et à vie courte, qu'Umami dépose dans Redis et
+ * consomme à la première présentation — le mécanisme d'un lien magique.
+ * L'identifiant et le mot de passe, eux, ne quittent jamais ce déploiement.
+ * Sans Redis, `/api/auth/sso` répond « Redis is disabled » ; le lien devient
+ * alors `null` et l'interface retombe sur la page de connexion d'Umami.
+ *
+ * **Réservé à owner et admin, et c'est le point de sécurité de ce module.**
+ * Umami ouvre la session du compte configuré dans `UMAMI_API_USERNAME` : ce
+ * lien ne délègue pas l'identité de la personne qui clique, il prête un
+ * compte partagé. Le donner à un éditeur, ce serait lui donner tout ce que
+ * ce compte peut faire dans Umami — pendant que les autres fonctions de ce
+ * fichier, qui ne rendent que des chiffres, restent ouvertes aux trois rôles.
+ */
+export const ssoLink = action({
+  args: {},
+  handler: async (ctx): Promise<string | null> => {
+    await requireRole(ctx, ["owner", "admin"])
+
+    const cfg = readUmamiConfig(process.env)
+    if (cfg === null) return null
+
+    try {
+      const token = await getUmamiToken(cfg, Date.now())
+      if (token === null) return null
+
+      const response = await fetch(`${cfg.url}/api/auth/sso`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: "{}",
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!response.ok) return null
+
+      const body = (await response.json()) as { token?: string }
+      if (!body.token) return null
+
+      // `url` est obligatoire : sans lui la page `/sso` consomme le jeton et
+      // s'arrête sur un écran vide. Constaté, pas déduit.
+      return `${cfg.url}/sso?url=%2F&token=${encodeURIComponent(body.token)}`
+    } catch {
+      return null
+    }
+  },
+})

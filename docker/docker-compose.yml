@@ -136,6 +136,29 @@ services:
   # variables `PUBLIC_UMAMI_*` au build du site (le script n'est alors pas
   # rendu, cf. apps/web/src/components/Analytics.astro), et supprimer les
   # deux services ci-dessous.
+  # Redis n'est pas là pour la performance : c'est lui qui rend possible
+  # l'arrivée sur Umami en un clic depuis l'administration. La route
+  # `POST /api/auth/sso` d'Umami y dépose un jeton à usage unique et à vie
+  # courte ; sans Redis elle répond « Redis is disabled » et le bouton
+  # « Statistiques » retombe sur le formulaire de connexion.
+  #
+  # Aucune donnée durable ici : ces jetons expirent en quelques minutes.
+  # Le conteneur peut être perdu et recréé sans rien sauvegarder — d'où
+  # l'absence de volume, qui est un choix et non un oubli.
+  umami-redis:
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    # Pas de persistance sur disque : ce qui est stocké ici est éphémère par
+    # nature, et l'écrire ferait des jetons de session un fichier à protéger.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # Jamais exposé : seul Umami le joint, par le réseau interne.
+    networks: [analytics]
+
   umami:
     # Tag EXACT, jamais `latest` ni `postgresql-latest` : ces deux alias
     # pointent aujourd'hui sur 3.3.1 et bougeront au prochain amont.
@@ -151,6 +174,8 @@ services:
     init: true
     depends_on:
       umami-db:
+        condition: service_healthy
+      umami-redis:
         condition: service_healthy
     environment:
       # Secrets d'exécution, jamais dans l'image ni en build-arg : ils
@@ -174,6 +199,9 @@ services:
       # Pour couper AUSSI les favicons (récupérés chez DuckDuckGo) et toute
       # autre sortie : ajouter `PRIVATE_MODE: "1"`.
       DISABLE_TELEMETRY: "1"
+      # Active `POST /api/auth/sso` : sans elle, cette route répond
+      # « Redis is disabled » et l'arrivée en un clic est impossible.
+      REDIS_URL: redis://umami-redis:6379
     networks: [edge, analytics]
     healthcheck:
       # `/api/heartbeat` est l'endpoint de santé d'Umami (c'est celui de son

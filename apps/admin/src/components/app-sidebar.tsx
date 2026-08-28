@@ -1,5 +1,5 @@
 import type { FunctionReturnType } from "convex/server"
-import { useQuery } from "convex/react"
+import { useAction, useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
@@ -94,6 +94,16 @@ function statsItem(url: string) {
   }
 }
 
+function statsSsoItem(onSelect: () => void) {
+  return {
+    title: "Statistiques",
+    url: "",
+    icon: <ChartNoAxesColumnIcon />,
+    external: true,
+    onSelect,
+  }
+}
+
 export function AppSidebar({
   profile,
   ...props
@@ -107,11 +117,35 @@ export function AppSidebar({
     profile?.role === "owner" || profile?.role === "admin"
       ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, USERS_ITEM, REDIRECTS_ITEM, SETTINGS_ITEM]
       : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM]
-  // Le lien de CONSULTATION : avec un partage activé, il ouvre les chiffres
-  // sans redemander de mot de passe. Régler Umami se fait depuis le lien
-  // « Administrer Umami » du tableau de bord — aucune adresse ne donne
-  // l'administration sans connexion.
-  const navMain = umami ? [...base, statsItem(umami.dashboard)] : base
+  const ssoLink = useAction(api.analytics.ssoLink)
+  const canSso = profile?.role === "owner" || profile?.role === "admin"
+
+  function openUmami() {
+    // L'onglet est ouvert MAINTENANT, dans le geste de l'utilisateur, et
+    // rempli quand l'adresse arrive. Ouvrir après l'attente réseau, c'est
+    // se faire bloquer comme une fenêtre surgissante — le clic n'est plus
+    // « récent » aux yeux du navigateur.
+    const tab = window.open("", "_blank", "noopener,noreferrer")
+    ssoLink({})
+      .then((url) => {
+        // `url` est `null` quand Umami ne peut pas frapper de jeton
+        // (Redis absent, identifiants refusés). La page de connexion reste
+        // une issue, là où un onglet vide n'en est pas une.
+        const destination = url ?? umami?.dashboard
+        if (!tab || !destination) return
+        tab.location.href = destination
+      })
+      .catch(() => {
+        if (tab && umami) tab.location.href = umami.dashboard
+      })
+  }
+
+  // Un owner ou un admin arrive connecté, avec les réglages d'Umami. Un
+  // éditeur suit le lien de consultation : le SSO prête un compte partagé,
+  // et le lui confier lui donnerait tout ce que ce compte peut faire.
+  const navMain = umami
+    ? [...base, canSso ? statsSsoItem(openUmami) : statsItem(umami.dashboard)]
+    : base
 
   return (
     <Sidebar collapsible="icon" {...props}>
