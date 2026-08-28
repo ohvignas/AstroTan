@@ -170,9 +170,20 @@ export const list = query({
     // déploient séparément, et un fichier retiré dans une branche ne doit
     // pas effacer des données de production. C'est à un humain de trancher,
     // en connaissance de cause.
+    //
+    // La page d'accueil est le SEUL cas où le slug et le chemin diffèrent :
+    // sa ligne dit `accueil`, elle est servie à `/` par `index.astro`. La
+    // comparer au manifeste sans cette exception la signalait « sans
+    // fichier » alors qu'elle est la page la plus servie du site. Le même
+    // piège existait déjà dans `feeds.ts`, où l'accueil était absent du
+    // sitemap pour cette raison exacte.
+    const settings = await ctx.db.query("settings").first()
+    const homeSlug = settings?.homePageSlug
+
     return pages.map((page) => ({
       ...page,
-      servedByRoute: isServedByRoute(page.slug),
+      servedByRoute:
+        page.slug === homeSlug ? isServedByRoute("/") : isServedByRoute(page.slug),
     }))
   },
 })

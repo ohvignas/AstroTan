@@ -751,3 +751,24 @@ test("update refuse une URL canonique à schéma exécutable", async () => {
     "https://illith.com/canonique",
   )
 })
+
+test("la page d'accueil n'est pas signalée « sans fichier »", async () => {
+  const t = makeTestConvex()
+  const { identity: owner } = await seedActor(t, "owner")
+
+  await owner.mutation(api.pages.create, { title: "Accueil", slug: "accueil" })
+  await owner.mutation(api.pages.create, { title: "Contact", slug: "contact" })
+  await owner.mutation(api.pages.create, { title: "Disparue", slug: "disparue" })
+  await owner.mutation(api.settings.setHomePage, { slug: "accueil" })
+
+  const list = await owner.query(api.pages.list, {})
+  const par = (slug: string) => list.find((page) => page.slug === slug)
+
+  // `accueil` n'est PAS dans le manifeste — c'est `/` qui l'est, servi par
+  // `index.astro`. Sans l'exception, la page la plus servie du site était
+  // signalée comme absente.
+  expect(par("accueil")?.servedByRoute).toBe(true)
+  expect(par("contact")?.servedByRoute).toBe(true)
+  // Celle-là n'a vraiment aucun fichier : le signalement doit rester utile.
+  expect(par("disparue")?.servedByRoute).toBe(false)
+})
