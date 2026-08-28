@@ -75,6 +75,49 @@ export const create = mutation({
       throw new ConvexError({ code: "INVALID_EMAIL" })
     }
 
+    // Minor (Lot 1 final review): server-side format validation — the
+    // browser's `type="email"` input (`apps/admin`) was, until now, the
+    // *only* place this was ever checked, and a non-browser caller (a
+    // direct Convex mutation call, `t.mutation` in a test, a future
+    // integration) bypasses it entirely. A single `@` with a non-empty
+    // local and domain part on each side is deliberately loose — this
+    // isn't the place to relitigate RFC 5322 — just enough to reject
+    // "obviously not an email" before it's staged as an invitation and
+    // (eventually) handed to `resend.sendEmail`.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new ConvexError({ code: "INVALID_EMAIL" })
+    }
+
+    // Minor (Lot 1 final review): `invitations.by_email` had zero readers
+    // — `create` could mint a second, redundant invitation for an email
+    // that already had one still pending, or for an email that already
+    // has an account. Neither is dangerous (the *effective* invariant,
+    // "exactly one account per email", was already enforced — the second
+    // case just failed later, at `accept`, via `createUser`'s own
+    // `USER_ALREADY_EXISTS`), but both are a wasted, permanently-unusable
+    // invitation and a confusing operator experience: mint one, then
+    // discover — possibly days later, whenever someone finally opens the
+    // link — that it was never going to work. Caught here instead, before
+    // either token is minted or the email is even sent.
+    const existingForEmail = await ctx.db
+      .query("invitations")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect()
+    const stillPending = existingForEmail.find(
+      (row) => row.acceptedAt === undefined && row.expiresAt >= Date.now(),
+    )
+    if (stillPending) {
+      throw new ConvexError({ code: "INVITATION_ALREADY_PENDING" })
+    }
+
+    const existingAccount = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user" as const,
+      where: [{ field: "email" as const, operator: "eq" as const, value: email }],
+    })
+    if (existingAccount) {
+      throw new ConvexError({ code: "ACCOUNT_ALREADY_EXISTS" })
+    }
+
     const { token, hash } = await generateToken()
     const invitationId = await ctx.db.insert("invitations", {
       email,

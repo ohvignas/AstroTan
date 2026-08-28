@@ -356,6 +356,88 @@ test("create accepte un email de exactement 100 caractères", async () => {
   expect(typeof token).toBe("string")
 })
 
+// Minor (Lot 1 final review): server-side email format validation — until
+// now the *only* check was the browser's `type="email"` input, which a
+// direct mutation call (this test included) bypasses entirely.
+test("create refuse un email de format invalide (pas de @)", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+
+  await expect(
+    asAdmin.mutation(api.invitations.create, { email: "not-an-email", role: "editor" }),
+  ).rejects.toThrow(/INVALID_EMAIL/)
+
+  const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
+  expect(rows).toHaveLength(0)
+})
+
+// Minor (Lot 1 final review): `invitations.by_email` had zero readers, so
+// `create` could mint a second, redundant, eventually-unusable invitation
+// for an email that already had one still pending.
+test("create refuse une deuxième invitation pour un email qui en a déjà une en attente", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+
+  await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  await expect(
+    asAdmin.mutation(api.invitations.create, {
+      email: "invitee@example.com",
+      role: "editor",
+    }),
+  ).rejects.toThrow(/INVITATION_ALREADY_PENDING/)
+
+  const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
+  expect(rows).toHaveLength(1)
+})
+
+// Same index, the other direction: a *revoked* (deleted) or *accepted*
+// invitation must not block a fresh one for the same email.
+test("create accepte une nouvelle invitation pour un email dont l'invitation précédente a été révoquée", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+
+  const { token: firstToken } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+  const firstRow = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  await asAdmin.mutation(api.invitations.revoke, { invitationId: firstRow!._id })
+
+  const { token: secondToken } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+  expect(secondToken).not.toBe(firstToken)
+})
+
+// Minor (Lot 1 final review): the other half of the same index-backed
+// check — an email that already has an account must not get a fresh
+// (permanently unusable) invitation either, discovered here instead of
+// only at `accept` time.
+test("create refuse une invitation vers un email qui a déjà un compte", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token: firstToken } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+  await t.mutation(api.invitations.accept, {
+    token: firstToken,
+    password: "correct horse battery staple by-email",
+  })
+
+  await expect(
+    asAdmin.mutation(api.invitations.create, {
+      email: "invitee@example.com",
+      role: "editor",
+    }),
+  ).rejects.toThrow(/ACCOUNT_ALREADY_EXISTS/)
+})
+
 // --- Le deuxième verrou : même une invitation "owner" fabriquée hors de --
 // --- `create` échoue à la création du compte (databaseHooks, Task 6) -----
 
@@ -812,13 +894,33 @@ test("une invitation vers un email déjà pourvu d'un compte échoue, l'invitati
     password: "correct horse battery staple 9",
   })
 
-  // I1: the invited role is incidental to what this test proves (exactly
-  // one account per email) — `editor`, not `admin`, since an `admin` actor
-  // is refused `role: "admin"` at `create` now.
-  const { token: secondToken } = await asAdmin.mutation(api.invitations.create, {
-    email: "invitee@example.com",
-    role: "editor",
+  // Minor (Lot 1 final review): `create` itself now refuses a second
+  // invitation for an email that already has an account (see
+  // `ACCOUNT_ALREADY_EXISTS`, tested separately) — this test's actual
+  // subject is `accept`'s own, independent defense against a duplicate
+  // account, which still matters for a row that reaches the table by any
+  // other path (a migration, a bug, a direct write) than `create`. Seeded
+  // directly, the same idiom this file already uses elsewhere for that
+  // exact reason (e.g. the rogue-owner-invitation test above) — with a
+  // *real* issuer id, not a placeholder string, since `accept` now
+  // re-verifies `invitedBy` (I2) before ever reaching the
+  // duplicate-account check this test is actually about.
+  const issuer = await seedUser(t, {
+    email: "second-issuer@example.com",
+    password: "correct horse battery staple second-issuer",
+    name: "Second Issuer",
+    role: "admin",
   })
+  const { token: secondToken, hash: secondHash } = await generateToken()
+  await t.run(async (ctx) =>
+    ctx.db.insert("invitations", {
+      email: "invitee@example.com",
+      role: "editor",
+      tokenHash: secondHash,
+      expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 7,
+      invitedBy: issuer.id,
+    }),
+  )
 
   // Minor (Lot 1 final review): pinned to better-auth's own
   // "already exists" message — the actual invariant this test names —
@@ -832,7 +934,7 @@ test("une invitation vers un email déjà pourvu d'un compte échoue, l'invitati
   ).rejects.toThrow(/already exists/i)
 
   const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
-  const second = rows.find((r) => r.role === "admin")
+  const second = rows.find((r) => r.tokenHash === secondHash)
   expect(second?.acceptedAt).toBeUndefined()
 })
 
