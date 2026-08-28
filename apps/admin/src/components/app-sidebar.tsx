@@ -13,6 +13,7 @@ import {
   FileTextIcon,
   ImageIcon,
   Settings2Icon,
+  SignpostIcon,
   LayoutDashboardIcon,
   NewspaperIcon,
   ShieldIcon,
@@ -62,6 +63,14 @@ const SETTINGS_ITEM = {
   icon: <Settings2Icon />,
 }
 
+// Owner/admin only: a redirect changes what every visitor of the site sees,
+// which is not an editor's call. `redirects.*` refuse an editor server-side.
+const REDIRECTS_ITEM = {
+  title: "Redirections",
+  url: "/redirects",
+  icon: <SignpostIcon />,
+}
+
 // "Utilisateurs" is added only for owner/admin — a courtesy, per Task 10's
 // property: `/users` itself (`routes/_authed/users.tsx`) refuses an editor
 // server-side regardless of whether this link is rendered, so hiding it is
@@ -80,7 +89,7 @@ export function AppSidebar({
 }) {
   const navMain =
     profile?.role === "owner" || profile?.role === "admin"
-      ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, USERS_ITEM, SETTINGS_ITEM]
+      ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, USERS_ITEM, REDIRECTS_ITEM, SETTINGS_ITEM]
       : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM]
 
   return (
