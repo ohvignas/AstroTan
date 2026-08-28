@@ -1,0 +1,105 @@
+name: Rollback
+
+# Jamais automatique : un rollback est une décision. `workflow_dispatch`
+# avec un sha explicite — celui affiché dans le résumé du déploiement à
+# rejouer, ou `cat ~/astrotan/DEPLOYED_SHA` sur le VPS.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit sha complet à redéployer (40 caractères)"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # L'arbre du sha visé, functions Convex comprises : c'est tout
+          # l'objet de ce workflow.
+          ref: ${{ inputs.sha }}
+
+      - name: Refuser un sha mal formé
+        run: |
+          echo "${{ inputs.sha }}" | grep -Eq '^[0-9a-f]{40}$' \
+            || (echo "sha must be a full 40-character commit sha" && exit 1)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # LE POINT ENTIER DE CE WORKFLOW (spec §7). Repointer le compose sur
+      # un tag d'image antérieur laisserait un frontend ancien face aux
+      # functions Convex actuelles. La discipline expand/migrate/contract
+      # rend ce redéploiement des anciennes functions sûr d'un cran en
+      # arrière — et c'est exactement d'un cran qu'il s'agit.
+      - name: Redeploy the Convex functions of that sha
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: pnpm --filter @astrotan/backend exec convex deploy
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute the lowercase image prefix
+        id: img
+        run: echo "prefix=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      # Échouer ici plutôt que sur le VPS, à mi-chemin d'un `compose up`
+      # dont un service ne démarrera jamais.
+      - name: Vérifier que les deux images de ce sha existent
+        run: |
+          docker manifest inspect ${{ steps.img.outputs.prefix }}/astrotan-web:${{ inputs.sha }} >/dev/null
+          docker manifest inspect ${{ steps.img.outputs.prefix }}/astrotan-admin:${{ inputs.sha }} >/dev/null
+
+      - name: Configure the SSH client
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Comme dans `deploy.yml` : la clé d'hôte est vérifiée, jamais
+          # contournée par `StrictHostKeyChecking=no`.
+          printf '%s\n' "${{ secrets.VPS_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # Le compose et la config Traefik du sha visé, pas ceux de `main` :
+      # rejouer un pipeline, c'est rejouer sa configuration aussi. Le
+      # `.env` du VPS reste intact (`--exclude '.env'`), il porte les
+      # variables que la commande ci-dessous ne passe pas.
+      - name: Ship the compose stack of that sha
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_deploy" \
+            --exclude '.env' \
+            docker/ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:~/astrotan/"
+
+      - name: Pull and restart at that sha
+        run: |
+          ssh -i ~/.ssh/id_deploy "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "cd ~/astrotan \
+             && IMAGE_TAG=${{ inputs.sha }} GHCR_OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]') docker compose pull \
+             && IMAGE_TAG=${{ inputs.sha }} GHCR_OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]') docker compose up -d \
+             && echo ${{ inputs.sha }} > ~/astrotan/DEPLOYED_SHA"
+
+      - name: Record the rollback
+        run: |
+          echo "Rolled back to \`${{ inputs.sha }}\` — Convex functions redeployed from that tree, images repinned." >> "$GITHUB_STEP_SUMMARY"
