@@ -12,6 +12,7 @@ import {
 import {
   FileTextIcon,
   ImageIcon,
+  Settings2Icon,
   LayoutDashboardIcon,
   NewspaperIcon,
   ShieldIcon,
@@ -51,6 +52,16 @@ const MEDIA_ITEM = {
   icon: <ImageIcon />,
 }
 
+// Owner/admin only, like "Utilisateurs": the site's name, logo and home
+// page apply to every page at once, so `settings.update` and
+// `settings.setHomePage` both refuse an editor server-side. Hiding the link
+// is the courtesy, never the enforcement.
+const SETTINGS_ITEM = {
+  title: "Réglages",
+  url: "/settings",
+  icon: <Settings2Icon />,
+}
+
 // "Utilisateurs" is added only for owner/admin — a courtesy, per Task 10's
 // property: `/users` itself (`routes/_authed/users.tsx`) refuses an editor
 // server-side regardless of whether this link is rendered, so hiding it is
@@ -69,7 +80,7 @@ export function AppSidebar({
 }) {
   const navMain =
     profile?.role === "owner" || profile?.role === "admin"
-      ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, USERS_ITEM]
+      ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, USERS_ITEM, SETTINGS_ITEM]
       : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM]
 
   return (

@@ -14,6 +14,7 @@ import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as AuthedMediaRouteImport } from './routes/_authed/media'
+import { Route as AuthedSettingsRouteImport } from './routes/_authed/settings'
 import { Route as AuthedUsersRouteImport } from './routes/_authed/users'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as AuthedPagesIndexRouteImport } from './routes/_authed/pages/index'
@@ -44,6 +45,11 @@ const AuthedIndexRoute = AuthedIndexRouteImport.update({
 const AuthedMediaRoute = AuthedMediaRouteImport.update({
   id: '/media',
   path: '/media',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedSettingsRoute = AuthedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedUsersRoute = AuthedUsersRouteImport.update({
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
   '/media': typeof AuthedMediaRoute
+  '/settings': typeof AuthedSettingsRoute
   '/users': typeof AuthedUsersRoute
   '/api/health': typeof ApiHealthRoute
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
@@ -99,6 +106,7 @@ export interface FileRoutesByTo {
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
   '/media': typeof AuthedMediaRoute
+  '/settings': typeof AuthedSettingsRoute
   '/users': typeof AuthedUsersRoute
   '/api/health': typeof ApiHealthRoute
   '/': typeof AuthedIndexRoute
@@ -114,6 +122,7 @@ export interface FileRoutesById {
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
   '/_authed/media': typeof AuthedMediaRoute
+  '/_authed/settings': typeof AuthedSettingsRoute
   '/_authed/users': typeof AuthedUsersRoute
   '/api/health': typeof ApiHealthRoute
   '/_authed/': typeof AuthedIndexRoute
@@ -130,6 +139,7 @@ export interface FileRouteTypes {
     | '/accept-invite'
     | '/login'
     | '/media'
+    | '/settings'
     | '/users'
     | '/api/health'
     | '/pages/$pageId'
@@ -142,6 +152,7 @@ export interface FileRouteTypes {
     | '/accept-invite'
     | '/login'
     | '/media'
+    | '/settings'
     | '/users'
     | '/api/health'
     | '/'
@@ -156,6 +167,7 @@ export interface FileRouteTypes {
     | '/accept-invite'
     | '/login'
     | '/_authed/media'
+    | '/_authed/settings'
     | '/_authed/users'
     | '/api/health'
     | '/_authed/'
@@ -209,6 +221,13 @@ declare module '@tanstack/react-router' {
       path: '/media'
       fullPath: '/media'
       preLoaderRoute: typeof AuthedMediaRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/settings': {
+      id: '/_authed/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthedSettingsRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/users': {
@@ -265,6 +284,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthedRouteChildren {
   AuthedMediaRoute: typeof AuthedMediaRoute
+  AuthedSettingsRoute: typeof AuthedSettingsRoute
   AuthedUsersRoute: typeof AuthedUsersRoute
   AuthedIndexRoute: typeof AuthedIndexRoute
   AuthedPagesPageIdRoute: typeof AuthedPagesPageIdRoute
@@ -275,6 +295,7 @@ interface AuthedRouteChildren {
 
 const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedMediaRoute: AuthedMediaRoute,
+  AuthedSettingsRoute: AuthedSettingsRoute,
   AuthedUsersRoute: AuthedUsersRoute,
   AuthedIndexRoute: AuthedIndexRoute,
   AuthedPagesPageIdRoute: AuthedPagesPageIdRoute,
