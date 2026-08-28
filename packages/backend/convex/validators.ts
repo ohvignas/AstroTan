@@ -1,4 +1,13 @@
 import { v } from "convex/values"
+
+/**
+ * Upper bound on `profiles.displayName`, and on every value that becomes
+ * one — the pseudo chosen at `invitations.accept`, the email an invitation
+ * is issued to. Lives here rather than in `profiles.ts` so the browser form
+ * can set its input's `maxLength` from the same number the mutations
+ * enforce; `profiles.ts` re-exports it for its existing importers.
+ */
+export const MAX_DISPLAY_NAME_LENGTH = 100
 export const roleValidator = v.union(
   v.literal("owner"), v.literal("admin"), v.literal("editor"),
 )

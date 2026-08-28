@@ -21,6 +21,13 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { PasswordStrengthMeter } from "@/components/password-strength-meter"
+import {
+  MIN_PASSWORD_SCORE,
+  scorePassword,
+} from "@astrotan/backend/convex/lib/passwordStrength"
+import { MAX_DISPLAY_NAME_LENGTH } from "@astrotan/backend/convex/validators"
+import { Eye, EyeOff } from "lucide-react"
 
 // Unauthenticated by design — this is how a brand new account comes into
 // being, so by construction there is no session yet when this page loads.
@@ -183,8 +190,12 @@ const ACCEPT_ERROR_MESSAGES: Record<string, string> = {
   EXPIRED: "Cette invitation a expiré. Demandez-en une nouvelle.",
   ALREADY_ACCEPTED:
     "Un compte existe déjà pour cette invitation. Connectez-vous plutôt.",
-  WEAK_PASSWORD: "Le mot de passe doit contenir entre 8 et 128 caractères.",
-  INVALID_NAME: "Le nom affiché n'est pas valide.",
+  // Reachable only from a caller that skipped this form: the gauge below
+  // scores with the very function the mutation applies, so the submit
+  // button is disabled long before a password this weak can be sent.
+  WEAK_PASSWORD:
+    "Ce mot de passe est trop faible. Choisissez-en un plus long ou plus varié.",
+  INVALID_NAME: "Ce pseudo n'est pas valide.",
   // The issuer re-check (Task 8, I2): the person who issued this invitation
   // has since been deleted, demoted, or banned. Never blames the visitor —
   // nothing they did is wrong here.
@@ -234,6 +245,12 @@ function AcceptInviteCard({ token }: { token: string }) {
 
   const [name, setName] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmation, setConfirmation] = useState("")
+  const [revealed, setRevealed] = useState(false)
+  // The pseudo is only flagged as missing after the person has left the
+  // field — an empty required field is not an error the instant the form
+  // renders.
+  const [nameTouched, setNameTouched] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -256,18 +273,30 @@ function AcceptInviteCard({ token }: { token: string }) {
   // too.
   const { email, role } = preview
 
+  // Scored against the invitation's own email, which is what
+  // `invitations.accept` scores against too — so the gauge cannot promise a
+  // password the mutation will then refuse.
+  const strength = scorePassword(password, { email })
+  const trimmedName = name.trim()
+  const nameValid =
+    trimmedName.length > 0 && trimmedName.length <= MAX_DISPLAY_NAME_LENGTH
+  // Only complain about a mismatch once there is something to mismatch:
+  // flagging an empty confirmation field as wrong while the person is still
+  // in the field above is noise, not help.
+  const confirmationMismatch =
+    confirmation.length > 0 && confirmation !== password
+  const canSubmit =
+    nameValid &&
+    strength.score >= MIN_PASSWORD_SCORE &&
+    confirmation === password
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError(null)
     setSubmitting(true)
 
-    const trimmedName = name.trim()
     try {
-      await acceptInvitation({
-        token,
-        password,
-        ...(trimmedName.length > 0 ? { name: trimmedName } : {}),
-      })
+      await acceptInvitation({ token, password, name: name.trim() })
     } catch (err) {
       setSubmitting(false)
       setError(describeAcceptError(err))
@@ -314,37 +343,110 @@ function AcceptInviteCard({ token }: { token: string }) {
       <CardContent>
         <form onSubmit={handleSubmit} noValidate>
           <FieldGroup>
+            {/* Read-only, and not a text input the browser will submit:
+                the address comes from the invitation row, server-side, and
+                `accept` signs the new account in against that same row —
+                never against anything typed here. Showing it as a field
+                rather than as prose is what lets someone confirm at a
+                glance that the link reached the right person, without
+                implying they can change it. */}
             <Field>
-              <FieldLabel htmlFor="accept-name">Nom affiché</FieldLabel>
-              <Input
-                id="accept-name"
-                autoComplete="name"
-                placeholder={email}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
+              <FieldLabel htmlFor="accept-email">Adresse e-mail</FieldLabel>
+              <Input id="accept-email" value={email} readOnly disabled />
               <FieldDescription>
-                Optionnel — {email} est utilisé par défaut.
+                C'est l'adresse à laquelle ce lien a été envoyé — elle ne peut
+                pas être modifiée ici.
               </FieldDescription>
             </Field>
+
+            <Field data-invalid={nameTouched && !nameValid ? true : undefined}>
+              <FieldLabel htmlFor="accept-name">Pseudo</FieldLabel>
+              <Input
+                id="accept-name"
+                autoComplete="nickname"
+                required
+                maxLength={MAX_DISPLAY_NAME_LENGTH}
+                aria-invalid={nameTouched && !nameValid}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                onBlur={() => setNameTouched(true)}
+              />
+              {nameTouched && !nameValid ? (
+                <FieldError>Choisissez un pseudo.</FieldError>
+              ) : (
+                <FieldDescription>
+                  Le nom sous lequel vous apparaîtrez dans l'administration.
+                </FieldDescription>
+              )}
+            </Field>
+
             <Field>
-              <FieldLabel htmlFor="accept-password">Mot de passe</FieldLabel>
+              <div className="flex items-center justify-between gap-2">
+                <FieldLabel htmlFor="accept-password">Mot de passe</FieldLabel>
+                {/* One toggle for both fields: they have to match, so
+                    revealing only one of them helps with neither typo. */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="-my-1 h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground"
+                  onClick={() => setRevealed((shown) => !shown)}
+                >
+                  {revealed ? (
+                    <EyeOff aria-hidden className="size-3.5" />
+                  ) : (
+                    <Eye aria-hidden className="size-3.5" />
+                  )}
+                  {revealed ? "Masquer" : "Afficher"}
+                </Button>
+              </div>
               <Input
                 id="accept-password"
-                type="password"
+                type={revealed ? "text" : "password"}
                 autoComplete="new-password"
                 required
+                aria-describedby="accept-password-strength"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
-              <FieldDescription>Entre 8 et 128 caractères.</FieldDescription>
+              {password.length > 0 ? (
+                <PasswordStrengthMeter
+                  id="accept-password-strength"
+                  strength={strength}
+                />
+              ) : (
+                <FieldDescription id="accept-password-strength">
+                  Entre 8 et 128 caractères. Une phrase de quatre mots vaut
+                  mieux qu'un mot court et tarabiscoté.
+                </FieldDescription>
+              )}
             </Field>
+
+            <Field data-invalid={confirmationMismatch ? true : undefined}>
+              <FieldLabel htmlFor="accept-confirmation">
+                Confirmer le mot de passe
+              </FieldLabel>
+              <Input
+                id="accept-confirmation"
+                type={revealed ? "text" : "password"}
+                autoComplete="new-password"
+                required
+                aria-invalid={confirmationMismatch}
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.target.value)}
+              />
+              {confirmationMismatch && (
+                <FieldError>Les deux mots de passe ne sont pas identiques.</FieldError>
+              )}
+            </Field>
+
             {error && <FieldError>{error}</FieldError>}
             <Field>
-              <Button
-                type="submit"
-                disabled={submitting || password.length === 0}
-              >
+              {/* Disabled on exactly the conditions the mutation enforces —
+                  a required pseudo, a password at or above the shared score
+                  floor — plus the confirmation, which is this form's own
+                  concern (the server never sees a second password). */}
+              <Button type="submit" disabled={submitting || !canSubmit}>
                 {submitting ? "Création…" : "Créer mon compte"}
               </Button>
             </Field>

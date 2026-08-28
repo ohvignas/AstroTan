@@ -2,9 +2,15 @@ import { ConvexError, v } from "convex/values"
 import { internalMutation, mutation, query } from "./_generated/server"
 import { api } from "./_generated/api"
 import { requireRole } from "./lib/authz"
+import { MAX_DISPLAY_NAME_LENGTH } from "./validators"
 import { MUTATION_REGISTRY } from "./_registry"
 
-export const MAX_DISPLAY_NAME_LENGTH = 100
+// Re-exported, not redeclared: `validators.ts` owns it because the
+// accept-invite form needs the same bound to set its input's `maxLength`,
+// and that module is importable from the browser — this one is not (it
+// pulls in `_generated/server`). Every existing importer of
+// `MAX_DISPLAY_NAME_LENGTH` from `profiles` keeps working.
+export { MAX_DISPLAY_NAME_LENGTH }
 
 // Seule source de vérité pour "un profil par utilisateur, jamais deux" :
 // idempotente par construction (`.unique()` sur `by_auth_user` lèverait si

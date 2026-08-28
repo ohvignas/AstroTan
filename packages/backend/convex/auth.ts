@@ -12,6 +12,7 @@ import authSchema from "./betterAuth/schema"
 import authConfig from "./auth.config"
 import { parseRole, type Role } from "./validators"
 import { assertOwnerInvariant, OwnerInvariantError } from "./lib/ownerGuard"
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/passwordStrength"
 import {
   SIGN_IN_EMAIL_RATE_LIMIT_CONFIG,
   SIGN_IN_EMAIL_RATE_LIMIT_NAME,
@@ -362,8 +363,12 @@ const editorRole = ac.newRole({
 // for the two concrete exploits that gap allowed (an empty password
 // leaves a permanently credential-less zombie account; a one-character
 // password is a working admin account).
-export const MIN_PASSWORD_LENGTH = 8
-export const MAX_PASSWORD_LENGTH = 128
+// Re-exported, not redeclared: `lib/passwordStrength.ts` owns these because
+// the browser form needs them too, and it can be imported there without
+// dragging Better Auth and the Convex component wiring into the bundle. Every
+// existing importer of `MIN_PASSWORD_LENGTH`/`MAX_PASSWORD_LENGTH` from this
+// module keeps working, against one definition instead of two.
+export { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH }
 
 // Reads `secret`/`baseURL` plainly, with no guard: `createApi` (the
 // component-side adapter, see betterAuth/adapter.ts) calls this at module

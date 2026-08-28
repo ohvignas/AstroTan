@@ -146,6 +146,7 @@ test("accept efface pendingToken lui-même, même avant que l'envoi programmé n
   expect(beforeAnythingRuns?.pendingToken).toBe(token)
 
   await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple pending1",
   })
@@ -169,7 +170,7 @@ test("une invitation expirée est refusée", async () => {
   })
 
   await expect(
-    t.mutation(api.invitations.accept, { token, password: "correct horse battery staple 2" }),
+    t.mutation(api.invitations.accept, { name: "Invité·e", token, password: "correct horse battery staple 2" }),
   ).rejects.toThrow(/EXPIRED/)
 })
 
@@ -182,11 +183,12 @@ test("une invitation ne peut être consommée deux fois", async () => {
   })
 
   await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple 2",
   })
   await expect(
-    t.mutation(api.invitations.accept, { token, password: "correct horse battery staple 2" }),
+    t.mutation(api.invitations.accept, { name: "Invité·e", token, password: "correct horse battery staple 2" }),
   ).rejects.toThrow(/ALREADY_ACCEPTED/)
 })
 
@@ -205,6 +207,7 @@ test("une invitation consommée puis expirée reste ALREADY_ACCEPTED, jamais EXP
   })
 
   await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple 2",
   })
@@ -214,7 +217,7 @@ test("une invitation consommée puis expirée reste ALREADY_ACCEPTED, jamais EXP
   })
 
   await expect(
-    t.mutation(api.invitations.accept, { token, password: "correct horse battery staple 2" }),
+    t.mutation(api.invitations.accept, { name: "Invité·e", token, password: "correct horse battery staple 2" }),
   ).rejects.toThrow(/ALREADY_ACCEPTED/)
 })
 
@@ -314,12 +317,15 @@ test("I1 (contrôle) : un owner peut inviter un admin", async () => {
 
 // --- Round 2 (review, item 5) : l'email est borné dans create -----------
 
-// `accept` defaults `displayName` to `invite.email` whenever no `name`
-// argument is given — the common case — so an unbounded `email` on
-// `create` let a syntactically-fine-but-very-long address become a
-// `profiles.displayName` past the 100-character limit enforced everywhere
-// else it's set. Bounded to the same `MAX_DISPLAY_NAME_LENGTH` `profiles`
-// already exports and enforces, reused rather than a second magic number.
+// `accept` used to default `displayName` to `invite.email` when no `name`
+// was given, so an unbounded `email` on `create` let a
+// syntactically-fine-but-very-long address become a `profiles.displayName`
+// past the 100-character limit enforced everywhere else it's set. `name` is
+// required now and that fallback is gone, but the bound stays: the email is
+// still shown verbatim on the accept-invite page, and an address nobody can
+// read is its own defect. Bounded to the same `MAX_DISPLAY_NAME_LENGTH`
+// `profiles` already exports and enforces, reused rather than a second
+// magic number.
 test("create refuse un email de plus de 100 caractères", async () => {
   const t = makeTestConvex()
   const asAdmin = await seedAdmin(t)
@@ -426,6 +432,7 @@ test("create refuse une invitation vers un email qui a déjà un compte", async 
     role: "editor",
   })
   await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token: firstToken,
     password: "correct horse battery staple by-email",
   })
@@ -480,7 +487,7 @@ test("une invitation 'owner' fabriquée hors de create échoue quand même à l'
   )
 
   await expect(
-    t.mutation(api.invitations.accept, { token, password: "correct horse battery staple 5" }),
+    t.mutation(api.invitations.accept, { name: "Invité·e", token, password: "correct horse battery staple 5" }),
   ).rejects.toThrow(/OWNER_ALREADY_EXISTS/)
 
   // No account was created for that email, and the invitation was never
@@ -515,6 +522,7 @@ test("accept sélectionne l'invitation qui correspond au hash du token, pas une 
   })
 
   const result = await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token: secondToken,
     password: "correct horse battery staple 6",
   })
@@ -533,6 +541,7 @@ test("un token inconnu (jamais émis, ou corrompu) est refusé", async () => {
   const t = makeTestConvex()
   await expect(
     t.mutation(api.invitations.accept, {
+      name: "Invité·e",
       token: "0".repeat(64),
       password: "correct horse battery staple 7",
     }),
@@ -553,6 +562,7 @@ test("accept crée un compte Better Auth avec le rôle porté par l'invitation, 
   })
 
   const result = await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple 8",
   })
@@ -563,12 +573,13 @@ test("accept crée un compte Better Auth avec le rôle porté par l'invitation, 
   expect(typeof cookie).toBe("string")
 
   // It traversed the profile trigger too (Task 7): a profile exists for
-  // the freshly-created account, with the display name defaulted from the
-  // invitation's email (no `name` argument was passed to `accept`).
+  // the freshly-created account, carrying the display name the invitee
+  // chose. `name` is a required argument now — there is no email fallback
+  // left, which is the point: every account has a name a human picked.
   const profile = await t.run(async (ctx) =>
     ctx.db
       .query("profiles")
-      .filter((q) => q.eq(q.field("displayName"), "invitee@example.com"))
+      .filter((q) => q.eq(q.field("displayName"), "Invité·e"))
       .first(),
   )
   expect(profile).not.toBeNull()
@@ -595,7 +606,7 @@ test("accept refuse un mot de passe vide, et l'invitation reste utilisable", asy
     role: "editor",
   })
 
-  await expect(t.mutation(api.invitations.accept, { token, password: "" })).rejects.toThrow(
+  await expect(t.mutation(api.invitations.accept, { name: "Invité·e", token, password: "" })).rejects.toThrow(
     /WEAK_PASSWORD/,
   )
 
@@ -604,6 +615,7 @@ test("accept refuse un mot de passe vide, et l'invitation reste utilisable", asy
 
   // The invitation is genuinely still good: a real password succeeds.
   const result = await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple weak1",
   })
@@ -621,7 +633,7 @@ test("accept refuse un mot de passe d'un seul caractère, et l'invitation reste 
     role: "admin",
   })
 
-  await expect(t.mutation(api.invitations.accept, { token, password: "a" })).rejects.toThrow(
+  await expect(t.mutation(api.invitations.accept, { name: "Invité·e", token, password: "a" })).rejects.toThrow(
     /WEAK_PASSWORD/,
   )
 
@@ -632,6 +644,7 @@ test("accept refuse un mot de passe d'un seul caractère, et l'invitation reste 
   // accept with a real password must still work, not collide with a
   // half-created zombie.
   const result = await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple weak2",
   })
@@ -656,7 +669,7 @@ test("I4 : accept refuse un mot de passe d'exactement 7 caractères (un de moins
   const sevenChars = "a".repeat(7)
   expect(sevenChars).toHaveLength(7)
   await expect(
-    t.mutation(api.invitations.accept, { token, password: sevenChars }),
+    t.mutation(api.invitations.accept, { name: "Invité·e", token, password: sevenChars }),
   ).rejects.toThrow(/WEAK_PASSWORD/)
 
   const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
@@ -674,7 +687,7 @@ test("I4 : accept refuse un mot de passe de 129 caractères (un de plus que le p
   const tooLong = "a".repeat(129)
   expect(tooLong).toHaveLength(129)
   await expect(
-    t.mutation(api.invitations.accept, { token, password: tooLong }),
+    t.mutation(api.invitations.accept, { name: "Invité·e", token, password: tooLong }),
   ).rejects.toThrow(/WEAK_PASSWORD/)
 
   const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
@@ -720,6 +733,7 @@ test("accept refuse si l'émetteur de l'invitation a été banni depuis (BANNED)
 
   await expect(
     t.mutation(api.invitations.accept, {
+      name: "Invité·e",
       token,
       password: "correct horse battery staple i2c",
     }),
@@ -762,6 +776,7 @@ test("accept refuse si l'émetteur a été rétrogradé en editor depuis (FORBID
 
   await expect(
     t.mutation(api.invitations.accept, {
+      name: "Invité·e",
       token,
       password: "correct horse battery staple i2f",
     }),
@@ -804,6 +819,7 @@ test("accept refuse si l'émetteur a été supprimé depuis (UNAUTHENTICATED)", 
 
   await expect(
     t.mutation(api.invitations.accept, {
+      name: "Invité·e",
       token,
       password: "correct horse battery staple i2i",
     }),
@@ -833,6 +849,7 @@ test("contrôle : accept réussit quand l'émetteur est toujours owner ou admin 
   })
 
   const result = await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple i2k",
   })
@@ -890,6 +907,7 @@ test("une invitation vers un email déjà pourvu d'un compte échoue, l'invitati
     role: "editor",
   })
   await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token: firstToken,
     password: "correct horse battery staple 9",
   })
@@ -928,6 +946,7 @@ test("une invitation vers un email déjà pourvu d'un compte échoue, l'invitati
   // for any unrelated failure (a typo in this test setup included).
   await expect(
     t.mutation(api.invitations.accept, {
+      name: "Invité·e",
       token: secondToken,
       password: "correct horse battery staple 10",
     }),
@@ -961,6 +980,7 @@ test("un échec d'envoi de l'email n'invalide pas l'invitation : le token reste 
   await runScheduledFunctions(t)
 
   const result = await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple 11",
   })
@@ -1095,7 +1115,7 @@ test("revoke supprime une invitation en attente, dont le token devient inaccepta
   const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
   expect(rows).toHaveLength(0)
   await expect(
-    t.mutation(api.invitations.accept, { token, password: "correct horse battery staple 12" }),
+    t.mutation(api.invitations.accept, { name: "Invité·e", token, password: "correct horse battery staple 12" }),
   ).rejects.toThrow(/INVALID/)
 })
 
@@ -1121,6 +1141,7 @@ test("revoke refuse une invitation déjà acceptée", async () => {
     role: "editor",
   })
   await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple 13",
   })
@@ -1286,6 +1307,7 @@ test("preview refuse une invitation déjà acceptée (ALREADY_ACCEPTED)", async 
     role: "editor",
   })
   await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple preview1",
   })
@@ -1307,6 +1329,7 @@ test("preview : une invitation consommée puis expirée reste ALREADY_ACCEPTED, 
     role: "editor",
   })
   await t.mutation(api.invitations.accept, {
+    name: "Invité·e",
     token,
     password: "correct horse battery staple preview2",
   })
@@ -1318,4 +1341,125 @@ test("preview : une invitation consommée puis expirée reste ALREADY_ACCEPTED, 
   await expect(t.query(api.invitations.preview, { token })).rejects.toThrow(
     /ALREADY_ACCEPTED/,
   )
+})
+
+// --- Plancher de robustesse : la jauge du formulaire, appliquée --------
+
+// The form in `accept-invite.tsx` scores the password as it is typed and
+// refuses to submit below `MIN_PASSWORD_SCORE`. These tests are what makes
+// that gauge more than decoration: the same function, against the same
+// email, decides here too — so a caller that skips the form entirely gets
+// the same answer the form would have given.
+
+test("accept refuse un mot de passe assez long mais trivial (score sous le plancher)", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  // 9 characters, three character classes — it clears every length bound
+  // this mutation had before, and it is one of the most-breached strings
+  // in existence.
+  await expect(
+    t.mutation(api.invitations.accept, {
+      token,
+      password: "P@ssw0rd1",
+      name: "Invité·e",
+    }),
+  ).rejects.toThrow(/WEAK_PASSWORD/)
+
+  // The invitation survives the refusal, exactly like the length-bound
+  // rejections above: someone who picked badly gets another go.
+  const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(row?.acceptedAt).toBeUndefined()
+
+  const result = await t.mutation(api.invitations.accept, {
+    token,
+    password: "correct horse battery staple score1",
+    name: "Invité·e",
+  })
+  expect(result).toEqual({ email: "invitee@example.com", role: "editor" })
+})
+
+test("accept refuse un mot de passe fabriqué à partir de l'email invité", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "marmotte@example.com",
+    role: "editor",
+  })
+
+  // Scored against `invite.email` — the address on the invitation row, read
+  // server-side — never an address the caller passed in. That is what makes
+  // this check unbypassable from the client: there is no email argument to
+  // lie about.
+  await expect(
+    t.mutation(api.invitations.accept, {
+      token,
+      password: "Marmotte2026!",
+      name: "Marmotte",
+    }),
+  ).rejects.toThrow(/WEAK_PASSWORD/)
+
+  const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(row?.acceptedAt).toBeUndefined()
+})
+
+// --- Le pseudo est obligatoire ------------------------------------------
+
+test("accept refuse un pseudo vide, et l'invitation reste utilisable", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  await expect(
+    t.mutation(api.invitations.accept, {
+      token,
+      password: "correct horse battery staple name1",
+      name: "",
+    }),
+  ).rejects.toThrow(/INVALID_NAME/)
+
+  const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(row?.acceptedAt).toBeUndefined()
+})
+
+test("le pseudo choisi devient le displayName du profil, sans repli sur l'email", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  await t.mutation(api.invitations.accept, {
+    token,
+    password: "correct horse battery staple name2",
+    // Surrounding whitespace is trimmed, not refused — someone who pastes
+    // their name with a stray space should not be told their name is
+    // invalid.
+    name: "  Marmotte Verte  ",
+  })
+
+  const profile = await t.run(async (ctx) =>
+    ctx.db
+      .query("profiles")
+      .filter((q) => q.eq(q.field("displayName"), "Marmotte Verte"))
+      .first(),
+  )
+  expect(profile).not.toBeNull()
+
+  // And nothing anywhere fell back to the email address.
+  const byEmail = await t.run(async (ctx) =>
+    ctx.db
+      .query("profiles")
+      .filter((q) => q.eq(q.field("displayName"), "invitee@example.com"))
+      .first(),
+  )
+  expect(byEmail).toBeNull()
 })

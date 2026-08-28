@@ -5,6 +5,7 @@ import { api, components, internal } from "./_generated/api"
 import { decideAccess, requireRole } from "./lib/authz"
 import { authComponent, createAuth, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./auth"
 import { generateToken, hashToken } from "./lib/token"
+import { MIN_PASSWORD_SCORE, scorePassword } from "./lib/passwordStrength"
 import { roleValidator } from "./validators"
 import { MAX_DISPLAY_NAME_LENGTH } from "./profiles"
 import { MUTATION_REGISTRY } from "./_registry"
@@ -246,7 +247,12 @@ export const sendInvitationEmail = internalAction({
 })
 
 export const accept = mutation({
-  args: { token: v.string(), password: v.string(), name: v.optional(v.string()) },
+  // `name` is required, not optional: every account this template creates
+  // gets a display name its owner chose. Enforced here and not only in the
+  // form, because "the UI asks for it" is not an invariant — a caller that
+  // skips the form would otherwise create an account whose display name is
+  // its own email address, which is exactly what the old default did.
+  args: { token: v.string(), password: v.string(), name: v.string() },
   handler: async (ctx, args) => {
     const hash = await hashToken(args.token)
     const invite = await ctx.db
@@ -295,19 +301,32 @@ export const accept = mutation({
       throw new ConvexError({ code: "WEAK_PASSWORD" })
     }
 
+    // The strength floor, scored by the same function the form's gauge uses
+    // (`lib/passwordStrength.ts`) against the same email — so what the
+    // visitor was shown while typing is what is applied here, and the gauge
+    // is not decoration. Length alone lets "admin1234" and "P@ssw0rd1"
+    // through; both fold onto a top-of-the-corpus word and are refused here.
+    // Scored against `invite.email` — the address read from the invitation
+    // row — never an address the caller supplied.
+    if (
+      scorePassword(args.password, { email: invite.email }).score <
+      MIN_PASSWORD_SCORE
+    ) {
+      throw new ConvexError({ code: "WEAK_PASSWORD" })
+    }
+
     // M5 (review) : `name` est fourni par l'appelant (celui qui accepte
     // l'invitation, pas l'émetteur) et non borné — il atterrit tel quel
     // dans `profiles.displayName`, que `profiles.updateMine` borne déjà à
     // `MAX_DISPLAY_NAME_LENGTH` (Task 7). Même borne ici, réutilisée
     // plutôt que redéclarée, pour ne pas avoir deux limites qui peuvent
     // diverger.
-    let displayName = invite.email
-    if (args.name !== undefined) {
-      const trimmed = args.name.trim()
-      if (trimmed.length === 0 || trimmed.length > MAX_DISPLAY_NAME_LENGTH) {
-        throw new ConvexError({ code: "INVALID_NAME" })
-      }
-      displayName = trimmed
+    const displayName = args.name.trim()
+    if (
+      displayName.length === 0 ||
+      displayName.length > MAX_DISPLAY_NAME_LENGTH
+    ) {
+      throw new ConvexError({ code: "INVALID_NAME" })
     }
 
     // Création du compte à travers Better Auth, jamais par un
@@ -515,6 +534,7 @@ MUTATION_REGISTRY.push(
       return t.mutation(api.invitations.accept, {
         token,
         password: "correct horse battery staple registry",
+        name: "Registry Invitee",
       })
     },
   },
