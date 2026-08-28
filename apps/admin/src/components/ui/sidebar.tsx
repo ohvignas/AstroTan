@@ -28,7 +28,12 @@ const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
-const SIDEBAR_WIDTH_ICON = "3rem"
+// 3.5rem plutôt que les 3rem du modèle shadcn : la marque du site est une
+// illustration, pas un pictogramme de trait, et 32 px la rendaient
+// illisible une fois la barre repliée. Un demi-rem de plus suffit à la
+// laisser reconnaissable sans élargir la colonne au point qu'elle cesse
+// d'être « repliée ».
+const SIDEBAR_WIDTH_ICON = "3.5rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 
 type SidebarContextProps = {

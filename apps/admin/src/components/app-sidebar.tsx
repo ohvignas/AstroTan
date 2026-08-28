@@ -145,7 +145,10 @@ export function AppSidebar({
         {/* A single-tenant CMS admin has no organizations to switch
             between, so this is a static brand block, not the login-03/
             sidebar-07 template's interactive team switcher. */}
-        <div className="flex items-center gap-2 px-2 py-1.5">
+        {/* `justify-center` et padding nul une fois repliée : sinon l'icône
+            reste calée à gauche derrière un padding devenu plus large
+            qu'elle, et paraît coupée. */}
+        <div className="flex items-center gap-2 px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
           {/* La même marque que le site public — le fichier est copié dans
               `apps/admin/src/assets/` parce que Vite ne suit pas un import
               hors de la racine de l'application. Deux copies d'un fichier
@@ -153,11 +156,14 @@ export function AppSidebar({
           <img
             src={astrotanIcon}
             alt=""
-            width={32}
-            height={32}
-            className="size-8 rounded-lg object-contain"
+            width={44}
+            height={44}
+            className="size-11 rounded-lg object-contain group-data-[collapsible=icon]:size-10"
           />
-          <div className="grid flex-1 text-left text-sm leading-tight">
+          {/* Le nom disparaît quand la barre est repliée : la colonne fait
+              alors 56 px, et un texte tronqué à trois lettres n'apprend
+              rien à personne. */}
+          <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
             <span className="truncate font-medium">AstroTan</span>
             <span className="truncate text-xs text-sidebar-foreground/70">
               Administration
