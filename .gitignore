@@ -5,6 +5,10 @@ dist/
 .env
 .env.*
 !.env.example
+# `.env.deploy` (saisi), `.env.vps` (produit) tombent sous `.env.*` ci-dessus.
+# Son exemple, lui, doit être commité — la négation précédente ne vise que le
+# nom exact `.env.example`.
+!.env.deploy.example
 .turbo/
 .DS_Store
 .superpowers/
