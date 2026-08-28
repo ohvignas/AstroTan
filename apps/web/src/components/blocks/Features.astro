@@ -1,0 +1,24 @@
+---
+// One of the six block components `src/lib/blockRegistry.ts` maps
+// `Block["type"]` to (Lot 2, Task 5).
+import type { Block } from "@astrotan/backend/convex/blocks"
+
+interface Props {
+  block: Extract<Block, { type: "features" }>
+}
+
+const { block } = Astro.props
+---
+
+<section class="px-6 py-16">
+  <div class="mx-auto grid max-w-5xl gap-8 sm:grid-cols-2 lg:grid-cols-3">
+    {
+      block.items.map((item) => (
+        <div class="rounded-card border border-rule p-6">
+          <h3 class="text-lg font-semibold text-ink">{item.title}</h3>
+          <p class="mt-2 text-sm text-ink-mid">{item.body}</p>
+        </div>
+      ))
+    }
+  </div>
+</section>

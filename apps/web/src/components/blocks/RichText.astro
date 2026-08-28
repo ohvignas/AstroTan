@@ -1,0 +1,97 @@
+---
+// One of the six block components `src/lib/blockRegistry.ts` maps
+// `Block["type"]` to (Lot 2, Task 5).
+//
+// `block.html` is markup an editor wrote through the dashboard's rich-text
+// form and previewed through an `<iframe>` — never taken from an anonymous
+// site visitor (CLAUDE.md invariant #5: blocks render only in `.astro`,
+// never a second React implementation). It still reaches every visitor of
+// a public page as raw HTML on every request, so this component sanitizes
+// it here, at the last point before output, rather than trusting it or
+// stripping it down to plain text:
+//
+//   - Trusting it outright would mean a single compromised editor session,
+//     or a block of markup copy-pasted from an untrusted webpage into the
+//     rich-text form, becomes stored XSS against every visitor — the
+//     entire audience of a page the dashboard's own auth boundary was
+//     supposed to protect, reached through a boundary that has nothing to
+//     do with authentication at all.
+//   - Stripping all markup would defeat the block's actual purpose: it
+//     exists to hold real formatted copy (headings, links, lists, bold/
+//     italic, images), not escaped plain text.
+//
+// `sanitize-html` runs an allowlist: ordinary prose tags/attributes pass
+// through, `<script>`, inline event handlers (`onclick`, ...), `style`
+// attributes, `javascript:`/`data:` URLs, iframes, and anything else not
+// explicitly listed below are dropped silently, by design — this is the
+// concrete thing that makes "a stored `<script>` tag" harmless. The
+// length bound on `block.html` itself (`MAX_RICH_TEXT_HTML_LENGTH`, in
+// `packages/backend/convex/blocks.ts`) is a different, complementary
+// guard — it bounds size at write time; this bounds *content* at render
+// time. Neither substitutes for the other.
+import sanitizeHtml from "sanitize-html"
+import type { Block } from "@astrotan/backend/convex/blocks"
+
+interface Props {
+  block: Extract<Block, { type: "richText" }>
+}
+
+const { block } = Astro.props
+
+const safeHtml = sanitizeHtml(block.html, {
+  allowedTags: [
+    "p",
+    "br",
+    "hr",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "strong",
+    "b",
+    "em",
+    "i",
+    "u",
+    "s",
+    "sub",
+    "sup",
+    "ul",
+    "ol",
+    "li",
+    "a",
+    "img",
+    "blockquote",
+    "code",
+    "pre",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "span",
+    "div",
+  ],
+  allowedAttributes: {
+    a: ["href", "title", "target", "rel"],
+    img: ["src", "alt", "width", "height"],
+    "*": ["class"],
+  },
+  // Blocks `javascript:`/`data:`/`vbscript:` hrefs and srcs — the other
+  // half of "no <script> tag", since an allowed `<a>`/`<img>` tag with a
+  // disallowed scheme is the same attack through a different door.
+  allowedSchemes: ["http", "https", "mailto"],
+  transformTags: {
+    a: sanitizeHtml.simpleTransform("a", { rel: "noopener noreferrer" }, true),
+  },
+})
+---
+
+<section class="px-6 py-16">
+  <div
+    class="mx-auto max-w-3xl text-ink leading-relaxed [&_a]:text-accent-500 [&_a]:underline [&_h2]:mt-8 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mt-6 [&_h3]:text-xl [&_h3]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_p]:mt-4 [&_ul]:list-disc"
+    set:html={safeHtml}
+  />
+</section>

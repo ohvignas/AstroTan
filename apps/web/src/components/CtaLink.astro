@@ -1,0 +1,28 @@
+---
+// Shared button/link markup for the two block types that carry a CTA
+// (`hero`, `cta`). Not itself an entry in `src/lib/blockRegistry.ts` — the
+// registry only maps `Block["type"]` to the six top-level block
+// components; this is a plain internal partial one of those imports, the
+// same way any other `.astro` component can compose smaller ones.
+import type { Block } from "@astrotan/backend/convex/blocks"
+
+// `cta` blocks carry a required `cta` field of this exact shape; `hero`
+// blocks carry the same shape as an optional field. Deriving from the
+// `cta` block (not `hero`) sidesteps having to strip the `| undefined`
+// `hero.cta` would otherwise add.
+type Cta = Extract<Block, { type: "cta" }>["cta"]
+
+interface Props {
+  cta: Cta
+  variant?: "primary" | "secondary"
+}
+
+const { cta, variant = "primary" } = Astro.props
+
+const classes =
+  variant === "primary"
+    ? "inline-flex items-center justify-center rounded-card bg-accent-500 px-5 py-2.5 text-sm font-medium text-paper transition-colors hover:bg-accent-900"
+    : "inline-flex items-center justify-center rounded-card border border-rule px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:border-accent-500 hover:text-accent-500"
+---
+
+<a href={cta.href} class={classes}>{cta.label}</a>

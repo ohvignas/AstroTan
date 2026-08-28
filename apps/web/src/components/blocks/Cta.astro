@@ -1,0 +1,21 @@
+---
+// One of the six block components `src/lib/blockRegistry.ts` maps
+// `Block["type"]` to (Lot 2, Task 5).
+import type { Block } from "@astrotan/backend/convex/blocks"
+import CtaLink from "../CtaLink.astro"
+
+interface Props {
+  block: Extract<Block, { type: "cta" }>
+}
+
+const { block } = Astro.props
+---
+
+<section class="bg-accent-50 px-6 py-16 text-center">
+  <div class="mx-auto max-w-2xl">
+    <h2 class="text-2xl font-semibold text-ink sm:text-3xl">{block.title}</h2>
+    <div class="mt-8">
+      <CtaLink cta={block.cta} variant="primary" />
+    </div>
+  </div>
+</section>
