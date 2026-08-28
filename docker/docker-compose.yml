@@ -16,16 +16,50 @@ services:
       # conteneurs. Un socket Docker monté en écriture équivaut à donner
       # le root de l'hôte au conteneur.
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - acme:/acme
-    # Pas de bloc `environment:` ici, et surtout pas d'`ACME_EMAIL` : dès
-    # qu'un `/etc/traefik/traefik.yml` est monté, il est la source
-    # EXCLUSIVE de la configuration statique de Traefik — ni les variables
-    # d'environnement ni les arguments de ligne de commande n'y sont
-    # fusionnés (vérifié sur 3.6.25, voir l'en-tête de traefik/traefik.yml).
-    # Une variable passée ici serait donc silencieusement ignorée, ce qui
-    # est pire que son absence : elle laisserait croire que l'adresse ACME
-    # se règle depuis `.env`. Elle se règle dans traefik/traefik.yml.
+    # NE JAMAIS AJOUTER DE `command:` NI DE `traefik.yml` MONTÉ ICI.
+    #
+    # Traefik charge sa configuration statique par trois loaders essayés
+    # dans l'ordre File → Flag → Env, et le PREMIER qui aboutit arrête la
+    # chaîne : les sources ne sont pas fusionnées. Un fichier monté sur
+    # `/etc/traefik/traefik.yml`, ou un seul argument de ligne de commande,
+    # ferait donc ignorer EN SILENCE toutes les variables `TRAEFIK_*`
+    # ci-dessous — Traefik démarrerait sans ACME, sans provider docker et
+    # sans redirection, sans le moindre message d'erreur.
+    #
+    # Vérifié sur traefik:v3.6 (3.6.25) : avec `TRAEFIK_LOG_LEVEL=DEBUG`
+    # dans l'environnement et le seul flag `--accesslog=true` en `command`,
+    # le conteneur ne produit aucune ligne DBG — le niveau reste au défaut
+    # ERROR. Pour ajouter un réglage, ajouter une variable, jamais un flag.
+    #
+    # Les noms suivent les flags `traefik --help` : `--entrypoints.<nom>.
+    # address` devient `TRAEFIK_ENTRYPOINTS_<NOM>_ADDRESS`. Le nom du
+    # résolveur (`letsencrypt`) est arbitraire mais doit rester identique
+    # aux labels `traefik.http.routers.*.tls.certresolver` plus bas.
+    environment:
+      TRAEFIK_ENTRYPOINTS_WEB_ADDRESS: ":80"
+      TRAEFIK_ENTRYPOINTS_WEB_HTTP_REDIRECTIONS_ENTRYPOINT_TO: websecure
+      TRAEFIK_ENTRYPOINTS_WEB_HTTP_REDIRECTIONS_ENTRYPOINT_SCHEME: https
+      TRAEFIK_ENTRYPOINTS_WEB_HTTP_REDIRECTIONS_ENTRYPOINT_PERMANENT: "true"
+      TRAEFIK_ENTRYPOINTS_WEBSECURE_ADDRESS: ":443"
+      TRAEFIK_PROVIDERS_DOCKER: "true"
+      # Aucun conteneur n'est exposé sans un label `traefik.enable=true`.
+      # Le défaut inverse publierait sur internet tout conteneur de l'hôte.
+      TRAEFIK_PROVIDERS_DOCKER_EXPOSEDBYDEFAULT: "false"
+      TRAEFIK_PROVIDERS_DOCKER_NETWORK: astrotan_edge
+      TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+      TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_STORAGE: /acme/acme.json
+      TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_HTTPCHALLENGE_ENTRYPOINT: web
+      TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_CASERVER: ${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
+      # `/ping` sur l'entrypoint interne `traefik` (port 8080), seule cible
+      # du healthcheck ci-dessous. Cet entrypoint n'est pas dans `ports:` :
+      # il reste joignable depuis le conteneur seulement. Ni l'API ni le
+      # dashboard ne sont activés — un dashboard Traefik ouvert publierait
+      # la topologie complète du VPS.
+      TRAEFIK_PING: "true"
+      TRAEFIK_PING_ENTRYPOINT: traefik
+      TRAEFIK_LOG_LEVEL: INFO
+      TRAEFIK_ACCESSLOG: "true"
     networks: [edge]
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
@@ -95,4 +129,17 @@ networks:
     name: astrotan_edge
 
 volumes:
+  # Stockage des certificats Let's Encrypt (`/acme/acme.json`). Volume
+  # NOMMÉ, et pas un bind-mount depuis l'hôte : Traefik refuse de démarrer
+  # si le fichier est trop permissif (« permissions 660 for acme.json are
+  # too open, please use 600 »), et un fichier créé côté hôte arrive avec
+  # les droits et le propriétaire de l'hôte, pas ceux attendus dans le
+  # conteneur. Le volume nommé laisse Traefik créer le fichier lui-même,
+  # en 600, sans intervention.
+  #
+  # Sa persistance est aussi ce qui protège le quota Let's Encrypt : sans
+  # elle, un conteneur qui redémarre en boucle redemanderait un certificat
+  # à chaque tour et brûlerait les 5 certificats/7 jours en quelques
+  # minutes. Ne pas le supprimer pour « repartir propre » (voir
+  # `ACME_CA_SERVER` dans `.env.example` pour tester sans risque).
   acme:

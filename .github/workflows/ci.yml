@@ -82,17 +82,16 @@ jobs:
           cache-to: type=gha,mode=max
 
       # Ces variables sont exactement celles que `docker-compose.yml` exige
-      # par `${VAR:?message}` — ni plus, ni moins. Pas d'`ACME_EMAIL` : le
-      # compose n'en lit aucune, l'adresse ACME est littérale dans
-      # `docker/traefik/traefik.yml` (Traefik n'interpole rien dans sa
-      # configuration statique). En poser une ici ferait croire que la
-      # variable existe.
+      # par `${VAR:?message}` — ni plus, ni moins. `ACME_CA_SERVER` n'y est
+      # pas : elle a un défaut (`${VAR:-...}`), donc son absence est le cas
+      # normal et c'est bien celui qu'on veut valider ici.
       - name: Validate the compose file
         env:
           GHCR_OWNER: ci
           IMAGE_TAG: ci
           WEB_DOMAIN: example.test
           ADMIN_DOMAIN: admin.example.test
+          ACME_EMAIL: ci@example.test
           VITE_CONVEX_URL: http://ci.invalid
           VITE_CONVEX_SITE_URL: http://ci.invalid
           PREVIEW_SECRET: ci-secret-at-least-32-characters-long
