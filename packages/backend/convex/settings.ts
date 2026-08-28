@@ -127,7 +127,38 @@ export const update = mutation({
       if (refus !== null) throw new ConvexError({ code: refus, field: "leadWebhookUrl" })
     }
 
-    const { logoId, iconId, leadWebhookUrl, leadWebhookSecret, ...rest } = args
+    // `leadWebhookSecret` est extrait ici aussi, sinon il reste dans
+    // `...rest` avec son `| null` et `db.patch` le refuse — l'erreur pointe
+    // alors le patch entier, pas le champ fautif.
+    const { logoId, iconId, leadWebhookUrl, leadWebhookSecret: _ignore, ...rest } = args
+    void _ignore
+    // `let` d'un type large : la valeur finale est calculée juste en
+    // dessous, puis rétrécie explicitement avant d'entrer dans le patch —
+    // `db.patch` n'accepte pas `null`, qui signifie ici « efface ».
+    let leadWebhookSecret: string | null | undefined = args.leadWebhookSecret
+
+    // Une URL sans secret ne signerait rien, et `deliverWebhook` refuserait
+    // d'envoyer : le réglage aurait l'air posé et rien ne partirait, en
+    // silence. Plutôt que d'exiger de l'opérateur qu'il invente une chaîne
+    // aléatoire, on la frappe ici. Le pire des deux mondes serait d'envoyer
+    // sans signature.
+    if (leadWebhookUrl) {
+      const existing = await ctx.db.query("settings").first()
+      const dejaPose = leadWebhookSecret ?? existing?.leadWebhookSecret
+      if (!dejaPose) {
+        const bytes = crypto.getRandomValues(new Uint8Array(32))
+        leadWebhookSecret = Array.from(bytes)
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("")
+      }
+    }
+    // Construit à part : dans un étalement conditionnel, TypeScript garde
+    // le `null` du type d'origine et `db.patch` le refuse.
+    const secretPatch: { leadWebhookSecret?: string | undefined } =
+      leadWebhookSecret === undefined
+        ? {}
+        : { leadWebhookSecret: leadWebhookSecret ?? undefined }
+
     const patch = {
       ...rest,
       ...(logoId !== undefined ? { logoId: logoId ?? undefined } : {}),
@@ -135,9 +166,7 @@ export const update = mutation({
       ...(leadWebhookUrl !== undefined
         ? { leadWebhookUrl: leadWebhookUrl ?? undefined }
         : {}),
-      ...(leadWebhookSecret !== undefined
-        ? { leadWebhookSecret: leadWebhookSecret ?? undefined }
-        : {}),
+      ...secretPatch,
     }
 
     const existing = await ctx.db.query("settings").first()
