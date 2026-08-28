@@ -144,11 +144,25 @@ sur « Full (strict) ».
 
 ## 4. Amorçage du `.env` sur le VPS
 
+**`pnpm bootstrap` (à la racine du dépôt) produit ce fichier déjà rempli,**
+sous le nom `.env.vps` : les huit variables ci-dessous, les deux secrets HMAC
+identiques à ceux qu'il pose sur Convex, et la ligne `ACME_CA_SERVER` laissée
+commentée pour la section 5. Il affiche ensuite les commandes de copie et le
+`chmod 600`. Il ne se connecte **pas** au VPS pour écrire à votre place : ce
+fichier est le seul que le déploiement n'écrase jamais (`rsync --exclude`),
+donc le seul point de vérité de la machine — le remplir depuis l'extérieur en
+ferait une copie d'un fichier resté sur le poste de dev, périmée en silence.
+
+La procédure manuelle ci-dessous reste la référence, et la seule voie pour qui
+n'a ni `gh` ni Node sous la main.
+
 Sur le VPS, une fois pour toutes :
 
 ```bash
 mkdir -p ~/astrotan
-# depuis le poste de dev, ou par copier-coller du fichier du dépôt :
+# depuis le poste de dev — soit le fichier produit par `pnpm bootstrap` :
+scp .env.vps <user>@<host>:~/astrotan/.env
+# soit l'exemple du dépôt, à remplir ensuite à la main :
 scp docker/.env.example <user>@<host>:~/astrotan/.env
 ssh <user>@<host> 'chmod 600 ~/astrotan/.env'
 ```
@@ -244,7 +258,16 @@ tour et brûle les 5 certificats/7 jours en quelques minutes.
 sont des clés HMAC, vérifiées des deux côtés d'une frontière. Elles n'ont de
 sens qu'**identiques** sur le déploiement Convex et dans le conteneur `web`.
 
-Générer chacune une fois :
+**`pnpm bootstrap` est fait pour cette contrainte précise.** Il génère chaque
+clé une fois par `openssl rand -hex 32`, la réécrit dans `.env.deploy` pour ne
+jamais la régénérer ensuite, puis la pose telle quelle sur les trois côtés :
+le déploiement Convex, `.env.vps`, et `apps/web/.env` pour le développement
+local. Il n'affiche jamais leur valeur ; il en affiche une empreinte SHA-256
+courte, ce qui suffit à vérifier d'un coup d'œil que les trois côtés portent
+bien la même clé. Une divergence ne peut donc plus venir que d'une rotation
+faite à la main d'un seul côté.
+
+À la main, si vous préférez. Générer chacune une fois :
 
 ```bash
 openssl rand -hex 32
@@ -287,6 +310,10 @@ Neuf secrets à poser dans *Settings → Secrets and variables → Actions*. Ce
 sont exactement ceux que `deploy.yml` et `rollback.yml` référencent, ni plus
 ni moins — la liste est vérifiable par
 `grep -oh 'secrets\.[A-Z_]*' .github/workflows/*.yml | sort -u`.
+
+`pnpm bootstrap` les pose tous les neuf par `gh secret set`, valeur sur
+l'entrée standard. Le tableau ci-dessous reste ce qui fait autorité sur leur
+provenance — et la marche à suivre pour les poser à la main.
 
 | Secret | Ce que c'est, et comment l'obtenir |
 |---|---|
