@@ -110,6 +110,33 @@ Ils demandent une approbation au premier lancement de la session.
 Ce sont des **index**, pas la doc complète. Rafraîchir avec
 `./scripts/refresh-ai-docs.sh`.
 
+## Écosystème TanStack — ce qu'on utilise, et ce qu'on refuse
+
+Le dashboard s'appuie sur **Start**, **Router**, **Devtools**, `router-plugin`
+et `eslint-config`. Le reste du catalogue est écarté, et deux de ces refus
+sont importants :
+
+- **TanStack Query : à ne jamais ajouter.** Convex *est* la couche de
+  données réactive — `useQuery` de `convex/react` ouvre un abonnement et le
+  serveur pousse les mises à jour. Empiler Query par-dessus, c'est mettre un
+  second cache devant un système qui invalide déjà tout seul : deux sources
+  de vérité sur la fraîcheur, et des incohérences qu'on ne sait plus
+  attribuer. Même raisonnement pour **TanStack DB**.
+- **TanStack Store** : rien à partager entre composants qui ne soit déjà
+  dans Convex ou dans l'état de route.
+
+Deux valent d'être adoptées quand le besoin se présentera, et le besoin
+approche :
+
+- **TanStack Table** — les listes (utilisateurs, pages, bientôt médias et
+  articles) sont des `<table>` écrites à la main. Tri, filtrage et
+  pagination arrivent avec la médiathèque.
+- **TanStack Form** — chaque formulaire de l'admin réimplémente validation,
+  état « modifié » et état de soumission avec des `useState`. C'est le gain
+  le plus net, et le plus répété.
+
+**TanStack Charts** est l'outil du lot 6 (statistiques Umami par page).
+
 ## Versions
 
 **Non épinglées tant que le spike d'intégration n'est pas vert** (spec §9). Le
