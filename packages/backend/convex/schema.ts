@@ -93,12 +93,33 @@ export default defineSchema({
   // `revalidate.ts`'s `listDueRows` ask for exactly "pending rows due
   // now" — `.eq("status", "pending").lte("nextAttemptAt", now)` — as a
   // single index range scan, not a full table scan filtered in memory.
+  //
+  // `pageId` (M4, whole-lot review): optional — additive, per CLAUDE.md's
+  // expand/migrate/contract discipline — rather than a required field a
+  // schema push against existing rows would reject. Before this field
+  // existed, `pages.publicationStatus` had to `.collect()` every row in
+  // this *entire* table and filter in memory for `tags.includes(tag)`:
+  // correct, but a full-table scan that re-runs on every reactive
+  // subscription re-render, and one this table has no bound on (rows are
+  // deliberately never deleted — see this table's own header above — so
+  // it only ever grows). `by_page_created_at` is what turns "find this
+  // page's most recent outbox row" back into a single index range scan:
+  // `.withIndex(q => q.eq("pageId", id)).order("desc").first()`. Convex
+  // appends `_creationTime` as an implicit final tiebreaker on every
+  // index (confirmed against `convex`'s own `system_fields.d.ts`), which
+  // is also what fixes the old strict-`>` reduce's tie-losing bug for
+  // free: two rows inserted in the same millisecond are still ordered
+  // correctly by insertion order, not just left to whichever the JS
+  // reduce happened to see first.
   revalidationOutbox: defineTable({
     tags: v.array(v.string()),
+    pageId: v.optional(v.id("pages")),
     status: outboxStatusValidator,
     attempts: v.number(),
     nextAttemptAt: v.number(),
     lastError: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_status_next_attempt", ["status", "nextAttemptAt"]),
+  })
+    .index("by_status_next_attempt", ["status", "nextAttemptAt"])
+    .index("by_page_created_at", ["pageId", "createdAt"]),
 })

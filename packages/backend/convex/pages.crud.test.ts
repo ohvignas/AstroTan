@@ -158,6 +158,121 @@ test("un editor ne peut PAS modifier la page de quelqu'un d'autre — refusé c�
   expect(page?.title).toBe("Titre initial")
 })
 
+// H1 (whole-lot review): `publishPage`'s owner/admin-only gate does not
+// survive composition with `update`'s ownership-only gate. Once any
+// owner/admin has published a page whose `createdBy` is a given editor,
+// that editor's own write access (legitimate on a draft) lets them rewrite
+// the *live*, publicly served row — `getPublishedPage` has no separate
+// "frozen at publish time" copy to fall back on. `update` must refuse an
+// editor outright once the page is published, regardless of ownership.
+test("un editor ne peut PAS modifier sa propre page une fois publiée", async () => {
+  const t = makeTestConvex()
+  const editorActor = await seedActor(t, "editor")
+  const id = await insertOwnedPage(t, {
+    slug: "page-publiee-editor",
+    createdBy: editorActor.id,
+    status: "published",
+  })
+
+  await expect(
+    editorActor.identity.mutation(api.pages.update, { id, title: "Piraté depuis mon propre brouillon publié" }),
+  ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } })
+  const page = await t.run((ctx) => ctx.db.get(id))
+  expect(page?.title).toBe("Titre initial")
+})
+
+// The other direction: the same editor, the same page, still a draft —
+// refused only once it's live, not unconditionally.
+test("le même editor modifie encore sa propre page tant qu'elle est en brouillon", async () => {
+  const t = makeTestConvex()
+  const editorActor = await seedActor(t, "editor")
+  const id = await insertOwnedPage(t, {
+    slug: "page-brouillon-editor",
+    createdBy: editorActor.id,
+    status: "draft",
+  })
+
+  await expect(
+    editorActor.identity.mutation(api.pages.update, { id, title: "Modifié avant publication" }),
+  ).resolves.not.toThrow()
+  const page = await t.run((ctx) => ctx.db.get(id))
+  expect(page?.title).toBe("Modifié avant publication")
+})
+
+test("un owner peut toujours modifier une page publiée (le refus ne vise que l'editor)", async () => {
+  const t = makeTestConvex()
+  const editorActor = await seedActor(t, "editor")
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, {
+    slug: "page-publiee-owner-edite",
+    createdBy: editorActor.id,
+    status: "published",
+  })
+
+  await expect(
+    owner.identity.mutation(api.pages.update, { id, title: "Modifié par le owner" }),
+  ).resolves.not.toThrow()
+})
+
+// M3 (whole-lot review): `update` was the only page mutation with no
+// `insertOutboxRow` — `publishPage`, `remove`, and `unpublish` all have
+// one. Saving an edit to an already-*published* page therefore left the
+// cached response stale for up to `maxAge`/`swr` while the admin badge
+// still read "Publiée". `update` must invalidate the page's own tag
+// whenever it patches a page that is currently published.
+test("modifier une page publiée insère une ligne d'outbox et programme drain", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, {
+    slug: "page-live-a-editer",
+    createdBy: owner.id,
+    status: "published",
+  })
+
+  await owner.identity.mutation(api.pages.update, { id, title: "Titre édité en live" })
+
+  const rows = await t.run((ctx) => ctx.db.query("revalidationOutbox").collect())
+  expect(rows).toHaveLength(1)
+  expect(rows[0]?.tags).toEqual(["pages", "page:page-live-a-editer"])
+  expect(rows[0]?.pageId).toBe(id)
+
+  const expectedName = getFunctionName(internal.revalidate.drain)
+  const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())
+  expect(scheduled.some((job) => job.name === expectedName)).toBe(true)
+})
+
+test("modifier un brouillon n'insère aucune ligne d'outbox", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "brouillon-a-editer", createdBy: owner.id })
+
+  await owner.identity.mutation(api.pages.update, { id, title: "Titre édité en brouillon" })
+
+  const rows = await t.run((ctx) => ctx.db.query("revalidationOutbox").collect())
+  expect(rows).toHaveLength(0)
+})
+
+// Renaming the slug of a live page must invalidate *both* the old and the
+// new tag: the cache under `page:<old-slug>` would otherwise serve a page
+// that should now 404 at that URL forever — nothing else would ever
+// invalidate it, since every other mutation only ever tags the page's
+// *current* slug.
+test("renommer le slug d'une page publiée invalide l'ancien ET le nouveau slug", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, {
+    slug: "ancien-slug",
+    createdBy: owner.id,
+    status: "published",
+  })
+
+  await owner.identity.mutation(api.pages.update, { id, slug: "nouveau-slug" })
+
+  const rows = await t.run((ctx) => ctx.db.query("revalidationOutbox").collect())
+  expect(rows).toHaveLength(1)
+  expect(rows[0]?.tags).toEqual(["pages", "page:ancien-slug", "page:nouveau-slug"])
+})
+
 test("update refuse un id inexistant", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
@@ -389,6 +504,7 @@ test("publicationStatus renvoie propagating tant que la ligne d'outbox est pendi
   await t.run((ctx) =>
     ctx.db.insert("revalidationOutbox", {
       tags: ["pages", "page:statut-en-cours"],
+      pageId: id,
       status: "pending",
       attempts: 1,
       nextAttemptAt: Date.now() + 5_000,
@@ -410,6 +526,7 @@ test("publicationStatus renvoie published quand la ligne la plus récente est do
   await t.run((ctx) =>
     ctx.db.insert("revalidationOutbox", {
       tags: ["pages", "page:statut-publie"],
+      pageId: id,
       status: "done",
       attempts: 0,
       nextAttemptAt: Date.now(),
@@ -431,6 +548,7 @@ test("publicationStatus renvoie failed avec lastError quand la ligne la plus ré
   await t.run((ctx) =>
     ctx.db.insert("revalidationOutbox", {
       tags: ["pages", "page:statut-echec"],
+      pageId: id,
       status: "failed",
       attempts: 6,
       nextAttemptAt: Date.now(),
@@ -456,6 +574,7 @@ test("publicationStatus retient la ligne la plus récente, pas la première trou
   await t.run((ctx) =>
     ctx.db.insert("revalidationOutbox", {
       tags: ["pages", "page:statut-republication"],
+      pageId: id,
       status: "failed",
       attempts: 6,
       nextAttemptAt: now,
@@ -466,6 +585,7 @@ test("publicationStatus retient la ligne la plus récente, pas la première trou
   await t.run((ctx) =>
     ctx.db.insert("revalidationOutbox", {
       tags: ["pages", "page:statut-republication"],
+      pageId: id,
       status: "done",
       attempts: 0,
       nextAttemptAt: now,

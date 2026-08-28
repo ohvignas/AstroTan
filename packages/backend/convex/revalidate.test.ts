@@ -226,6 +226,27 @@ test("une erreur réseau (fetch qui lève) est aussi traitée comme un échec", 
 // test ever calls `ctx.scheduler`.
 // ---------------------------------------------------------------------
 
+// Low (whole-lot review): `drain` had no claim step — two concurrent
+// invocations (the fast-path `runAfter(0, ...)` racing the 60s cron, or
+// two overlapping cron ticks under a slow HTTP call) could both
+// `listDueRows` the same still-`pending` row before either recorded an
+// outcome, then both call `markAttemptFailed` for the same underlying
+// delivery attempt — double-incrementing `attempts` for a single real
+// failure, so the documented "six attempts" budget silently became three
+// under contention. `claimRow` (an atomic single-document patch) is what
+// makes only one of two racing calls actually process the row.
+test("deux drain concurrents sur la même ligne due n'incrémentent attempts qu'une seule fois", async () => {
+  const t = convexTest(schema, modules)
+  const id = await insertPendingRow(t)
+  fetchMock.mockRejectedValue(new Error("boom"))
+
+  await Promise.all([t.action(internal.revalidate.drain, {}), t.action(internal.revalidate.drain, {})])
+
+  const row = await getRow(t, id)
+  expect(row?.status).toBe("pending")
+  expect(row?.attempts).toBe(1)
+})
+
 test("le cron (un appel direct à drain) reprend une ligne dont l'action planifiée a été perdue", async () => {
   const t = convexTest(schema, modules)
   const id = await insertPendingRow(t, { nextAttemptAt: Date.now() - 60_000 })

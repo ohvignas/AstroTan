@@ -172,13 +172,24 @@ export const publicationStatus = query({
     if (page.status !== "published") {
       return { state: "draft" as const }
     }
-    const tag = `page:${page.slug}`
-    const rows = await ctx.db.query("revalidationOutbox").collect()
-    const relevant = rows.filter((row) => row.tags.includes(tag))
-    const latest = relevant.reduce<(typeof relevant)[number] | null>((acc, row) => {
-      if (!acc || row.createdAt > acc.createdAt) return row
-      return acc
-    }, null)
+    // M4 (whole-lot review): this used to `.collect()` the *entire*
+    // `revalidationOutbox` table and filter in memory for
+    // `tags.includes(tag)` — rows are never deleted (this table's own
+    // header comment in `schema.ts`), so that scan grew by one row per
+    // publish, forever, and this query is subscribed reactively by the
+    // editor screen, re-running on *every* outbox insert anywhere in the
+    // system, not just ones for this page. `by_page_created_at` turns
+    // "this page's most recent outbox row" into a single index range
+    // scan on `pageId`, ordered by `createdAt` with `_creationTime` as
+    // Convex's own implicit tiebreaker — which also fixes the old
+    // manual-reduce's strict-`>` bug where two rows sharing a
+    // millisecond resolved to whichever the JS reduce saw first, not
+    // necessarily the one actually inserted last.
+    const latest = await ctx.db
+      .query("revalidationOutbox")
+      .withIndex("by_page_created_at", (q) => q.eq("pageId", args.id))
+      .order("desc")
+      .first()
     // No outbox row at all for an already-`published` page is a real,
     // if narrow, possibility (data seeded directly as `published` outside
     // `publishPage`, e.g. a fixture) — treated as settled rather than
@@ -266,6 +277,21 @@ export const update = mutation({
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, page)
 
+    // H1 (whole-lot review): `requireOwnDocument` alone lets this
+    // mutation compose into a public-content bypass. `publishPage` gates
+    // on role, not ownership — so once *any* owner/admin has published a
+    // page whose `createdBy` happens to be a given editor, that editor's
+    // normal "edit my own document" access reaches straight into the
+    // live, publicly served row (`getPublishedPage` has no separate
+    // publish-time snapshot to fall back on — see this task's report for
+    // why that isn't the fix). An editor may still freely edit their own
+    // *draft*; only a published page is refused, and only for `editor` —
+    // owner/admin already bypass `requireOwnDocument` above and are
+    // unaffected by this check.
+    if (authUser.role === "editor" && page.status === "published") {
+      throw new ConvexError({ code: "FORBIDDEN" })
+    }
+
     const patch: {
       title?: string
       slug?: string
@@ -305,6 +331,29 @@ export const update = mutation({
     })
 
     await ctx.db.patch(args.id, patch)
+
+    // M3 (whole-lot review): `update` used to be the only page mutation
+    // with no `insertOutboxRow` call — `publishPage`/`remove`/`unpublish`
+    // below all have one. Two distinct staleness bugs followed from that
+    // gap: (1) saving an edit to an already-*published* page left the
+    // cached response stale for up to `maxAge`/`swr` (astro.config.ts's
+    // route rules) while the admin badge kept reading "Publiée", directly
+    // contradicting the DoD's "propagates in under five seconds"; and (2)
+    // renaming a published page's slug from `a` to `b` invalidated only
+    // `page:b` on the *next* publish — the cached response still parked
+    // under `page:a` would keep serving a page that should now 404 at
+    // that URL, with nothing in this codebase ever invalidating it again.
+    // `oldSlug`/`oldStatus` are read from `page` (fetched before the
+    // patch above), so this is always the pre-patch state, not whatever
+    // `patch` may have just changed it to.
+    if (page.status === "published") {
+      const tags = ["pages", `page:${page.slug}`]
+      if (patch.slug !== undefined && patch.slug !== page.slug) {
+        tags.push(`page:${patch.slug}`)
+      }
+      await insertOutboxRow(ctx, args.id, tags)
+      await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+    }
   },
 })
 
@@ -324,7 +373,7 @@ export const remove = mutation({
     await ctx.db.delete(args.id)
 
     if (page.status === "published") {
-      await insertOutboxRow(ctx, ["pages", `page:${page.slug}`])
+      await insertOutboxRow(ctx, page._id, ["pages", `page:${page.slug}`])
       await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
     }
   },
@@ -349,7 +398,7 @@ export const unpublish = mutation({
     if (page.status !== "published") return
 
     await ctx.db.patch(args.id, { status: "draft" })
-    await insertOutboxRow(ctx, ["pages", `page:${page.slug}`])
+    await insertOutboxRow(ctx, args.id, ["pages", `page:${page.slug}`])
     await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
   },
 })
@@ -400,7 +449,7 @@ export const publishPage = mutation({
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
 
     await ctx.db.patch(args.id, { status: "published", publishedAt: Date.now() })
-    await insertOutboxRow(ctx, ["pages", `page:${page.slug}`])
+    await insertOutboxRow(ctx, args.id, ["pages", `page:${page.slug}`])
     // The fast path (design spec §6.2, step 2): don't wait for the next
     // 60s cron sweep (`crons.ts`) when nothing is wrong. `runAfter(0, ...)`
     // schedules `drain` to run essentially immediately, once this

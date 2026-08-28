@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
+import type { Id } from "./_generated/dataModel"
 
 // Design spec §6.2 — the outbox drain loop. Convex does not retry
 // scheduled actions, so `publishPage` (`convex/pages.ts`) writes a
@@ -65,10 +66,22 @@ function getRevalidateSecret(): string {
 // itself (the fast path), but the row would still be picked up by the
 // next cron sweep even if that scheduled call were somehow lost.
 // ---------------------------------------------------------------------
-export async function insertOutboxRow(ctx: MutationCtx, tags: string[]): Promise<void> {
+// `pageId` (M4, whole-lot review): threaded through from every caller so
+// `pages.publicationStatus` can look a page's most recent outbox row up
+// by a single index equality clause (`schema.ts`'s own comment on
+// `by_page_created_at`) instead of scanning and filtering this whole,
+// never-reaped table. Optional, matching the schema field itself — a row
+// this module ever inserts always has a real page behind it in practice,
+// but the type stays honest about what the schema actually guarantees.
+export async function insertOutboxRow(
+  ctx: MutationCtx,
+  pageId: Id<"pages"> | undefined,
+  tags: string[],
+): Promise<void> {
   const now = Date.now()
   await ctx.db.insert("revalidationOutbox", {
     tags,
+    pageId,
     status: "pending",
     attempts: 0,
     nextAttemptAt: now,
@@ -89,6 +102,45 @@ export const listDueRows = internalQuery({
       .query("revalidationOutbox")
       .withIndex("by_status_next_attempt", (q) => q.eq("status", "pending").lte("nextAttemptAt", now))
       .collect()
+  },
+})
+
+// Claim step (Low, whole-lot review): without this, two concurrent
+// `drain` calls — the fast-path `runAfter(0, ...)` from a mutation and
+// the 60s cron sweep, or two overlapping cron ticks under a slow HTTP
+// call — could both `listDueRows` the same still-`pending` row before
+// either has recorded an outcome, then both call `markAttemptFailed` (or
+// one `markDone` racing one `markAttemptFailed`) for the same underlying
+// attempt, double-incrementing `attempts` for a single real failure. The
+// six-attempt budget (`MAX_ATTEMPTS`, this module's own header comment)
+// is meant to bound six real delivery attempts, not silently become
+// three under contention.
+//
+// A single `ctx.db.patch` inside one mutation call is what makes the
+// claim atomic: Convex's OCC tracks every document a mutation reads, so
+// if two `claimRow` calls race on the same row, the second one to commit
+// is transparently retried against the *post-first-claim* document —
+// its own `row.nextAttemptAt > now` check then sees the bumped value and
+// returns `false`, never reaching the `ctx.db.patch` a second time. No
+// new `status` value is introduced (an additive schema change is still a
+// schema change — see `schema.ts`'s own expand/migrate/contract
+// discipline): the row stays `"pending"`, just not *due* again until
+// `CLAIM_HOLD_MS` from now — self-healing if the claiming `drain` call
+// itself crashes mid-flight, since the row becomes due again on its own
+// rather than staying claimed forever.
+const CLAIM_HOLD_MS = 2 * 60_000 // 2 minutes — comfortably longer than one fetch + one mutation round trip, short enough that a crashed `drain` doesn't strand a row past the next 60s cron sweep.
+
+export const claimRow = internalMutation({
+  args: { id: v.id("revalidationOutbox") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.id)
+    if (!row || row.status !== "pending") return false
+    const now = Date.now()
+    // Already claimed by a concurrent `drain` call (or genuinely not due
+    // yet, though `listDueRows` shouldn't have returned it in that case).
+    if (row.nextAttemptAt > now) return false
+    await ctx.db.patch(args.id, { nextAttemptAt: now + CLAIM_HOLD_MS })
+    return true
   },
 })
 
@@ -171,6 +223,9 @@ export const drain = internalAction({
     const rows = await ctx.runQuery(internal.revalidate.listDueRows, {})
 
     for (const row of rows) {
+      const claimed = await ctx.runMutation(internal.revalidate.claimRow, { id: row._id })
+      if (!claimed) continue // Already claimed by a concurrent `drain` invocation — see `claimRow`'s own header.
+
       try {
         const response = await fetch(`${siteUrl}/api/revalidate`, {
           method: "POST",
