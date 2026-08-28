@@ -1,8 +1,11 @@
 import { expect, test } from "vitest"
 import {
+  SIGN_IN_EMAIL_RATE_LIMIT_CONFIG,
+  SIGN_IN_EMAIL_RATE_LIMIT_NAME,
   SIGN_IN_RATE_LIMIT_CONFIG,
   SIGN_IN_RATE_LIMIT_NAME,
   UNRESOLVED_SIGN_IN_ORIGIN,
+  buildSignInEmailRateLimitKey,
   buildSignInRateLimitKey,
 } from "./signInRateLimit"
 
@@ -69,4 +72,31 @@ test("la config est un 'fixed window' borné — bornes cohérentes avec la prop
   // any positive period already guarantees this structurally, this just
   // documents the property `auth.signInRateLimit.test.ts` drives live.
   expect(SIGN_IN_RATE_LIMIT_NAME).toBe("signInAttempt")
+})
+
+// C1: the origin-independent backstop, pure layer.
+
+test("C1 : la clé du compteur par email seul ignore l'origine — même clé quelle que soit l'IP prétendue", () => {
+  expect(buildSignInEmailRateLimitKey("owner@illith.test")).toBe(
+    buildSignInEmailRateLimitKey("owner@illith.test"),
+  )
+  // Normalisation identique à la clé (origine, email) — pas une seconde
+  // implémentation qui pourrait diverger.
+  expect(buildSignInEmailRateLimitKey("  Owner@Illith.TEST  ")).toBe(
+    buildSignInEmailRateLimitKey("owner@illith.test"),
+  )
+})
+
+test("C1 : un email non-string ne lève pas — se rabat sur une chaîne vide normalisée", () => {
+  expect(() => buildSignInEmailRateLimitKey(undefined)).not.toThrow()
+  expect(() => buildSignInEmailRateLimitKey(123)).not.toThrow()
+  expect(() => buildSignInEmailRateLimitKey(null)).not.toThrow()
+})
+
+test("C1 : le compteur par email seul est nettement plus large que le compteur par (origine, email) — c'est un filet, pas la défense primaire", () => {
+  expect(SIGN_IN_EMAIL_RATE_LIMIT_CONFIG.kind).toBe("fixed window")
+  expect(SIGN_IN_EMAIL_RATE_LIMIT_CONFIG.rate).toBeGreaterThan(SIGN_IN_RATE_LIMIT_CONFIG.rate)
+  expect(SIGN_IN_EMAIL_RATE_LIMIT_CONFIG.period).toBeGreaterThan(SIGN_IN_RATE_LIMIT_CONFIG.period)
+  expect(SIGN_IN_EMAIL_RATE_LIMIT_NAME).toBe("signInAttemptByEmail")
+  expect(SIGN_IN_EMAIL_RATE_LIMIT_NAME).not.toBe(SIGN_IN_RATE_LIMIT_NAME)
 })

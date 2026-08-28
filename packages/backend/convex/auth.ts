@@ -13,9 +13,12 @@ import authConfig from "./auth.config"
 import { parseRole } from "./validators"
 import { assertOwnerInvariant, OwnerInvariantError } from "./lib/ownerGuard"
 import {
+  SIGN_IN_EMAIL_RATE_LIMIT_CONFIG,
+  SIGN_IN_EMAIL_RATE_LIMIT_NAME,
   SIGN_IN_RATE_LIMIT_CONFIG,
   SIGN_IN_RATE_LIMIT_NAME,
   UNRESOLVED_SIGN_IN_ORIGIN,
+  buildSignInEmailRateLimitKey,
   buildSignInRateLimitKey,
 } from "./lib/signInRateLimit"
 
@@ -138,6 +141,7 @@ export const { onCreate, onUpdate, onDelete } = authComponent.triggersApi()
 // see `guardSignInRateLimit`'s `convexCtx` parameter below.
 const signInRateLimiter = new RateLimiter(components.rateLimiter, {
   [SIGN_IN_RATE_LIMIT_NAME]: SIGN_IN_RATE_LIMIT_CONFIG,
+  [SIGN_IN_EMAIL_RATE_LIMIT_NAME]: SIGN_IN_EMAIL_RATE_LIMIT_CONFIG,
 })
 
 // Wiring-boundary translation, same role as `guardOwnerInvariant` below:
@@ -193,11 +197,43 @@ async function guardSignInRateLimit(
     ? (getIp(requestLike, authCtx.context.options) ?? UNRESOLVED_SIGN_IN_ORIGIN)
     : UNRESOLVED_SIGN_IN_ORIGIN
 
-  const key = buildSignInRateLimitKey(body?.email, ip)
-  const status = await signInRateLimiter.limit(convexCtx, SIGN_IN_RATE_LIMIT_NAME, { key })
-  if (status.ok) return
+  // C1 (Lot 1 final review): the tight (origin, email) bucket alone is a
+  // no-op against the attacker it names — see `lib/signInRateLimit.ts`'s
+  // header comment on `SIGN_IN_EMAIL_RATE_LIMIT_CONFIG` for the two facts
+  // (`getIp` trusts a caller-controlled header verbatim; nothing sits in
+  // front of `*.convex.site` to strip or validate it) that make rotating
+  // `x-forwarded-for` mint an unbounded number of fresh buckets. This
+  // second bucket — keyed on the normalized email alone, origin-independent
+  // by construction — is what still catches that: always consulted,
+  // regardless of whether `ip` resolved to anything.
+  const emailKey = buildSignInEmailRateLimitKey(body?.email)
+  const emailStatus = await signInRateLimiter.limit(convexCtx, SIGN_IN_EMAIL_RATE_LIMIT_NAME, {
+    key: emailKey,
+  })
 
-  const retrySeconds = Math.ceil((status.retryAfter ?? 0) / 1000)
+  // The tight bucket only means something when `ip` actually distinguishes
+  // one requester from another. When it doesn't — no `x-forwarded-for` at
+  // all, `ip === UNRESOLVED_SIGN_IN_ORIGIN` — keying it anyway would
+  // silently collapse *every* headerless request for this email (a real
+  // owner's included, should their traffic ever lack the header) onto one
+  // shared 5-per-2-minute budget: exactly the per-email-only design this
+  // module's own header comment rejects, and exactly how an attacker with
+  // no origin at all could lock the owner out. Skipped in that case, so an
+  // attacker who omits the header faces the same 50/hour backstop as one
+  // who rotates a spoofed one — never a smaller bucket than that.
+  let originStatus: { ok: boolean; retryAfter?: number } = { ok: true }
+  if (ip !== UNRESOLVED_SIGN_IN_ORIGIN) {
+    const originKey = buildSignInRateLimitKey(body?.email, ip)
+    originStatus = await signInRateLimiter.limit(convexCtx, SIGN_IN_RATE_LIMIT_NAME, {
+      key: originKey,
+    })
+  }
+
+  if (emailStatus.ok && originStatus.ok) return
+
+  const retrySeconds = Math.ceil(
+    Math.max(emailStatus.retryAfter ?? 0, originStatus.retryAfter ?? 0) / 1000,
+  )
   throw APIError.from("TOO_MANY_REQUESTS", {
     code: "SIGN_IN_RATE_LIMITED",
     message: `SIGN_IN_RATE_LIMITED: trop de tentatives de connexion pour ce compte depuis cette origine, réessayez dans ${retrySeconds}s`,

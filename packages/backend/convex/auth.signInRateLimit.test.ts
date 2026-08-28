@@ -1,6 +1,41 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { ORIGIN, makeTestConvex, seedUser } from "../testing/betterAuthFixture"
-import { SIGN_IN_RATE_LIMIT_CONFIG } from "./lib/signInRateLimit"
+import { SIGN_IN_EMAIL_RATE_LIMIT_CONFIG, SIGN_IN_RATE_LIMIT_CONFIG } from "./lib/signInRateLimit"
+
+// better-auth's own `getIp` (`better-auth/dist/utils/get-request-ip.mjs`)
+// falls back to the literal string `"127.0.0.1"` — never `null` — whenever
+// `NODE_ENV` is `test` or `development` (or unset, whose own fallback is
+// `"development"`; see `@better-auth/core/env`'s `getEnvVar`). That's a
+// dev-convenience shim with nothing to do with rate limiting, but it means
+// "no `x-forwarded-for` header" can never be observed, under `vitest`
+// (`NODE_ENV=test`), as `getIp(...) === null` the way it genuinely is in a
+// real `NODE_ENV=production` deployment — the exact fact C1 relies on.
+// `nodeENV` is also captured as a module-scope `const` at first import, so
+// no amount of `process.env.NODE_ENV` juggling inside a test can undo it
+// once better-auth's env module has already loaded.
+//
+// Mocked here to remove exactly that shim, nothing else: every other
+// export of `better-auth/api` passes through unmodified via
+// `importOriginal`, and the replacement `getIp` reimplements the *real*
+// logic faithfully (read `x-forwarded-for`, split on the first comma, trim)
+// minus only the `isTest()/isDevelopment()` fallback — so this file still
+// drives the real HTTP surface, real router, real rate-limiter component,
+// and real header-reading behavior for every test below; only the
+// environment-detection quirk that would otherwise make "absent header"
+// unobservable in this test runner is removed.
+vi.mock("better-auth/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("better-auth/api")>()
+  return {
+    ...actual,
+    getIp: (req: Request | Headers) => {
+      const headers = "headers" in req ? req.headers : req
+      const value = headers.get("x-forwarded-for")
+      if (typeof value !== "string") return null
+      const ip = value.split(",")[0]?.trim()
+      return ip && ip.length > 0 ? ip : null
+    },
+  }
+})
 
 // Drives the *real* HTTP surface (`http.ts` -> `authComponent.registerRoutes`
 // -> better-auth's own router -> `/sign-in/email`), same discipline as
@@ -48,6 +83,24 @@ async function expectRateLimited(res: Response) {
   const body = (await res.clone().json()) as { code?: string; message?: string }
   expect(body.code).toBe("SIGN_IN_RATE_LIMITED")
   return body
+}
+
+// No `x-forwarded-for` at all — the direct-to-`*.convex.site` curl path C1
+// describes, which bypasses the admin's same-origin proxy (and its
+// `x-forwarded-for` forwarding) entirely. `origin` is still sent (better
+// -auth's own CSRF-style origin check, unrelated to rate limiting) — the
+// point of this request is the *absent* forwarded-for header, not an
+// unauthenticated origin.
+async function attemptSignInNoForwardedFor(
+  t: ReturnType<typeof makeTestConvex>,
+  email: string,
+  password: string,
+) {
+  return t.fetch("/api/auth/sign-in/email", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN },
+    body: JSON.stringify({ email, password }),
+  })
 }
 
 const OWNER_EMAIL = "owner@example.com"
@@ -209,4 +262,65 @@ test("le blocage s'auto-expire : le bon mot de passe refonctionne une fois la fe
   } finally {
     vi.useRealTimers()
   }
+})
+
+// C1 (Lot 1 final review) — the two gaps in the design above, both
+// unexercised by every test that precedes this one: every one of them
+// supplies an explicit `x-forwarded-for`, so neither "an attacker rotates
+// it" nor "an attacker omits it" was ever driven through the real HTTP
+// surface. Both are, per the review, why the (origin, email) bucket alone
+// is a no-op against the attacker it names — see `lib/signInRateLimit.ts`'s
+// header comment on `SIGN_IN_EMAIL_RATE_LIMIT_CONFIG` for the fix (a
+// second, origin-independent bucket keyed on the email alone) and why the
+// tight bucket is skipped rather than kept, specifically when the origin
+// can't be resolved at all.
+
+test("C1 : la rotation de x-forwarded-for ne contourne pas la limite — le compteur par email seul finit par refuser", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: OWNER_EMAIL,
+    password: OWNER_PASSWORD,
+    name: "Owner",
+    role: "owner",
+  })
+
+  // A fresh, never-before-seen origin on every single attempt: the tight
+  // (origin, email) bucket never sees the same key twice, so it never
+  // fires — this is exactly the "unbounded" failure mode C1 names. Only
+  // the wide, origin-independent backstop can still catch this.
+  for (let i = 0; i < SIGN_IN_EMAIL_RATE_LIMIT_CONFIG.rate; i++) {
+    const res = await attemptSignIn(t, OWNER_EMAIL, "wrong password", `203.0.113.${i}`)
+    expect(res.status).toBe(401)
+  }
+
+  const blocked = await attemptSignIn(t, OWNER_EMAIL, "wrong password", "203.0.113.250")
+  await expectRateLimited(blocked)
+})
+
+test("C1 : sans x-forwarded-for du tout, le compteur par email seul s'applique (pas le petit compteur par origine)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: OWNER_EMAIL,
+    password: OWNER_PASSWORD,
+    name: "Owner",
+    role: "owner",
+  })
+
+  // No forwarded-for header at all on any attempt: every one of them
+  // resolves to the same `UNRESOLVED_SIGN_IN_ORIGIN` sentinel. Keying the
+  // tight bucket on that sentinel (as if it were a real, stable origin)
+  // would collapse every headerless request for this email onto one
+  // shared 5-per-2-minute budget — indistinguishable from a plain
+  // per-email limiter, and exactly what let an attacker with no proxy in
+  // front of them lock the real owner out. The fix skips the tight bucket
+  // when the origin can't be resolved, so only the wide (50/hour) backstop
+  // applies here — proven by getting all the way to that bound, not just
+  // "eventually blocked".
+  for (let i = 0; i < SIGN_IN_EMAIL_RATE_LIMIT_CONFIG.rate; i++) {
+    const res = await attemptSignInNoForwardedFor(t, OWNER_EMAIL, "wrong password")
+    expect(res.status).toBe(401)
+  }
+
+  const blocked = await attemptSignInNoForwardedFor(t, OWNER_EMAIL, "wrong password")
+  await expectRateLimited(blocked)
 })

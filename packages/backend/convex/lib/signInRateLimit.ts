@@ -1,4 +1,4 @@
-import { MINUTE, type RateLimitConfig } from "@convex-dev/rate-limiter"
+import { HOUR, MINUTE, type RateLimitConfig } from "@convex-dev/rate-limiter"
 
 // Sign-in rate limiting — Lot 1's deferred gate (added on review of Task 4,
 // closed here before any deployment). Better Auth's own rate limiter
@@ -98,4 +98,63 @@ export const UNRESOLVED_SIGN_IN_ORIGIN = "unresolved-sign-in-origin"
 export function buildSignInRateLimitKey(email: unknown, origin: string): string {
   const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : ""
   return `${origin}:${normalizedEmail}`
+}
+
+// C1 (Lot 1 final review): the (origin, email) bucket above is a no-op
+// against the attacker it names. Two facts, both read from source rather
+// than assumed:
+//
+//   - better-auth's own `getIp` reads *only* `x-forwarded-for`, takes
+//     `split(",")[0]`, and returns `null` when the header is absent — and
+//     nothing between an attacker and Convex's public `*.convex.site`
+//     origin (`http.ts` mounts `/api/auth/*` there directly; no reverse
+//     proxy sits in front of it the way the admin app's own same-origin
+//     proxy sits in front of *its* traffic) validates, signs, or strips
+//     that header. It is exactly as trustworthy as any other field the
+//     caller writes into their own request.
+//   - the admin app's same-origin proxy (`apps/admin/src/routes/api/auth/
+//     $.ts` -> `lib/auth-server.ts`) forwards whatever `x-forwarded-for`
+//     it received *verbatim* — it only ever strips
+//     `transfer-encoding`/`content-length`/`connection`.
+//
+// So an attacker who sends a fresh, made-up `x-forwarded-for` value on
+// every request mints a fresh (origin, email) key every time — the tight
+// bucket above never sees the same key twice, so it never fires, and
+// guessing is unbounded. Omitting the header entirely degenerates to the
+// opposite failure: every such request resolves to the same
+// `UNRESOLVED_SIGN_IN_ORIGIN` sentinel (see `guardSignInRateLimit` in
+// `auth.ts`), which — if it were still keyed into the *tight* bucket —
+// would collapse onto a single shared 5-per-2-minute budget per email,
+// indistinguishable from the per-email-only design this module's own
+// header comment already rejects, for the same reason: it lets an
+// attacker with no real origin lock the legitimate owner out.
+//
+// This bucket is the fix for both: an origin-independent backstop,
+// consulted *in addition to* (never instead of) the tight bucket, keyed on
+// the normalized email alone. `auth.ts`'s `guardSignInRateLimit` always
+// consults it, and additionally skips the tight bucket specifically when
+// the origin can't be resolved at all — see its own comment for why doing
+// that (rather than keying the tight bucket on the sentinel) is what
+// actually closes the lockout case, not just the unbounded-guessing one.
+//
+// The bound is deliberately wide — 50 attempts per hour, not 5 per 2
+// minutes: this is a backstop against an attacker who has already defeated
+// per-origin isolation (by rotating or omitting the header), not the
+// primary defense. No legitimate user — who only ever mistypes a password
+// a handful of times in a row — realistically reaches it, so header
+// rotation buys an attacker nothing (the same 50/hour ceiling applies
+// either way) without making a real owner's occasional bad-origin request
+// painful.
+export const SIGN_IN_EMAIL_RATE_LIMIT_NAME = "signInAttemptByEmail"
+
+export const SIGN_IN_EMAIL_RATE_LIMIT_CONFIG: RateLimitConfig = {
+  kind: "fixed window",
+  rate: 50,
+  period: HOUR,
+}
+
+// Pure, same contract as `buildSignInRateLimitKey` above (degrades on a
+// non-string `email` rather than throwing).
+export function buildSignInEmailRateLimitKey(email: unknown): string {
+  return typeof email === "string" ? email.trim().toLowerCase() : ""
 }
