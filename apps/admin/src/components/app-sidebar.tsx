@@ -1,7 +1,7 @@
 import type { FunctionReturnType } from "convex/server"
 import { useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
-import astrotanMark from "@/assets/astrotan-mark.png"
+import astrotanIcon from "@/assets/icon_astrotan.png"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import {
@@ -141,7 +141,7 @@ export function AppSidebar({
               hors de la racine de l'application. Deux copies d'un fichier
               qui change rarement, contre un import qui ne se résout pas. */}
           <img
-            src={astrotanMark}
+            src={astrotanIcon}
             alt=""
             width={32}
             height={32}

@@ -86,6 +86,7 @@ export const update = mutation({
     // « enlève le logo ». `null` est cette valeur ; elle est traduite en
     // `undefined` juste avant le patch, où elle efface bien le champ.
     logoId: v.optional(v.union(v.id("_storage"), v.null())),
+    iconId: v.optional(v.union(v.id("_storage"), v.null())),
     defaultSeo: v.optional(seoValidator),
     socials: v.optional(v.array(socialValidator)),
   },
@@ -113,10 +114,11 @@ export const update = mutation({
 
     // `logoId` est extrait de l'étalement plutôt que réécrit par-dessus :
     // sinon le type du champ garde son `| null`, que `db.patch` refuse.
-    const { logoId, ...rest } = args
+    const { logoId, iconId, ...rest } = args
     const patch = {
       ...rest,
       ...(logoId !== undefined ? { logoId: logoId ?? undefined } : {}),
+      ...(iconId !== undefined ? { iconId: iconId ?? undefined } : {}),
     }
 
     const existing = await ctx.db.query("settings").first()

@@ -1,0 +1,94 @@
+---
+// Portée de `src/pages/services.astro` d'`astro-emdash`, avec SON contenu de
+// démonstration — en anglais, tel quel. C'est délibéré : inventer une offre
+// de services pour AstroTan aurait été écrire du faux, et cette page est là
+// pour montrer la mise en page du template, pas pour vendre quoi que ce soit.
+// Elle est faite pour être supprimée ou réécrite.
+//
+// Le template lit ses services d'une content collection `services/`. Nos
+// contenus viennent de Convex ; la liste est donc un tableau littéral, ce
+// qui évite d'ajouter `astro:content` — un troisième magasin de données —
+// pour deux entrées.
+//
+// Sa ligne doit exister dans le dashboard avec le slug `services`, et être
+// publiée — sinon cette route répond 404, délibérément.
+export const prerender = false
+
+import { loadPage } from "../lib/loadPage"
+import BaseLayout from "../layouts/BaseLayout.astro"
+import Hero from "../components/hero/Hero.astro"
+import FeatureGrid from "../components/FeatureGrid.astro"
+import CTA from "../components/CTA.astro"
+
+const { page } = await loadPage(Astro)
+
+const services = [
+  {
+    icon: "code",
+    title: "Web Development",
+    description:
+      "Modern, server-rendered websites built on Astro — fast by default, accessible by construction, and easy to hand over.",
+  },
+  {
+    icon: "speed",
+    title: "Docker Deployment",
+    description:
+      "A compose stack behind Traefik on a plain VPS: automatic certificates, healthchecks, and a rollback that replays the whole pipeline on a sha.",
+  },
+]
+---
+
+<BaseLayout page={page} fallbackTitle="Page introuvable">
+  {page === null ? (
+    <section class="container empty-state">
+      <h1>404</h1>
+      <p>Cette page n'existe pas.</p>
+    </section>
+  ) : (
+    <>
+      <Hero
+        variant="centered"
+        size="md"
+        eyebrow="Services"
+        headline="Services that get you live"
+        subheadline="From build to deploy — complete solutions for your marketing website, ready to ship."
+      />
+
+      <div data-animate>
+        <FeatureGrid features={services} columns={2} />
+      </div>
+
+      <CTA
+        eyebrow="Get started"
+        title="Ready to build your site?"
+        content="Tell us what you need and we will point you at the right starting place in the repository."
+        primaryText="Contact us"
+        primaryHref="/contact"
+        secondaryText="See pricing"
+        secondaryHref="/tarifs"
+      />
+    </>
+  )}
+</BaseLayout>
+
+<style>
+  .empty-state {
+    display: flex;
+    min-height: 60svh;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    text-align: center;
+  }
+
+  .empty-state h1 {
+    font-size: 2rem;
+    margin: 0;
+  }
+
+  .empty-state p {
+    margin: 0;
+    color: var(--muted-foreground);
+  }
+</style>

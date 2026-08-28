@@ -1,0 +1,129 @@
+---
+// La FAQ, portée de `src/components/FAQ.astro` d'`astro-emdash`.
+//
+// Deux choses du template ont sauté :
+//
+//   - son `<script>` d'accordéon. `<details name="faq">` fait déjà exclusif
+//     nativement : ouvrir un élément referme les autres, sans une ligne de
+//     JavaScript. Le script du template est un repli pour les navigateurs
+//     qui ignorent l'attribut `name` — chez eux, deux réponses peuvent
+//     rester ouvertes en même temps, ce qui est une dégradation acceptable
+//     face à un budget de zéro octet.
+//
+//   - son `<JsonLd>` `FAQPage`. Le JSON-LD de ce site est rendu par
+//     `PageHead`, à partir de `page.geo.faq` — donc à partir de ce que
+//     l'administration a saisi. Deux blocs `FAQPage` dans le même document,
+//     l'un venant du code et l'autre de la base, se contrediraient au
+//     premier écart entre les deux.
+
+export interface FAQItem {
+  question: string
+  answer: string
+}
+
+export interface Props {
+  title?: string
+  items: FAQItem[]
+}
+
+const { title, items } = Astro.props as Props
+---
+
+<section class="faq container">
+  {title && <h2 class="faq__title">{title}</h2>}
+  <div class="faq__list">
+    {items.map((item) => (
+      <details class="faq__item" name="faq">
+        <summary class="faq__question">
+          <span>{item.question}</span>
+          <svg
+            class="faq__chevron"
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
+            fill="none"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path
+              d="M7 7L10 10L13 7"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"></path>
+          </svg>
+        </summary>
+        <p class="faq__answer">{item.answer}</p>
+      </details>
+    ))}
+  </div>
+</section>
+
+<style>
+  .faq {
+    padding-block: var(--space-3xl);
+  }
+
+  .faq__title {
+    font-size: clamp(1.6rem, 3vw, 2.25rem);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-align: center;
+    margin: 0 0 var(--space-xl);
+  }
+
+  .faq__list {
+    max-width: 42rem;
+    margin: 0 auto;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .faq__item {
+    border-bottom: 1px solid var(--color-border);
+    padding: var(--space-md) 0;
+  }
+
+  .faq__question {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.5rem;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+    padding: var(--space-sm) 0;
+  }
+
+  /* Safari dessine encore son propre triangle sans cette règle. */
+  .faq__question::-webkit-details-marker {
+    display: none;
+  }
+
+  .faq__question:hover {
+    color: var(--color-brand-primary);
+  }
+
+  .faq__question:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  .faq__chevron {
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+    color: var(--muted-foreground);
+  }
+
+  .faq__item[open] .faq__chevron {
+    transform: rotate(180deg);
+  }
+
+  .faq__answer {
+    color: var(--muted-foreground);
+    margin: 0;
+    padding: 0 0 var(--space-sm);
+    line-height: 1.7;
+    font-size: 0.9375rem;
+  }
+</style>

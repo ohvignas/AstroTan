@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
+import { LEAD_STATUSES } from "./content"
 import { roleValidator, pageStatusValidator, outboxStatusValidator } from "./validators"
 import { geoValidator, seoValidator } from "./content"
 
@@ -7,6 +8,12 @@ import { geoValidator, seoValidator } from "./content"
 // bounds Convex's `v.string()` cannot express itself
 // (`assertPageTextWithinLimits`), so `pages.create`/`pages.update` import
 // the identical validators rather than redeclaring their shape.
+
+// Le validateur des colonnes, dérivé de la liste unique de `content.ts` —
+// pour qu'ajouter une colonne ne demande pas de penser au schéma.
+const leadStatusValidator = v.union(
+  ...LEAD_STATUSES.map((status) => v.literal(status)),
+)
 
 export default defineSchema({
   // Pas de champ `role` ici : il vit sur l'utilisateur Better Auth.
@@ -126,6 +133,49 @@ export default defineSchema({
   // erreur, sans trace. La garde est donc à l'écriture, aux **trois** points
   // où la paire (redirection, contenu) peut entrer en conflit : la création,
   // le côté slug, et la réactivation d'une redirection désactivée.
+  // Une personne qui a écrit depuis le formulaire de contact.
+  //
+  // C'est la SEULE table que le site public alimente. Partout ailleurs il ne
+  // fait que lire, et cette exception est la raison pour laquelle l'écriture
+  // passe par une porte étroite : une route Astro qui voit l'IP, limite le
+  // débit et détient un secret partagé. Le navigateur n'écrit jamais ici.
+  //
+  // Une personne, pas un message : quelqu'un qui réécrit ne crée pas une
+  // seconde carte. Sa fiche garde son nom, ses messages s'ajoutent dans
+  // `leadMessages`, et elle repasse en tête du tableau — parce qu'il y a de
+  // nouveau quelque chose à traiter.
+  leads: defineTable({
+    name: v.string(),
+    email: v.string(),
+    status: leadStatusValidator,
+    // Quand cette personne a écrit pour la dernière fois. Distinct de
+    // `_creationTime`, qui date sa première venue : c'est le récent qui
+    // décide de l'ordre de la colonne, pas l'ancienneté.
+    lastMessageAt: v.number(),
+    messageCount: v.number(),
+  })
+    // L'unicité se joue sur l'email : c'est ce qui fait qu'un habitué reste
+    // une seule carte. Convex n'a pas de contrainte d'unicité — cet index
+    // est ce qui rend la vérification possible avant écriture.
+    .index("by_email", ["email"])
+    // Une colonne du tableau se lit par ce couple : son statut, et le plus
+    // récent en tête.
+    .index("by_status", ["status", "lastMessageAt"]),
+
+  // Ce qu'une personne a écrit, une ligne par envoi.
+  //
+  // Séparé de la fiche pour que réécrire n'efface rien. Fusionner les deux
+  // obligerait à choisir entre garder le premier message ou le dernier, et
+  // les deux choix perdent quelque chose que personne ne pourra retrouver.
+  leadMessages: defineTable({
+    leadId: v.id("leads"),
+    subject: v.optional(v.string()),
+    body: v.string(),
+    // Recopié depuis la requête, jamais pour identifier quelqu'un : il sert
+    // à reconnaître une vague d'envois automatiques après coup.
+    userAgent: v.optional(v.string()),
+  }).index("by_lead", ["leadId"]),
+
   redirects: defineTable({
     // Normalisé comme un slug de page : sans slash de tête ni de fin, pour
     // que `/contact`, `contact` et `/contact/` ne puissent pas désigner
@@ -146,6 +196,11 @@ export default defineSchema({
   settings: defineTable({
     siteName: v.string(),
     logoId: v.optional(v.id("_storage")),
+    // Distincte du logo, et pas par goût du réglage : le logo porte le nom
+    // écrit et s'affiche en large dans l'en-tête ; l'icône est carrée et
+    // sert là où la place est contrainte — favicon, onglet, partage. Servir
+    // le logo comme favicon rendrait le nom illisible à 32 px.
+    iconId: v.optional(v.id("_storage")),
     // Un slug, pas un identifiant de document : `index.astro` cherche la
     // page par slug comme toutes les autres routes, donc un seul chemin de
     // résolution. `pages.update` suit le renommage pour que la page

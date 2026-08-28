@@ -228,3 +228,54 @@ export function assertPageTextWithinLimits(page: {
     }
   }
 }
+
+// --- Leads : ce qu'un visiteur envoie depuis le formulaire de contact ----
+//
+// Ces bornes ne sont pas des préférences d'affichage : c'est la seule chose
+// qui empêche un inconnu d'écrire un roman dans notre base. Elles vivent ici
+// parce que le formulaire du site doit les connaître pour poser ses
+// `maxlength`, et qu'importer un point d'entrée Convex depuis le navigateur
+// y ferait entrer `auth.ts` tout entier.
+/**
+ * Les colonnes du tableau, dans leur ordre d'affichage.
+ *
+ * Un seul endroit : le validateur du schéma, les boutons de l'écran et la
+ * pastille de non-lus lisent tous cette liste. Ajouter une colonne, c'est
+ * ajouter une entrée ici — et non la retrouver éparpillée dans trois
+ * fichiers qui finiront par ne plus être d'accord.
+ */
+export const LEAD_STATUSES = ["new", "contacted", "qualified", "won", "lost"] as const
+export type LeadStatus = (typeof LEAD_STATUSES)[number]
+
+export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
+  new: "Nouveau",
+  contacted: "Contacté",
+  qualified: "Qualifié",
+  won: "Gagné",
+  lost: "Perdu",
+}
+
+export const MAX_LEAD_NAME_LENGTH = 120
+export const MAX_LEAD_EMAIL_LENGTH = 254 // la limite d'une adresse (RFC 5321)
+export const MAX_LEAD_SUBJECT_LENGTH = 200
+export const MAX_LEAD_BODY_LENGTH = 5_000
+
+/**
+ * Une validation d'adresse volontairement grossière.
+ *
+ * Vérifier qu'une adresse existe est impossible sans lui écrire ; les
+ * expressions rationnelles « conformes à la RFC » rejettent des adresses
+ * valides et acceptent des invalides. On écarte donc seulement ce qui ne
+ * peut PAS être une adresse — pas d'arobase, des espaces, rien après le
+ * point — et on laisse le reste passer. Un lead perdu parce qu'une regex
+ * trop savante a refusé son adresse coûte plus cher qu'un lead douteux.
+ */
+export function looksLikeEmail(value: string): boolean {
+  if (value.length > MAX_LEAD_EMAIL_LENGTH) return false
+  if (/\s/.test(value)) return false
+  const at = value.indexOf("@")
+  if (at <= 0 || at !== value.lastIndexOf("@")) return false
+  const domain = value.slice(at + 1)
+  const dot = domain.indexOf(".")
+  return dot > 0 && dot < domain.length - 1
+}

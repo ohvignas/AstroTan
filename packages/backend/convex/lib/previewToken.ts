@@ -87,7 +87,7 @@ async function hmacHex(secret: string, message: string): Promise<string> {
 // Crypto's `SubtleCrypto` has no byte-comparison primitive at all) — this
 // is the manual equivalent, scoped to the fixed-length hex strings this
 // module ever compares against each other.
-function timingSafeEqualHex(a: string, b: string): boolean {
+export function timingSafeEqualHex(a: string, b: string): boolean {
   if (a.length !== b.length) return false
   let diff = 0
   for (let i = 0; i < a.length; i++) {

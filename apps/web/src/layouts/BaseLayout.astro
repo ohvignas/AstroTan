@@ -1,0 +1,110 @@
+---
+// Le squelette de toutes les pages publiques, porté de
+// `src/layouts/BaseLayout.astro` d'`astro-emdash`.
+//
+// Le template y met sa propre couche SEO (`components/seo/SEO.astro`), son
+// i18n et sa recherche modale. Ici le `<head>` est tenu par `PageHead` — le
+// composant qui rend ce que l'administration décide : titre, description,
+// canonique, `robots`, Open Graph, GEO, JSON-LD et favicon. Garder les deux
+// aurait donné deux jeux de balises `<title>` et `og:*` divergents dans le
+// même document.
+//
+// `Analytics` (Umami) est ici et NULLE PART ailleurs : une page qui
+// contournerait ce layout serait une page non mesurée, et le trou ne se
+// verrait pas. Le contrôle tient en une commande :
+//
+//   curl -s http://127.0.0.1:4331/<chemin> | grep -c data-website-id   # → 1
+import PageHead from "../components/PageHead.astro"
+import Analytics from "../components/Analytics.astro"
+import Header from "../components/layout/Header.astro"
+import Footer from "../components/layout/Footer.astro"
+import type { PageRecord } from "../lib/loadPage"
+import "../styles/global.css"
+
+// Les polices sont préchargées depuis le module résolu par le bundler, et
+// non depuis une URL écrite à la main : le nom du fichier porte un hachage
+// qui change à chaque mise à jour de Fontsource, et un chemin figé
+// précharge alors un fichier que la page n'utilise pas — le navigateur
+// télécharge deux fois et n'avertit de rien.
+import outfitLatin from "@fontsource-variable/outfit/files/outfit-latin-wght-normal.woff2?url"
+import manropeLatin from "@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2?url"
+
+export interface Props {
+  page: PageRecord | null
+  fallbackTitle?: string
+  article?: {
+    title: string
+    excerpt?: string
+    publishedAt?: number
+    coverUrl?: string | null
+  }
+}
+
+const { page, fallbackTitle, article } = Astro.props as Props
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <link
+      rel="preload"
+      href={outfitLatin}
+      as="font"
+      type="font/woff2"
+      crossorigin="anonymous"
+    />
+    <link
+      rel="preload"
+      href={manropeLatin}
+      as="font"
+      type="font/woff2"
+      crossorigin="anonymous"
+    />
+
+    {/* Amorçage du thème, avant le premier peint.
+        Le défaut est SOMBRE, comme la démonstration du template. Un
+        `prefers-color-scheme` clair ne l'emporte pas : seul un choix
+        explicite du visiteur, mémorisé sous la clé `theme`, le fait.
+        Ce script est en ligne et synchrone à dessein — différé, la page
+        s'afficherait en clair une fraction de seconde avant de basculer. */}
+    <script is:inline>
+      try {
+        if (localStorage.getItem("theme") !== "light") {
+          document.documentElement.classList.add("dark")
+        }
+      } catch {
+        document.documentElement.classList.add("dark")
+      }
+    </script>
+
+    <PageHead page={page} fallbackTitle={fallbackTitle} article={article} />
+    <Analytics />
+    <slot name="head" />
+  </head>
+  <body class="site-body">
+    <a href="#main-content" class="skip-link">Aller au contenu</a>
+
+    <Header />
+
+    <main id="main-content" class="site-main">
+      <slot />
+    </main>
+
+    <Footer />
+
+    <style>
+      .site-body {
+        display: flex;
+        min-height: 100svh;
+        flex-direction: column;
+      }
+
+      .site-main {
+        flex: 1;
+      }
+    </style>
+  </body>
+</html>

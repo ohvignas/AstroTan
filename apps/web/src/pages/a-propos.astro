@@ -1,48 +1,99 @@
 ---
-// A third ordinary page, and it exists to make one rule visible: a page is
-// live only when BOTH halves are there — this file, and a published row
-// carrying the same slug. Creating the row in the dashboard alone gives a
-// page that answers 404, which is exactly what happened while writing this.
+// Une page ordinaire, et tout l'intérêt est qu'il n'y a rien à voir :
+// ajouter une page à ce site, c'est créer un fichier et recopier les quatre
+// lignes ci-dessous. Aucun registre à mettre à jour, aucune configuration à
+// toucher.
 //
-// Its row must exist in the dashboard with the slug `contact`, and be
-// published — otherwise this route answers 404, deliberately.
+// Elle existe aussi pour rendre une règle visible : une page est en ligne
+// quand ses DEUX moitiés existent — ce fichier, et une ligne publiée portant
+// le même slug. Créer la ligne seule donne une page qui répond 404, ce qui
+// est exactement ce qui est arrivé en écrivant ceci.
+//
+// Sa ligne doit exister dans le dashboard avec le slug `a-propos`, et être
+// publiée — sinon cette route répond 404, délibérément.
 export const prerender = false
 
 import { loadPage } from "../lib/loadPage"
-import PageHead from "../components/PageHead.astro"
-import Analytics from "../components/Analytics.astro"
-import SiteHeader from "../components/SiteHeader.astro"
-import SiteFooter from "../components/SiteFooter.astro"
-import "../styles/global.css"
+import BaseLayout from "../layouts/BaseLayout.astro"
+import Hero from "../components/hero/Hero.astro"
+import FeatureGrid from "../components/FeatureGrid.astro"
+import CTA from "../components/CTA.astro"
 
 const { page } = await loadPage(Astro)
+
+const values = [
+  {
+    icon: "code",
+    title: "Le code est la maquette",
+    description:
+      "Le balisage, la mise en page et les mots s'écrivent en code, depuis une maquette. L'administration décide qui doit trouver la page, jamais ce qu'elle contient.",
+  },
+  {
+    icon: "speed",
+    title: "Ce qui est affirmé est mesuré",
+    description:
+      "Zéro octet de JavaScript sur les pages publiques, 12,8 ko à la première visite, 778 tests automatisés. Chaque chiffre de ce site a été relevé sur ce dépôt.",
+  },
+  {
+    icon: "shield",
+    title: "Les refus comptent autant",
+    description:
+      "Pas de constructeur de menu, pas de modèle de contenu éditable, pas de second cache devant Convex. Trois choses essayées puis retirées, et la raison écrite à côté.",
+  },
+]
 ---
 
-<!doctype html>
-<html lang="fr">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <PageHead page={page} />
-    <Analytics />
-  </head>
-  <body class="bg-white text-ink antialiased">
-    <SiteHeader />
-    {page === null ? (
-      <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
-        <h1 class="text-3xl font-bold">404</h1>
-        <p class="text-ink-mid">Cette page n'existe pas.</p>
-      </main>
-    ) : (
-      <main class="mx-auto max-w-2xl px-6 py-16">
-        <h1 class="text-3xl font-bold">{page.title}</h1>
-        <p class="mt-4 text-ink-mid">
-          Troisième page d’exemple. Elle existe parce que ce fichier existe — créer sa ligne dans l’administration ne suffit pas. Le titre ci-dessus, les champs
-          SEO et GEO, et la publication de cette page se règlent dans
-          l'administration ; tout le reste s'écrit ici, en code.
-        </p>
-      </main>
-    )}
-    <SiteFooter />
-  </body>
-</html>
+<BaseLayout page={page} fallbackTitle="Page introuvable">
+  {page === null ? (
+    <section class="container empty-state">
+      <h1>404</h1>
+      <p>Cette page n'existe pas.</p>
+    </section>
+  ) : (
+    <>
+      <Hero
+        variant="centered"
+        size="md"
+        eyebrow="À propos"
+        headline="Un socle pensé pour les sites vitrines modernes"
+        subheadline="AstroTan est un template : un site public Astro, un dashboard TanStack Start, un backend Convex partagé par les deux, et une pile Docker qu'on sait annuler. Ce que vous lisez ici est la démonstration, faite pour être supprimée."
+      />
+
+      <div data-animate>
+        <FeatureGrid title="Ce à quoi on tient" features={values} columns={3} />
+      </div>
+
+      <CTA
+        eyebrow="La suite"
+        title="Prêt à écrire la vôtre ?"
+        content="Le dépôt contient les tests qui tiennent ces promesses et la documentation qui explique pourquoi chaque décision a été prise ainsi."
+        primaryText="Nous écrire"
+        primaryHref="/contact"
+        secondaryText="Lire le blog"
+        secondaryHref="/blog"
+      />
+    </>
+  )}
+</BaseLayout>
+
+<style>
+  .empty-state {
+    display: flex;
+    min-height: 60svh;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    text-align: center;
+  }
+
+  .empty-state h1 {
+    font-size: 2rem;
+    margin: 0;
+  }
+
+  .empty-state p {
+    margin: 0;
+    color: var(--muted-foreground);
+  }
+</style>

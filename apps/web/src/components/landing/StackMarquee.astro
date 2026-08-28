@@ -1,0 +1,163 @@
+---
+// Le bandeau défilant des technologies, porté de
+// `src/components/landing/StackMarquee.astro` d'`astro-emdash`.
+//
+// L'animation est une `@keyframes` CSS : rien à envoyer au visiteur, et
+// `prefers-reduced-motion` la remplace par une grille figée plutôt que de
+// la ralentir.
+//
+// Le template lit ses entrées d'une content collection `stack/` ; les
+// nôtres sont passées en propriété, parce que nos contenus viennent de
+// Convex et qu'ajouter `astro:content` pour six lignes aurait été un
+// troisième magasin de données dans le dépôt.
+import Icon from "../ui/primitives/Icon/Icon.astro"
+
+export interface StackItem {
+  name: string
+  version?: string
+  icon: string
+}
+
+export interface Props {
+  items: StackItem[]
+  pauseOnHover?: boolean
+}
+
+const { items, pauseOnHover = true } = Astro.props as Props
+
+// On répète le jeu assez de fois pour qu'une « moitié » de piste dépasse
+// toujours la fenêtre, puis on duplique cette moitié : `translateX(-50%)`
+// boucle alors sans saut, quel que soit le nombre d'entrées. Seul le
+// premier jeu est annoncé aux lecteurs d'écran.
+const REPEAT = items.length > 0 ? Math.max(2, Math.ceil(8 / items.length)) : 1
+const half = Array.from({ length: REPEAT }, () => items).flat()
+const marqueeItems = [...half, ...half]
+---
+
+<div class={`stack-marquee${pauseOnHover ? " stack-marquee--pause" : ""}`}>
+  <ul class="stack-marquee__track">
+    {marqueeItems.map((item, index) => (
+      <li
+        class={`stack-marquee__item${index >= items.length ? " stack-marquee__item--clone" : ""}`}
+        aria-hidden={index >= items.length ? "true" : undefined}
+      >
+        <Icon name={item.icon} class="stack-marquee__icon" />
+        <span class="stack-marquee__name">{item.name}</span>
+        {item.version && (
+          <small class="stack-marquee__version">{item.version}</small>
+        )}
+      </li>
+    ))}
+  </ul>
+</div>
+
+<style>
+  .stack-marquee {
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-2xl);
+    background: var(--color-bg-secondary);
+    position: relative;
+  }
+
+  /* Les deux dégradés qui effacent les bords : sans eux, une pastille
+     apparaît et disparaît net au ras du cadre. */
+  .stack-marquee::before,
+  .stack-marquee::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 4rem;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .stack-marquee::before {
+    left: 0;
+    background: linear-gradient(to right, var(--color-bg-secondary), transparent);
+  }
+
+  .stack-marquee::after {
+    right: 0;
+    background: linear-gradient(to left, var(--color-bg-secondary), transparent);
+  }
+
+  .stack-marquee__track {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: max-content;
+    margin: 0;
+    padding: 1.25rem 1.5rem;
+    list-style: none;
+    animation: stack-marquee 32s linear infinite;
+  }
+
+  .stack-marquee--pause:hover .stack-marquee__track {
+    animation-play-state: paused;
+  }
+
+  .stack-marquee__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    height: 2.75rem;
+    padding-inline: 1.25rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: var(--color-bg-primary);
+    white-space: nowrap;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .stack-marquee__item :global(.stack-marquee__icon) {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+  }
+
+  .stack-marquee__name {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--color-text-primary);
+  }
+
+  .stack-marquee__version {
+    padding: 0.15rem 0.45rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+
+  @keyframes stack-marquee {
+    from {
+      transform: translateX(0);
+    }
+
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  /* Mouvement réduit : la piste ne défile plus et les doublons
+     disparaissent — un bandeau figé qui répéterait quatre fois les mêmes
+     noms serait pire que pas de bandeau. */
+  @media (prefers-reduced-motion: reduce) {
+    .stack-marquee__track {
+      animation: none;
+      width: auto;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .stack-marquee__item--clone {
+      display: none;
+    }
+  }
+</style>

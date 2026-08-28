@@ -1,80 +1,155 @@
 ---
-// The blog index. Part of the example site this template ships with:
-// deliberately plain, so that what shows through is the *wiring*, not a
-// design. Replace the markup; keep the four lines of frontmatter.
+// La liste des articles. L'habillage vient du template ; la source de
+// données, non.
 //
-// Unlike a page, an article's content lives in the database — a blog post
-// IS content, and nobody will ask an agent to write each one. So this route
-// reads real rows, while `index.astro` reads only its own settings.
+// À la différence d'une page, le contenu d'un article vit dans la base — un
+// article EST du contenu, et personne ne demandera à un agent de les écrire
+// un par un. Cette route lit donc de vraies lignes, là où `index.astro` ne
+// lit que ses propres réglages.
+//
+// Elle n'a pas de ligne `pages` : ce n'est pas une page d'administration
+// mais un index engendré. `PageHead` reçoit `page={null}` et son titre de
+// repli, ce qui lui suffit pour rendre le canonique, `robots` et l'Open
+// Graph — plutôt qu'un second jeu de balises écrit à la main ici, qui aurait
+// divergé au premier changement.
 export const prerender = false
 
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { getConvexClient } from "../../lib/convexClient"
 import { markdownToPlainText } from "../../lib/markdown"
-import SiteHeader from "../../components/SiteHeader.astro"
-import SiteFooter from "../../components/SiteFooter.astro"
-import Analytics from "../../components/Analytics.astro"
-import "../../styles/global.css"
+import BaseLayout from "../../layouts/BaseLayout.astro"
 
-// Published only, filtered server-side inside the query — never here. This
-// app carries no session and no admin key, so a public query that forgot
-// its filter is a draft leak with nothing else in the way.
+// Publiés uniquement, filtrés côté serveur dans la query — jamais ici.
+// Cette application ne porte ni session ni clé d'administration : une query
+// publique qui aurait oublié son filtre est une fuite de brouillons sans
+// rien d'autre sur le chemin.
 const posts = await getConvexClient().query(api.posts.listPublishedPosts, {})
 
-// The route-wide tag `publishPost`'s outbox invalidates. Every publish
-// touches `posts`, so this list goes stale for seconds, not for `maxAge`.
+// L'étiquette `posts` de la route : la boîte d'envoi de `publishPost`
+// l'invalide. Toute publication touche `posts`, donc cette liste est
+// périmée pendant des secondes, pas pendant `maxAge`.
 Astro.cache.set({ maxAge: 300, swr: 600, tags: ["posts"] })
 
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
 ---
 
-<!doctype html>
-<html lang="fr">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Blog</title>
-    <meta name="description" content="Les derniers articles." />
-    <link rel="canonical" href={new URL("/blog", Astro.url.origin).href} />
-    <Analytics />
-  </head>
-  <body class="bg-white text-ink antialiased">
-    <SiteHeader />
-    <main class="mx-auto max-w-3xl px-6 py-16">
-      <h1 class="text-3xl font-bold">Blog</h1>
+<BaseLayout page={null} fallbackTitle="Blog">
+  <section class="container blog">
+    <header class="section-head">
+      <p class="section-head__eyebrow">Blog</p>
+      <h1 class="section-head__title">Les derniers articles</h1>
+      <p class="section-head__lead">
+        Le blog de démonstration du template. Ses articles vivent dans la
+        base et s'écrivent depuis le dashboard.
+      </p>
+    </header>
 
-      {posts.length === 0 ? (
-        <p class="mt-6 text-ink-mid">Aucun article publié pour le moment.</p>
-      ) : (
-        <ul class="mt-10 flex flex-col gap-8">
-          {posts.map((post) => (
-            <li>
-              <article>
-                <h2 class="text-xl font-semibold">
-                  <a href={`/blog/${post.slug}`} class="hover:underline">
-                    {post.title}
-                  </a>
-                </h2>
-                {post.publishedAt && (
-                  <p class="mt-1 text-sm text-ink-mid">
-                    <time datetime={new Date(post.publishedAt).toISOString()}>
-                      {dateFormat.format(post.publishedAt)}
-                    </time>
-                  </p>
-                )}
-                <p class="mt-2 text-ink-mid">
-                  {/* Falls back to the body's first words when no excerpt
-                      was written: an article with no summary should still
-                      read like something, and `markdownToPlainText` keeps
-                      link text while dropping link URLs. */}
-                  {post.excerpt || markdownToPlainText(post.body, 180)}
+    {posts.length === 0 ? (
+      <p class="blog__empty">Aucun article publié pour le moment.</p>
+    ) : (
+      <ul class="blog__list">
+        {posts.map((post) => (
+          <li class="blog__item">
+            <article>
+              <h2>
+                <a href={`/blog/${post.slug}`}>{post.title}</a>
+              </h2>
+              {post.publishedAt && (
+                <p class="blog__date">
+                  <time datetime={new Date(post.publishedAt).toISOString()}>
+                    {dateFormat.format(post.publishedAt)}
+                  </time>
                 </p>
-              </article>
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
-    <SiteFooter />
-  </body>
-</html>
+              )}
+              <p class="blog__excerpt">
+                {/* Repli sur les premiers mots du corps quand aucun résumé
+                    n'a été écrit : un article sans résumé doit quand même se
+                    lire, et `markdownToPlainText` garde le texte des liens
+                    en jetant leurs URL. */}
+                {post.excerpt || markdownToPlainText(post.body, 180)}
+              </p>
+              <a class="blog__more" href={`/blog/${post.slug}`}>Lire l'article</a>
+            </article>
+          </li>
+        ))}
+      </ul>
+    )}
+  </section>
+</BaseLayout>
+
+<style>
+  .blog {
+    padding-block: var(--space-3xl);
+  }
+
+  .blog__list {
+    display: grid;
+    gap: var(--space-lg);
+    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+    max-width: 62rem;
+    margin: var(--space-2xl) auto 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .blog__item {
+    padding: 1.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-2xl);
+    background: var(--card);
+    box-shadow: var(--shadow-sm);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .blog__item:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--color-border));
+  }
+
+  .blog__item h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    letter-spacing: -0.01em;
+  }
+
+  .blog__item h2 a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .blog__item h2 a:hover {
+    text-decoration: underline;
+  }
+
+  .blog__date {
+    margin: 0.4rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--faint-foreground);
+  }
+
+  .blog__excerpt {
+    margin: 0.75rem 0 0;
+    font-size: 0.9375rem;
+    line-height: 1.65;
+    color: var(--muted-foreground);
+  }
+
+  .blog__more {
+    display: inline-block;
+    margin-top: 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--foreground);
+  }
+
+  .blog__empty {
+    max-width: 42rem;
+    margin: var(--space-2xl) auto 0;
+    padding: var(--space-3xl) var(--space-lg);
+    text-align: center;
+    color: var(--muted-foreground);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-2xl);
+  }
+</style>

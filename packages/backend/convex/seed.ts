@@ -59,6 +59,12 @@ const DEMO_TAGS = [
 const DEMO_PAGES = [
   { slug: "accueil", title: "Accueil", publish: true },
   { slug: "contact", title: "Contact", publish: true },
+  // Une page est un couple : le fichier `.astro` ET sa ligne. Ces trois-là
+  // ont leur fichier depuis le portage du template ; sans leur ligne, elles
+  // répondent 404 — ce qui est l'invariant, pas une panne.
+  { slug: "a-propos", title: "À propos", publish: true },
+  { slug: "services", title: "Services", publish: true },
+  { slug: "tarifs", title: "Tarifs", publish: true },
 ]
 
 const FIRST_POST_BODY_MD = `Ce site tourne sur AstroTan. Cet article est du contenu

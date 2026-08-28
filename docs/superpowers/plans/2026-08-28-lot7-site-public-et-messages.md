@@ -1,4 +1,4 @@
-# Lot 7 — Le site public sur le template, et les messages reçus : Implementation Plan
+# Lot 7 — Le site public sur le template, et les leads : Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -83,14 +83,19 @@ Une page dont le fichier existe mais dont la ligne manque rend 404. C'est l'inva
 
 ### Task 4: Recevoir un message — le backend
 
-**Files:** Créer `packages/backend/convex/messages.ts` et son test ; modifier `schema.ts` et `content.ts`.
+**Files:** Créer `packages/backend/convex/leads.ts` et son test ; modifier `schema.ts` et `content.ts`.
+
+Le template **n'a pas de formulaire de contact** — vérifié dans son code :
+sa page `/contact` propose un lien `mailto:`, une liste de moyens de
+contact et une façade de carte. Ce lot est donc une **addition**, habillée
+avec le style de leur `Newsletter.astro`, le seul formulaire qu'ils aient.
 
 - [ ] **Step 1: Écrire les tests qui échouent**
   - Un secret absent, faux, ou trop court fait refuser l'écriture. Comparaison à temps constant, comme `/api/revalidate`.
   - Les bornes de longueur sont appliquées côté serveur, jamais seulement dans le formulaire.
   - `list`, `markRead` et `remove` exigent un rôle ; l'écriture publique, non — c'est le point délicat, et il est testé dans les deux sens.
   - Un message vide, ou dont l'email est manifestement invalide, est refusé avec un code lisible.
-- [ ] **Step 2: La table `messages`** — nom, email, corps, statut (`new` / `read`), date, et un index sur le statut pour la pastille de non-lus.
+- [ ] **Step 2: La table `leads`** — nom, email, corps, statut (`new` / `read`), date, et un index sur le statut pour la pastille de non-lus.
 - [ ] **Step 3: Les bornes dans `content.ts`**, module pur : c'est le seul endroit que le navigateur peut importer sans traîner un point d'entrée de déploiement.
 - [ ] **Step 4: `convex dev --once`** réel.
 - [ ] **Step 5: Commit** — `feat(backend): accept contact messages through a narrow door`
@@ -119,21 +124,24 @@ Une page dont le fichier existe mais dont la ligne manque rend 404. C'est l'inva
 
 ---
 
-### Task 6: Les messages dans le dashboard
+### Task 6: Les leads dans le dashboard
 
-**Files:** Créer `apps/admin/src/routes/_authed/messages.tsx` ; modifier `app-sidebar.tsx`.
+**Files:** Créer `apps/admin/src/routes/_authed/leads.tsx` ; modifier `app-sidebar.tsx`.
 
-- [ ] **Step 1: L'écran** — liste avec TanStack Table (comme `/pages`), lecture, marquer traité, supprimer.
+- [ ] **Step 1: L'écran `/leads`** — la liste des personnes qui ont écrit,
+      **triée par date, la plus récente en tête** : c'est l'ordre dans lequel
+      on répond. Table TanStack comme `/pages`, lecture, marquer traité,
+      supprimer.
 - [ ] **Step 2: La pastille de non-lus** dans la barre latérale.
 - [ ] **Step 3: Les états** — aucune donnée, chargement, erreur. Un écran vide doit dire qu'il est vide, pas ressembler à un écran cassé.
 - [ ] **Step 4: Vérifier avec un compte administrateur**, pas seulement sur son refus.
-- [ ] **Step 5: Commit** — `feat(admin): add the messages screen`
+- [ ] **Step 5: Commit** — `feat(admin): add the leads screen`
 
 ---
 
 ### Task 7: Prévenir les responsables
 
-**Files:** Modifier `packages/backend/convex/messages.ts`.
+**Files:** Modifier `packages/backend/convex/leads.ts`.
 
 - [ ] **Step 1: Écrire les tests qui échouent** — la notification part aux comptes `owner` et `admin`, à personne d'autre ; un échec d'envoi **ne perd pas le message**, qui est déjà écrit.
 - [ ] **Step 2: Implémenter** par une action planifiée, en réutilisant le chemin Resend des invitations.
@@ -160,7 +168,7 @@ Une page dont le fichier existe mais dont la ligne manque rend 404. C'est l'inva
 - [ ] Le chiffre affiché sur l'accueil correspond à ce qui est réellement envoyé, page par page.
 - [ ] Chaque page a sa ligne `pages` et apparaît dans `/pages`.
 - [ ] `grep -c data-website-id` vaut 1 sur chaque route, et un `POST /api/send` observé.
-- [ ] Un message envoyé depuis le site apparaît dans `/messages` et déclenche un email.
+- [ ] Un message envoyé depuis le site apparaît dans `/leads`, en tête de liste, et déclenche un email.
 - [ ] Le formulaire poste quand même si l'îlot n'a pas chargé (`action` présent).
 - [ ] Un secret manquant, faux ou court fait refuser l'écriture, et c'est testé.
 - [ ] Le skill décrit ce qui s'est réellement passé.

@@ -4,7 +4,7 @@
 // only thing the SEO and GEO panels reach.
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { getConvexClient } from "../lib/convexClient"
-import siteMark from "../assets/astrotan-mark.png"
+import siteIcon from "../assets/icon_astrotan.png"
 import type { PageRecord } from "../lib/loadPage"
 import {
   articleJsonLd,
@@ -74,6 +74,13 @@ const ogImageUrl = ogImageId
 
 const description = page?.seo?.description ?? settings?.defaultSeo?.description
 
+// L'icône téléversée depuis les réglages l'emporte sur celle du dépôt —
+// même arbitrage que le logo dans l'en-tête. Le fichier embarqué reste le
+// repli, pour qu'un template fraîchement cloné ait quand même un favicon.
+const faviconUrl = settings?.iconId
+  ? await getConvexClient().query(api.media.publicUrl, { storageId: settings.iconId })
+  : siteIcon.src
+
 // `noai` suppresses every structured block, not just the robots hint. An
 // extract built to be quoted, published on a page whose operator asked not
 // to be quoted, would empty that switch of its meaning.
@@ -93,11 +100,12 @@ const structured = noai
     ].filter((block) => block !== null)
 ---
 
-{/* Le favicon vient du MÊME fichier que la marque de l'en-tête et du pied
-    de page : une seconde copie sous `public/` serait un second endroit à
-    penser le jour où le logo change, et celui qu'on oublierait.
-    `siteMark.src` est l'URL hachée engendrée par le pipeline d'assets. */}
-<link rel="icon" href={siteMark.src} />
+{/* L'ICÔNE, jamais le logo large : un favicon de 32 px rendrait le nom
+    écrit illisible. L'icône téléversée depuis les réglages l'emporte sur
+    celle du dépôt — même arbitrage que le logo dans l'en-tête — et le
+    fichier embarqué reste le repli, pour qu'un template fraîchement cloné
+    ait quand même un favicon. */}
+<link rel="icon" href={faviconUrl} />
 
 <title>{title}</title>
 {description && <meta name="description" content={description} />}

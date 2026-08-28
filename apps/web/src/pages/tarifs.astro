@@ -1,0 +1,116 @@
+---
+// Portée de `src/pages/pricing.astro` d'`astro-emdash`, avec SES trois
+// paliers de démonstration — en anglais, tel quel. Inventer des tarifs pour
+// AstroTan aurait été écrire du faux ; cette page montre la mise en page,
+// pas une offre. Elle est faite pour être supprimée ou réécrite.
+//
+// Le fichier s'appelle `tarifs.astro` et non `pricing.astro` : le site est en
+// français, et le chemin servi fait partie de ce qu'un visiteur lit.
+//
+// Sa ligne doit exister dans le dashboard avec le slug `tarifs`, et être
+// publiée — sinon cette route répond 404, délibérément.
+export const prerender = false
+
+import { loadPage } from "../lib/loadPage"
+import BaseLayout from "../layouts/BaseLayout.astro"
+import Hero from "../components/hero/Hero.astro"
+import Pricing from "../components/sections/Pricing.astro"
+import CTA from "../components/CTA.astro"
+
+const { page } = await loadPage(Astro)
+
+const plans = [
+  {
+    name: "Starter",
+    price: "$0",
+    period: "forever",
+    description: "Everything you need to launch a personal site.",
+    features: [
+      "Astro + the shared Convex backend",
+      "Blog and pages",
+      "SEO, sitemap and llms.txt",
+      "Community support",
+    ],
+    cta: { label: "Get started", href: "/contact" },
+  },
+  {
+    name: "Professional",
+    price: "$29",
+    period: "month",
+    description: "For teams that need performance and reliability.",
+    features: [
+      "Everything in Starter",
+      "Docker self-hosting behind Traefik",
+      "Self-hosted Umami analytics",
+      "Priority email support",
+    ],
+    cta: { label: "Start free trial", href: "/contact" },
+    featured: true,
+  },
+  {
+    name: "Enterprise",
+    price: "Custom",
+    description: "Dedicated infrastructure, SLAs, and onboarding.",
+    features: [
+      "Everything in Professional",
+      "Dedicated infrastructure",
+      "99.9% uptime SLA",
+      "Solutions engineering",
+    ],
+    cta: { label: "Contact sales", href: "/contact" },
+  },
+]
+---
+
+<BaseLayout page={page} fallbackTitle="Page introuvable">
+  {page === null ? (
+    <section class="container empty-state">
+      <h1>404</h1>
+      <p>Cette page n'existe pas.</p>
+    </section>
+  ) : (
+    <>
+      <Hero
+        variant="centered"
+        size="md"
+        eyebrow="Pricing"
+        headline="Simple, transparent pricing"
+        subheadline="Three tiers, no hidden line. Demonstration content shipped with the template — replace it with your own."
+      />
+
+      <div data-animate>
+        <Pricing plans={plans} />
+      </div>
+
+      <CTA
+        eyebrow="Questions"
+        title="Questions about pricing?"
+        content="Talk to us and we will help you choose the right plan."
+        primaryText="Contact us"
+        primaryHref="/contact"
+      />
+    </>
+  )}
+</BaseLayout>
+
+<style>
+  .empty-state {
+    display: flex;
+    min-height: 60svh;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    text-align: center;
+  }
+
+  .empty-state h1 {
+    font-size: 2rem;
+    margin: 0;
+  }
+
+  .empty-state p {
+    margin: 0;
+    color: var(--muted-foreground);
+  }
+</style>

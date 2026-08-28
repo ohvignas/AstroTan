@@ -1,0 +1,110 @@
+---
+// Les onglets de fonctionnalités, portés de
+// `src/components/landing/FeatureTabs.astro` d'`astro-emdash`.
+//
+// Le template les pilote en JavaScript : `role="tab"`, `aria-selected`, un
+// écouteur de clic et un écouteur de flèches. Ici la bascule est faite par
+// un groupe de `<input type="radio">` masqués et le sélecteur `:checked ~`,
+// parce que la page d'accueil affirme deux sections plus bas qu'elle
+// n'envoie aucun octet de JavaScript, et qu'une affirmation que le code
+// dément est pire que pas d'affirmation.
+//
+// Ce que le motif natif donne gratuitement, et que le template
+// réimplémentait : les flèches parcourent un groupe de radios, `Espace`
+// sélectionne, l'état est annoncé comme « coché », et le panneau reste dans
+// le HTML — donc lisible par un moteur de recherche même replié.
+//
+// Ce qu'il coûte : les rôles ARIA d'un `tablist` n'existent plus. Un groupe
+// de radios étiqueté reste une navigation correcte, simplement décrite
+// autrement.
+import Icon from "../ui/primitives/Icon/Icon.astro"
+
+export interface FeatureTab {
+  id: string
+  icon: string
+  /** Libellé de la pastille. Le titre du panneau si absent — mais une
+      pastille de dix mots casse la rangée, d'où ce champ court. */
+  label?: string
+  heading: string
+  description: string
+  points?: string[]
+  visual: string
+}
+
+interface Props {
+  tabs: FeatureTab[]
+  /** Distingue les groupes de radios quand deux blocs cohabitent. */
+  name?: string
+}
+
+const { tabs, name = "feature-tabs" } = Astro.props as Props
+
+// `styles/global.css` écrit les règles `:nth-of-type` de 1 à 5. Un sixième
+// onglet s'afficherait sans jamais pouvoir être sélectionné : mieux vaut le
+// refuser à la construction que le livrer cassé.
+if (tabs.length > 5) {
+  throw new Error(
+    `FeatureTabs : ${tabs.length} onglets, 5 au maximum. Ajouter les règles ` +
+      `:nth-of-type manquantes dans src/styles/global.css avant d'en mettre plus.`
+  )
+}
+---
+
+{
+  tabs.length > 0 && (
+    <div class="feature-tabs">
+      {/* Les radios précèdent tout : `~` ne franchit pas un parent, donc
+          elles doivent être les frères aînés des étiquettes ET des
+          panneaux qu'elles commandent. */}
+      {tabs.map((tab, index) => (
+        <input
+          type="radio"
+          name={name}
+          id={`${name}-${tab.id}`}
+          class="feature-tabs__input"
+          checked={index === 0}
+        />
+      ))}
+
+      <ul class="feature-tabs__list">
+        {tabs.map((tab) => (
+          <li>
+            <label class="feature-tabs__tab" for={`${name}-${tab.id}`}>
+              <span class="feature-tabs__tab-icon">
+                <Icon name={`lucide:${tab.icon}`} class="feature-tabs__icon" />
+              </span>
+              <span>{tab.label ?? tab.heading}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+
+      {tabs.map((tab) => (
+        <div class="feature-tabs__panel">
+          <div class="feature-tabs__content">
+            <h3 class="feature-tabs__heading">{tab.heading}</h3>
+            <p class="feature-tabs__description">{tab.description}</p>
+            {tab.points && tab.points.length > 0 && (
+              <ul class="feature-tabs__points">
+                {tab.points.map((point) => (
+                  <li>
+                    <Icon name="lucide:check" class="feature-tabs__check" />
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div class="feature-tabs__window" aria-hidden="true">
+            <div class="feature-tabs__window-bar">
+              <span />
+              <span />
+              <span />
+            </div>
+            <pre class="feature-tabs__visual">{tab.visual}</pre>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}

@@ -10,12 +10,33 @@
  * variables CSS ; superposer deux systèmes de tokens donnerait deux sources
  * de vérité pour les mêmes couleurs.
  *
- * Palette monochrome en OKLCH, inspirée du starter `astro-emdash` (MIT).
- * OKLCH plutôt que hex parce que la clarté y est perceptuelle : passer de
- * 0.20 à 0.50 assombrit du même écart visible quelle que soit la teinte, ce
- * qu'un `#333` → `#888` ne garantit pas. Une seule teinte pour tout le site,
- * et un chroma quasi nul sur les surfaces : la couleur devient alors un
- * signal, pas une décoration.
+ * ---------------------------------------------------------------------
+ * Provenance
+ * ---------------------------------------------------------------------
+ * Les valeurs viennent du starter `astro-emdash` (MIT, © 2026 milzamsz),
+ * dont `src/styles/tokens/{colors,typography,spacing}.css` a été fusionné
+ * ici. Voir `apps/web/src/styles/NOTICE`.
+ *
+ * Trois fichiers de tokens dans le template, un seul ici : ce fichier est
+ * documenté comme LE point de personnalisation, et le découper en trois
+ * rendrait la promesse fausse. L'ordre interne du template est conservé
+ * (couleurs, typographie, rythme) pour que la parenté reste lisible.
+ *
+ * ---------------------------------------------------------------------
+ * Deux couches, et pourquoi
+ * ---------------------------------------------------------------------
+ * 1. Des variables CSS *nues* dans `:root` / `:root.dark`. Elles sont
+ *    toujours émises, quoi que fasse Tailwind, et c'est ce que lisent les
+ *    blocs `<style>` des composants (`var(--muted-foreground)`).
+ * 2. Un bloc `@theme` qui les expose à Tailwind (`bg-card`, `text-ink-mid`).
+ *
+ * L'inverse — tout mettre dans `@theme` — casse : Tailwind élague les
+ * tokens qu'aucune classe n'utilise, et les `var()` écrits à la main dans
+ * les `<style>` scoped se résolvent alors dans le vide.
+ *
+ * Palette monochrome en OKLCH. OKLCH plutôt que hex parce que la clarté y
+ * est perceptuelle : passer de 0.20 à 0.50 assombrit du même écart visible
+ * quelle que soit la teinte, ce qu'un `#333` → `#888` ne garantit pas.
  */
 @import "tailwindcss";
 
@@ -24,79 +45,356 @@
    d'un visiteur ne pourrait pas l'emporter sur le réglage de son système. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-@theme {
-  /* === Teinte unique du site ===
-     Tout ce qui suit s'accorde à cette valeur. La changer (0-360) fait
-     pivoter l'ensemble sans casser les contrastes. */
-  --color-accent-50:  oklch(0.97 0.005 250);
-  --color-accent-500: oklch(0.55 0.02  250);
-  --color-accent-900: oklch(0.25 0.015 250);
+/* ════════════════════════════════════════════════════════════════════
+   1. COULEURS — variables nues
+   ════════════════════════════════════════════════════════════════════ */
 
-  /* === Surfaces et texte, mode clair === */
-  --color-paper:     oklch(0.99  0.003 250);
-  --color-surface:   oklch(0.975 0.004 250);
-  --color-ink:       oklch(0.20  0.01  250);
-  --color-ink-mid:   oklch(0.50  0.01  250);
-  --color-ink-faint: oklch(0.65  0.008 250);
-  --color-rule:      oklch(0.90  0.005 250);
+:root {
+  /* === Surfaces === */
+  --background: oklch(1 0 0deg);
+  --foreground: oklch(0.145 0 0deg);
+  --card: oklch(1 0 0deg);
+  --card-foreground: oklch(0.145 0 0deg);
 
-  /* === Typographie ===
-     Piles système : aucune police à télécharger, donc aucun saut de mise en
-     page au chargement et zéro octet de fonte. Remplacer par la police du
-     projet en la chargeant dans le layout. */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-serif: ui-serif, Georgia, "Times New Roman", serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* === Primaire — neutre (quasi noir) === */
+  --primary: oklch(0.205 0 0deg);
+  --primary-foreground: oklch(0.985 0 0deg);
+  --primary-hover: oklch(0.27 0 0deg);
+  --primary-muted: oklch(0.97 0 0deg);
 
-  /* === Rythme === */
-  --radius-card: 0.75rem;
-  --spacing-section: 6rem;
+  /* === La touche de couleur ===
+     Le rose de la marque, `#f60f74`, converti en OKLCH : oklch garde la
+     clarté perceptuelle, donc la variante du mode sombre s'obtient en
+     montant la clarté sans toucher à la teinte ni au chroma — les deux
+     restent la même couleur, pas deux roses différents.
+
+     Une TOUCHE, et le rester : cette couleur ne peint aucune surface. Elle
+     marque ce qui appelle l'attention — un lien, un focus, un accent de
+     titre. Étalée sur des fonds, elle cesserait d'attirer l'œil, ce qui est
+     exactement ce qu'on lui demande. */
+  --brand: oklch(0.629 0.248 5.2deg);
+  --brand-foreground: oklch(0.985 0 0deg);
+
+  /* === Secondaire / accent / atténué === */
+  --secondary: oklch(0.97 0 0deg);
+  --secondary-foreground: oklch(0.205 0 0deg);
+  --accent: oklch(0.97 0 0deg);
+  --accent-foreground: oklch(0.205 0 0deg);
+  --muted: oklch(0.97 0 0deg);
+
+  /* 0.50 garde le texte secondaire au-dessus de WCAG AA (>= 4.5:1), sur
+     fond blanc comme sur fond `--muted`. */
+  --muted-foreground: oklch(0.5 0 0deg);
+
+  /* Un cran plus clair encore, pour les mentions vraiment tertiaires
+     (détails de chiffres, légendes). N'existe pas dans le template :
+     ajouté parce que notre copywriting a trois niveaux de texte. */
+  --faint-foreground: oklch(0.62 0 0deg);
+
+  /* === Filet et anneau de focus === */
+  --border: oklch(0.922 0 0deg);
+  --ring: oklch(0.45 0 0deg);
+
+  /* === Statuts (les seuls tokens chromatiques) === */
+  --destructive: oklch(0.577 0.245 27.325deg);
+  --destructive-foreground: oklch(0.985 0 0deg);
+  --success: oklch(0.62 0.16 150deg);
+  --warning: oklch(0.75 0.16 75deg);
+  --info: oklch(0.45 0 0deg);
+
+  /* === Surface inversée (bloc sombre sur fond clair, et réciproquement) === */
+  --surface-invert: oklch(0.205 0 0deg);
+  --surface-invert-foreground: oklch(0.985 0 0deg);
+  --surface-invert-border: oklch(0.32 0 0deg);
 }
 
-/* Le mode sombre ne redéfinit QUE les tokens, jamais les composants. Une
-   couleur dont la seule définition vivrait ici ne s'appliquerait pas en mode
-   clair — c'est l'erreur classique, et elle rend la page illisible. */
+/* `:root.dark` et non `@media (prefers-color-scheme)` : la classe est posée
+   par le script en ligne du layout, qui fait gagner le choix explicite du
+   visiteur sur le réglage de son système. */
 :root.dark {
-  --color-paper:     oklch(0.16  0.008 250);
-  --color-surface:   oklch(0.205 0.008 250);
-  --color-ink:       oklch(0.97  0.004 250);
-  --color-ink-mid:   oklch(0.72  0.008 250);
-  --color-ink-faint: oklch(0.55  0.008 250);
-  --color-rule:      oklch(0.30  0.008 250);
-  --color-accent-50:  oklch(0.26 0.01  250);
-  --color-accent-500: oklch(0.75 0.03  250);
-  --color-accent-900: oklch(0.95 0.01  250);
+  --background: oklch(0.145 0 0deg);
+  --foreground: oklch(0.985 0 0deg);
+  --card: oklch(0.205 0 0deg);
+  --card-foreground: oklch(0.985 0 0deg);
+
+  --primary: oklch(0.985 0 0deg);
+  --primary-foreground: oklch(0.205 0 0deg);
+  --primary-hover: oklch(0.9 0 0deg);
+  --primary-muted: oklch(0.269 0 0deg);
+
+  --secondary: oklch(0.269 0 0deg);
+  --secondary-foreground: oklch(0.985 0 0deg);
+  --brand: oklch(0.749 0.248 5.2deg);
+  --accent: oklch(0.269 0 0deg);
+  --accent-foreground: oklch(0.985 0 0deg);
+  --muted: oklch(0.269 0 0deg);
+
+  /* 0.74 garde le texte secondaire au-dessus de WCAG AA sur fond sombre. */
+  --muted-foreground: oklch(0.74 0 0deg);
+  --faint-foreground: oklch(0.6 0 0deg);
+
+  --border: oklch(0.32 0 0deg);
+  --ring: oklch(0.6 0 0deg);
+
+  --destructive: oklch(0.704 0.191 22.216deg);
+  --destructive-foreground: oklch(0.985 0 0deg);
+  --success: oklch(0.7 0.15 150deg);
+  --warning: oklch(0.8 0.15 80deg);
+  --info: oklch(0.708 0 0deg);
+
+  --surface-invert: oklch(0.985 0 0deg);
+  --surface-invert-foreground: oklch(0.205 0 0deg);
+  --surface-invert-border: oklch(0.85 0 0deg);
 }
 
-/* Bases : posées ici parce qu'elles valent pour toutes les pages, et que les
-   répéter dans chaque `.astro` est la duplication à ne pas commencer. */
+/* === Alias hérités du template ===
+   Les blocs `<style>` des composants copiés d'`astro-emdash` écrivent
+   `var(--color-border)`, `var(--color-bg-primary)`… Ces alias existent pour
+   que le balisage se copie sans être relu ligne à ligne. Comme une variable
+   CSS se résout à l'usage, une seule définition dans `:root` suit
+   automatiquement le mode sombre. */
+:root {
+  --color-bg-primary: var(--background);
+  --color-bg-secondary: var(--secondary);
+  --color-bg-tertiary: var(--accent);
+  --color-text-primary: var(--foreground);
+  --color-text-secondary: var(--muted-foreground);
+  --color-brand-primary: var(--primary);
+  --color-brand-secondary: var(--info);
+  --color-border: var(--border);
+}
+
+/* === Ombres === */
+:root {
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 5%);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 8%), 0 2px 4px -2px rgb(0 0 0 / 5%);
+  --shadow-lg: 0 12px 28px -6px rgb(0 0 0 / 12%), 0 4px 8px -4px rgb(0 0 0 / 6%);
+}
+
+:root.dark {
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 40%);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 50%), 0 2px 4px -2px rgb(0 0 0 / 40%);
+  --shadow-lg: 0 12px 28px -6px rgb(0 0 0 / 60%), 0 4px 8px -4px rgb(0 0 0 / 45%);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   2. TYPOGRAPHIE — variables nues
+   ════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Polices variables auto-hébergées via Fontsource ; les `@font-face` et
+     les repli métriquement ajustés sont dans `apps/web/src/styles/global.css`,
+     parce qu'ils dépendent des fichiers `.woff2` résolus par le bundler. */
+  --font-sans:
+    "Manrope Variable", "Manrope Fallback", ui-sans-serif, system-ui,
+    -apple-system, "Segoe UI", sans-serif;
+  --font-heading:
+    "Outfit Variable", "Outfit Fallback", ui-sans-serif, system-ui,
+    -apple-system, "Segoe UI", sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono Fallback", ui-monospace,
+    "SF Mono", Menlo, Consolas, monospace;
+
+  /* Échelle fluide : la taille suit la fenêtre entre deux bornes, donc pas
+     de palier qui saute à un point de rupture. */
+  --text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+  --text-sm: clamp(0.875rem, 0.825rem + 0.25vw, 1rem);
+  --text-base: clamp(1rem, 0.925rem + 0.375vw, 1.125rem);
+  --text-lg: clamp(1.125rem, 1.025rem + 0.5vw, 1.25rem);
+  --text-xl: clamp(1.25rem, 1.1rem + 0.75vw, 1.5rem);
+  --text-2xl: clamp(1.5rem, 1.25rem + 1.25vw, 2rem);
+  --text-3xl: clamp(1.875rem, 1.5rem + 1.875vw, 2.5rem);
+  --text-4xl: clamp(2.25rem, 1.75rem + 2.5vw, 3rem);
+  --text-5xl: clamp(3rem, 2.25rem + 3.75vw, 4rem);
+
+  --text-code-sm: clamp(0.8125rem, 0.7625rem + 0.25vw, 0.9375rem);
+  --text-code-base: clamp(0.875rem, 0.825rem + 0.25vw, 1rem);
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  --leading-tight: 1.1;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   3. RYTHME — espacements, rayons, conteneurs
+   ════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --radius-xs: 0.125rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-full: 9999px;
+
+  /* Échelle du template. Volontairement hors de `@theme` : Tailwind v4
+     dérive `p-4` de `--spacing` seul, et y déclarer `--spacing-4`
+     redéfinirait silencieusement l'échelle de tout le site. */
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  --space-3xl: 5rem;
+
+  --container-max: 80rem;
+  --container-px: 1rem;
+  --header-height: 4.25rem;
+  --z-index-toast: 1080;
+}
+
+@media (width >= 768px) {
+  :root {
+    --container-px: 1.5rem;
+  }
+}
+
+@media (width >= 1024px) {
+  :root {
+    --container-px: 2rem;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   4. EXPOSITION À TAILWIND
+   ════════════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* Noms du template */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-surface-invert: var(--surface-invert);
+  --color-surface-invert-foreground: var(--surface-invert-foreground);
+
+  /* === Noms d'AstroTan ===
+     Ce sont des alias, pas une seconde palette : `/a-propos`, `/contact` et
+     `/blog` sont écrites avec `bg-paper`, `text-ink-mid`, `border-rule`.
+     Les supprimer pour « aligner sur le template » aurait cassé quatre
+     pages pour renommer des couleurs identiques. */
+  --color-paper: var(--background);
+  --color-surface: var(--muted);
+  --color-ink: var(--foreground);
+  --color-ink-mid: var(--muted-foreground);
+  --color-ink-faint: var(--faint-foreground);
+  --color-rule: var(--border);
+  --color-accent-50: var(--primary-muted);
+  --color-accent-500: var(--primary);
+  --color-accent-900: var(--primary-hover);
+
+  /* Polices */
+  --font-sans: var(--font-sans);
+  --font-heading: var(--font-heading);
+  --font-mono: var(--font-mono);
+
+  /* Rayons */
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+  --radius-full: var(--radius-full);
+  --radius-card: var(--radius-xl);
+
+  /* Points de rupture : Tailwind exige des valeurs littérales ici, une
+     `var()` y serait ignorée sans avertissement. */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   5. BASES
+   Posées ici parce qu'elles valent pour toutes les pages, et que les
+   répéter dans chaque `.astro` est la duplication à ne pas commencer.
+   ════════════════════════════════════════════════════════════════════ */
+
 @layer base {
   html {
     scroll-behavior: smooth;
     color-scheme: light;
   }
-  html.dark { color-scheme: dark; }
+
+  html.dark {
+    color-scheme: dark;
+  }
 
   /* `body` peint un fond explicite : sans lui, la page emprunte celui de
      l'hôte et le texte du mode sombre atterrit sur un fond clair. */
   body {
-    background-color: var(--color-paper);
-    color: var(--color-ink);
+    margin: 0;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    line-height: var(--leading-normal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-heading);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--leading-tight);
+    color: var(--foreground);
   }
 
   /* Un titre coupé sur un mot orphelin se voit tout de suite ; `balance`
      répartit les lignes à la place. */
-  h1, h2, h3 { text-wrap: balance; }
-  p { text-wrap: pretty; }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
 
   ::selection {
-    background-color: var(--color-ink);
-    color: var(--color-paper);
+    background-color: color-mix(in srgb, var(--primary) 25%, transparent);
+    color: var(--foreground);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    html { scroll-behavior: auto; }
-    *, *::before, *::after {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
     }

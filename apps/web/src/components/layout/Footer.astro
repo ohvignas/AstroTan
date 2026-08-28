@@ -1,0 +1,211 @@
+---
+// Le pied de page, porté de `src/components/layout/Footer.astro`
+// d'`astro-emdash` : une colonne de marque large, trois colonnes de liens,
+// puis une ligne de mentions séparée par un filet.
+//
+// Le template lit ses colonnes d'un `site.config.ts` et ses libellés d'un
+// dictionnaire i18n. Ici le nom du site et les liens sociaux viennent de
+// Convex — édités une fois dans l'administration, lus par toutes les pages —
+// et les colonnes sont écrites dans `src/config/nav.ts`.
+import { api } from "@astrotan/backend/convex/_generated/api"
+import { getConvexClient } from "../../lib/convexClient"
+import SiteBrand from "../SiteBrand.astro"
+import Icon from "../ui/primitives/Icon/Icon.astro"
+import { footerNav, REPO_URL } from "../../config/nav"
+
+const settings = await getConvexClient().query(api.settings.get, {})
+const siteName = settings?.siteName ?? "AstroTan"
+const socials = settings?.socials ?? []
+const year = new Date().getFullYear()
+
+// L'icône se déduit de l'URL : demander à l'opérateur de la choisir dans
+// l'administration ajouterait un champ pour une information déjà présente.
+function socialIcon(url: string): string {
+  if (url.includes("github.com")) return "lucide:github"
+  if (url.includes("twitter.com") || url.includes("x.com"))
+    return "lucide:twitter"
+  if (url.includes("linkedin.com")) return "lucide:linkedin"
+  if (url.startsWith("mailto:")) return "lucide:mail"
+  return "lucide:link"
+}
+---
+
+<footer class="footer">
+  <div class="footer__inner container">
+    <div class="footer__grid">
+      <div class="footer__brand">
+        <a href="/" class="footer__brand-link">
+          <SiteBrand variant="icon" size={28} class="footer__logo" />
+          <span>{siteName}</span>
+        </a>
+        <p>
+          Template site vitrine et CMS : site public Astro sans JavaScript,
+          dashboard sur invitation, backend Convex partagé, déploiement
+          Docker réversible.
+        </p>
+      </div>
+
+      <div class="footer__column">
+        <h2>Offre</h2>
+        <ul>
+          {footerNav.offre.map((item) => (
+            <li><a href={item.href}>{item.label}</a></li>
+          ))}
+        </ul>
+      </div>
+
+      <div class="footer__column">
+        <h2>Le site</h2>
+        <ul>
+          {footerNav.site.map((item) => (
+            <li><a href={item.href}>{item.label}</a></li>
+          ))}
+        </ul>
+      </div>
+
+      <div class="footer__column">
+        <h2>Social</h2>
+        <ul class="footer__social">
+          <li>
+            <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
+              <Icon name="lucide:github" />
+              <span>GitHub</span>
+            </a>
+          </li>
+          {socials.map((social) => (
+            <li>
+              {/* `rel="noopener noreferrer"` sur chaque lien sortant :
+                  l'URL vient de l'opérateur, et un onglet ouvert sans lui
+                  peut remonter par `window.opener`. */}
+              <a href={social.url} target="_blank" rel="noopener noreferrer">
+                <Icon name={socialIcon(social.url)} />
+                <span>{social.label}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer__meta">
+      <p>© {year} {siteName}</p>
+      <p class="footer__credit">
+        Design porté du starter{" "}
+        <a
+          href="https://github.com/milzamsz/astro-emdash-sqlite-r2-starter"
+          target="_blank"
+          rel="noopener noreferrer">Astro EmDash</a
+        > (MIT).
+      </p>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    margin-top: auto;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg-secondary);
+  }
+
+  .footer__inner {
+    padding-block: var(--space-2xl) var(--space-lg);
+  }
+
+  .footer__grid {
+    display: grid;
+    gap: var(--space-xl);
+    grid-template-columns: 1.5fr repeat(3, minmax(0, 1fr));
+  }
+
+  .footer__brand-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    text-decoration: none;
+    color: var(--color-text-primary);
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.0625rem;
+  }
+
+  .footer__brand-link :global(.footer__logo) {
+    height: 1.75rem;
+    width: auto;
+  }
+
+  .footer__brand p {
+    margin: var(--space-md) 0 0;
+    max-width: 32ch;
+    color: var(--color-text-secondary);
+    line-height: 1.6;
+    font-size: 0.9375rem;
+  }
+
+  .footer__column h2 {
+    margin: 0 0 var(--space-sm);
+    font-size: 0.9375rem;
+  }
+
+  .footer__column ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .footer__column a {
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    font-size: 0.9375rem;
+  }
+
+  .footer__column a:hover {
+    color: var(--color-text-primary);
+  }
+
+  .footer__social a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .footer__social :global(svg) {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .footer__meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    flex-wrap: wrap;
+    margin-top: var(--space-2xl);
+    padding-top: var(--space-lg);
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+  }
+
+  .footer__meta p {
+    margin: 0;
+  }
+
+  .footer__credit a {
+    color: inherit;
+  }
+
+  @media (width <= 60rem) {
+    .footer__grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (width <= 40rem) {
+    .footer__grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

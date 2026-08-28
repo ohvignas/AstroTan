@@ -23,6 +23,8 @@ import {
   MAX_SOCIAL_LABEL_LENGTH,
   MAX_SOCIAL_URL_LENGTH,
 } from "@astrotan/backend/convex/content"
+import defaultIcon from "@/assets/icon_astrotan.png"
+import defaultLogo from "@/assets/logo_astrotan.png"
 import { MediaPicker } from "@/components/media-picker"
 import { RepeatableItems } from "@/components/repeatable-items"
 import { Button } from "@/components/ui/button"
@@ -312,6 +314,9 @@ function SettingsForm({
   const updateSettings = useMutation(api.settings.update)
 
   const [siteName, setSiteName] = useState(settings?.siteName ?? "")
+  const [iconId, setIconId] = useState<Id<"_storage"> | null>(
+    settings?.iconId ?? null,
+  )
   const [logoId, setLogoId] = useState<Id<"_storage"> | null>(
     settings?.logoId ?? null
   )
@@ -343,6 +348,7 @@ function SettingsForm({
         // `undefined` means "leave alone" to `settings.update`, so a logo
         // is only ever written, never unset from here.
         ...(logoId === null ? {} : { logoId }),
+        ...(iconId === null ? {} : { iconId }),
         // Rows an operator started and left half-filled are dropped rather
         // than sent: a social link with no URL would render in the footer
         // as a link to nowhere.
@@ -405,10 +411,30 @@ function SettingsForm({
 
           <Field>
             <FieldLabel>Logo</FieldLabel>
-            <LogoField
+            <FieldDescription>
+              Large, avec le nom écrit. C'est lui dans la barre de menu du
+              site.
+            </FieldDescription>
+            <ImageField
               value={logoId}
               disabled={!canWrite}
               onChange={setLogoId}
+              noun="logo"
+            />
+          </Field>
+
+          <Field>
+            <FieldLabel>Icône</FieldLabel>
+            <FieldDescription>
+              Carrée. Elle sert de favicon, dans l'onglet du navigateur et
+              partout où la place est contrainte — un logo large y serait
+              illisible.
+            </FieldDescription>
+            <ImageField
+              value={iconId}
+              disabled={!canWrite}
+              onChange={setIconId}
+              noun="icône"
             />
           </Field>
         </CardContent>
@@ -523,14 +549,17 @@ function SettingsForm({
   )
 }
 
-function LogoField({
+function ImageField({
   value,
   disabled,
   onChange,
+  noun,
 }: {
   value: Id<"_storage"> | null
   disabled: boolean
   onChange: (value: Id<"_storage">) => void
+  /** « logo » ou « icône » — au singulier, sans article. */
+  noun: string
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   // `api.media.list` rather than a lookup by storage id: only the list
@@ -543,7 +572,20 @@ function LogoField({
   return (
     <div className="flex flex-col gap-3">
       {value === null ? (
-        <p className="text-sm text-muted-foreground">Aucun logo.</p>
+        <div className="flex items-center gap-3">
+          {/* Montrer le fichier du dépôt, et pas seulement écrire « aucun » :
+              il y a bien une image en ligne sur le site, et un écran qui
+              l'ignore laisse croire à un réglage cassé. */}
+          <img
+            src={noun === "icône" ? defaultIcon : defaultLogo}
+            alt=""
+            className="h-10 w-auto max-w-32 rounded border border-border bg-muted object-contain p-1"
+          />
+          <p className="text-sm text-muted-foreground">
+            Aucun{noun === "icône" ? "e" : ""} {noun} téléversé
+            {noun === "icône" ? "e" : ""} — le fichier du dépôt est utilisé.
+          </p>
+        </div>
       ) : (
         <div className="flex items-center gap-3">
           <div className="flex size-20 items-center justify-center overflow-hidden rounded-lg border border-input bg-muted">
@@ -579,7 +621,7 @@ function LogoField({
             onClick={() => setPickerOpen(true)}
           >
             <ImageIcon data-icon="inline-start" />
-            {value === null ? "Choisir un logo" : "Changer de logo"}
+            {value === null ? `Choisir un${noun === "icône" ? "e" : ""} ${noun}` : `Changer d${noun === "icône" ? "\u2019" : "e "}${noun}`}
           </Button>
         </div>
       )}

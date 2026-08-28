@@ -1,107 +1,158 @@
 ---
-// One article. The example this template ships with — plain on purpose.
+// Un article. L'habillage vient du template ; `loadPost` et le rendu du
+// corps ne changent pas.
 //
-// The three lines below are the whole contract, and they are the article
-// equivalent of the ones in `index.astro`. `loadPost` handles publication,
-// preview (`?t=…`), the 404, and the cache tags; nothing else to wire up.
+// Les trois lignes ci-dessous sont tout le contrat, et ce sont l'équivalent
+// pour un article de celles d'`index.astro`. `loadPost` gère la
+// publication, l'aperçu (`?t=…`), le 404 et les étiquettes de cache ; il n'y
+// a rien d'autre à brancher.
 export const prerender = false
 
 import { Image } from "astro:assets"
 import { loadPost } from "../../lib/loadPost"
-import PageHead from "../../components/PageHead.astro"
-import Analytics from "../../components/Analytics.astro"
 import { renderStoredHtml } from "../../lib/markdown"
-import SiteHeader from "../../components/SiteHeader.astro"
-import SiteFooter from "../../components/SiteFooter.astro"
-import "../../styles/global.css"
+import BaseLayout from "../../layouts/BaseLayout.astro"
 
 const { slug } = Astro.params
 const { post, preview } = await loadPost(Astro, slug ?? "")
 
-// `post.body` is HTML authored in the dashboard's rich editor. It is still
-// sanitised before reaching a visitor — the value comes from an
-// authenticated session, never from a visitor, and is sanitised anyway.
+// `post.body` est du HTML rédigé dans l'éditeur riche du dashboard. Il est
+// tout de même assaini avant d'atteindre un visiteur — la valeur vient
+// d'une session authentifiée, jamais d'un visiteur, et elle est assainie
+// quand même.
 const bodyHtml = post === null ? "" : renderStoredHtml(post.body)
 
-const canonicalUrl =
-  post?.seo?.canonicalUrl ?? new URL(Astro.url.pathname, Astro.url.origin).href
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
 ---
 
-<!doctype html>
-<html lang="fr">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    {/* Le même composant que les pages : un article n'a pas besoin d'un
-        second jeu de balises qui pourrait diverger. `article` déclenche en
-        plus le JSON-LD `Article` et le fil d'Ariane. */}
-    <PageHead
-      page={post}
-      fallbackTitle="Article introuvable"
-      article={post
-        ? {
-            title: post.title,
-            excerpt: post.excerpt,
-            publishedAt: post.publishedAt,
-            coverUrl: post.coverUrl,
-          }
-        : undefined}
-    />
-    <Analytics />
-  </head>
-  <body class="bg-white text-ink antialiased">
-    <SiteHeader />
-    {preview && (
-      <p class="bg-amber-100 px-6 py-2 text-center text-sm text-amber-900">
-        Aperçu — cet article n'est pas publié. Le lien expire au bout de 15
-        minutes.
-      </p>
-    )}
+<BaseLayout
+  page={post}
+  fallbackTitle="Article introuvable"
+  article={post
+    ? {
+        title: post.title,
+        excerpt: post.excerpt,
+        publishedAt: post.publishedAt,
+        coverUrl: post.coverUrl,
+      }
+    : undefined}
+>
+  {preview && (
+    <p class="preview-banner">
+      Aperçu — cet article n'est pas publié. Le lien expire au bout de 15
+      minutes.
+    </p>
+  )}
 
-    {post === null ? (
-      <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
-        <h1 class="text-3xl font-bold">404</h1>
-        <p class="text-ink-mid">Cet article n'existe pas.</p>
-        <a href="/blog" class="underline">Retour au blog</a>
-      </main>
-    ) : (
-      <main class="mx-auto max-w-3xl px-6 py-16">
-        <a href="/blog" class="text-sm text-ink-mid underline">← Blog</a>
-        <h1 class="mt-6 text-4xl font-bold">{post.title}</h1>
-        {post.publishedAt && (
-          <p class="mt-2 text-sm text-ink-mid">
-            <time datetime={new Date(post.publishedAt).toISOString()}>
-              {dateFormat.format(post.publishedAt)}
-            </time>
-          </p>
-        )}
-        {post.coverUrl && (
-          /* `<Image>` sur une URL *distante* : Astro ne l'optimise que
-             parce que le domaine de Convex storage est autorisé dans
-             `astro.config.ts` (`image.remotePatterns`). Sans cette
-             autorisation, l'image traverserait le pipeline sans être
-             touchée — pas de `srcset`, pas d'AVIF/WebP — et rien ne le
-             signalerait. `inferSize` lit les dimensions réelles du fichier
-             distant, ce qui évite le décalage de mise en page.
+  {post === null ? (
+    <section class="container empty-state">
+      <h1>404</h1>
+      <p>Cet article n'existe pas.</p>
+      <a href="/blog">Retour au blog</a>
+    </section>
+  ) : (
+    <article class="container post">
+      <a class="post__back" href="/blog">← Blog</a>
+      <h1 class="post__title">{post.title}</h1>
+      {post.publishedAt && (
+        <p class="post__date">
+          <time datetime={new Date(post.publishedAt).toISOString()}>
+            {dateFormat.format(post.publishedAt)}
+          </time>
+        </p>
+      )}
+      {post.coverUrl && (
+        /* `<Image>` sur une URL *distante* : Astro ne l'optimise que parce
+           que le domaine du stockage Convex est autorisé dans
+           `astro.config.ts` (`image.remotePatterns`). Sans cette
+           autorisation, l'image traverserait le pipeline sans être touchée
+           — pas de `srcset`, pas d'AVIF/WebP — et rien ne le signalerait.
+           `inferSize` lit les dimensions réelles du fichier distant, ce qui
+           évite le décalage de mise en page.
 
-             `loading="eager"` et `fetchpriority="high"` : sur un article,
-             la couverture est l'élément LCP. */
-          <Image
-            src={post.coverUrl}
-            alt={post.coverAlt}
-            inferSize
-            loading="eager"
-            fetchpriority="high"
-            class="mt-8 w-full rounded-lg"
-          />
-        )}
-        <article
-          class="mt-10 leading-relaxed [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:pl-4 [&_h2]:mt-10 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mt-8 [&_h3]:text-xl [&_h3]:font-semibold [&_img]:rounded-lg [&_li]:ml-5 [&_ol]:mt-4 [&_ol]:list-decimal [&_p]:mt-4 [&_pre]:mt-4 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-ink [&_pre]:p-4 [&_pre]:text-sm [&_ul]:mt-4 [&_ul]:list-disc"
-          set:html={bodyHtml}
+           `loading="eager"` et `fetchpriority="high"` : sur un article, la
+           couverture est l'élément LCP. */
+        <Image
+          src={post.coverUrl}
+          alt={post.coverAlt}
+          inferSize
+          loading="eager"
+          fetchpriority="high"
+          class="post__cover"
         />
-      </main>
-    )}
-    <SiteFooter />
-  </body>
-</html>
+      )}
+      <div class="prose post__body" set:html={bodyHtml} />
+    </article>
+  )}
+</BaseLayout>
+
+<style>
+  .preview-banner {
+    margin: 0;
+    padding: 0.6rem 1rem;
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--warning-foreground, var(--foreground));
+    background: color-mix(in srgb, var(--warning) 25%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  }
+
+  .post {
+    max-width: 46rem;
+    padding-block: var(--space-3xl);
+  }
+
+  .post__back {
+    font-size: 0.875rem;
+    color: var(--muted-foreground);
+  }
+
+  .post__title {
+    margin: var(--space-lg) 0 0;
+    font-size: clamp(2rem, 4.5vw, 3rem);
+    font-weight: var(--font-weight-extrabold);
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+
+  .post__date {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+    color: var(--faint-foreground);
+  }
+
+  .post__cover {
+    margin-top: var(--space-xl);
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius-2xl);
+    border: 1px solid var(--color-border);
+  }
+
+  /* `.prose` vit dans `styles/global.css` : le corps d'un article est du
+     HTML injecté, donc hors de portée d'un style scopé. */
+  .post__body {
+    margin-top: var(--space-2xl);
+    max-width: none;
+  }
+
+  .empty-state {
+    display: flex;
+    min-height: 60svh;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    text-align: center;
+  }
+
+  .empty-state h1 {
+    font-size: 2rem;
+    margin: 0;
+  }
+
+  .empty-state p {
+    margin: 0;
+    color: var(--muted-foreground);
+  }
+</style>

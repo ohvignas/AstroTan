@@ -9,7 +9,9 @@ export const SERVED_PATHS: readonly string[] = [
   "/",
   "/a-propos",
   "/blog",
-  "/contact"
+  "/contact",
+  "/services",
+  "/tarifs"
 ]
 
 /** Prefixes a dynamic route serves everything under. */

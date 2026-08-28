@@ -1,9 +1,581 @@
 /* apps/web/src/styles/global.css
  *
- * The single CSS entrypoint for the public site. Pulls in Tailwind and the
- * shared design tokens from `packages/tokens/theme.css` — that file (not
- * this one) is where a template adopter customises colors and typography.
- * Keep this file free of visual opinions; it only wires the pipeline
- * together.
+ * Point d'entrée CSS unique du site public.
+ *
+ * Porté de `src/styles/global.css` du starter `astro-emdash` (MIT,
+ * © 2026 milzamsz) — voir `./NOTICE`.
+ *
+ * Partage des rôles avec `packages/tokens/theme.css` :
+ *   - là-bas, les *tokens* (couleurs, typographie, rythme) : c'est le
+ *     fichier documenté comme LE point de personnalisation du site ;
+ *   - ici, ce qui n'est pas un token : chargement des polices, styles de
+ *     base et classes de composants partagées entre plusieurs sections
+ *     (`.container`, `.bg-grid`, `.section-head`, `.feature-tabs`).
+ *
+ * Le template a trois fichiers de tokens séparés ; les recopier tels quels
+ * aurait créé une seconde source de vérité à côté de `theme.css`, qui est
+ * précisément ce que la documentation du dépôt interdit.
+ *
+ * Ordre :
+ *   1. tokens partagés (qui importent eux-mêmes Tailwind)
+ *   2. polices variables Fontsource (auto-hébergées, aucun CDN)
+ *   3. repli métriquement ajustés (anti-CLS)
+ *   4. styles de base
+ *   5. fonds décoratifs et animations d'apparition
+ *   6. classes de sections partagées
  */
+
+/* ─── 1. Tokens partagés (importent Tailwind et déclarent `dark`) ─── */
 @import "@astrotan/tokens/theme.css";
+
+/* ─── 2. Polices variables Fontsource ───
+   Auto-hébergées : le navigateur ne contacte aucun tiers, donc aucune
+   requête DNS supplémentaire avant le premier texte peint. */
+@import "@fontsource-variable/manrope";
+@import "@fontsource-variable/outfit";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* ─── 3. Repli métriquement ajustés ───
+   Ces `@font-face` ne téléchargent rien : ils décrivent Arial (resp.
+   Courier New), déjà installé, avec les métriques de la police cible. Le
+   texte de repli occupe alors la même place que le texte final, et
+   l'échange ne décale plus la mise en page (CLS). */
+@font-face {
+  font-family: "Outfit Fallback";
+  src: local("Arial");
+  ascent-override: 103%;
+  descent-override: 20%;
+  line-gap-override: 0%;
+  size-adjust: 107%;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Manrope Fallback";
+  src: local("Arial");
+  ascent-override: 101%;
+  descent-override: 20%;
+  line-gap-override: 0%;
+  size-adjust: 105%;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono Fallback";
+  src: local("Courier New");
+  ascent-override: 102%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+  size-adjust: 112%;
+  font-display: swap;
+}
+
+/* ─── 4. Styles de base ─── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted-foreground) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--muted-foreground);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--foreground);
+}
+
+:focus-visible {
+  /* La couleur de marque sert ici parce que c'est exactement sa fonction :
+     dire où l'attention se trouve. Un anneau de focus neutre se confond
+     avec les bordures ; celui-ci ne se confond avec rien. */
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Lien d'évitement : hors écran jusqu'à ce qu'il reçoive le focus. */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  z-index: var(--z-index-toast);
+  padding: 0.5rem 1rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  font-weight: var(--font-weight-medium);
+  transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Prose (contenu Markdown des articles) */
+.prose {
+  color: var(--foreground);
+  max-width: 65ch;
+  line-height: var(--leading-relaxed);
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-weight-semibold);
+  margin-top: 2em;
+  margin-bottom: 0.75em;
+}
+
+.prose p {
+  margin-block: 1.25em;
+}
+
+.prose a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose a:hover {
+  color: var(--primary-hover);
+}
+
+.prose img {
+  border-radius: var(--radius-lg);
+  max-width: 100%;
+  height: auto;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.25em;
+}
+
+.prose blockquote {
+  margin-inline: 0;
+  padding-left: 1em;
+  border-left: 3px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+pre {
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  overflow-x: auto;
+  font-size: var(--text-code-base);
+  line-height: var(--leading-relaxed);
+  border: 1px solid var(--border);
+  background: var(--muted);
+}
+
+pre code {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  background: none;
+  padding: 0;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm);
+  background: var(--muted);
+  padding: 0.15em 0.35em;
+  border-radius: var(--radius-sm);
+}
+
+::marker {
+  color: var(--primary);
+}
+
+/* Conteneur : la largeur de page de tout le site. */
+.container {
+  width: 100%;
+  max-width: var(--container-max);
+  margin-inline: auto;
+  padding-inline: var(--container-px);
+}
+
+/* ─── 5. Fonds décoratifs ─── */
+
+/*
+ * `.bg-grid` — grille discrète qui s'efface vers les bords via un masque
+ * radial. À poser sur un parent positionné. Les lignes dérivent de
+ * `--foreground`, donc elles suivent le mode sombre toutes seules.
+ */
+.bg-grid {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--foreground) 7%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--foreground) 7%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 56px 56px;
+  mask-image: radial-gradient(
+    ellipse 75% 60% at 50% 0%,
+    #000 40%,
+    transparent 100%
+  );
+}
+
+/* `.bg-glow` — halo monochrome derrière le contenu du hero. */
+.bg-glow {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 60% 50% at 50% -10%,
+    color-mix(in srgb, var(--foreground) 8%, transparent),
+    transparent 70%
+  );
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bg-glow {
+    animation: bg-glow-pulse 8s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes bg-glow-pulse {
+  from {
+    opacity: 70%;
+  }
+
+  to {
+    opacity: 100%;
+  }
+}
+
+/*
+ * Apparition au défilement, en CSS pur. `animation-timeline: view()` est une
+ * animation pilotée par le défilement : aucun JavaScript, donc rien à
+ * envoyer au visiteur. Le `@supports` est ce qui rend la chose sûre — un
+ * navigateur qui ne connaît pas la propriété n'applique jamais l'état
+ * initial `opacity: 0`, et le contenu reste visible.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    [data-animate] {
+      animation: reveal-up linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 30%;
+    }
+
+    [data-animate="fade"] {
+      animation-name: reveal-fade;
+    }
+  }
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0%;
+    transform: translateY(1.25rem);
+  }
+
+  to {
+    opacity: 100%;
+    transform: none;
+  }
+}
+
+@keyframes reveal-fade {
+  from {
+    opacity: 0%;
+  }
+
+  to {
+    opacity: 100%;
+  }
+}
+
+/* ─── 6. En-tête de section (motif partagé par toutes les sections) ─── */
+.section-head {
+  max-width: 44rem;
+  margin: 0 auto 2rem;
+  text-align: center;
+}
+
+.section-head__eyebrow {
+  display: inline-block;
+  margin: 0 0 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.section-head__title {
+  margin: 0;
+  font-size: clamp(1.6rem, 3vw, 2.25rem);
+  letter-spacing: -0.01em;
+}
+
+.section-head__lead {
+  margin: 0.6rem 0 0;
+  color: var(--muted-foreground);
+  line-height: 1.65;
+}
+
+/* ─── 7. Onglets de fonctionnalités ───
+ *
+ * Le template pilote ces onglets en JavaScript (`role="tab"` + un script
+ * qui bascule `hidden`). Ici la bascule est faite par des `<input
+ * type="radio">` masqués et le sélecteur `:checked ~ …` : même apparence,
+ * même navigation au clavier (les flèches parcourent nativement un groupe
+ * de radios), et zéro octet envoyé au visiteur — ce que la page affirme
+ * trois sections plus bas.
+ *
+ * Le prix de ce choix est ici : `~` n'atteint que des frères, donc les
+ * radios doivent être les premiers enfants de `.feature-tabs`, loin des
+ * étiquettes qu'elles commandent, et l'appariement se fait par
+ * `:nth-of-type`. Cinq rangs sont écrits en dur ci-dessous ; un sixième
+ * onglet s'afficherait sans jamais pouvoir être sélectionné, ce que
+ * `FeatureTabs.astro` refuse à la construction plutôt qu'en silence.
+ */
+.feature-tabs {
+  display: grid;
+  gap: 2rem;
+}
+
+.feature-tabs__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.feature-tabs__list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.feature-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1.35rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.feature-tabs__tab:hover {
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* L'anneau de focus vit sur l'étiquette, parce que la radio qui le reçoit
+   est hors écran : sans ces règles, la navigation au clavier serait muette. */
+.feature-tabs__input:nth-of-type(1):focus-visible
+  ~ .feature-tabs__list
+  > li:nth-of-type(1)
+  > .feature-tabs__tab,
+.feature-tabs__input:nth-of-type(2):focus-visible
+  ~ .feature-tabs__list
+  > li:nth-of-type(2)
+  > .feature-tabs__tab,
+.feature-tabs__input:nth-of-type(3):focus-visible
+  ~ .feature-tabs__list
+  > li:nth-of-type(3)
+  > .feature-tabs__tab,
+.feature-tabs__input:nth-of-type(4):focus-visible
+  ~ .feature-tabs__list
+  > li:nth-of-type(4)
+  > .feature-tabs__tab,
+.feature-tabs__input:nth-of-type(5):focus-visible
+  ~ .feature-tabs__list
+  > li:nth-of-type(5)
+  > .feature-tabs__tab {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.feature-tabs__input:nth-of-type(1):checked
+  ~ .feature-tabs__list
+  > li:nth-of-type(1)
+  > .feature-tabs__tab,
+.feature-tabs__input:nth-of-type(2):checked
+  ~ .feature-tabs__list
+  > li:nth-of-type(2)
+  > .feature-tabs__tab,
+.feature-tabs__input:nth-of-type(3):checked
+  ~ .feature-tabs__list
+  > li:nth-of-type(3)
+  > .feature-tabs__tab,
+.feature-tabs__input:nth-of-type(4):checked
+  ~ .feature-tabs__list
+  > li:nth-of-type(4)
+  > .feature-tabs__tab,
+.feature-tabs__input:nth-of-type(5):checked
+  ~ .feature-tabs__list
+  > li:nth-of-type(5)
+  > .feature-tabs__tab {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* Le panneau correspondant. `nth-of-type` compte par type d'élément : la
+   liste est un `<ul>`, donc les `<div>` panneaux se comptent bien de 1 à N. */
+.feature-tabs__input:nth-of-type(1):checked ~ .feature-tabs__panel:nth-of-type(1),
+.feature-tabs__input:nth-of-type(2):checked ~ .feature-tabs__panel:nth-of-type(2),
+.feature-tabs__input:nth-of-type(3):checked ~ .feature-tabs__panel:nth-of-type(3),
+.feature-tabs__input:nth-of-type(4):checked ~ .feature-tabs__panel:nth-of-type(4),
+.feature-tabs__input:nth-of-type(5):checked ~ .feature-tabs__panel:nth-of-type(5) {
+  display: grid;
+}
+
+.feature-tabs__tab-icon {
+  display: inline-grid;
+  place-items: center;
+}
+
+.feature-tabs__icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.feature-tabs__panel {
+  display: none;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  background: var(--card);
+  padding: clamp(1.5rem, 3vw, 2.75rem);
+  box-shadow: var(--shadow-sm);
+}
+
+.feature-tabs__heading {
+  margin: 0;
+  font-size: clamp(1.25rem, 2.2vw, 1.6rem);
+  letter-spacing: -0.01em;
+}
+
+.feature-tabs__description {
+  margin: 0.6rem 0 0;
+  color: var(--muted-foreground);
+  line-height: 1.65;
+}
+
+.feature-tabs__points {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.feature-tabs__points li {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  color: var(--foreground);
+  font-size: 0.9375rem;
+}
+
+.feature-tabs__check {
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--primary);
+}
+
+.feature-tabs__window {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--muted);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.feature-tabs__window-bar {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 60%, var(--muted));
+}
+
+.feature-tabs__window-bar span {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--muted-foreground) 35%, transparent);
+}
+
+.feature-tabs__visual {
+  margin: 0;
+  padding: 1.25rem;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow-x: auto;
+}
+
+@media (width <= 48rem) {
+  .feature-tabs__panel {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
+
+/* La sélection reprend la marque : un détail qu'on ne remarque pas, et qui
+   manque quand il n'y est pas. */
+::selection {
+  background: var(--brand);
+  color: var(--brand-foreground);
+}

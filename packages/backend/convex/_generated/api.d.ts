@@ -16,6 +16,7 @@ import type * as content from "../content.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
+import type * as leads from "../leads.js";
 import type * as lib_authz from "../lib/authz.js";
 import type * as lib_ownerGuard from "../lib/ownerGuard.js";
 import type * as lib_passwordStrength from "../lib/passwordStrength.js";
@@ -54,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   http: typeof http;
   invitations: typeof invitations;
+  leads: typeof leads;
   "lib/authz": typeof lib_authz;
   "lib/ownerGuard": typeof lib_ownerGuard;
   "lib/passwordStrength": typeof lib_passwordStrength;

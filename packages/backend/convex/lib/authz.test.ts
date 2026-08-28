@@ -51,6 +51,9 @@ beforeEach(() => {
   // (32 chars) as every other test that seeds it, e.g.
   // `pages.test.ts`/`lib/previewToken.test.ts`.
   process.env.PREVIEW_SECRET = "test-preview-secret-please-do-not-use-in-prod-x"
+  // `leads.submit` du registre refuse tout quand ce secret manque — même
+  // raison que la ligne au-dessus : la matrice appelle la vraie mutation.
+  process.env.LEAD_SUBMIT_SECRET = "test-lead-secret-please-do-not-use-in-prod-x"
 })
 
 afterEach(() => {

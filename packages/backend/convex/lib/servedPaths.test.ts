@@ -28,8 +28,12 @@ describe("les chemins qu'un fichier de route sert déjà", () => {
   })
 
   test("un chemin libre ne l'est pas", () => {
-    expect(isServedByRoute("/tarifs")).toBe(false)
+    // Des slugs qu'aucune page n'aura. `/tarifs` servait ici jusqu'à ce
+    // qu'une page de ce nom soit ajoutée : un exemple « manifestement
+    // libre » cesse de l'être le jour où quelqu'un le trouve utile, et le
+    // test tombe loin de la modification qui l'a cassé.
     expect(isServedByRoute("/ancienne-offre")).toBe(false)
+    expect(isServedByRoute("/promo-2019")).toBe(false)
   })
 
   test("la comparaison passe par le même normaliseur que les slugs", () => {

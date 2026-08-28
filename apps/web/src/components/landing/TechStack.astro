@@ -1,0 +1,120 @@
+---
+// La grille de la pile, portée de
+// `src/components/landing/TechStack.astro` d'`astro-emdash`.
+//
+// Deux écarts avec le template, tous deux imposés par une règle du dépôt :
+//   - la pastille d'icône y est colorée par un attribut `style` en ligne,
+//     ce que `mockup-to-astro` interdit (le garde-fou est un grep littéral,
+//     qui trouverait jusqu'à une mention dans ce commentaire) — la teinte est
+//     ici un token, la même pour toutes les briques, ce qui est de toute
+//     façon plus cohérent avec une palette monochrome ;
+//   - `astro-icon` est remplacé par notre `Icon` local.
+//
+// Ajouté : la ligne « pourquoi ». Une liste de logos ne dit rien ; ce qui
+// aide à décider, c'est la raison de chaque brique et ce qu'elle coûte.
+import Icon from "../ui/primitives/Icon/Icon.astro"
+
+export interface StackPiece {
+  name: string
+  role: string
+  why: string
+  icon: string
+  url?: string
+}
+
+export interface Props {
+  items: StackPiece[]
+}
+
+const { items } = Astro.props as Props
+---
+
+<div class="tech-stack">
+  {items.map((item) => (
+    <article class="tech-stack__item">
+      <span class="tech-stack__icon" aria-hidden="true">
+        <Icon name={item.icon} />
+      </span>
+      <div class="tech-stack__meta">
+        <h3>
+          {item.url ? (
+            <a href={item.url} target="_blank" rel="noopener noreferrer">
+              {item.name}
+            </a>
+          ) : (
+            item.name
+          )}
+        </h3>
+        <small>{item.role}</small>
+        <p>{item.why}</p>
+      </div>
+    </article>
+  ))}
+</div>
+
+<style>
+  .tech-stack {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  }
+
+  .tech-stack__item {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    background: var(--card);
+    box-shadow: var(--shadow-sm);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .tech-stack__item:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--color-border));
+  }
+
+  .tech-stack__icon {
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+  }
+
+  .tech-stack__meta h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .tech-stack__meta h3 a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .tech-stack__meta h3 a:hover {
+    text-decoration: underline;
+  }
+
+  .tech-stack__meta small {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    color: var(--faint-foreground);
+  }
+
+  .tech-stack__meta p {
+    margin: 0.6rem 0 0;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--muted-foreground);
+  }
+</style>

@@ -1,0 +1,44 @@
+---
+// Les deux images de la marque, et le seul endroit qui sait où elles sont.
+//
+// Deux fichiers, deux usages, qu'il ne faut pas confondre :
+//  - `logo_astrotan.png` est large et porte le nom écrit. C'est lui dans
+//    l'en-tête, ce qui permet de ne PAS répéter le nom en texte à côté.
+//  - `icon_astrotan.png` est carré. C'est lui partout où la place est
+//    contrainte : favicon, onglet, pied de page, barre latérale de l'admin.
+//
+// Mettre le logo large dans un favicon le rendrait illisible ; mettre
+// l'icône dans l'en-tête forcerait à réécrire le nom à côté.
+//
+// Ces fichiers sont la valeur par DÉFAUT. Un logo ou une icône téléversés
+// depuis les réglages les remplacent sans toucher au code — c'est
+// `SiteHeader.astro` qui arbitre.
+import { Image } from "astro:assets"
+import logo from "../assets/logo_astrotan.png"
+import icon from "../assets/icon_astrotan.png"
+
+interface Props {
+  variant?: "logo" | "icon"
+  /** Hauteur rendue en pixels ; la largeur suit le rapport du fichier. */
+  size?: number
+  class?: string
+}
+const { variant = "logo", size = 32, class: className } = Astro.props
+
+const source = variant === "logo" ? logo : icon
+// Calculée, jamais codée en dur : remplacer un fichier par une image d'un
+// autre format ne doit pas l'écraser.
+const width = Math.round((source.width / source.height) * size)
+---
+
+{/* `alt=""` : dans l'en-tête, l'image EST le nom du site, et le lien qui
+    l'entoure porte déjà un libellé accessible. Le décrire ici le ferait
+    entendre deux fois. */}
+<Image
+  src={source}
+  alt=""
+  width={width}
+  height={size}
+  densities={[1, 2]}
+  class={className}
+/>

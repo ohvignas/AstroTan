@@ -1,0 +1,214 @@
+---
+// Le hero du template, porté de `src/components/hero/Hero.astro`
+// d'`astro-emdash` : pastille d'accroche en capitales, titre très large,
+// sous-titre, deux boutons en pilule, le tout sur une grille de fond qui
+// s'efface vers les bords et un halo doux.
+//
+// La grille et le halo sont les classes `.bg-grid` / `.bg-glow` de
+// `styles/global.css` : du CSS, donc aucune image, aucun octet
+// supplémentaire et aucun décalage de mise en page au chargement.
+//
+// Retiré du template : `resolveRoute` (i18n) — les `href` sont déjà les
+// chemins servis.
+import { Button } from "../ui/index"
+import { heroVariantClasses, type HeroVariant } from "./hero.variants"
+
+export interface Cta {
+  label: string
+  href: string
+}
+
+export interface Props {
+  variant?: HeroVariant
+  size?: "sm" | "md" | "lg"
+  eyebrow?: string
+  headline: string
+  subheadline?: string
+  primaryCta?: Cta
+  secondaryCta?: Cta
+  /** Ligne discrète sous les boutons — la pile, une mention légale… */
+  footnote?: string
+}
+
+const props = Astro.props as Props
+const variant = props.variant ?? "centered"
+const hasImageSlot = Astro.slots.has("image")
+---
+
+<div class="hero-wrap">
+  <span class="bg-grid" aria-hidden="true"></span>
+  <span class="bg-glow" aria-hidden="true"></span>
+  <section class={`${heroVariantClasses[variant]} container`}>
+    <div class="hero__content">
+      {props.eyebrow && <p class="hero__eyebrow">{props.eyebrow}</p>}
+      <h1 class={`hero__headline hero__headline--${props.size ?? "lg"}`}>
+        {props.headline}
+      </h1>
+      {props.subheadline && (
+        <p class="hero__subheadline">{props.subheadline}</p>
+      )}
+      {(props.primaryCta || props.secondaryCta) && (
+        <div class="hero__actions">
+          {props.primaryCta && (
+            <Button href={props.primaryCta.href}>{props.primaryCta.label}</Button>
+          )}
+          {props.secondaryCta && (
+            <Button href={props.secondaryCta.href} variant="secondary">
+              {props.secondaryCta.label}
+            </Button>
+          )}
+        </div>
+      )}
+      {props.footnote && <p class="hero__footnote">{props.footnote}</p>}
+    </div>
+
+    {(hasImageSlot || variant === "split") && (
+      <div class="hero__media">
+        <slot name="image" />
+      </div>
+    )}
+  </section>
+</div>
+
+<style>
+  .hero-wrap {
+    position: relative;
+    isolation: isolate;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .hero {
+    display: grid;
+    gap: var(--space-xl);
+    padding-block: clamp(3.5rem, 8vw, 6.5rem);
+  }
+
+  .hero--centered {
+    justify-items: center;
+    text-align: center;
+  }
+
+  .hero--centered .hero__content {
+    max-width: 52rem;
+    justify-items: center;
+  }
+
+  .hero--split {
+    grid-template-columns: minmax(0, 1.1fr) minmax(20rem, 0.9fr);
+    align-items: center;
+  }
+
+  .hero--minimal {
+    padding-block: var(--space-2xl);
+  }
+
+  .hero__content {
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .hero__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0.4rem 1rem;
+    border-radius: var(--radius-full);
+    /* Une TOUCHE : la bordure et le fond restent presque neutres, seule une
+       trace de rose les réchauffe. Peindre la pastille en rose plein
+       ferait crier l'accessoire plus fort que le titre. */
+    border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent);
+    background: color-mix(in srgb, var(--brand) 7%, transparent);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.75rem;
+    color: var(--primary);
+    font-weight: 700;
+    width: fit-content;
+  }
+
+  /* Le point : la seule surface franchement rose de la page, et elle fait
+     8 px. C'est ce rapport d'échelle qui la fait remarquer. */
+  .hero__eyebrow::before {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: var(--radius-full);
+    background: var(--brand);
+    flex: none;
+  }
+
+  .hero--centered .hero__eyebrow {
+    margin-inline: auto;
+  }
+
+  .hero__headline {
+    margin: 0;
+    max-width: 22ch;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    font-weight: var(--font-weight-extrabold);
+    text-wrap: balance;
+  }
+
+  .hero--centered .hero__headline {
+    margin-inline: auto;
+  }
+
+  .hero__headline--sm {
+    font-size: clamp(1.75rem, 3.2vw, 2.25rem);
+  }
+
+  .hero__headline--md {
+    font-size: clamp(2rem, 3.6vw, 2.75rem);
+  }
+
+  .hero__headline--lg {
+    font-size: clamp(2.25rem, 5vw, 4rem);
+  }
+
+  .hero__subheadline {
+    margin: 0;
+    max-width: 38rem;
+    color: var(--muted-foreground);
+    font-size: clamp(0.95rem, 1.2vw, 1.125rem);
+    line-height: 1.6;
+  }
+
+  .hero--centered .hero__subheadline {
+    margin-inline: auto;
+  }
+
+  .hero__actions {
+    display: flex;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+
+  .hero--centered .hero__actions {
+    justify-content: center;
+  }
+
+  .hero__footnote {
+    margin: 0.75rem 0 0;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--faint-foreground);
+  }
+
+  .hero__media {
+    display: grid;
+    align-items: center;
+  }
+
+  @media (width <= 48rem) {
+    .hero--split {
+      grid-template-columns: 1fr;
+    }
+
+    .hero__headline {
+      max-width: none;
+    }
+  }
+</style>

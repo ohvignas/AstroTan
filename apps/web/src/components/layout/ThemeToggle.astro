@@ -1,0 +1,114 @@
+---
+// La bascule clair/sombre, portée de `src/components/layout/ThemeToggle.astro`
+// d'`astro-emdash`.
+//
+// C'est le SEUL JavaScript envoyé au visiteur par ce site, et il est de la
+// taille qu'il faut pour poser une classe et écrire une clé de stockage. Le
+// reste de la page — onglets, FAQ, apparitions au défilement, marquee — est
+// en CSS pur, parce que « zéro octet de JavaScript » est l'argument que la
+// page d'accueil défend deux sections plus bas.
+//
+// `is:inline` : sans lui, Astro sortirait ce script dans un module chargé
+// après le rendu, et l'icône afficherait un instant le mauvais état.
+import Icon from "../ui/primitives/Icon/Icon.astro"
+---
+
+<button
+  type="button"
+  class="theme-toggle"
+  aria-label="Basculer en mode sombre"
+  aria-pressed="false"
+  data-theme-toggle
+  data-theme="light"
+>
+  <Icon name="lucide:sun" class="theme-toggle__icon theme-toggle__icon--light" />
+  <Icon name="lucide:moon" class="theme-toggle__icon theme-toggle__icon--dark" />
+</button>
+
+<script is:inline>
+  ;(() => {
+    const root = document.documentElement
+    const button = document.querySelector("[data-theme-toggle]")
+
+    const sync = (theme) => {
+      const isDark = theme === "dark"
+      root.classList.toggle("dark", isDark)
+      if (!button) return
+      button.setAttribute("aria-pressed", String(isDark))
+      button.setAttribute("data-theme", theme)
+      button.setAttribute(
+        "aria-label",
+        isDark ? "Basculer en mode clair" : "Basculer en mode sombre"
+      )
+    }
+
+    // La classe est déjà posée par le script d'amorçage du layout ; on ne
+    // fait ici que remettre le bouton en accord avec elle, sinon l'icône
+    // afficherait le soleil sur une page sombre.
+    sync(root.classList.contains("dark") ? "dark" : "light")
+
+    button?.addEventListener("click", () => {
+      const next = root.classList.contains("dark") ? "light" : "dark"
+      try {
+        localStorage.setItem("theme", next)
+      } catch {
+        // Navigation privée, stockage refusé : le thème change quand même
+        // pour cette page, il ne sera simplement pas retenu.
+      }
+      sync(next)
+    })
+  })()
+</script>
+
+<style>
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .theme-toggle:hover {
+    border-color: var(--color-brand-primary);
+    background: var(--color-bg-secondary);
+    transform: scale(1.05);
+  }
+
+  .theme-toggle:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .theme-toggle:active {
+    transform: scale(0.95);
+  }
+
+  /* `:global()` est obligatoire ici, et l'oubli est silencieux : ces SVG
+     sont rendus par `<Icon>`, un composant ENFANT, et Astro n'appose son
+     attribut de portée qu'aux éléments écrits dans CE fichier. Sans
+     `:global`, les deux icônes s'affichent en même temps — c'est
+     exactement ce qui est arrivé. */
+  .theme-toggle :global(.theme-toggle__icon) {
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+
+  .theme-toggle :global(.theme-toggle__icon--dark) {
+    display: none;
+  }
+
+  .theme-toggle[data-theme="dark"] :global(.theme-toggle__icon--light) {
+    display: none;
+  }
+
+  .theme-toggle[data-theme="dark"] :global(.theme-toggle__icon--dark) {
+    display: inline-block;
+  }
+</style>

@@ -1,47 +1,179 @@
 ---
-// A second ordinary page, and the point of it is that there is nothing to
-// see: adding a page to this site means creating a file and copying these
-// four lines. No registry to update, no config to touch.
+// La page de contact. Sa ligne doit exister dans le dashboard avec le slug
+// `contact`, et être publiée — sinon cette route répond 404, délibérément.
 //
-// Its row must exist in the dashboard with the slug `contact`, and be
-// published — otherwise this route answers 404, deliberately.
+// Le template a ici un formulaire complet, branché sur une action Astro qui
+// appelle Resend. Il n'est PAS porté : nous n'avons ni endpoint d'envoi, ni
+// clé de service, et un formulaire dont le bouton ne fait rien est pire
+// qu'une adresse écrite en clair. Ce qu'il resterait à faire, le jour où on
+// le veut :
+//
+//   1. `src/pages/api/contact.ts` — un endpoint POST qui valide le corps,
+//      limite le débit par IP, et refuse tout ce qui n'a pas d'origine
+//      attendue ;
+//   2. le service d'envoi de son choix, sa clé posée en variable
+//      d'environnement du conteneur `web` et jamais exposée au navigateur ;
+//   3. un champ piège masqué, ou un contrôle équivalent — un formulaire
+//      public sans anti-spam se remplit tout seul en quelques jours ;
+//   4. ici, un `<form method="post" action="/api/contact">` : sans
+//      JavaScript, un envoi natif du navigateur suffit.
 export const prerender = false
 
 import { loadPage } from "../lib/loadPage"
-import PageHead from "../components/PageHead.astro"
-import Analytics from "../components/Analytics.astro"
-import SiteHeader from "../components/SiteHeader.astro"
-import SiteFooter from "../components/SiteFooter.astro"
-import "../styles/global.css"
+import BaseLayout from "../layouts/BaseLayout.astro"
+import Hero from "../components/hero/Hero.astro"
+import Icon from "../components/ui/primitives/Icon/Icon.astro"
 
 const { page } = await loadPage(Astro)
+
+const channels = [
+  {
+    icon: "lucide:mail",
+    label: "Par courriel",
+    value: "contact@example.com",
+    href: "mailto:contact@example.com",
+    note: "Remplacez cette adresse par la vôtre — elle est écrite dans ce fichier.",
+  },
+  {
+    icon: "lucide:github",
+    label: "Sur GitHub",
+    value: "Ouvrir une issue",
+    href: "https://github.com/OhVignas/AstroTan/issues",
+    note: "Pour un bogue ou une question sur le template lui-même.",
+  },
+]
 ---
 
-<!doctype html>
-<html lang="fr">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <PageHead page={page} />
-    <Analytics />
-  </head>
-  <body class="bg-white text-ink antialiased">
-    <SiteHeader />
-    {page === null ? (
-      <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
-        <h1 class="text-3xl font-bold">404</h1>
-        <p class="text-ink-mid">Cette page n'existe pas.</p>
-      </main>
-    ) : (
-      <main class="mx-auto max-w-2xl px-6 py-16">
-        <h1 class="text-3xl font-bold">{page.title}</h1>
-        <p class="mt-4 text-ink-mid">
-          Remplacez ce contenu par le vôtre. Le titre ci-dessus, les champs
-          SEO et GEO, et la publication de cette page se règlent dans
-          l'administration ; tout le reste s'écrit ici, en code.
+<BaseLayout page={page} fallbackTitle="Page introuvable">
+  {page === null ? (
+    <section class="container empty-state">
+      <h1>404</h1>
+      <p>Cette page n'existe pas.</p>
+    </section>
+  ) : (
+    <>
+      <Hero
+        variant="centered"
+        size="md"
+        eyebrow="Contact"
+        headline="Écrivez-nous"
+        subheadline="Une question sur le template, une reprise à faire, un doute sur une décision d'architecture : les deux chemins ci-dessous arrivent au même endroit."
+      />
+
+      <section class="container contact">
+        <ul class="contact__list">
+          {channels.map((channel) => (
+            <li class="contact__card">
+              <span class="contact__icon" aria-hidden="true">
+                <Icon name={channel.icon} />
+              </span>
+              <div>
+                <h2>{channel.label}</h2>
+                <a
+                  href={channel.href}
+                  rel={channel.href.startsWith("http") ? "noopener noreferrer" : undefined}
+                  target={channel.href.startsWith("http") ? "_blank" : undefined}
+                >
+                  {channel.value}
+                </a>
+                <p>{channel.note}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        <p class="contact__note">
+          Pas de formulaire sur cette page : ce template ne fournit pas
+          d'endpoint d'envoi, et un bouton « Envoyer » qui ne part nulle part
+          serait une promesse cassée. La marche à suivre pour en brancher un
+          est en commentaire en tête de ce fichier.
         </p>
-      </main>
-    )}
-    <SiteFooter />
-  </body>
-</html>
+      </section>
+    </>
+  )}
+</BaseLayout>
+
+<style>
+  .contact {
+    padding-block: var(--space-3xl);
+  }
+
+  .contact__list {
+    display: grid;
+    gap: var(--space-lg);
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    max-width: 52rem;
+    margin: 0 auto;
+    padding: 0;
+    list-style: none;
+  }
+
+  .contact__card {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-2xl);
+    background: var(--card);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .contact__icon {
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-secondary);
+  }
+
+  .contact__card h2 {
+    margin: 0 0 0.35rem;
+    font-size: 1rem;
+  }
+
+  .contact__card a {
+    color: var(--foreground);
+    font-weight: 600;
+    text-underline-offset: 3px;
+  }
+
+  .contact__card p {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: var(--faint-foreground);
+  }
+
+  .contact__note {
+    max-width: 44rem;
+    margin: var(--space-2xl) auto 0;
+    text-align: center;
+    font-size: 0.875rem;
+    line-height: 1.7;
+    color: var(--muted-foreground);
+  }
+
+  .empty-state {
+    display: flex;
+    min-height: 60svh;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    text-align: center;
+  }
+
+  .empty-state h1 {
+    font-size: 2rem;
+    margin: 0;
+  }
+
+  .empty-state p {
+    margin: 0;
+    color: var(--muted-foreground);
+  }
+</style>

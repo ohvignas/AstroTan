@@ -1,117 +1,353 @@
 ---
-// The home page, and the worked example of what every page of this site
-// looks like.
+// La page d'accueil, et l'exemple travaillé de ce à quoi ressemble chaque
+// page de ce site.
 //
-// A page IS this file: the markup below is the design, written in code —
-// converted from a mockup, with its Tailwind classes carried over as they
-// are. Nothing about how it looks comes from the database. What `loadPage`
-// fetches is the row the dashboard owns: whether the page is live, and how
-// it should be found.
+// Une page EST ce fichier : le balisage ci-dessous est le design, écrit en
+// code — ici porté du starter `astro-emdash` (MIT, voir
+// `src/styles/NOTICE`). Rien de son apparence ne vient de la base. Ce que
+// `loadPage` va chercher, c'est la ligne que le dashboard possède : la page
+// est-elle en ligne, et comment doit-on la trouver.
 //
 // ---------------------------------------------------------------------
-// Adding a page
+// Ajouter une page
 // ---------------------------------------------------------------------
-// 1. Create `src/pages/<slug>.astro` and copy the four lines of frontmatter
-//    below verbatim, changing only the slug.
-// 2. Create the page in the dashboard with that same slug, and publish it.
-//    Until it is published this route answers 404 — that is the point.
-// 3. Paste the mockup's markup into the body, then:
-//    - `<img>` becomes Astro's `<Image>`, with the file imported from
-//      `src/assets/` (NOT `public/` — `astro:assets` only optimises what it
-//      can see through the module graph, and silently passes the rest
-//      through unoptimised);
-//    - the hero image keeps `loading="eager"` and `fetchpriority="high"`,
-//      everything else gets `loading="lazy"`;
-//    - the mockup's `<style type="text/tailwindcss">` block moves once into
-//      `src/styles/global.css` — it is identical on every page;
-//    - the Tailwind CDN `<script>` is dropped: the build compiles the
-//      classes.
+// 1. Créer `src/pages/<slug>.astro` et recopier les quatre lignes de
+//    frontmatter de `contact.astro`, en ne changeant que le slug.
+// 2. Créer la page dans le dashboard avec ce même slug, et la publier.
+//    Tant qu'elle est en brouillon, la route répond 404 — c'est le but.
+// 3. Envelopper le contenu dans `BaseLayout` : il porte le `<head>`
+//    (`PageHead`), la mesure d'audience (`Analytics`), l'en-tête et le pied
+//    de page. Une page qui le contournerait serait une page non mesurée, et
+//    le trou ne se verrait pas.
 //
-// The home page is the one place where the file name and the slug differ,
-// because `/` has no path segment to name. Which page answers here is
-// therefore not knowable from this file: it is chosen in the dashboard and
-// stored in `settings.homePageSlug`, so an operator can point `/` at a
-// different page without touching code. Hard-coding a slug here was the
-// first version, and it made the choice invisible from the dashboard —
-// including to the Preview button, which built a URL for a route that does
-// not exist.
+// La page d'accueil est le seul endroit où le nom du fichier et le slug
+// diffèrent, parce que `/` n'a pas de segment à nommer. Quelle page répond
+// ici n'est donc pas connaissable depuis ce fichier : le choix se fait dans
+// le dashboard et se range dans `settings.homePageSlug`, ce qui permet à un
+// opérateur de faire pointer `/` ailleurs sans toucher au code. Coder un
+// slug en dur ici a été la première version, et elle rendait le choix
+// invisible depuis le dashboard — y compris pour le bouton Aperçu, qui
+// construisait alors l'URL d'une route inexistante.
 export const prerender = false
 
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { getConvexClient } from "../lib/convexClient"
 import { loadPage } from "../lib/loadPage"
-import PageHead from "../components/PageHead.astro"
-import Analytics from "../components/Analytics.astro"
-import SiteHeader from "../components/SiteHeader.astro"
-import SiteFooter from "../components/SiteFooter.astro"
-import Hero from "../components/landing/Hero.astro"
-import Numbers from "../components/landing/Numbers.astro"
-import Features from "../components/landing/Features.astro"
-import Stack from "../components/landing/Stack.astro"
-import Faq from "../components/landing/Faq.astro"
-import Cta from "../components/landing/Cta.astro"
-import "../styles/global.css"
+import BaseLayout from "../layouts/BaseLayout.astro"
+import Hero from "../components/hero/Hero.astro"
+import FeatureTabs from "../components/landing/FeatureTabs.astro"
+import LighthouseScores from "../components/landing/LighthouseScores.astro"
+import StackMarquee from "../components/landing/StackMarquee.astro"
+import TechStack from "../components/landing/TechStack.astro"
+import FeatureGrid from "../components/FeatureGrid.astro"
+import FAQ from "../components/FAQ.astro"
+import CTA from "../components/CTA.astro"
 
 const homeSlug = await getConvexClient().query(api.settings.homePageSlug, {})
 
-// No home page chosen yet is an ordinary state for a freshly cloned
-// template, not an error: `loadPage` is skipped and the 404 body renders,
-// which is at least honest about there being nothing to serve.
+// Aucune page d'accueil choisie est un état ordinaire pour un template
+// fraîchement cloné, pas une erreur : `loadPage` est sauté et le corps 404
+// s'affiche, ce qui est au moins honnête sur le fait qu'il n'y a rien à
+// servir.
 const { page } = homeSlug
   ? await loadPage(Astro, homeSlug)
   : { page: null, preview: false }
 
-// `loadPage` sets the status when it is called; when it is skipped, nothing
-// does — and `/` would answer 200 with a 404 body. Status and body have to
-// say the same thing.
+// `loadPage` pose le statut quand il est appelé ; quand il est sauté,
+// personne ne le fait — et `/` répondrait 200 avec un corps 404. Le statut
+// et le corps doivent dire la même chose.
 if (page === null && !homeSlug) {
   Astro.response.status = 404
   Astro.cache.set(false)
 }
+
+// ---------------------------------------------------------------------
+// Le contenu de la démonstration
+// ---------------------------------------------------------------------
+// Ces sections vendent AstroTan. Qui reprend le template les supprime :
+// c'est le seul contenu du dépôt qui parle du produit au lieu d'en faire
+// partie.
+
+// Quatre chiffres, tous mesurés sur ce dépôt — pas des ordres de grandeur.
+// C'est le passage de la page où il serait le plus tentant d'arrondir. Un
+// chiffre invérifiable dans une vitrine technique se retourne contre elle :
+// le premier lecteur qui ouvre l'onglet réseau le vérifie.
+//
+// Les deux premiers ont été RE-MESURÉS après le portage du design : il
+// disait « 0 octet de JavaScript » et « 12,8 ko », ce qui était vrai de la
+// page d'avant. La bascule de thème pèse 1,3 ko en ligne, et les polices
+// variables plus les styles du template portent la première visite à 26 ko.
+// Corriger les chiffres était le seul choix disponible — les laisser aurait
+// fait de cette section un mensonge vérifiable en trois secondes.
+const figures = [
+  {
+    value: "1,3 ko",
+    label: "de JavaScript en tout",
+    detail:
+      "la seule bascule clair/sombre, en ligne ; aucun framework, aucune hydratation",
+  },
+  {
+    value: "26 ko",
+    label: "à la première visite",
+    detail:
+      "HTML + CSS, compressés ; deux polices variables en plus, mises en cache ensuite",
+  },
+  {
+    value: "778",
+    label: "tests automatisés",
+    detail: "541 backend, 139 admin, 98 site",
+  },
+  {
+    value: "1",
+    label: "commande pour revenir en arrière",
+    detail: "le rollback rejoue le pipeline entier sur un sha",
+  },
+]
+
+// Ce que le template fait, et ce qu'il refuse de faire. Les refus sont dans
+// la liste au même titre que les capacités : ils sont la moitié des
+// décisions, et celle qui distingue ce template des autres.
+const tabs = [
+  {
+    id: "contenu",
+    icon: "pen-line",
+    label: "Contenu",
+    heading: "Une page est un fichier",
+    description:
+      "Le balisage, la mise en page et les mots s'écrivent en code. La base ne porte que le slug, le titre, le statut, le SEO et le GEO — l'administration décide qui doit trouver la page, jamais ce qu'elle contient. Trois modèles de contenu ont été essayés puis retirés.",
+    visual:
+      "src/pages/tarifs.astro   ← le design\npages/{ slug: 'tarifs' }  ← la ligne\n\nles deux, sinon 404",
+  },
+  {
+    id: "apercu",
+    icon: "zap",
+    label: "Aperçu",
+    heading: "L'aperçu s'ouvre à la vraie URL",
+    description:
+      "Un brouillon se relit sur /son-slug, avec un jeton signé qui expire, vérifié deux fois — dans Astro avant tout appel réseau, puis dans Convex. Pas de route parallèle qui rendrait une approximation de la page.",
+    visual:
+      "GET /tarifs?t=<jeton HMAC>\n  ├─ Astro   : signature + expiration\n  └─ Convex  : signature + expiration",
+  },
+  {
+    id: "visibilite",
+    icon: "trending-up",
+    label: "Visibilité",
+    heading: "Trouvable par les moteurs, et par les IA",
+    description:
+      "sitemap.xml, robots.txt, données structurées JSON-LD et llms.txt, engendrés depuis les mêmes champs que les balises meta. Un réglage sépare « ne pas indexer » de « ne pas reproduire » : une page peut légitimement vouloir le second sans le premier.",
+    visual:
+      "/sitemap.xml\n/robots.txt\n/llms.txt\n<script type=\"application/ld+json\">",
+  },
+]
+
+const features = [
+  {
+    icon: "globe",
+    title: "Renommer ne casse pas les liens",
+    description:
+      "Changer le slug d'une page ou d'un article frappe la redirection 301 correspondante, sans que personne y pense. Un manifeste des chemins réellement servis empêche d'écrire une redirection vers une page qui n'existe pas.",
+  },
+  {
+    icon: "shield",
+    title: "Accès sur invitation seule",
+    description:
+      "Pas d'inscription ouverte, pas d'OAuth. Le rôle vit sur l'utilisateur Better Auth et chaque mutation le revérifie côté serveur : l'interface masque, elle ne décide pas.",
+  },
+  {
+    icon: "chart",
+    title: "Mesure d'audience auto-hébergée",
+    description:
+      "Umami tourne dans la même pile Docker, sans cookie et sans donnée personnelle. Les statistiques d'une page s'affichent à côté de son éditeur, et les identifiants qui les lisent ne touchent jamais le navigateur.",
+  },
+]
+
+// La pile, et surtout la raison de chaque choix. Une liste de logos ne dit
+// rien ; ce qui aide à décider, c'est pourquoi telle brique plutôt qu'une
+// autre, et ce qu'elle coûte.
+const stack = [
+  {
+    name: "Astro 7",
+    role: "le site public",
+    icon: "lucide:rocket",
+    why: "Rendu au serveur, adaptateur Node, zéro JavaScript envoyé par défaut. Les images passent par astro:assets — un PNG de 95 ko sort en WebP de 910 o.",
+  },
+  {
+    name: "TanStack Start",
+    role: "le dashboard",
+    icon: "lucide:code-2",
+    why: "React 19 et shadcn/ui. TanStack Query est délibérément absent : Convex est déjà la couche réactive, et empiler un second cache donnerait deux sources de vérité sur la fraîcheur.",
+  },
+  {
+    name: "Convex",
+    role: "les données",
+    icon: "lucide:database",
+    why: "Un backend typé et réactif partagé par les deux applications. Le site public n'a ni session ni clé d'administration : il n'appelle que des queries publiques qui filtrent les brouillons côté serveur.",
+  },
+  {
+    name: "Better Auth",
+    role: "l'authentification",
+    icon: "lucide:shield",
+    why: "Installation locale, plugin admin, invitations expirables. Le mot de passe est jugé par le même code côté serveur et côté navigateur, pour que la jauge affichée ne mente pas sur ce qui sera accepté.",
+  },
+  {
+    name: "Docker et Traefik",
+    role: "l'hébergement",
+    icon: "lucide:container",
+    why: "Une pile compose sur un VPS, certificats automatiques, healthchecks. Le rollback rejoue le pipeline entier sur un sha — jamais les images seules, parce que le déploiement a aussi remplacé le schéma.",
+  },
+  {
+    name: "Umami",
+    role: "l'audience",
+    icon: "lucide:bar-chart",
+    why: "Auto-hébergé à côté du reste. Aucune donnée ne quitte le serveur, et le coût est écrit franchement : un service et une base de plus à sauvegarder.",
+  },
+]
+
+// Les questions qu'on pose vraiment avant d'adopter un template, y compris
+// celles dont la réponse n'arrange pas.
+const faq = [
+  {
+    question:
+      "Peut-on modifier le contenu d'une page depuis l'administration ?",
+    answer:
+      "Non, et c'est un choix. Une page est son fichier .astro : le balisage, la mise en page et les mots s'écrivent en code, depuis une maquette. L'administration règle le titre, le slug, le statut, le SEO et le GEO. Trois modèles de contenu éditable ont été essayés puis retirés — chacun était une seconde façon, plus faible, de faire ce que le code fait déjà.",
+  },
+  {
+    question: "Comment ajoute-t-on une page ?",
+    answer:
+      "En écrivant src/pages/mon-slug.astro et en recopiant quatre lignes en tête. Il n'y a rien d'autre à brancher : ni route à déclarer, ni menu à mettre à jour.",
+  },
+  {
+    question: "Faut-il un compte Convex payant ?",
+    answer:
+      "Non pour développer : un déploiement local anonyme suffit et ne demande aucune authentification. Pour la production, c'est le déploiement hébergé de Convex, dont le palier gratuit couvre largement un site vitrine.",
+  },
+  {
+    question: "Que se passe-t-il si un service tiers tombe ?",
+    answer:
+      "Le site continue de servir ses pages depuis son cache. Côté administration, une panne de la mesure d'audience affiche un état lisible plutôt qu'une erreur : des statistiques sont une information, jamais une dépendance de l'édition d'une page.",
+  },
+  {
+    question: "Ce site de démonstration est-il à garder ?",
+    answer:
+      "Non, il est fait pour être supprimé. Ces pages existent pour montrer comment les morceaux se branchent — un agent qui reprend le template les remplace par les vôtres.",
+  },
+]
 ---
 
-<!doctype html>
-<html lang="fr">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <PageHead page={page} />
-    <Analytics />
-  </head>
-  <body class="bg-white text-ink antialiased">
-    <SiteHeader />
-    {page === null ? (
-      <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
-        <h1 class="text-3xl font-bold">404</h1>
-        <p class="text-ink-mid">Cette page n'existe pas.</p>
-      </main>
-    ) : (
-      <main>
-        {/* Le titre du <h1> vient de la ligne `pages`, comme le reste des
-            réglages : c'est la seule chose que l'administration décide ici.
-            Tout le reste — la mise en page, les mots, l'ordre des sections —
-            est ce fichier et les composants qu'il assemble.
+<BaseLayout page={page} fallbackTitle="Page introuvable">
+  {page === null ? (
+    <section class="container empty-state">
+      <h1>404</h1>
+      <p>Cette page n'existe pas.</p>
+    </section>
+  ) : (
+    <>
+      {/* Le titre est écrit ICI, pas repris de `page.title`. La ligne
+          `pages` porte le titre d'administration — celui de la liste du
+          dashboard et le repli du <title> — qui n'a aucune raison d'être
+          l'accroche de la page. Les afficher l'un pour l'autre donnait un
+          <h1> qui disait « Accueil ». */}
+      <Hero
+        variant="centered"
+        eyebrow="Template site vitrine + CMS"
+        headline="Le site se charge avant que vous ayez fini de cligner"
+        subheadline="Pas un octet de framework envoyé au visiteur, un dashboard sur invitation, un backend typé partagé par les deux, et un déploiement Docker qu'on sait annuler. Les décisions difficiles sont déjà prises, écrites, et tenues par des tests."
+        primaryCta={{ label: "Voir ce qu'il y a dedans", href: "#ce-qu-il-y-a-dedans" }}
+        secondaryCta={{ label: "Lire le blog de démonstration", href: "/blog" }}
+        footnote="Astro 7 · TanStack Start · Convex · Better Auth · Docker"
+      />
 
-            Ces six sections vendent AstroTan. Qui reprend le template les
-            supprime : `src/components/landing/` est le seul dossier du dépôt
-            qui parle du produit au lieu d'en faire partie. */}
-        {/* Le titre est écrit ICI, pas repris de `page.title`. La ligne
-            `pages` porte le titre d'administration — celui de la liste du
-            dashboard et le repli du <title> — qui n'a aucune raison d'être
-            l'accroche de la page. Les afficher l'un pour l'autre donnait un
-            <h1> qui disait « Accueil ». */}
-        <Hero
-          eyebrow="Template site vitrine + CMS"
-          title="Le site se charge avant que vous ayez fini de cligner"
-          subtitle="Zéro JavaScript envoyé au visiteur, un dashboard sur invitation, un backend typé partagé par les deux, et un déploiement Docker qu'on sait annuler. Les décisions difficiles sont déjà prises, écrites, et tenues par des tests."
+      <section class="container section" data-animate>
+        <header class="section-head">
+          <p class="section-head__eyebrow">Mesuré, pas arrondi</p>
+          <h2 class="section-head__title">Les chiffres de ce dépôt</h2>
+          <p class="section-head__lead">
+            Chacun se vérifie en ouvrant l'onglet réseau ou en lançant la
+            suite de tests.
+          </p>
+        </header>
+        <LighthouseScores items={figures} />
+      </section>
+
+      <section id="ce-qu-il-y-a-dedans" class="container section" data-animate>
+        <header class="section-head">
+          <p class="section-head__eyebrow">Ce qu'il y a dedans</p>
+          <h2 class="section-head__title">
+            Un socle qui a déjà pris les décisions difficiles
+          </h2>
+          <p class="section-head__lead">
+            Chacune de celles qui suivent a été prise une fois, écrite noir
+            sur blanc, et tenue par des tests. Vous héritez du raisonnement,
+            pas seulement du code.
+          </p>
+        </header>
+        <FeatureTabs tabs={tabs} />
+      </section>
+
+      <div data-animate>
+        <FeatureGrid features={features} columns={3} />
+      </div>
+
+      <section class="container section" data-animate>
+        <header class="section-head">
+          <h2 class="section-head__title">Ce qu'il y a sous le capot</h2>
+          <p class="section-head__lead">
+            Six briques, et la raison de chacune. Les versions ne sont pas
+            épinglées au hasard : elles le sont quand le spike d'intégration
+            est vert.
+          </p>
+        </header>
+        <StackMarquee
+          items={stack.map((piece) => ({ name: piece.name, icon: piece.icon }))}
         />
-        <Numbers />
-        <Features />
-        <Stack />
-        <Faq />
-        <Cta />
-      </main>
-    )}
-    <SiteFooter />
-  </body>
-</html>
+        <div class="section__spacer"></div>
+        <TechStack items={stack} />
+      </section>
+
+      <div data-animate>
+        <FAQ title="Questions" items={faq} />
+      </div>
+
+      <CTA
+        eyebrow="Prêt à commencer"
+        title="Clonez, supprimez la démonstration, écrivez la vôtre"
+        content="Tout ce que vous venez de lire est dans le dépôt, avec les tests qui le tiennent et la documentation qui explique pourquoi chaque décision a été prise ainsi."
+        primaryText="Nous écrire"
+        primaryHref="/contact"
+        secondaryText="À propos du projet"
+        secondaryHref="/a-propos"
+      />
+    </>
+  )}
+</BaseLayout>
+
+<style>
+  .section {
+    padding-block: var(--space-3xl);
+  }
+
+  .section__spacer {
+    height: var(--space-xl);
+  }
+
+  .empty-state {
+    display: flex;
+    min-height: 60svh;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    text-align: center;
+  }
+
+  .empty-state h1 {
+    font-size: 2rem;
+    margin: 0;
+  }
+
+  .empty-state p {
+    margin: 0;
+    color: var(--muted-foreground);
+  }
+</style>

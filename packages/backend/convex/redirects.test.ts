@@ -135,13 +135,16 @@ test("renommer un article publié crée une 301 depuis son ancienne URL", async 
 test("create refuse le chemin d'une page, même en brouillon", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
-  await owner.identity.mutation(api.pages.create, { title: "Tarifs", slug: "tarifs" })
+  // Un slug qu'aucun fichier de route ne sert : sinon c'est le manifeste
+  // qui refuse (`reason: "route"`) avant la ligne en base, et ce test-ci
+  // n'exerce plus ce qu'il prétend.
+  await owner.identity.mutation(api.pages.create, { title: "Ancienne offre", slug: "ancienne-offre" })
 
   // Les brouillons comptent : une redirection créée pendant qu'une page est
   // encore en brouillon la masquerait dès sa publication, et rien ne
   // relierait les deux événements.
   await expect(
-    owner.identity.mutation(api.redirects.create, { from: "tarifs", to: "/", code: 301 }),
+    owner.identity.mutation(api.redirects.create, { from: "ancienne-offre", to: "/", code: 301 }),
   ).rejects.toMatchObject({ data: { code: "PATH_ALREADY_SERVED", reason: "page" } })
 })
 

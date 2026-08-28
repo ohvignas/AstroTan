@@ -1,0 +1,340 @@
+---
+// L'en-tête du site, porté de `src/components/layout/Header.astro`
+// d'`astro-emdash` : marque à gauche, navigation centrée, groupe d'icônes
+// rondes à droite, barre collante qui s'escamote au défilement.
+//
+// Ce qui a été retiré du template, et pourquoi :
+//   - le sélecteur de langue — le site est en français, une seule langue ;
+//   - la recherche modale (⌘K) — elle interroge un index que nous n'avons
+//     pas ; en garder le bouton aurait donné une promesse sans machine
+//     derrière ;
+//   - les menus déroulants — notre navigation est plate.
+//
+// Ce qui a été ajouté : la marque vient de Convex.
+//
+// Le menu mobile est en CSS pur (une case à cocher masquée). Le template
+// l'ouvre en JavaScript ; ici la seule ligne de script du site est la
+// bascule de thème, et un menu n'a pas besoin d'en être une seconde.
+import { api } from "@astrotan/backend/convex/_generated/api"
+import { getConvexClient } from "../../lib/convexClient"
+import { Image } from "astro:assets"
+import SiteBrand from "../SiteBrand.astro"
+import ThemeToggle from "./ThemeToggle.astro"
+import Icon from "../ui/primitives/Icon/Icon.astro"
+import { mainNav, REPO_URL } from "../../config/nav"
+
+export interface Props {
+  currentPath?: string
+}
+
+const { currentPath = Astro.url.pathname } = Astro.props as Props
+
+const settings = await getConvexClient().query(api.settings.get, {})
+
+// Replis plutôt qu'échec : un template fraîchement cloné n'a aucune ligne
+// `settings`, et l'en-tête doit rendre quand même.
+const siteName = settings?.siteName ?? "AstroTan"
+const logoUrl = settings?.logoId
+  ? await getConvexClient().query(api.media.publicUrl, {
+      storageId: settings.logoId,
+    })
+  : null
+
+const navLinks = mainNav.map((item) => ({
+  ...item,
+  active:
+    item.href === "/"
+      ? currentPath === "/"
+      : currentPath === item.href || currentPath.startsWith(`${item.href}/`),
+}))
+---
+
+<header class="header">
+  {/* La case qui ouvre le menu mobile. Elle précède tout le reste parce que
+      `~` ne franchit pas un parent : le panneau doit être son frère. */}
+  <input
+    type="checkbox"
+    id="header-menu-toggle"
+    class="header__menu-state"
+    aria-hidden="true"
+    tabindex="-1"
+  />
+
+  <div class="header__bar container">
+    {/* Le nom du site n'est PAS écrit à côté de la marque : l'en-tête porte
+        l'image seule. Le nom reste lu depuis Convex pour le <title>, le
+        JSON-LD et le pied de page — mais un lien dont le seul contenu est
+        une image décorative serait muet, d'où le texte hors écran. */}
+    <a href="/" class="header__brand">
+      {logoUrl ? (
+        <Image src={logoUrl} alt="" width={144} height={48} class="header__logo" />
+      ) : (
+        <SiteBrand variant="logo" size={48} class="header__logo" />
+      )}
+      <span class="header__brand-name">{siteName}</span>
+    </a>
+
+    <nav class="header__desktop-nav" aria-label="Navigation principale">
+      <ul class="header__list">
+        {navLinks.map((item) => (
+          <li class="header__item">
+            <a href={item.href} aria-current={item.active ? "page" : undefined}>
+              {item.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+
+    <div class="header__actions">
+      <a
+        href={REPO_URL}
+        class="header__icon-button header__github"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Voir le code source sur GitHub"
+      >
+        <Icon name="lucide:github" class="header__icon" />
+      </a>
+
+      <ThemeToggle />
+
+      {/* `<label>` et non `<button>` : c'est ce qui rend le menu accessible
+          sans JavaScript. `role="button"` et `tabindex` lui rendent le
+          comportement clavier qu'une étiquette n'a pas nativement. */}
+      <label
+        for="header-menu-toggle"
+        class="header__icon-button header__menu-button"
+        role="button"
+        tabindex="0"
+        aria-controls="header-mobile-menu"
+        aria-label="Ouvrir ou fermer le menu"
+      >
+        <Icon name="lucide:menu" class="header__icon header__icon--menu" />
+        <Icon name="lucide:x" class="header__icon header__icon--close" />
+      </label>
+    </div>
+  </div>
+
+  <div id="header-mobile-menu" class="header__mobile">
+    <nav aria-label="Navigation principale">
+      <ul class="header__mobile-list">
+        {navLinks.map((item) => (
+          <li>
+            <a href={item.href} aria-current={item.active ? "page" : undefined}>
+              {item.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    border-bottom: 1px solid var(--color-border);
+    background: color-mix(in oklab, var(--color-bg-primary) 88%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  .header__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    min-height: var(--header-height);
+  }
+
+  .header__brand {
+    display: inline-flex;
+    align-items: center;
+    text-decoration: none;
+    border-radius: var(--radius-md);
+    flex-shrink: 0;
+  }
+
+  .header__brand:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+  }
+
+  /* `:global()` : l'image vient de `<Image>` ou de `<SiteBrand>`, tous deux
+     composants enfants — un style scopé ne les atteindrait pas. */
+  .header__brand :global(.header__logo) {
+    height: 3rem;
+    width: auto;
+    display: block;
+  }
+
+  /* Le nom du site, lisible par un lecteur d'écran seulement. `clip-path`
+     et non `display: none` : ce dernier retirerait aussi le texte de
+     l'arbre d'accessibilité, et le lien redeviendrait muet. */
+  .header__brand-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .header__desktop-nav {
+    flex: 1;
+  }
+
+  .header__list {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-lg);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .header__item > a {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.4rem 0.65rem;
+    border-radius: var(--radius-md);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    transition:
+      color 0.15s ease,
+      background-color 0.15s ease;
+  }
+
+  .header__item > a:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-tertiary);
+  }
+
+  .header__item > a:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .header__item > a[aria-current="page"] {
+    color: var(--color-text-primary);
+  }
+
+  .header__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .header__icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .header__icon-button:hover {
+    border-color: var(--color-brand-primary);
+    background: var(--color-bg-secondary);
+    transform: scale(1.05);
+  }
+
+  .header__icon-button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .header__icon-button :global(.header__icon) {
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+
+  .header__menu-state {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .header__menu-button {
+    display: none;
+  }
+
+  .header__menu-button :global(.header__icon--close) {
+    display: none;
+  }
+
+  .header__menu-state:checked ~ .header__bar :global(.header__icon--menu) {
+    display: none;
+  }
+
+  .header__menu-state:checked ~ .header__bar :global(.header__icon--close) {
+    display: inline-block;
+  }
+
+  .header__menu-state:focus-visible ~ .header__bar .header__menu-button {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .header__mobile {
+    display: none;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg-primary);
+  }
+
+  .header__mobile-list {
+    list-style: none;
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+    padding: var(--space-md) var(--container-px);
+  }
+
+  .header__mobile-list a {
+    display: block;
+    padding: 0.6rem 0.5rem;
+    border-radius: var(--radius-md);
+    color: var(--color-text-primary);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .header__mobile-list a:hover {
+    background: var(--color-bg-tertiary);
+  }
+
+  .header__mobile-list a:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  @media (width <= 60rem) {
+    .header__desktop-nav {
+      display: none;
+    }
+
+    .header__menu-button {
+      display: inline-flex;
+    }
+
+    .header__menu-state:checked ~ .header__mobile {
+      display: block;
+    }
+  }
+</style>
