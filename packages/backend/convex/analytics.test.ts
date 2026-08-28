@@ -106,7 +106,10 @@ test("rend les vues et visiteurs sur 7 et 30 jours, filtrés par chemin", async 
       return {
         ok: true,
         status: 200,
-        json: async () => ({ pageviews: { value: 42 }, visitors: { value: 7 } }),
+        // Charge utile RÉELLE d'Umami 3.3.1 : des nombres plats. La v2
+        // rendait `{value, prev}` ; lue comme telle, chaque mesure sortait
+        // à zéro.
+        json: async () => ({ pageviews: 42, visitors: 7, visits: 7 }),
       }
     }),
   )
@@ -118,11 +121,13 @@ test("rend les vues et visiteurs sur 7 et 30 jours, filtrés par chemin", async 
   expect(result.last7).toEqual({ pageviews: 42, visitors: 7 })
   expect(result.last30).toEqual({ pageviews: 42, visitors: 7 })
 
-  // C'est le filtre par chemin qui rend la mesure utile à côté de
-  // l'éditeur d'une page précise, plutôt qu'un total du site.
+  // Le filtre s'appelle `path`. Umami 3 accepte `url` et l'IGNORE : la
+  // réponse est alors celle du site entier, présentée comme celle de la
+  // page. Vérifié contre 3.3.1.
   const statsCalls = urls.filter((u) => u.includes("/stats"))
   expect(statsCalls).toHaveLength(2)
-  expect(statsCalls[0]).toContain(encodeURIComponent("/blog/bienvenue"))
+  expect(statsCalls[0]).toContain(`path=${encodeURIComponent("/blog/bienvenue")}`)
+  expect(statsCalls[0]).not.toContain("url=")
 })
 
 test("le jeton est réutilisé plutôt que redemandé à chaque appel", async () => {
@@ -141,7 +146,7 @@ test("le jeton est réutilisé plutôt que redemandé à chaque appel", async ()
       return {
         ok: true,
         status: 200,
-        json: async () => ({ pageviews: { value: 1 }, visitors: { value: 1 } }),
+        json: async () => ({ pageviews: 1, visitors: 1 }),
       }
     }),
   )
@@ -203,7 +208,7 @@ function stubSite() {
         }),
       }
     }
-    if (u.includes("type=url")) {
+    if (u.includes("type=path")) {
       return {
         ok: true,
         status: 200,
@@ -220,9 +225,13 @@ function stubSite() {
     return {
       ok: true,
       status: 200,
+      // Forme réelle d'Umami 3 : nombres plats, et `comparison` porte les
+      // valeurs ABSOLUES de la période précédente — seulement quand la
+      // requête demande `compare=prev`.
       json: async () => ({
-        pageviews: { value: 128, prev: 118 },
-        visitors: { value: 44, prev: 39 },
+        pageviews: 128,
+        visitors: 44,
+        comparison: { pageviews: 118, visitors: 39 },
       }),
     }
   })
@@ -286,4 +295,29 @@ test("siteSummary sans configuration ne lève pas", async () => {
   const result = await editor.identity.action(api.analytics.siteSummary, {})
   expect(result.status).toBe("not-configured")
   expect(result.totals).toBeNull()
+})
+
+test("siteSummary demande explicitement la comparaison et le bon type de palmarès", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+
+  const urls: string[] = []
+  const base = stubSite()
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      urls.push(String(url))
+      return base(url)
+    }),
+  )
+
+  await editor.identity.action(api.analytics.siteSummary, {})
+
+  // Sans `compare=prev`, Umami 3 rend `comparison` à zéro SANS erreur : les
+  // tendances passeraient toutes pour des progressions depuis rien.
+  expect(urls.find((u) => u.includes("/stats"))).toContain("compare=prev")
+  // `type=url` répond 400 en Umami 3 ; le type s'appelle `path`.
+  expect(urls.some((u) => u.includes("type=path"))).toBe(true)
+  expect(urls.some((u) => u.includes("type=url"))).toBe(false)
 })

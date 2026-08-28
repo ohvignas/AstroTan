@@ -607,7 +607,120 @@ comportement d'Umami, pas une panne de cette installation : le script se
 charge, ne renvoie rien, et l'éditeur affiche donc zéro. Ne pas en conclure
 que l'intégration est cassée — vérifier sur le domaine réel.
 
-### 13.4 Sauvegarde — la première du projet
+### 13.4 Umami en local, avant de toucher au VPS
+
+Tout ce qui suit a été exécuté avant d'être écrit ici. Les pièges cités
+sont ceux qui se sont réellement produits, pas ceux qu'on imagine.
+
+**1. Les variables.** Le compose déclare la plupart de ses variables en
+`${VAR:?}` — obligatoires. Docker Compose interpole le fichier **entier**
+avant de choisir les services à lancer : un `up umami` échoue donc en
+réclamant `ACME_EMAIL`, qui ne sert pourtant qu'à Traefik. Poser un
+`docker/.env.local` (ignoré par git) avec de vraies valeurs pour les trois
+secrets d'Umami et des valeurs bidon pour le reste :
+
+```bash
+cd docker
+{
+  printf 'UMAMI_DB_PASSWORD=%s\n' "$(openssl rand -hex 32)"
+  printf 'UMAMI_APP_SECRET=%s\n' "$(openssl rand -hex 32)"
+  printf 'UMAMI_TWO_FACTOR_ENCRYPTION_KEY=%s\n' "$(openssl rand -hex 32)"
+  cat <<'EOF'
+ACME_EMAIL=dev@localhost
+WEB_DOMAIN=localhost
+ADMIN_DOMAIN=localhost
+UMAMI_DOMAIN=localhost
+GHCR_OWNER=local
+IMAGE_TAG=local
+PREVIEW_SECRET=dev-only-not-a-real-secret
+REVALIDATE_SECRET=dev-only-not-a-real-secret
+VITE_CONVEX_URL=http://127.0.0.1:3210
+VITE_CONVEX_SITE_URL=http://127.0.0.1:3211
+EOF
+} > .env.local
+```
+
+**2. Démarrer.** L'override local retire Traefik du chemin et publie Umami
+sur le port 3002 de l'hôte :
+
+```bash
+docker compose --env-file .env.local \
+  -f docker-compose.yml -f docker-compose.local.yml up -d umami
+curl -s http://127.0.0.1:3002/api/heartbeat   # {"ok":true}
+```
+
+Le premier démarrage applique les migrations Prisma : compter une minute
+avant que le heartbeat réponde.
+
+**Si Umami redémarre en boucle avec `password authentication failed for
+user "umami"`,** c'est le piège documenté en 13.2 : Postgres n'applique
+`POSTGRES_PASSWORD` qu'à **l'initialisation** du volume. Un volume créé
+lors d'un essai antérieur porte l'ancien mot de passe, et régénérer le
+`.env.local` ne le change pas. Le remède, sans rien détruire :
+
+```bash
+docker exec astrotan-umami-db-1 psql -U umami -d umami \
+  -c "ALTER USER umami WITH PASSWORD '<celui du .env.local>';"
+docker restart astrotan-umami-1
+```
+
+**3. Le site à mesurer.** Ouvrir <http://localhost:3002>, se connecter en
+`admin` / `umami`, **changer ce mot de passe**, puis *Settings → Websites →
+Add website* (domaine : `localhost`). Umami rend un **Website ID**.
+
+**4. Brancher le dashboard de l'admin.**
+
+```bash
+cd packages/backend
+npx convex env set UMAMI_API_URL        http://127.0.0.1:3002
+npx convex env set UMAMI_API_WEBSITE_ID <le Website ID>
+npx convex env set UMAMI_API_USERNAME   admin
+npx convex env set UMAMI_API_PASSWORD   <votre nouveau mot de passe>
+```
+
+**5. Fabriquer des visites.** Le script de mesure chargé par une page ne
+compte pas `localhost` (13.3), donc l'écran resterait à zéro. L'API
+d'ingestion, elle, accepte ces événements — c'est la façon de voir le
+tableau de bord se remplir sans domaine :
+
+```bash
+ID=<le Website ID>
+curl -s -X POST http://127.0.0.1:3002/api/send \
+  -H 'content-type: application/json' \
+  -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/140 Safari/537.36' \
+  -d "{\"type\":\"event\",\"payload\":{\"website\":\"$ID\",\"hostname\":\"localhost\",\"url\":\"/contact\",\"referrer\":\"https://www.google.com/\"}}"
+```
+
+L'en-tête `User-Agent` n'est pas décoratif : sans lui, Umami rejette
+l'événement.
+
+**6. Arrêter.**
+
+```bash
+docker compose --env-file .env.local \
+  -f docker-compose.yml -f docker-compose.local.yml down
+```
+
+`down` seul, **jamais `down -v`** : le `-v` détruirait le volume (13.6).
+
+### 13.5 Ce que l'API d'Umami 3 rend vraiment
+
+Trois différences avec Umami 2 ont été trouvées en interrogeant un 3.3.1
+réel. Les trois sont **silencieuses** : elles ne produisent pas d'erreur,
+elles produisent des chiffres faux. Elles sont épinglées par des tests
+dans `packages/backend/convex/analytics.test.ts` — les rouvrir casserait
+ces tests plutôt que le tableau de bord.
+
+| Ce qu'on croit | Ce qu'Umami 3 fait |
+|---|---|
+| `/stats` rend `{value, prev}` par métrique | Il rend des **nombres plats**, plus un objet `comparison` frère. Lu à l'ancienne, chaque chiffre sort à zéro. |
+| `?url=/contact` filtre sur une page | **Ignoré sans erreur** : la réponse est celle du site entier. Le paramètre s'appelle `path`. Vérifié : `url=/contact` → 11 vues, `path=/contact` → 2. |
+| `comparison` est toujours rempli | Il vaut zéro **sauf si** la requête porte `compare=prev`. Sans le drapeau, toute évolution passe pour une progression depuis rien. |
+
+Un quatrième point échoue franchement, lui : `type=url` sur `/metrics`
+répond 400. Le type s'appelle `path`.
+
+### 13.6 Sauvegarde — la première du projet
 
 Le volume `astrotan_umami-db` est le **premier volume applicatif** de ce
 VPS. Jusqu'ici, la seule chose à ne pas perdre était `astrotan_acme`, et le
@@ -629,11 +742,11 @@ gunzip -c umami-<date>.sql.gz | ssh <user>@<host> \
 `docker compose down -v` détruit ce volume. **Ne jamais lancer `down -v` sur
 ce VPS** — `down` seul suffit à arrêter la pile.
 
-### 13.5 Mettre à jour Umami
+### 13.7 Mettre à jour Umami
 
 Le tag de l'image est épinglé exactement (`3.3.1`), jamais `latest`. Une
 montée de version applique des migrations Prisma sur la base au premier
-démarrage : **faire le dump de 13.4 avant**, puis changer le tag et
+démarrage : **faire le dump de 13.6 avant**, puis changer le tag et
 redéployer. Un retour arrière se fait par restauration du dump, pas par un
 retour au tag précédent — une base déjà migrée n'est plus lisible par
 l'ancienne version.

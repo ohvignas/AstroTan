@@ -41,6 +41,20 @@ export interface AnalyticsResult {
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+/**
+ * La réponse de `/stats`, telle qu'Umami 3 la rend réellement.
+ *
+ * `comparison` porte les valeurs ABSOLUES de la période précédente, pas un
+ * écart — et il n'est rempli que si la requête porte `compare=prev`. Sans
+ * ce drapeau il vaut zéro sans le dire, ce qui fait passer toute évolution
+ * pour une progression depuis rien.
+ */
+interface RawStats {
+  pageviews?: number
+  visitors?: number
+  comparison?: { pageviews?: number; visitors?: number }
+}
+
 async function fetchStats(
   cfg: UmamiConfig,
   token: string,
@@ -51,10 +65,13 @@ async function fetchStats(
   const params = new URLSearchParams({
     startAt: String(now - sinceMs),
     endAt: String(now),
-    // Umami filters on the recorded URL path. Passing it is what makes this
-    // per-page rather than site-wide — which is the point of showing it
-    // beside one page's editor.
-    url: path,
+    // `path`, and NOT `url`. Umami 3 dropped `url` without removing it:
+    // passing it is accepted and silently IGNORED, and the endpoint answers
+    // with the whole site's totals. Verified against 3.3.1 — `url=/contact`
+    // returned 11 pageviews where `path=/contact` returned 2. A per-page
+    // panel showing the entire site's figures would have looked perfectly
+    // plausible and been wrong on every page.
+    path,
   })
 
   const response = await fetch(
@@ -64,17 +81,15 @@ async function fetchStats(
   if (response.status === 401) return { stats: null, unauthorized: true }
   if (!response.ok) return { stats: null, unauthorized: false }
 
-  // Umami wraps each metric as `{ value, prev }`. Only the current window is
-  // surfaced: a comparison nobody asked for invites the wrong conclusion
-  // from a short period.
-  const body = (await response.json()) as {
-    pageviews?: { value?: number }
-    visitors?: { value?: number }
-  }
+  // Umami 3 returns flat numbers — `{"pageviews": 11, "visitors": 1, …}` —
+  // not the `{value, prev}` objects of version 2. Read as v2, every figure
+  // came out `undefined` and defaulted to zero: a page that looked
+  // permanently unvisited.
+  const body = (await response.json()) as RawStats
   return {
     stats: {
-      pageviews: body.pageviews?.value ?? 0,
-      visitors: body.visitors?.value ?? 0,
+      pageviews: body.pageviews ?? 0,
+      visitors: body.visitors ?? 0,
     },
     unauthorized: false,
   }
@@ -233,16 +248,17 @@ export const siteSummary = action({
       // Quatre appels, lancés ensemble : en série, l'accueil attendrait
       // quatre allers-retours réseau avant son premier pixel.
       const [totals, series, pages, referrers] = await Promise.all([
-        getJson<{ pageviews?: Metric; visitors?: Metric }>(
-          `${base}/stats?${window}`,
-          token
-        ),
+        // `compare=prev` est obligatoire : sans lui, `comparison` est rendu
+        // à zéro sans erreur, et chaque tendance s'afficherait comme une
+        // progression depuis rien.
+        getJson<RawStats>(`${base}/stats?${window}&compare=prev`, token),
         getJson<{
           sessions?: { x?: string; y?: number }[]
           pageviews?: { x?: string; y?: number }[]
         }>(`${base}/pageviews?${window}&unit=day`, token),
         getJson<{ x?: string; y?: number }[]>(
-          `${base}/metrics?${window}&type=url&limit=5`,
+          // `type=url` répond 400 en Umami 3 : le type s'appelle `path`.
+          `${base}/metrics?${window}&type=path&limit=5`,
           token
         ),
         getJson<{ x?: string; y?: number }[]>(
@@ -251,15 +267,24 @@ export const siteSummary = action({
         ),
       ])
 
-      // Les totaux sont le tableau de bord. Sans eux il n'y a rien à
-      // montrer, et l'écran le dit plutôt que d'afficher des zéros.
-      if (!totals?.pageviews || !totals.visitors) {
-        return { ...empty, status: "unreachable" }
-      }
+      // Les totaux SONT le tableau de bord : sans eux il n'y a rien à
+      // montrer, et l'écran le dit. Le test porte sur l'absence de la
+      // réponse, jamais sur la valeur — un site sans visite rend zéro, et
+      // zéro est une mesure, pas une panne.
+      if (totals === null) return { ...empty, status: "unreachable" }
 
       const points = series?.pageviews ?? null
       return {
-        totals: { pageviews: totals.pageviews, visitors: totals.visitors },
+        totals: {
+          pageviews: {
+            value: totals.pageviews ?? 0,
+            prev: totals.comparison?.pageviews ?? 0,
+          },
+          visitors: {
+            value: totals.visitors ?? 0,
+            prev: totals.comparison?.visitors ?? 0,
+          },
+        },
         series:
           points === null
             ? null
