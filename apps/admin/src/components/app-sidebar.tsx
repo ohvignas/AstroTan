@@ -11,7 +11,9 @@ import {
 } from "@/components/ui/sidebar"
 import {
   FileTextIcon,
+  ImageIcon,
   LayoutDashboardIcon,
+  NewspaperIcon,
   ShieldIcon,
   UsersIcon,
 } from "lucide-react"
@@ -33,6 +35,22 @@ const PAGES_ITEM = {
   icon: <FileTextIcon />,
 }
 
+// Same reasoning as `PAGES_ITEM`: an editor writes articles and manages
+// media, so both links are open to all three roles. What an editor cannot
+// do — publish an article, delete someone else's media — is refused inside
+// those screens and again in the mutations, not by hiding a link.
+const POSTS_ITEM = {
+  title: "Articles",
+  url: "/posts",
+  icon: <NewspaperIcon />,
+}
+
+const MEDIA_ITEM = {
+  title: "Médias",
+  url: "/media",
+  icon: <ImageIcon />,
+}
+
 // "Utilisateurs" is added only for owner/admin — a courtesy, per Task 10's
 // property: `/users` itself (`routes/_authed/users.tsx`) refuses an editor
 // server-side regardless of whether this link is rendered, so hiding it is
@@ -51,8 +69,8 @@ export function AppSidebar({
 }) {
   const navMain =
     profile?.role === "owner" || profile?.role === "admin"
-      ? [DASHBOARD_ITEM, PAGES_ITEM, USERS_ITEM]
-      : [DASHBOARD_ITEM, PAGES_ITEM]
+      ? [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, USERS_ITEM]
+      : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM]
 
   return (
     <Sidebar collapsible="icon" {...props}>
