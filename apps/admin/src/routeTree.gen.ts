@@ -14,6 +14,8 @@ import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as AuthedUsersRouteImport } from './routes/_authed/users'
+import { Route as AuthedPagesIndexRouteImport } from './routes/_authed/pages/index'
+import { Route as AuthedPagesPageIdRouteImport } from './routes/_authed/pages/$pageId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const AuthedRoute = AuthedRouteImport.update({
@@ -40,6 +42,16 @@ const AuthedUsersRoute = AuthedUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedPagesIndexRoute = AuthedPagesIndexRouteImport.update({
+  id: '/pages/',
+  path: '/pages/',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedPagesPageIdRoute = AuthedPagesPageIdRouteImport.update({
+  id: '/pages/$pageId',
+  path: '/pages/$pageId',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -51,14 +63,18 @@ export interface FileRoutesByFullPath {
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
   '/users': typeof AuthedUsersRoute
+  '/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/pages/': typeof AuthedPagesIndexRoute
 }
 export interface FileRoutesByTo {
   '/accept-invite': typeof AcceptInviteRoute
   '/login': typeof LoginRoute
   '/users': typeof AuthedUsersRoute
   '/': typeof AuthedIndexRoute
+  '/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/pages': typeof AuthedPagesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -67,13 +83,29 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_authed/users': typeof AuthedUsersRoute
   '/_authed/': typeof AuthedIndexRoute
+  '/_authed/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_authed/pages/': typeof AuthedPagesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/accept-invite' | '/login' | '/users' | '/api/auth/$'
+  fullPaths:
+    | '/'
+    | '/accept-invite'
+    | '/login'
+    | '/users'
+    | '/pages/$pageId'
+    | '/api/auth/$'
+    | '/pages/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/accept-invite' | '/login' | '/users' | '/' | '/api/auth/$'
+  to:
+    | '/accept-invite'
+    | '/login'
+    | '/users'
+    | '/'
+    | '/pages/$pageId'
+    | '/api/auth/$'
+    | '/pages'
   id:
     | '__root__'
     | '/_authed'
@@ -81,7 +113,9 @@ export interface FileRouteTypes {
     | '/login'
     | '/_authed/users'
     | '/_authed/'
+    | '/_authed/pages/$pageId'
     | '/api/auth/$'
+    | '/_authed/pages/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -128,6 +162,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedUsersRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/pages/': {
+      id: '/_authed/pages/'
+      path: '/pages'
+      fullPath: '/pages/'
+      preLoaderRoute: typeof AuthedPagesIndexRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/pages/$pageId': {
+      id: '/_authed/pages/$pageId'
+      path: '/pages/$pageId'
+      fullPath: '/pages/$pageId'
+      preLoaderRoute: typeof AuthedPagesPageIdRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -141,11 +189,15 @@ declare module '@tanstack/react-router' {
 interface AuthedRouteChildren {
   AuthedUsersRoute: typeof AuthedUsersRoute
   AuthedIndexRoute: typeof AuthedIndexRoute
+  AuthedPagesPageIdRoute: typeof AuthedPagesPageIdRoute
+  AuthedPagesIndexRoute: typeof AuthedPagesIndexRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedUsersRoute: AuthedUsersRoute,
   AuthedIndexRoute: AuthedIndexRoute,
+  AuthedPagesPageIdRoute: AuthedPagesPageIdRoute,
+  AuthedPagesIndexRoute: AuthedPagesIndexRoute,
 }
 
 const AuthedRouteWithChildren =

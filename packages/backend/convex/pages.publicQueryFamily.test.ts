@@ -127,6 +127,16 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
       args = {}
     } else if (q.argFields.length === 1 && q.argFields[0] === "slug") {
       args = { slug: "brouillon-confidentiel" }
+    } else if (q.argFields.length === 1 && q.argFields[0] === "id") {
+      // Task 8's `pages.get`/`pages.publicationStatus`: both session-gated
+      // (`requireRole`), so calling them with no identity at all (this
+      // loop never authenticates, matching `apps/web`, which carries no
+      // session — see this test's own header) throws before `args.id` is
+      // ever inspected, the same "excluded from the leak check, not
+      // silently skipped" path already documented above for
+      // session-gated queries in general. `draftId` is reused rather than
+      // a second insert, purely so this branch doesn't need its own id.
+      args = { id: draftId }
     } else {
       // Not a permissive default (e.g. silently calling with `{}`
       // regardless of shape): a public query whose argument shape this

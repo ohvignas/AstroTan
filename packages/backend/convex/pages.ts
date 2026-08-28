@@ -1,9 +1,12 @@
 import { ConvexError, v } from "convex/values"
-import { mutation, query } from "./_generated/server"
+import { mutation, query, type MutationCtx } from "./_generated/server"
 import { api, internal } from "./_generated/api"
-import { verifyPreviewToken } from "./lib/previewToken"
-import { requireRole } from "./lib/authz"
+import type { Id } from "./_generated/dataModel"
+import { verifyPreviewToken, signPreviewToken, PREVIEW_TOKEN_TTL_MS } from "./lib/previewToken"
+import { requireRole, requireOwnDocument } from "./lib/authz"
+import { authComponent } from "./auth"
 import { insertOutboxRow } from "./revalidate"
+import { blockValidator, seoValidator, assertBlockWithinLimits, assertPageTextWithinLimits } from "./blocks"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // This task's own brief, verbatim: "the security-critical task of the
@@ -108,24 +111,287 @@ export const previewPage = query({
   },
 })
 
+// ---------------------------------------------------------------------
+// Lot 2, Task 8 — the page editor screen. Everything below is
+// session-gated (`requireRole`), never anonymous like the two families
+// above: this is the dashboard's own read/write surface, not something
+// `apps/web` ever calls. Design spec §5's role table, verbatim: "editor:
+// CRUD si createdBy = lui, lecture des autres" — an editor's *read*
+// access to `pages` is unrestricted (`list`/`get` below apply no
+// ownership filter at all, for any of the three roles), it is only the
+// *write* mutations (`update`, `remove`) that narrow to
+// `doc.createdBy === authUser._id` via `requireOwnDocument`
+// (`lib/authz.ts`) — owner/admin bypass that check entirely. Publishing
+// and unpublishing stay role-gated only (`requireRole(["owner","admin"])`,
+// no ownership check at all, matching `publishPage` above and the same
+// spec row's "publier" column): an editor is refused regardless of whose
+// page it is, never just because it isn't theirs.
+// ---------------------------------------------------------------------
+
+// Every page, every role — the ownership boundary lives in the write
+// mutations below, not here. `.order("desc")` (by `_creationTime`, the
+// only ordering a plain `.collect()` has to offer without a dedicated
+// index) surfaces the newest pages first, the order an operator scanning
+// a list screen actually wants.
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    return ctx.db.query("pages").order("desc").collect()
+  },
+})
+
+// A single page for the editor screen — `null` for a genuinely missing
+// id (the screen renders a "not found" state), same convention as
+// `ctx.db.get` itself. No `requireOwnDocument` call: per this section's
+// own header comment, *reading* any page is open to all three roles —
+// only `update`/`remove` narrow by ownership.
+export const get = query({
+  args: { id: v.id("pages") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    return ctx.db.get(args.id)
+  },
+})
+
+// The outbox is the only place "did the last publish actually reach the
+// live site" is recorded — this task's own brief, verbatim: "a screen
+// that shows only 'published' wastes it." Rows are never deleted
+// (`revalidate.ts`'s `markDone`/`markAttemptFailed` both `patch`, never
+// `delete`), so the most recently *created* row tagged for this page's
+// slug is that page's current propagation attempt — `publishPage` inserts
+// a fresh row on every publish, so "most recent by `createdAt`" is always
+// the outcome of the last publish, never a stale one from an earlier
+// republish.
+export const publicationStatus = query({
+  args: { id: v.id("pages") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    const page = await ctx.db.get(args.id)
+    if (!page) return null
+    if (page.status !== "published") {
+      return { state: "draft" as const }
+    }
+    const tag = `page:${page.slug}`
+    const rows = await ctx.db.query("revalidationOutbox").collect()
+    const relevant = rows.filter((row) => row.tags.includes(tag))
+    const latest = relevant.reduce<(typeof relevant)[number] | null>((acc, row) => {
+      if (!acc || row.createdAt > acc.createdAt) return row
+      return acc
+    }, null)
+    // No outbox row at all for an already-`published` page is a real,
+    // if narrow, possibility (data seeded directly as `published` outside
+    // `publishPage`, e.g. a fixture) — treated as settled rather than
+    // stuck "propagating" forever with nothing to ever resolve it.
+    if (!latest || latest.status === "done") {
+      return { state: "published" as const, publishedAt: page.publishedAt }
+    }
+    if (latest.status === "failed") {
+      return { state: "failed" as const, lastError: latest.lastError, attempts: latest.attempts }
+    }
+    return { state: "propagating" as const, attempts: latest.attempts }
+  },
+})
+
+// A `[...slug].astro` rest param is a "/"-joined string with no leading
+// or trailing slash (`apps/web/src/pages/[...slug].astro`'s own header
+// comment) — trimming both here is what keeps an operator from ever
+// creating a page whose stored slug can never actually match a request
+// path, silently 404ing forever.
+function normalizeSlug(raw: string): string {
+  return raw.trim().replace(/^\/+/, "").replace(/\/+$/, "")
+}
+
+async function assertSlugAvailable(
+  ctx: MutationCtx,
+  slug: string,
+  excludeId?: Id<"pages">,
+): Promise<void> {
+  const existing = await ctx.db
+    .query("pages")
+    .withIndex("by_slug", (q) => q.eq("slug", slug))
+    .unique()
+  if (existing && existing._id !== excludeId) {
+    throw new ConvexError({ code: "SLUG_ALREADY_EXISTS" })
+  }
+}
+
+// Creates a brand-new draft — the only mutation on this table that
+// inserts rather than patches. Open to all three roles: creating a page
+// always makes it *this caller's own* (`createdBy: authUser._id`, never
+// an argument), so there is structurally no way to create a page owned by
+// someone else through this mutation — the same discipline
+// `profiles.updateMine`'s own header comment describes for "no target
+// parameter exists, so there is nothing to check after the fact."
+export const create = mutation({
+  args: { title: v.string(), slug: v.string() },
+  handler: async (ctx, args) => {
+    const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
+    const title = args.title.trim()
+    const slug = normalizeSlug(args.slug)
+    if (title.length === 0) throw new ConvexError({ code: "INVALID_TITLE" })
+    if (slug.length === 0) throw new ConvexError({ code: "INVALID_SLUG" })
+    assertPageTextWithinLimits({ title, slug })
+    await assertSlugAvailable(ctx, slug)
+
+    return ctx.db.insert("pages", {
+      slug,
+      title,
+      status: "draft",
+      blocks: [],
+      createdBy: authUser._id,
+      updatedBy: authUser._id,
+    })
+  },
+})
+
+// Patches title/slug/blocks/seo on an existing page. `requireOwnDocument`
+// is the ownership half of this section's own header comment: an editor
+// may only reach the `ctx.db.patch` below when `page.createdBy` is their
+// own id — owner/admin bypass that check and may edit any page. Every
+// field is `v.optional` and patched only when the caller actually sent
+// it, so a partial save (e.g. just reordering blocks) never has to first
+// re-read and re-send the title it isn't touching.
+export const update = mutation({
+  args: {
+    id: v.id("pages"),
+    title: v.optional(v.string()),
+    slug: v.optional(v.string()),
+    blocks: v.optional(v.array(blockValidator)),
+    seo: v.optional(seoValidator),
+  },
+  handler: async (ctx, args) => {
+    const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
+    const page = await ctx.db.get(args.id)
+    if (!page) throw new ConvexError({ code: "NOT_FOUND" })
+    requireOwnDocument(authUser, page)
+
+    const patch: {
+      title?: string
+      slug?: string
+      blocks?: typeof args.blocks
+      seo?: typeof args.seo
+      updatedBy: string
+    } = { updatedBy: authUser._id }
+
+    if (args.title !== undefined) {
+      const title = args.title.trim()
+      if (title.length === 0) throw new ConvexError({ code: "INVALID_TITLE" })
+      patch.title = title
+    }
+    if (args.slug !== undefined) {
+      const slug = normalizeSlug(args.slug)
+      if (slug.length === 0) throw new ConvexError({ code: "INVALID_SLUG" })
+      await assertSlugAvailable(ctx, slug, args.id)
+      patch.slug = slug
+    }
+    if (args.blocks !== undefined) {
+      args.blocks.forEach(assertBlockWithinLimits)
+      patch.blocks = args.blocks
+    }
+    if (args.seo !== undefined) patch.seo = args.seo
+
+    // Bounds every text field that will actually land on the row after
+    // this patch — the value just validated above where the caller sent
+    // one, the already-stored (and therefore already-bounded) value
+    // otherwise. Re-checking the untouched value is cheap and keeps this
+    // one call the single place `update` ever asks "is this within
+    // limits", rather than trusting a value this same handler didn't just
+    // examine.
+    assertPageTextWithinLimits({
+      title: patch.title ?? page.title,
+      slug: patch.slug ?? page.slug,
+      seo: patch.seo ?? page.seo,
+    })
+
+    await ctx.db.patch(args.id, patch)
+  },
+})
+
+// Deletes a page outright. Same ownership gate as `update`. A published
+// page's own tag is invalidated on the way out — without this, a cached
+// response for a page that no longer exists would keep serving stale
+// content for up to `maxAge`/`swr` (astro.config.ts's route rules)
+// instead of the 404 `[...slug].astro` would now render for that slug.
+export const remove = mutation({
+  args: { id: v.id("pages") },
+  handler: async (ctx, args) => {
+    const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
+    const page = await ctx.db.get(args.id)
+    if (!page) throw new ConvexError({ code: "NOT_FOUND" })
+    requireOwnDocument(authUser, page)
+
+    await ctx.db.delete(args.id)
+
+    if (page.status === "published") {
+      await insertOutboxRow(ctx, ["pages", `page:${page.slug}`])
+      await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+    }
+  },
+})
+
+// The inverse of `publishPage`: role-gated only, exactly like publishing
+// itself — never ownership-gated, matching design spec §5's "publier"
+// column, which lists only owner/admin, independent of `createdBy`. Also
+// writes a fresh outbox row: a cached response for this page's tag must
+// stop being served the instant it unpublishes, the same reasoning
+// `publishPage` and `remove` above both already apply. `publishedAt` is
+// left untouched — it stays as a historical "last time this went live"
+// marker; nothing public ever reads it for a non-published page (
+// `getPublishedPage` already refuses any row whose `status` isn't
+// `"published"`, before this field would ever matter).
+export const unpublish = mutation({
+  args: { id: v.id("pages") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin"])
+    const page = await ctx.db.get(args.id)
+    if (!page) throw new ConvexError({ code: "NOT_FOUND" })
+    if (page.status !== "published") return
+
+    await ctx.db.patch(args.id, { status: "draft" })
+    await insertOutboxRow(ctx, ["pages", `page:${page.slug}`])
+    await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+  },
+})
+
+// Mints a preview token for the dashboard's "Preview" button — design
+// spec §6.3, step 1 ("le dashboard demande un token à une action Convex").
+// A `mutation`, not a `query`: this always has to mint a *fresh* token
+// (`Date.now()` moves forward every call), and a Convex query is
+// reactive/subscribed — nothing about `args.id` changes when the clock
+// does, so a `query` version would hand back the same token forever
+// rather than a freshly-dated one on every click. Role-gated only, no
+// `requireOwnDocument`: same reasoning as `get`/`list` above — this only
+// ever reveals what the caller could already read directly through `get`,
+// packaged as a shareable link instead of a screen.
+export const mintPreviewToken = mutation({
+  args: { id: v.id("pages") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    const page = await ctx.db.get(args.id)
+    if (!page) throw new ConvexError({ code: "NOT_FOUND" })
+
+    const expiresAt = Date.now() + PREVIEW_TOKEN_TTL_MS
+    const token = await signPreviewToken({ type: PREVIEW_TOKEN_TYPE, id: args.id, expiresAt })
+    return { token, expiresAt }
+  },
+})
+
 // Lot 2, Task 3; design spec §6.2. The lot's third rule after "no draft
 // leaks through a public query" and "a preview token is verified twice":
 // publishing is `owner`/`admin` only, enforced here — not by the
 // dashboard hiding a button, which an `editor` calling this mutation
-// directly would simply bypass. This is the *only* write mutation on
-// `pages` this task adds; there is no `createPage`/`updatePage` yet (a
-// later task's job), so this always flips an existing draft-or-published
-// row to `published` — never creates one.
+// directly would simply bypass. Always flips an existing draft-or-published
+// row to `published` — never creates one (`create`, Task 8, does that).
 //
 // The outbox insert and the scheduled `drain` call both happen inside
 // this same handler, after the `status`/`publishedAt` patch: `insertOutboxRow`
 // (`revalidate.ts`) is a plain `ctx.db.insert`, not a nested mutation
 // call, so it commits atomically with the page write — see that module's
 // header comment for why that's the whole point of an outbox. Republishing
-// an already-published page (no separate "unpublish" exists in this lot)
-// still writes a fresh outbox row each time: every publish is a signal
-// that whatever is live may be stale and needs invalidating again, even if
-// `status` itself doesn't change.
+// an already-published page still writes a fresh outbox row each time:
+// every publish is a signal that whatever is live may be stale and needs
+// invalidating again, even if `status` itself doesn't change.
 export const publishPage = mutation({
   args: { id: v.id("pages") },
   handler: async (ctx, args) => {
@@ -149,20 +415,136 @@ export const publishPage = mutation({
 // `pages.ts` exports — `owner`/`admin` only, `editor` refused with
 // FORBIDDEN, exercised by `lib/authz.test.ts`'s per-role matrix against a
 // real Better Auth session for all three roles.
-MUTATION_REGISTRY.push({
-  name: "pages.publishPage",
-  allowedRoles: ["owner", "admin"],
-  invoke: async (t) => {
-    const id = await t.run((ctx: any) =>
-      ctx.db.insert("pages", {
-        slug: `registry-publish-${Date.now()}-${Math.random()}`,
-        title: "Registry Check",
-        status: "draft",
-        blocks: [],
-        createdBy: "registry-check",
-        updatedBy: "registry-check",
-      }),
-    )
-    return t.mutation(api.pages.publishPage, { id })
+// Fetches the *real* authenticated user's id from inside `t.run` — not a
+// fixed placeholder like `publishPage`'s own entry above, which never
+// needs one because `publishPage` isn't ownership-gated. `update`/`remove`
+// below are: their `editor` case is only genuinely "allowed" (per this
+// section's own `allowedRoles`) when the row it operates on is that exact
+// caller's own document, so the fixture has to know who that is.
+// `t.run`'s `ctx.auth` carries the identity `t` itself was constructed
+// with (`identityFor`, `betterAuthFixture.ts`) — confirmed against
+// `convex-test@0.0.56`'s own source (`testCtx.auth = authStorage.getStore()
+// ?? auth`, closed over the identity `withIdentity` bound) — so
+// `authComponent.safeGetAuthUser` resolves to the real Better Auth user
+// behind this specific role's session, the same one `t.mutation(...)`
+// itself will authenticate as a moment later.
+async function registryActorId(t: any): Promise<string> {
+  const authUser = await t.run((ctx: any) => authComponent.safeGetAuthUser(ctx))
+  return (authUser as { _id: string })._id
+}
+
+MUTATION_REGISTRY.push(
+  {
+    name: "pages.publishPage",
+    allowedRoles: ["owner", "admin"],
+    invoke: async (t) => {
+      const id = await t.run((ctx: any) =>
+        ctx.db.insert("pages", {
+          slug: `registry-publish-${Date.now()}-${Math.random()}`,
+          title: "Registry Check",
+          status: "draft",
+          blocks: [],
+          createdBy: "registry-check",
+          updatedBy: "registry-check",
+        }),
+      )
+      return t.mutation(api.pages.publishPage, { id })
+    },
   },
-})
+  // `create` never needs a fixture document: it always makes the page it
+  // inserts the caller's own (`createdBy: authUser._id`, not an argument),
+  // so all three roles are honestly "allowed" here with nothing to set up.
+  {
+    name: "pages.create",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: (t) =>
+      t.mutation(api.pages.create, {
+        title: "Registry Check",
+        slug: `registry-create-${Date.now()}-${Math.random()}`,
+      }),
+  },
+  // Ownership-gated: the fixture page's `createdBy` is set to *this
+  // role's own* real id (`registryActorId`), so an `editor` invocation is
+  // genuinely editing its own document — the same shape of "allowed" a
+  // real editor gets in production, not a fixture that happens to dodge
+  // the ownership check some other way.
+  {
+    name: "pages.update",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: async (t) => {
+      const ownerId = await registryActorId(t)
+      const id = await t.run((ctx: any) =>
+        ctx.db.insert("pages", {
+          slug: `registry-update-${Date.now()}-${Math.random()}`,
+          title: "Registry Check",
+          status: "draft",
+          blocks: [],
+          createdBy: ownerId,
+          updatedBy: ownerId,
+        }),
+      )
+      return t.mutation(api.pages.update, { id, title: "Registry Check Updated" })
+    },
+  },
+  {
+    name: "pages.remove",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: async (t) => {
+      const ownerId = await registryActorId(t)
+      const id = await t.run((ctx: any) =>
+        ctx.db.insert("pages", {
+          slug: `registry-remove-${Date.now()}-${Math.random()}`,
+          title: "Registry Check",
+          status: "draft",
+          blocks: [],
+          createdBy: ownerId,
+          updatedBy: ownerId,
+        }),
+      )
+      return t.mutation(api.pages.remove, { id })
+    },
+  },
+  // Role-gated only, exactly like `publishPage` — a fixed placeholder
+  // `createdBy` is correct here, not an oversight: `unpublish` never
+  // checks ownership, so which id "owns" the fixture row is irrelevant to
+  // whether this call is allowed.
+  {
+    name: "pages.unpublish",
+    allowedRoles: ["owner", "admin"],
+    invoke: async (t) => {
+      const id = await t.run((ctx: any) =>
+        ctx.db.insert("pages", {
+          slug: `registry-unpublish-${Date.now()}-${Math.random()}`,
+          title: "Registry Check",
+          status: "published",
+          blocks: [],
+          publishedAt: Date.now(),
+          createdBy: "registry-check",
+          updatedBy: "registry-check",
+        }),
+      )
+      return t.mutation(api.pages.unpublish, { id })
+    },
+  },
+  // Also role-gated only — `mintPreviewToken` reveals nothing an
+  // authorized reader couldn't already see via `get`/`list`, so, like
+  // `unpublish` above, the fixture's `createdBy` is an arbitrary
+  // placeholder, not this role's own id.
+  {
+    name: "pages.mintPreviewToken",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: async (t) => {
+      const id = await t.run((ctx: any) =>
+        ctx.db.insert("pages", {
+          slug: `registry-preview-${Date.now()}-${Math.random()}`,
+          title: "Registry Check",
+          status: "draft",
+          blocks: [],
+          createdBy: "registry-check",
+          updatedBy: "registry-check",
+        }),
+      )
+      return t.mutation(api.pages.mintPreviewToken, { id })
+    },
+  },
+)

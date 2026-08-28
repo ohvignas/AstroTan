@@ -9,12 +9,28 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { LayoutDashboardIcon, ShieldIcon, UsersIcon } from "lucide-react"
+import {
+  FileTextIcon,
+  LayoutDashboardIcon,
+  ShieldIcon,
+  UsersIcon,
+} from "lucide-react"
 
 const DASHBOARD_ITEM = {
   title: "Tableau de bord",
   url: "/",
   icon: <LayoutDashboardIcon />,
+}
+
+// Open to all three roles — design spec §5's role table: an editor reads
+// every page (just not another editor's own write access), so the list
+// screen itself (`routes/_authed/pages/index.tsx`) has nothing to refuse
+// an editor for. The publish control inside that screen is what's
+// role-gated, not this link.
+const PAGES_ITEM = {
+  title: "Pages",
+  url: "/pages",
+  icon: <FileTextIcon />,
 }
 
 // "Utilisateurs" is added only for owner/admin — a courtesy, per Task 10's
@@ -35,8 +51,8 @@ export function AppSidebar({
 }) {
   const navMain =
     profile?.role === "owner" || profile?.role === "admin"
-      ? [DASHBOARD_ITEM, USERS_ITEM]
-      : [DASHBOARD_ITEM]
+      ? [DASHBOARD_ITEM, PAGES_ITEM, USERS_ITEM]
+      : [DASHBOARD_ITEM, PAGES_ITEM]
 
   return (
     <Sidebar collapsible="icon" {...props}>

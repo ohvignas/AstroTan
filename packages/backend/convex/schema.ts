@@ -1,20 +1,13 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 import { roleValidator, pageStatusValidator, outboxStatusValidator } from "./validators"
-import { blockValidator } from "./blocks"
+import { blockValidator, seoValidator } from "./blocks"
 
-// Mirrors design spec §6.5 ("Champs SEO par page"). All optional: a page
-// with no `seo` override falls back to `settings.defaultSeo` (a later
-// task; not created by this one). Length bounds on `title`/`description`/
-// `canonicalUrl` live in `blocks.ts` (`assertPageTextWithinLimits`) —
-// Convex's `v.string()` can't express a maximum itself.
-const seoValidator = v.object({
-  title: v.optional(v.string()),
-  description: v.optional(v.string()),
-  ogImageId: v.optional(v.id("_storage")),
-  canonicalUrl: v.optional(v.string()),
-  noindex: v.optional(v.boolean()),
-})
+// `seoValidator` itself now lives in `blocks.ts`, alongside the length
+// bounds on `title`/`description`/`canonicalUrl` (`assertPageTextWithinLimits`)
+// — Convex's `v.string()` can't express a maximum itself — so Task 8's
+// `pages.update` mutation can import the identical validator rather than
+// redeclaring its shape.
 
 export default defineSchema({
   // Pas de champ `role` ici : il vit sur l'utilisateur Better Auth.

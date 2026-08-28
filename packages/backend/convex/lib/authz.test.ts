@@ -45,6 +45,11 @@ beforeEach(() => {
   originalEnv = { ...process.env }
   process.env.BETTER_AUTH_SECRET = "test-secret-please-do-not-use-in-prod-x"
   process.env.SITE_URL = ORIGIN
+  // Task 8's `pages.mintPreviewToken` entry (`MUTATION_REGISTRY`) calls
+  // `signPreviewToken`, which throws if this is unset — same floor
+  // (32 chars) as every other test that seeds it, e.g.
+  // `pages.test.ts`/`lib/previewToken.test.ts`.
+  process.env.PREVIEW_SECRET = "test-preview-secret-please-do-not-use-in-prod-x"
 })
 
 afterEach(() => {

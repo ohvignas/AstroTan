@@ -147,6 +147,21 @@ export function assertBlockWithinLimits(block: Block): void {
   }
 }
 
+// Mirrors design spec §6.5 ("Champs SEO par page"). All optional: a page
+// with no `seo` override falls back to `settings.defaultSeo` (a later
+// task; not created by this one). Lives here, not in `schema.ts` where it
+// used to be defined inline, so Task 8's `pages.update` can declare the
+// exact same validator on its own `seo` argument instead of hand-copying
+// its shape a second time — the two would otherwise be free to drift
+// apart silently, one accepting a field the other rejects.
+export const seoValidator = v.object({
+  title: v.optional(v.string()),
+  description: v.optional(v.string()),
+  ogImageId: v.optional(v.id("_storage")),
+  canonicalUrl: v.optional(v.string()),
+  noindex: v.optional(v.boolean()),
+})
+
 export type PageSeoInput = {
   title?: string
   description?: string

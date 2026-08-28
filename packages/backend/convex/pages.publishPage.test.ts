@@ -142,9 +142,11 @@ test("publishPage planifie internal.revalidate.drain immédiatement (chemin rapi
 })
 
 // Republishing an already-published page (e.g. after an edit) must still
-// work — there is no mutation in this lot that un-publishes, so refusing
-// a second `publishPage` call on the same page would leave no way to ever
-// push new content live again.
+// work — refusing a second `publishPage` call on an already-published
+// page would leave no way to push new content live again short of
+// `unpublish`ing first (Task 8's `pages.unpublish`, its own dedicated
+// test file), which would needlessly serve a 404/stale response in
+// between.
 test("republier une page déjà publiée fonctionne et ré-enfile une invalidation", async () => {
   const t = makeTestConvex()
   const asOwner = await seedActor(t, "owner")
