@@ -1,0 +1,41 @@
+---
+// A second ordinary page, and the point of it is that there is nothing to
+// see: adding a page to this site means creating a file and copying these
+// four lines. No registry to update, no config to touch.
+//
+// Its row must exist in the dashboard with the slug `contact`, and be
+// published — otherwise this route answers 404, deliberately.
+export const prerender = false
+
+import { loadPage } from "../lib/loadPage"
+import PageHead from "../components/PageHead.astro"
+import "../styles/global.css"
+
+const { page } = await loadPage(Astro, "contact")
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <PageHead page={page} />
+  </head>
+  <body class="bg-white text-ink antialiased">
+    {page === null ? (
+      <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
+        <h1 class="text-3xl font-bold">404</h1>
+        <p class="text-ink-mid">Cette page n'existe pas.</p>
+      </main>
+    ) : (
+      <main class="mx-auto max-w-2xl px-6 py-16">
+        <h1 class="text-3xl font-bold">{page.title}</h1>
+        <p class="mt-4 text-ink-mid">
+          Remplacez ce contenu par le vôtre. Le titre ci-dessus, les champs
+          SEO et GEO, et la publication de cette page se règlent dans
+          l'administration ; tout le reste s'écrit ici, en code.
+        </p>
+      </main>
+    )}
+  </body>
+</html>

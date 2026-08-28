@@ -1,0 +1,74 @@
+---
+// The blog index. Part of the example site this template ships with:
+// deliberately plain, so that what shows through is the *wiring*, not a
+// design. Replace the markup; keep the four lines of frontmatter.
+//
+// Unlike a page, an article's content lives in the database — a blog post
+// IS content, and nobody will ask an agent to write each one. So this route
+// reads real rows, while `index.astro` reads only its own settings.
+export const prerender = false
+
+import { api } from "@astrotan/backend/convex/_generated/api"
+import { getConvexClient } from "../../lib/convexClient"
+import { markdownToPlainText } from "../../lib/markdown"
+import "../../styles/global.css"
+
+// Published only, filtered server-side inside the query — never here. This
+// app carries no session and no admin key, so a public query that forgot
+// its filter is a draft leak with nothing else in the way.
+const posts = await getConvexClient().query(api.posts.listPublishedPosts, {})
+
+// The route-wide tag `publishPost`'s outbox invalidates. Every publish
+// touches `posts`, so this list goes stale for seconds, not for `maxAge`.
+Astro.cache.set({ maxAge: 300, swr: 600, tags: ["posts"] })
+
+const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blog</title>
+    <meta name="description" content="Les derniers articles." />
+    <link rel="canonical" href={new URL("/blog", Astro.url.origin).href} />
+  </head>
+  <body class="bg-white text-ink antialiased">
+    <main class="mx-auto max-w-3xl px-6 py-16">
+      <h1 class="text-3xl font-bold">Blog</h1>
+
+      {posts.length === 0 ? (
+        <p class="mt-6 text-ink-mid">Aucun article publié pour le moment.</p>
+      ) : (
+        <ul class="mt-10 flex flex-col gap-8">
+          {posts.map((post) => (
+            <li>
+              <article>
+                <h2 class="text-xl font-semibold">
+                  <a href={`/blog/${post.slug}`} class="hover:underline">
+                    {post.title}
+                  </a>
+                </h2>
+                {post.publishedAt && (
+                  <p class="mt-1 text-sm text-ink-mid">
+                    <time datetime={new Date(post.publishedAt).toISOString()}>
+                      {dateFormat.format(post.publishedAt)}
+                    </time>
+                  </p>
+                )}
+                <p class="mt-2 text-ink-mid">
+                  {/* Falls back to the body's first words when no excerpt
+                      was written: an article with no summary should still
+                      read like something, and `markdownToPlainText` keeps
+                      link text while dropping link URLs. */}
+                  {post.excerpt || markdownToPlainText(post.body, 180)}
+                </p>
+              </article>
+            </li>
+          ))}
+        </ul>
+      )}
+    </main>
+  </body>
+</html>

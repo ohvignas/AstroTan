@@ -1,0 +1,74 @@
+---
+// One article. The example this template ships with — plain on purpose.
+//
+// The three lines below are the whole contract, and they are the article
+// equivalent of the ones in `index.astro`. `loadPost` handles publication,
+// preview (`?t=…`), the 404, and the cache tags; nothing else to wire up.
+export const prerender = false
+
+import { loadPost } from "../../lib/loadPost"
+import { renderMarkdown } from "../../lib/markdown"
+import "../../styles/global.css"
+
+const { slug } = Astro.params
+const { post, preview } = await loadPost(Astro, slug ?? "")
+
+// Rendered here rather than inline in the template, so the template stays a
+// single `set:html`. `renderMarkdown` sanitises AFTER parsing, never before
+// — Markdown passes raw HTML through by design, so "it's only Markdown" is
+// not a safety property. See `lib/markdown.ts`.
+const bodyHtml = post === null ? "" : renderMarkdown(post.body)
+
+const canonicalUrl =
+  post?.seo?.canonicalUrl ?? new URL(Astro.url.pathname, Astro.url.origin).href
+const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{post?.seo?.title || post?.title || "Article introuvable"}</title>
+    {post?.seo?.description && (
+      <meta name="description" content={post.seo.description} />
+    )}
+    <link rel="canonical" href={canonicalUrl} />
+    <meta
+      name="robots"
+      content={post?.seo?.noindex ? "noindex, nofollow" : "index, follow"}
+    />
+  </head>
+  <body class="bg-white text-ink antialiased">
+    {preview && (
+      <p class="bg-amber-100 px-6 py-2 text-center text-sm text-amber-900">
+        Aperçu — cet article n'est pas publié. Le lien expire au bout de 15
+        minutes.
+      </p>
+    )}
+
+    {post === null ? (
+      <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
+        <h1 class="text-3xl font-bold">404</h1>
+        <p class="text-ink-mid">Cet article n'existe pas.</p>
+        <a href="/blog" class="underline">Retour au blog</a>
+      </main>
+    ) : (
+      <main class="mx-auto max-w-3xl px-6 py-16">
+        <a href="/blog" class="text-sm text-ink-mid underline">← Blog</a>
+        <h1 class="mt-6 text-4xl font-bold">{post.title}</h1>
+        {post.publishedAt && (
+          <p class="mt-2 text-sm text-ink-mid">
+            <time datetime={new Date(post.publishedAt).toISOString()}>
+              {dateFormat.format(post.publishedAt)}
+            </time>
+          </p>
+        )}
+        <article
+          class="mt-10 leading-relaxed [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:pl-4 [&_h2]:mt-10 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mt-8 [&_h3]:text-xl [&_h3]:font-semibold [&_img]:rounded-lg [&_li]:ml-5 [&_ol]:mt-4 [&_ol]:list-decimal [&_p]:mt-4 [&_pre]:mt-4 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-ink [&_pre]:p-4 [&_pre]:text-sm [&_ul]:mt-4 [&_ul]:list-disc"
+          set:html={bodyHtml}
+        />
+      </main>
+    )}
+  </body>
+</html>
