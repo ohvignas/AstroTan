@@ -1,0 +1,30 @@
+---
+// The measurement script, and the switch that keeps it optional.
+//
+// Loaded only when both variables are set. An adopter who wants no
+// analytics at all must not see a single request leave for a third party
+// just because this component exists in the template — so the absence of
+// configuration is the off switch, not a boolean somewhere else.
+//
+// Both are `PUBLIC_` and both are meant to be: the script URL and the site
+// id are visible in the page source of every site using Umami, by design.
+// The credentials that *read* the statistics are a different matter and
+// never come near the browser — see `convex/analytics.ts`.
+const umamiUrl = import.meta.env.PUBLIC_UMAMI_URL
+const websiteId = import.meta.env.PUBLIC_UMAMI_WEBSITE_ID
+
+const enabled = Boolean(umamiUrl && websiteId)
+---
+
+{
+  enabled && (
+    // `defer` rather than `async`: it must not compete with the page's own
+    // rendering. A measurement that costs the visitor time is measuring a
+    // site it has itself made slower.
+    <script
+      defer
+      src={`${umamiUrl.replace(/\/$/, "")}/script.js`}
+      data-website-id={websiteId}
+    />
+  )
+}

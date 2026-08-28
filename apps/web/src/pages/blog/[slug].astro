@@ -9,6 +9,7 @@ export const prerender = false
 import { Image } from "astro:assets"
 import { loadPost } from "../../lib/loadPost"
 import PageHead from "../../components/PageHead.astro"
+import Analytics from "../../components/Analytics.astro"
 import { renderStoredHtml } from "../../lib/markdown"
 import SiteHeader from "../../components/SiteHeader.astro"
 import SiteFooter from "../../components/SiteFooter.astro"
@@ -47,6 +48,7 @@ const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
           }
         : undefined}
     />
+    <Analytics />
   </head>
   <body class="bg-white text-ink antialiased">
     <SiteHeader />

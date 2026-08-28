@@ -13,6 +13,7 @@ import { getConvexClient } from "../../lib/convexClient"
 import { markdownToPlainText } from "../../lib/markdown"
 import SiteHeader from "../../components/SiteHeader.astro"
 import SiteFooter from "../../components/SiteFooter.astro"
+import Analytics from "../../components/Analytics.astro"
 import "../../styles/global.css"
 
 // Published only, filtered server-side inside the query — never here. This
@@ -35,6 +36,7 @@ const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
     <title>Blog</title>
     <meta name="description" content="Les derniers articles." />
     <link rel="canonical" href={new URL("/blog", Astro.url.origin).href} />
+    <Analytics />
   </head>
   <body class="bg-white text-ink antialiased">
     <SiteHeader />

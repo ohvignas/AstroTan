@@ -41,6 +41,7 @@ import { api } from "@astrotan/backend/convex/_generated/api"
 import { getConvexClient } from "../lib/convexClient"
 import { loadPage } from "../lib/loadPage"
 import PageHead from "../components/PageHead.astro"
+import Analytics from "../components/Analytics.astro"
 import SiteHeader from "../components/SiteHeader.astro"
 import SiteFooter from "../components/SiteFooter.astro"
 import "../styles/global.css"
@@ -69,6 +70,7 @@ if (page === null && !homeSlug) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <PageHead page={page} />
+    <Analytics />
   </head>
   <body class="bg-white text-ink antialiased">
     <SiteHeader />
