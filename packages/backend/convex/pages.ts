@@ -12,6 +12,8 @@ import { geoValidator, seoValidator, assertPageTextWithinLimits } from "./conten
 // pour la distinction, et pourquoi les confondre est un bug.
 import { normalizeSlug } from "./lib/slug"
 import { RESERVED_PAGE_SLUGS } from "./posts"
+import { mintRenameRedirect } from "./redirects"
+import { isServedByRoute } from "./lib/servedPaths"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // This task's own brief, verbatim: "the security-critical task of the
@@ -295,6 +297,25 @@ function assertReservedSlug(slug: string): void {
   }
 }
 
+/**
+ * La réciproque de la garde des redirections : un slug qu'une redirection
+ * *active* sert déjà ne peut pas être pris par une page, sans quoi la page
+ * naîtrait invisible — le middleware la redirigerait avant que sa route ne
+ * soit atteinte.
+ *
+ * Les redirections désactivées ne comptent pas : elles ne masquent rien, et
+ * c'est `redirects.update` qui refuse de les réactiver par-dessus une page.
+ */
+async function assertSlugFreeOfRedirect(ctx: MutationCtx, slug: string): Promise<void> {
+  const redirect = await ctx.db
+    .query("redirects")
+    .withIndex("by_from", (q) => q.eq("from", slug))
+    .unique()
+  if (redirect !== null && redirect.enabled) {
+    throw new ConvexError({ code: "SLUG_HAS_REDIRECT", slug, to: redirect.to })
+  }
+}
+
 async function assertSlugAvailable(
   ctx: MutationCtx,
   slug: string,
@@ -327,6 +348,7 @@ export const create = mutation({
     assertReservedSlug(slug)
     assertPageTextWithinLimits({ title, slug })
     await assertSlugAvailable(ctx, slug)
+    await assertSlugFreeOfRedirect(ctx, slug)
 
     return ctx.db.insert("pages", {
       slug,
@@ -397,7 +419,20 @@ export const update = mutation({
       // Renommer après coup est le même défaut qu'à la création : la garde
       // vaut aux deux points d'écriture, sinon elle ne vaut rien.
       assertReservedSlug(slug)
+      // Une page servie par un fichier de route tire son chemin de ce
+      // fichier : `loadPage(Astro)` dérive le slug de la route elle-même.
+      // Renommer la ligne sans renommer le fichier rendait la page
+      // inatteignable, en silence — observé en la cassant. Le fichier est
+      // la source de vérité ; c'est lui qu'il faut renommer.
+      if (isServedByRoute(page.slug)) {
+        throw new ConvexError({
+          code: "SLUG_FIXED_BY_ROUTE",
+          slug: page.slug,
+          file: `src/pages/${page.slug}.astro`,
+        })
+      }
       await assertSlugAvailable(ctx, slug, args.id)
+      await assertSlugFreeOfRedirect(ctx, slug)
       patch.slug = slug
     }
     if (args.seo !== undefined) patch.seo = args.seo
@@ -418,6 +453,21 @@ export const update = mutation({
     })
 
     await ctx.db.patch(args.id, patch)
+
+    // Renommer le slug d'une page *publiée* abandonnerait ses visiteurs à
+    // une 404 : l'ancienne URL est dans des favoris, des liens entrants,
+    // l'index d'un moteur. Une 301 la fait suivre.
+    //
+    // Rien pour un brouillon jamais publié (`publishedAt === undefined`) :
+    // renommer trois fois un brouillon laisserait trois redirections mortes,
+    // qui bloqueraient ensuite la création d'une page sur ces chemins.
+    if (
+      patch.slug !== undefined &&
+      patch.slug !== page.slug &&
+      page.publishedAt !== undefined
+    ) {
+      await mintRenameRedirect(ctx, page.slug, patch.slug, authUser._id)
+    }
 
     // La page d'accueil est désignée par son slug (`settings.homePageSlug`).
     // Renommer ce slug sans suivre laisserait `/` pointer sur une page qui

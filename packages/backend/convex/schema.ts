@@ -120,6 +120,23 @@ export default defineSchema({
     .index("by_status_published", ["status", "publishedAt"])
     .index("by_created_by", ["createdBy"]),
 
+  // Une redirection ne peut jamais rendre inatteignable un contenu vivant.
+  // Le middleware s'exécutant avant la route, une redirection qui
+  // revendique un chemin déjà servi l'avale purement et simplement — sans
+  // erreur, sans trace. La garde est donc à l'écriture, aux **trois** points
+  // où la paire (redirection, contenu) peut entrer en conflit : la création,
+  // le côté slug, et la réactivation d'une redirection désactivée.
+  redirects: defineTable({
+    // Normalisé comme un slug de page : sans slash de tête ni de fin, pour
+    // que `/contact`, `contact` et `/contact/` ne puissent pas désigner
+    // trois lignes différentes.
+    from: v.string(),
+    to: v.string(),
+    code: v.union(v.literal(301), v.literal(302)),
+    enabled: v.boolean(),
+    createdBy: v.string(),
+  }).index("by_from", ["from"]),
+
   // Singleton : une ligne, ou aucune. Ce qui appartient au *site* plutôt
   // qu'à une page — son nom, son logo, la page servie à `/`, les valeurs
   // SEO par défaut. Une page décide de son slug et de son SEO ; elle ne

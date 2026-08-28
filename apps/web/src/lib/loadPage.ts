@@ -49,8 +49,20 @@ export interface LoadedPage {
  */
 export async function loadPage(
   astro: AstroGlobal,
-  slug: string
+  /**
+   * Omit it. The slug is derived from the route this file answers on, which
+   * is the only way the two can never disagree.
+   *
+   * Passing it explicitly wrote the slug twice — once in the row, once
+   * here — and renaming one without the other left the page answering 404
+   * with nothing to explain it. `index.astro` is the one legitimate caller,
+   * because `/` has no path segment to derive from and its page is chosen
+   * in the dashboard instead.
+   */
+  explicitSlug?: string
 ): Promise<LoadedPage> {
+  const slug =
+    explicitSlug ?? astro.url.pathname.replace(/^\/+/, "").replace(/\/+$/, "")
   const token = astro.url.searchParams.get("t")
 
   if (token !== null && token !== "") {

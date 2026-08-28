@@ -15,6 +15,7 @@
 export const prerender = false
 
 import type { APIRoute } from "astro"
+import { purgeRedirectMemo } from "../../middleware"
 import { createHash, timingSafeEqual } from "node:crypto"
 
 // Same floor as `PREVIEW_SECRET`'s own guard (`../../lib/previewToken.ts`)
@@ -116,6 +117,11 @@ export const POST: APIRoute = async (context) => {
   const expected = getRevalidateSecret()
   const provided = context.request.headers.get("x-revalidate-secret") ?? ""
   if (!isValidSecret(provided, expected)) {
+    // Une 301 fraîche doit être visible sur la même horloge que le reste :
+    // sans cette purge, le mémo de 60 s du middleware la garderait invisible
+    // une minute pendant que tout le reste se propage en secondes.
+    purgeRedirectMemo()
+
     return new Response(null, { status: 401 })
   }
 
