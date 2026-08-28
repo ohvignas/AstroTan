@@ -54,7 +54,12 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+  FieldTitle,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
@@ -511,7 +516,14 @@ function PostEditor({
             name="body"
             children={(field) => (
               <Field>
-                <FieldLabel htmlFor={field.name}>Corps</FieldLabel>
+                {/* `FieldTitle` et non `FieldLabel` : la zone de saisie
+                    de l'éditeur est un `div[contenteditable]`, pas un
+                    contrôle de formulaire, et un `<label for>` qui pointe
+                    dessus est du HTML invalide — le navigateur le signale
+                    et le clic sur le libellé ne fait rien. Le nom
+                    accessible est porté par l'`aria-label` de la zone
+                    elle-même. */}
+                <FieldTitle>Corps</FieldTitle>
                 {/* `posts.body` contient du HTML — la sortie native de
                     Tiptap, sans conversion, donc sans perte. Le compteur
                     et la limite vivent dans l'éditeur : il mesure la

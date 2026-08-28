@@ -97,6 +97,15 @@ export function postBodyExtensions() {
       // chargement, sans qu'on ait rien édité. On accepte de lire ce
       // qu'on ne propose pas d'écrire.
       heading: {},
+      // Désactivé, alors que c'est un confort réel : `trailingNode` ajoute
+      // un paragraphe vide à la fin du document, et il le fait *au
+      // chargement*, par une transaction. L'article stocké se retrouve
+      // suivi d'un `<p></p>` que personne n'a tapé, `onUpdate` se déclenche,
+      // et le formulaire s'annonce « modifié » sur un article qu'on vient
+      // seulement d'ouvrir. Le prix payé — placer le curseur après un bloc
+      // de code ou un séparateur en fin d'article — est couvert par
+      // `Gapcursor`, que StarterKit installe déjà.
+      trailingNode: false,
       link: {
         // Sinon un clic dans l'éditeur quitte le tableau de bord.
         openOnClick: false,
@@ -233,6 +242,14 @@ export function RichTextEditor({
     onChangeRef.current = onChange
   }, [onChange])
 
+  // La dernière valeur reçue du parent, lue depuis `onUpdate`. Une
+  // transaction qui laisse le HTML identique — ProseMirror en émet pour
+  // une sélection, une décoration, une normalisation — ne doit pas
+  // remonter : `handleChange` marquerait le formulaire modifié sans que
+  // rien ne l'ait été.
+  const valueRef = useRef(value)
+  valueRef.current = value
+
   // `Mod-k` est lu par `handleKeyDown`, qui est installé au montage : le
   // raccourci passe par une référence plutôt que par la fermeture du
   // premier rendu.
@@ -254,7 +271,10 @@ export function RichTextEditor({
         "aria-label": "Corps de l'article",
       },
       handleKeyDown: (_view, event) => {
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        if (
+          (event.metaKey || event.ctrlKey) &&
+          event.key.toLowerCase() === "k"
+        ) {
           event.preventDefault()
           openLinkRef.current()
           return true
@@ -263,7 +283,9 @@ export function RichTextEditor({
       },
     },
     onUpdate: ({ editor: updated }) => {
-      onChangeRef.current(readHtml(updated))
+      const html = readHtml(updated)
+      if (html === valueRef.current) return
+      onChangeRef.current(html)
     },
   })
 
@@ -303,8 +325,14 @@ export function RichTextEditor({
     editor.commands.setContent(value, { emitUpdate: false })
   }, [editor, value])
 
+  // Le second argument est `emitUpdate`, et il vaut `true` par défaut :
+  // `setEditable` émet un évènement `update` sans qu'aucune transaction
+  // n'ait eu lieu. Au montage, cela remontait le HTML normalisé par Tiptap
+  // au formulaire, qui s'annonçait « modifié » sur un article simplement
+  // ouvert — et proposait d'enregistrer une normalisation que personne
+  // n'avait demandée.
   useEffect(() => {
-    editor?.setEditable(!disabled)
+    editor?.setEditable(!disabled, false)
   }, [editor, disabled])
 
   const openLinkDialog = useCallback(() => {
@@ -595,8 +623,8 @@ export function RichTextEditor({
           <DialogHeader>
             <DialogTitle>Lien</DialogTitle>
             <DialogDescription>
-              L'adresse appliquée au texte sélectionné. Vider le champ retire
-              le lien.
+              L'adresse appliquée au texte sélectionné. Vider le champ retire le
+              lien.
             </DialogDescription>
           </DialogHeader>
           <Field>

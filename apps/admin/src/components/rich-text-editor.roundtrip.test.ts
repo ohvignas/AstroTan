@@ -111,17 +111,22 @@ describe("les éléments qui doivent survivre nommément", () => {
   })
 
   test("le langage d'un bloc de code est conservé", () => {
-    expect(roundTrip('<pre><code class="language-ts">const a = 1</code></pre>'))
-      .toContain("language-ts")
+    expect(
+      roundTrip('<pre><code class="language-ts">const a = 1</code></pre>')
+    ).toContain("language-ts")
   })
 
   test("l'adresse d'un lien est conservée", () => {
-    const html = roundTrip('<p><a href="https://example.com/page">texte</a></p>')
+    const html = roundTrip(
+      '<p><a href="https://example.com/page">texte</a></p>'
+    )
     expect(html).toContain('href="https://example.com/page"')
   })
 
   test("un lien mailto n'est pas retiré", () => {
-    const html = roundTrip('<p><a href="mailto:contact@example.com">écrire</a></p>')
+    const html = roundTrip(
+      '<p><a href="mailto:contact@example.com">écrire</a></p>'
+    )
     expect(html).toContain("mailto:contact@example.com")
   })
 
@@ -146,7 +151,9 @@ describe("les éléments qui doivent survivre nommément", () => {
 
   test("le texte alternatif d'une image sans lien est conservé", () => {
     expect(
-      roundTrip('<p><img src="https://example.com/a.webp" alt="une légende"></p>')
+      roundTrip(
+        '<p><img src="https://example.com/a.webp" alt="une légende"></p>'
+      )
     ).toContain('alt="une légende"')
   })
 })
@@ -156,14 +163,39 @@ describe("les balises produites tiennent dans l'allow-list du site", () => {
   // l'éditeur produit hors de cette liste serait retiré en silence de
   // l'article publié, sans que rien ne le signale au tableau de bord.
   const ALLOWED_TAGS = new Set([
-    "p", "br", "hr",
-    "h1", "h2", "h3", "h4", "h5", "h6",
-    "strong", "b", "em", "i", "u", "s", "sub", "sup",
-    "ul", "ol", "li",
-    "a", "img",
-    "blockquote", "code", "pre",
-    "table", "thead", "tbody", "tr", "th", "td",
-    "span", "div",
+    "p",
+    "br",
+    "hr",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "strong",
+    "b",
+    "em",
+    "i",
+    "u",
+    "s",
+    "sub",
+    "sup",
+    "ul",
+    "ol",
+    "li",
+    "a",
+    "img",
+    "blockquote",
+    "code",
+    "pre",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "span",
+    "div",
   ])
 
   test.each(Object.entries(FIXTURES))("%s", (_name, html) => {
