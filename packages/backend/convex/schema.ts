@@ -93,6 +93,33 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_created_by", ["createdBy"]),
 
+  // Le seul endroit où ce template garde encore du contenu en base, et
+  // l'exception est délibérée : un article de blog *est* du contenu, et
+  // personne ne demandera à un agent d'écrire chaque billet. Les pages ont
+  // pris le chemin inverse — une page est son fichier `.astro`.
+  posts: defineTable({
+    slug: v.string(),
+    title: v.string(),
+    excerpt: v.optional(v.string()),
+    // `_storage` directement, comme `seo.ogImageId` : la table `media` est
+    // un sidecar de métadonnées, pas la cible des références.
+    coverId: v.optional(v.id("_storage")),
+    body: v.string(),
+    status: pageStatusValidator,
+    seo: v.optional(seoValidator),
+    geo: v.optional(geoValidator),
+    publishedAt: v.optional(v.number()),
+    tagIds: v.array(v.id("tags")),
+    createdBy: v.string(),
+    updatedBy: v.string(),
+  })
+    .index("by_slug", ["slug"])
+    // Composite dans cet ordre : `/blog` demande « les publiés, du plus
+    // récent au plus ancien » en un seul parcours d'index, jamais un
+    // `.collect()` filtré en mémoire.
+    .index("by_status_published", ["status", "publishedAt"])
+    .index("by_created_by", ["createdBy"]),
+
   // Deux chaînes pour une idée : le `name` qu'un humain a tapé, gardé tel
   // quel pour l'affichage, et le `slug` qui en est dérivé — c'est lui qui
   // décide de l'URL et de l'unicité. « Astro » et « astro » sont le même

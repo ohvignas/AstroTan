@@ -105,11 +105,14 @@ export const remove = mutation({
     const row = await ctx.db.get(args.id)
     if (!row) throw new ConvexError({ code: "NOT_FOUND" })
 
-    // The `TAG_IN_USE` guard lands with `posts` (Task 3) — there is no
-    // table carrying `tagIds` yet, so there is nothing to check against.
-    // Written here as a marker rather than left to be remembered: a tag
-    // deleted out from under a post leaves a dangling id in an array,
-    // which reads as a tag that silently vanished from that post.
+    // A tag deleted out from under a post leaves a dangling id in that
+    // post's `tagIds` — the label simply vanishes from the article, with
+    // nothing anywhere saying why.
+    const posts = await ctx.db.query("posts").collect()
+    if (posts.some((post) => post.tagIds.includes(args.id))) {
+      throw new ConvexError({ code: "TAG_IN_USE" })
+    }
+
     await ctx.db.delete(args.id)
   },
 })

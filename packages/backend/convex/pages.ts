@@ -11,6 +11,7 @@ import { geoValidator, seoValidator, assertPageTextWithinLimits } from "./conten
 // qui fait un travail voisin mais différent — voir l'en-tête de ce module
 // pour la distinction, et pourquoi les confondre est un bug.
 import { normalizeSlug } from "./lib/slug"
+import { RESERVED_PAGE_SLUGS } from "./posts"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // This task's own brief, verbatim: "the security-critical task of the
@@ -273,6 +274,19 @@ export const publicationStatus = query({
 // path, silently 404ing forever.
 
 
+/**
+ * Refuse a slug that an Astro route already answers on.
+ *
+ * `/blog` is served by a route file; a page claiming that slug would never
+ * be reached, silently. See `RESERVED_PAGE_SLUGS` for why this lives in
+ * `posts.ts` and where lot 4's third axis will join it.
+ */
+function assertReservedSlug(slug: string): void {
+  if (RESERVED_PAGE_SLUGS.has(slug.toLowerCase())) {
+    throw new ConvexError({ code: "SLUG_RESERVED", slug })
+  }
+}
+
 async function assertSlugAvailable(
   ctx: MutationCtx,
   slug: string,
@@ -302,6 +316,7 @@ export const create = mutation({
     const slug = normalizeSlug(args.slug)
     if (title.length === 0) throw new ConvexError({ code: "INVALID_TITLE" })
     if (slug.length === 0) throw new ConvexError({ code: "INVALID_SLUG" })
+    assertReservedSlug(slug)
     assertPageTextWithinLimits({ title, slug })
     await assertSlugAvailable(ctx, slug)
 
@@ -371,6 +386,9 @@ export const update = mutation({
     if (args.slug !== undefined) {
       const slug = normalizeSlug(args.slug)
       if (slug.length === 0) throw new ConvexError({ code: "INVALID_SLUG" })
+      // Renommer après coup est le même défaut qu'à la création : la garde
+      // vaut aux deux points d'écriture, sinon elle ne vaut rien.
+      assertReservedSlug(slug)
       await assertSlugAvailable(ctx, slug, args.id)
       patch.slug = slug
     }

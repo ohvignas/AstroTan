@@ -23,6 +23,7 @@ import type * as lib_slug from "../lib/slug.js";
 import type * as lib_token from "../lib/token.js";
 import type * as media from "../media.js";
 import type * as pages from "../pages.js";
+import type * as posts from "../posts.js";
 import type * as profiles from "../profiles.js";
 import type * as revalidate from "../revalidate.js";
 import type * as tags from "../tags.js";
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   "lib/token": typeof lib_token;
   media: typeof media;
   pages: typeof pages;
+  posts: typeof posts;
   profiles: typeof profiles;
   revalidate: typeof revalidate;
   tags: typeof tags;
