@@ -14,21 +14,27 @@ import { MUTATION_REGISTRY } from "./_registry"
 // is read: a `storageId` can exist with no row here — a file uploaded
 // outside the library — and that is a missing `alt`, never an error.
 
-export const MAX_ALT_LENGTH = 300
-export const MAX_FILENAME_LENGTH = 255
-export const MAX_MEDIA_SIZE_BYTES = 10 * 1024 * 1024
+// The bounds live in `content.ts` and are re-exported here so existing
+// importers do not have to know they moved. They had to leave this module:
+// the admin's upload and edit dialogs cap the same fields, and importing
+// them from here dragged this file's whole graph — `_generated/server`,
+// `_registry`, `lib/authz` → `auth.ts` — into the browser bundle, which
+// the Convex client reports as "Convex functions should not be imported in
+// the browser. This will throw an error in future versions of `convex`",
+// once per function definition it finds.
+import {
+  ALLOWED_MIME_TYPES,
+  MAX_ALT_LENGTH,
+  MAX_FILENAME_LENGTH,
+  MAX_MEDIA_SIZE_BYTES,
+} from "./content"
 
-// An allow-list, never a deny-list, and `image/svg+xml` is the reason why.
-// An SVG is an executable document: served from the site's own origin it
-// is an XSS vector, and it looks like an image format from every angle
-// except the one that matters.
-export const ALLOWED_MIME_TYPES = [
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/avif",
-  "image/gif",
-] as const
+export {
+  ALLOWED_MIME_TYPES,
+  MAX_ALT_LENGTH,
+  MAX_FILENAME_LENGTH,
+  MAX_MEDIA_SIZE_BYTES,
+}
 
 type AllowedMime = (typeof ALLOWED_MIME_TYPES)[number]
 

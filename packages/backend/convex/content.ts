@@ -48,6 +48,26 @@ export const MAX_EXCERPT_LENGTH = 300
 // Same reasoning, for `tags.ts`.
 export const MAX_TAG_NAME_LENGTH = 50
 
+// Same reasoning, for `media.ts` — the upload and edit dialogs cap the
+// same fields the mutations do, and `media.ts` reaches `lib/authz` →
+// `auth.ts`, so importing it from a component is the loudest version of
+// this problem. `media.ts` re-exports all four.
+export const MAX_ALT_LENGTH = 300
+export const MAX_FILENAME_LENGTH = 255
+export const MAX_MEDIA_SIZE_BYTES = 10 * 1024 * 1024
+
+// An allow-list, never a deny-list, and `image/svg+xml` is the reason why.
+// An SVG is an executable document: served from the site's own origin it
+// is an XSS vector, and it looks like an image format from every angle
+// except the one that matters.
+export const ALLOWED_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/avif",
+  "image/gif",
+] as const
+
 // `pages.seo` — mirrors design spec §6.5 (title, description, ogImage,
 // canonical, noindex). `title`/`description` bounds follow the point past
 // which Google truncates a search-result snippet; there's no protocol

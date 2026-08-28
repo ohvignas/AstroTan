@@ -19,6 +19,7 @@ import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as AuthedPagesIndexRouteImport } from './routes/_authed/pages/index'
 import { Route as AuthedPagesPageIdRouteImport } from './routes/_authed/pages/$pageId'
 import { Route as AuthedPostsIndexRouteImport } from './routes/_authed/posts/index'
+import { Route as AuthedPostsPostIdRouteImport } from './routes/_authed/posts/$postId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const AuthedRoute = AuthedRouteImport.update({
@@ -70,6 +71,11 @@ const AuthedPostsIndexRoute = AuthedPostsIndexRouteImport.update({
   path: '/posts/',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedPostsPostIdRoute = AuthedPostsPostIdRouteImport.update({
+  id: '/posts/$postId',
+  path: '/posts/$postId',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -84,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/users': typeof AuthedUsersRoute
   '/api/health': typeof ApiHealthRoute
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
+  '/posts/$postId': typeof AuthedPostsPostIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/pages/': typeof AuthedPagesIndexRoute
   '/posts/': typeof AuthedPostsIndexRoute
@@ -96,6 +103,7 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/': typeof AuthedIndexRoute
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
+  '/posts/$postId': typeof AuthedPostsPostIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/pages': typeof AuthedPagesIndexRoute
   '/posts': typeof AuthedPostsIndexRoute
@@ -110,6 +118,7 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/_authed/': typeof AuthedIndexRoute
   '/_authed/pages/$pageId': typeof AuthedPagesPageIdRoute
+  '/_authed/posts/$postId': typeof AuthedPostsPostIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_authed/pages/': typeof AuthedPagesIndexRoute
   '/_authed/posts/': typeof AuthedPostsIndexRoute
@@ -124,6 +133,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/api/health'
     | '/pages/$pageId'
+    | '/posts/$postId'
     | '/api/auth/$'
     | '/pages/'
     | '/posts/'
@@ -136,6 +146,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/'
     | '/pages/$pageId'
+    | '/posts/$postId'
     | '/api/auth/$'
     | '/pages'
     | '/posts'
@@ -149,6 +160,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/_authed/'
     | '/_authed/pages/$pageId'
+    | '/_authed/posts/$postId'
     | '/api/auth/$'
     | '/_authed/pages/'
     | '/_authed/posts/'
@@ -234,6 +246,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedPostsIndexRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/posts/$postId': {
+      id: '/_authed/posts/$postId'
+      path: '/posts/$postId'
+      fullPath: '/posts/$postId'
+      preLoaderRoute: typeof AuthedPostsPostIdRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -249,6 +268,7 @@ interface AuthedRouteChildren {
   AuthedUsersRoute: typeof AuthedUsersRoute
   AuthedIndexRoute: typeof AuthedIndexRoute
   AuthedPagesPageIdRoute: typeof AuthedPagesPageIdRoute
+  AuthedPostsPostIdRoute: typeof AuthedPostsPostIdRoute
   AuthedPagesIndexRoute: typeof AuthedPagesIndexRoute
   AuthedPostsIndexRoute: typeof AuthedPostsIndexRoute
 }
@@ -258,6 +278,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedUsersRoute: AuthedUsersRoute,
   AuthedIndexRoute: AuthedIndexRoute,
   AuthedPagesPageIdRoute: AuthedPagesPageIdRoute,
+  AuthedPostsPostIdRoute: AuthedPostsPostIdRoute,
   AuthedPagesIndexRoute: AuthedPagesIndexRoute,
   AuthedPostsIndexRoute: AuthedPostsIndexRoute,
 }
