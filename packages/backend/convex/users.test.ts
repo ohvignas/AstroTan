@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "vitest"
-import { api } from "./_generated/api"
+import { api, components } from "./_generated/api"
 import { ORIGIN, identityFor, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
 
 // Drives `users.list`/`setRole`/`remove` — the screen behind Task 10. Like
@@ -314,6 +314,54 @@ test("un owner retire légitimement un editor (chemin réel : RBAC + databaseHoo
 
   const rows = await asOwner.query(api.users.list, {})
   expect(rows.find((r) => r.email === "editor@example.com")).toBeUndefined()
+})
+
+// I5 (Lot 1 final review): `setRole`/`remove` routing through `auth.api.*`
+// (the real `/admin/set-role`/`/admin/remove-user` endpoints) rather than
+// a raw `components.betterAuth.adapter` call was untested — swapping in
+// the raw adapter would keep every assertion above green, because each one
+// is already satisfied by this module's own pre-checks (role, ownership,
+// NOT_FOUND) before the write ever happens. The one side effect only the
+// real endpoint produces: `/admin/remove-user`'s handler calls
+// `deleteUserSessions` before deleting the row itself (see `auth.ts`'s own
+// C3 comment on that exact ordering) — a raw adapter `deleteOne` on the
+// `user` model would leave the session document behind untouched.
+test("I5 : remove passe par le vrai endpoint /admin/remove-user — les sessions de la cible sont supprimées", async () => {
+  const t = makeTestConvex()
+  const { identity: asOwner } = await seedActor(
+    t,
+    "owner",
+    "owner@example.com",
+    "correct horse battery staple i5-owner",
+    "Owner",
+  )
+  const { user: editor } = await seedActor(
+    t,
+    "editor",
+    "editor@example.com",
+    "correct horse battery staple i5-editor",
+    "Editor",
+  )
+
+  const sessionsBefore = await t.run((ctx) =>
+    ctx.runQuery(components.betterAuth.adapter.findMany, {
+      model: "session" as const,
+      where: [{ field: "userId", operator: "eq" as const, value: editor.id }],
+      paginationOpts: { numItems: 10, cursor: null },
+    }),
+  )
+  expect(sessionsBefore.page.length).toBeGreaterThan(0)
+
+  await asOwner.mutation(api.users.remove, { userId: editor.id })
+
+  const sessionsAfter = await t.run((ctx) =>
+    ctx.runQuery(components.betterAuth.adapter.findMany, {
+      model: "session" as const,
+      where: [{ field: "userId", operator: "eq" as const, value: editor.id }],
+      paginationOpts: { numItems: 10, cursor: null },
+    }),
+  )
+  expect(sessionsAfter.page).toHaveLength(0)
 })
 
 test("un admin ne peut pas retirer un owner", async () => {

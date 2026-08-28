@@ -556,6 +556,49 @@ test("accept refuse un mot de passe d'un seul caractère, et l'invitation reste 
   expect(result).toEqual({ email: "invitee@example.com", role: "admin" })
 })
 
+// I4 (Lot 1 final review): the two tests above only ever exercised
+// lengths 0 and 1 — nothing pinned the upper bound (`MAX_PASSWORD_LENGTH`,
+// 128) at all, and `MIN_PASSWORD_LENGTH` (8) was unpinned in the sense
+// that setting it to 2 would have left both existing tests green (a
+// password of length 0 or 1 is refused either way). These two close both
+// gaps: exactly one character under the floor, and exactly one character
+// over the ceiling.
+test("I4 : accept refuse un mot de passe d'exactement 7 caractères (un de moins que le plancher)", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  const sevenChars = "a".repeat(7)
+  expect(sevenChars).toHaveLength(7)
+  await expect(
+    t.mutation(api.invitations.accept, { token, password: sevenChars }),
+  ).rejects.toThrow(/WEAK_PASSWORD/)
+
+  const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(row?.acceptedAt).toBeUndefined()
+})
+
+test("I4 : accept refuse un mot de passe de 129 caractères (un de plus que le plafond)", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "invitee@example.com",
+    role: "editor",
+  })
+
+  const tooLong = "a".repeat(129)
+  expect(tooLong).toHaveLength(129)
+  await expect(
+    t.mutation(api.invitations.accept, { token, password: tooLong }),
+  ).rejects.toThrow(/WEAK_PASSWORD/)
+
+  const row = await t.run(async (ctx) => ctx.db.query("invitations").first())
+  expect(row?.acceptedAt).toBeUndefined()
+})
+
 // --- I2 (review) : l'invitation ne survit pas à la perte d'autorité de ---
 // --- son émetteur ----------------------------------------------------------
 
