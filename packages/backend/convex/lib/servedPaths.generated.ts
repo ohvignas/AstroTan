@@ -7,10 +7,9 @@
 /** Paths a route file serves exactly. */
 export const SERVED_PATHS: readonly string[] = [
   "/",
-  "/a-propos",
   "/blog",
   "/contact",
-  "/services",
+  "/fonctionnalites",
   "/tarifs"
 ]
 

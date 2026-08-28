@@ -65,18 +65,26 @@ const { page, fallbackTitle, article } = Astro.props as Props
     />
 
     {/* Amorçage du thème, avant le premier peint.
-        Le défaut est SOMBRE, comme la démonstration du template. Un
-        `prefers-color-scheme` clair ne l'emporte pas : seul un choix
-        explicite du visiteur, mémorisé sous la clé `theme`, le fait.
-        Ce script est en ligne et synchrone à dessein — différé, la page
-        s'afficherait en clair une fraction de seconde avant de basculer. */}
+        Le défaut est CLAIR. Seul un choix explicite du visiteur, mémorisé
+        sous la clé `theme`, passe la page en sombre — un
+        `prefers-color-scheme: dark` ne suffit pas, parce que le site a une
+        identité claire et qu'un réglage système ne dit pas que quelqu'un
+        veut CE site en sombre.
+
+        Ce script est en ligne et synchrone à dessein. Différé, une page
+        choisie en sombre s'afficherait en clair une fraction de seconde
+        avant de basculer — le clignotement blanc que tout le monde
+        reconnaît. C'est aussi pourquoi il ne fait qu'AJOUTER une classe :
+        ne rien faire est déjà le mode clair, donc le cas courant ne coûte
+        aucune écriture dans le DOM. */}
     <script is:inline>
       try {
-        if (localStorage.getItem("theme") !== "light") {
+        if (localStorage.getItem("theme") === "dark") {
           document.documentElement.classList.add("dark")
         }
       } catch {
-        document.documentElement.classList.add("dark")
+        // `localStorage` inaccessible (navigation privée verrouillée,
+        // cookies bloqués) : on reste en clair, le défaut.
       }
     </script>
 

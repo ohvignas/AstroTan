@@ -18,6 +18,18 @@ export interface PostRecord {
   body: string
   excerpt?: string
   coverId?: string
+  // Résolus côté serveur par `withCover`, mais SEULEMENT sur le chemin
+  // publié (`getPublishedPost`) : `previewPost` renvoie la ligne brute.
+  // D'où l'optionalité, et d'où le repli sur `media.publicUrl` dans
+  // `/blog/[slug]` — c'est ce qui fait qu'un brouillon en aperçu montre sa
+  // couverture au lieu d'un cadre vide.
+  //
+  // Cette interface est écrite à la main à côté du schéma Convex : les deux
+  // ne peuvent pas diverger bruyamment. `coverUrl` manquait ici alors que la
+  // page le lisait, et la couverture ne s'affichait donc jamais — sans
+  // erreur, sans avertissement, jusqu'à ce qu'`astro check` soit lancé.
+  coverUrl?: string | null
+  coverAlt?: string
   publishedAt?: number
   tagIds: string[]
   seo?: {
@@ -95,4 +107,21 @@ export async function loadPost(
   // the route-wide `posts` tag that `/blog` carries.
   astro.cache.set({ maxAge: 300, swr: 600, tags: ["posts", `post:${slug}`] })
   return { post, preview: false }
+}
+
+/**
+ * La forme d'un article telle que la liste et les cartes la consomment.
+ *
+ * Vit ici plutôt que dans `BlogCard.astro` parce qu'un type exporté depuis
+ * un `.astro` n'est pas importable de façon fiable : le composant se charge,
+ * le type non, et l'erreur ne sort qu'au `astro check`.
+ */
+export interface PostSummary {
+  slug: string
+  title: string
+  excerpt?: string
+  body: string
+  coverUrl?: string | null
+  coverAlt?: string
+  publishedAt?: number
 }

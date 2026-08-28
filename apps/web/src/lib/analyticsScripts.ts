@@ -32,7 +32,13 @@ export interface AnalyticsScript {
  * l'interrupteur, de sorte qu'un adoptant qui n'en veut pas n'ait rien à
  * désactiver, et qu'aucune requête ne parte vers un tiers.
  */
-export function analyticsScripts(env: AnalyticsEnv): AnalyticsScript[] {
+export function analyticsScripts(
+  // `Record<string, …>` et non `AnalyticsEnv` seul : `import.meta.env` est
+  // typé par Astro avec ses propres clés, et TypeScript refuse un objet qui
+  // n'a « aucune propriété en commun » avec un type strict. L'intersection
+  // garde la vérification sur NOS clés tout en acceptant l'objet réel.
+  env: AnalyticsEnv & Record<string, unknown>,
+): AnalyticsScript[] {
   const base = env.PUBLIC_UMAMI_URL?.replace(/\/$/, "")
   const websiteId = env.PUBLIC_UMAMI_WEBSITE_ID
   // Les deux ou aucun : une moitié de configuration produirait une balise

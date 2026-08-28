@@ -1,0 +1,76 @@
+---
+// La vignette d'un article.
+//
+// Le template a ici `BlogImageSVG.astro`, qui engendre un SVG décoratif
+// déterministe à partir du slug — parce que ses articles de démonstration
+// n'ont pas d'image. Les nôtres en ont une vraie, téléversée dans la
+// médiathèque, et il serait absurde de dessiner un motif par-dessus.
+//
+// Ce composant garde donc le rôle (« l'image d'un article, à un rapport
+// constant ») et remplace le contenu : la couverture quand elle existe, un
+// repli en dégradé quand elle manque. Le repli reste nécessaire — un
+// brouillon publié sans couverture ne doit pas laisser un trou dans la
+// grille.
+import { Image } from "astro:assets"
+
+export interface Props {
+  coverUrl?: string | null
+  coverAlt?: string
+  title: string
+  /** `eager` sur la couverture d'article (élément LCP), `lazy` en liste. */
+  eager?: boolean
+}
+
+const { coverUrl, coverAlt, title, eager = false } = Astro.props as Props
+---
+
+{coverUrl ? (
+  /* `<Image>` sur une URL *distante* : Astro ne l'optimise que parce que le
+     domaine du stockage Convex est autorisé dans `astro.config.ts`
+     (`image.remotePatterns`). Sans cette autorisation elle traverserait le
+     pipeline sans être touchée — pas de `srcset`, pas d'AVIF/WebP — et rien
+     ne le signalerait. `inferSize` lit les dimensions réelles du fichier
+     distant, ce qui évite le décalage de mise en page. */
+  <Image
+    src={coverUrl}
+    alt={coverAlt ?? ""}
+    inferSize
+    loading={eager ? "eager" : "lazy"}
+    fetchpriority={eager ? "high" : undefined}
+    class="post-cover__img"
+  />
+) : (
+  <span class="post-cover__fallback" aria-hidden="true">
+    <span class="post-cover__initial">{title.trim().charAt(0).toUpperCase()}</span>
+  </span>
+)}
+
+<style>
+  .post-cover__img,
+  .post-cover__fallback {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .post-cover__fallback {
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(
+        circle at 30% 25%,
+        color-mix(in srgb, var(--brand, var(--primary)) 18%, transparent),
+        transparent 60%
+      ),
+      var(--color-bg-secondary);
+  }
+
+  .post-cover__initial {
+    font-family: var(--font-heading);
+    font-size: clamp(2.5rem, 6vw, 4rem);
+    font-weight: 800;
+    color: color-mix(in srgb, var(--foreground) 18%, transparent);
+    line-height: 1;
+  }
+</style>

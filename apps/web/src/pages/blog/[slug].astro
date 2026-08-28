@@ -1,141 +1,86 @@
 ---
-// Un article. L'habillage vient du template ; `loadPost` et le rendu du
-// corps ne changent pas.
+// Un article. Le design vient de `BlogLayout`, porté du template ; le
+// câblage est le nôtre et ne change pas.
 //
-// Les trois lignes ci-dessous sont tout le contrat, et ce sont l'équivalent
-// pour un article de celles d'`index.astro`. `loadPost` gère la
-// publication, l'aperçu (`?t=…`), le 404 et les étiquettes de cache ; il n'y
-// a rien d'autre à brancher.
+// Les trois lignes de `loadPost` sont tout le contrat, et ce sont
+// l'équivalent pour un article de celles d'`index.astro` : publication,
+// aperçu (`?t=…`), 404 et étiquettes de cache.
 export const prerender = false
 
-import { Image } from "astro:assets"
-import { loadPost } from "../../lib/loadPost"
-import { renderStoredHtml } from "../../lib/markdown"
+import { api } from "@astrotan/backend/convex/_generated/api"
+import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
+import { getConvexClient } from "../../lib/convexClient"
+import { loadPost, type PostSummary } from "../../lib/loadPost"
+import { renderStoredHtml, markdownToPlainText } from "../../lib/markdown"
+import { extractHeadings } from "../../lib/toc"
 import BaseLayout from "../../layouts/BaseLayout.astro"
+import BlogLayout from "../../layouts/BlogLayout.astro"
 
 const { slug } = Astro.params
 const { post, preview } = await loadPost(Astro, slug ?? "")
 
-// `post.body` est du HTML rédigé dans l'éditeur riche du dashboard. Il est
-// tout de même assaini avant d'atteindre un visiteur — la valeur vient
-// d'une session authentifiée, jamais d'un visiteur, et elle est assainie
-// quand même.
-const bodyHtml = post === null ? "" : renderStoredHtml(post.body)
+// `post.body` est de l'HTML rédigé dans l'éditeur riche du dashboard. Il est
+// tout de même assaini avant d'atteindre un visiteur — la valeur vient d'une
+// session authentifiée, jamais d'un visiteur, et elle est assainie quand
+// même.
+const sanitized = post === null ? "" : renderStoredHtml(post.body)
 
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
+// Assainir d'abord, poser les ancres ensuite : `sanitize-html` n'autorise pas
+// `id`, donc un `id` posé en amont serait retiré. Voir `lib/toc.ts`.
+const { headings, html: bodyHtml } = extractHeadings(sanitized)
+
+// La couverture. `getPublishedPost` la résout côté serveur (`withCover`),
+// mais `previewPost` renvoie la ligne brute — d'où le repli explicite sur
+// `media.publicUrl`, sans lequel un brouillon en aperçu n'aurait pas d'image.
+//
+// C'est la correction d'un vrai défaut : la page lisait `post.coverUrl`,
+// que `PostRecord` ne déclarait pas. La couverture ne s'affichait donc
+// jamais — sans erreur, sans avertissement.
+let coverUrl: string | null = post?.coverUrl ?? null
+if (post !== null && coverUrl === null && post.coverId) {
+  coverUrl = await getConvexClient().query(api.media.publicUrl, {
+    storageId: post.coverId as Id<"_storage">,
+  })
+}
+
+// Les articles liés. La même query publique que `/blog` — elle filtre les
+// brouillons côté serveur — dont on retire celui qu'on lit.
+const related: PostSummary[] =
+  post === null
+    ? []
+    : ((await getConvexClient().query(api.posts.listPublishedPosts, {})) as PostSummary[])
+
+const canonicalUrl =
+  post?.seo?.canonicalUrl ?? new URL(Astro.url.pathname, Astro.url.origin).href
 ---
 
-<BaseLayout
-  page={post}
-  fallbackTitle="Article introuvable"
-  article={post
-    ? {
-        title: post.title,
-        excerpt: post.excerpt,
-        publishedAt: post.publishedAt,
-        coverUrl: post.coverUrl,
-      }
-    : undefined}
->
-  {preview && (
-    <p class="preview-banner">
-      Aperçu — cet article n'est pas publié. Le lien expire au bout de 15
-      minutes.
-    </p>
-  )}
-
-  {post === null ? (
+{post === null ? (
+  <BaseLayout page={null} fallbackTitle="Article introuvable">
     <section class="container empty-state">
       <h1>404</h1>
       <p>Cet article n'existe pas.</p>
       <a href="/blog">Retour au blog</a>
     </section>
-  ) : (
-    <article class="container post">
-      <a class="post__back" href="/blog">← Blog</a>
-      <h1 class="post__title">{post.title}</h1>
-      {post.publishedAt && (
-        <p class="post__date">
-          <time datetime={new Date(post.publishedAt).toISOString()}>
-            {dateFormat.format(post.publishedAt)}
-          </time>
-        </p>
-      )}
-      {post.coverUrl && (
-        /* `<Image>` sur une URL *distante* : Astro ne l'optimise que parce
-           que le domaine du stockage Convex est autorisé dans
-           `astro.config.ts` (`image.remotePatterns`). Sans cette
-           autorisation, l'image traverserait le pipeline sans être touchée
-           — pas de `srcset`, pas d'AVIF/WebP — et rien ne le signalerait.
-           `inferSize` lit les dimensions réelles du fichier distant, ce qui
-           évite le décalage de mise en page.
-
-           `loading="eager"` et `fetchpriority="high"` : sur un article, la
-           couverture est l'élément LCP. */
-        <Image
-          src={post.coverUrl}
-          alt={post.coverAlt}
-          inferSize
-          loading="eager"
-          fetchpriority="high"
-          class="post__cover"
-        />
-      )}
-      <div class="prose post__body" set:html={bodyHtml} />
-    </article>
-  )}
-</BaseLayout>
+  </BaseLayout>
+) : (
+  <BlogLayout
+    post={post}
+    headings={headings}
+    coverUrl={coverUrl}
+    coverAlt={post.coverAlt ?? ""}
+    canonicalUrl={canonicalUrl}
+    relatedPosts={related.map((entry) => ({
+      ...entry,
+      // Un article sans résumé doit quand même se lire dans une carte.
+      excerpt: entry.excerpt || markdownToPlainText(entry.body, 160),
+    }))}
+    preview={preview}
+  >
+    <Fragment set:html={bodyHtml} />
+  </BlogLayout>
+)}
 
 <style>
-  .preview-banner {
-    margin: 0;
-    padding: 0.6rem 1rem;
-    text-align: center;
-    font-size: 0.875rem;
-    color: var(--warning-foreground, var(--foreground));
-    background: color-mix(in srgb, var(--warning) 25%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
-  }
-
-  .post {
-    max-width: 46rem;
-    padding-block: var(--space-3xl);
-  }
-
-  .post__back {
-    font-size: 0.875rem;
-    color: var(--muted-foreground);
-  }
-
-  .post__title {
-    margin: var(--space-lg) 0 0;
-    font-size: clamp(2rem, 4.5vw, 3rem);
-    font-weight: var(--font-weight-extrabold);
-    letter-spacing: -0.03em;
-    line-height: 1.1;
-  }
-
-  .post__date {
-    margin: 0.75rem 0 0;
-    font-size: 0.875rem;
-    color: var(--faint-foreground);
-  }
-
-  .post__cover {
-    margin-top: var(--space-xl);
-    width: 100%;
-    height: auto;
-    border-radius: var(--radius-2xl);
-    border: 1px solid var(--color-border);
-  }
-
-  /* `.prose` vit dans `styles/global.css` : le corps d'un article est du
-     HTML injecté, donc hors de portée d'un style scopé. */
-  .post__body {
-    margin-top: var(--space-2xl);
-    max-width: none;
-  }
-
   .empty-state {
     display: flex;
     min-height: 60svh;

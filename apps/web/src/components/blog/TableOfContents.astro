@@ -1,0 +1,100 @@
+---
+// Le sommaire, porté de `src/components/blog/TableOfContents.astro`
+// d'`astro-emdash` : un rail droit collant, filet à gauche, deux niveaux
+// d'indentation.
+//
+// Deux écarts avec le template :
+//
+//   - ses `headings` viennent d'`astro:content` ; les nôtres sont relevés
+//     dans l'HTML rendu par `lib/toc.ts`, parce qu'un corps stocké dans
+//     Convex n'a jamais été analysé par personne. Voir ce fichier pour
+//     l'ordre — assainir d'abord, poser les ancres ensuite.
+//
+//   - son IntersectionObserver, qui surligne l'entrée en cours de lecture,
+//     n'est PAS porté : c'est du JavaScript envoyé au visiteur, et le
+//     sommaire reste entièrement utilisable sans lui. Le prix est visible
+//     et assumé : aucune entrée n'est mise en avant pendant qu'on défile.
+import type { Heading } from "../../lib/toc"
+
+export interface Props {
+  headings: Heading[]
+  title?: string
+  /** En deçà, un sommaire encombre plus qu'il n'aide. */
+  minHeadings?: number
+}
+
+const {
+  headings,
+  title = "Sommaire",
+  minHeadings = 2,
+} = Astro.props as Props
+
+const show = headings.length >= minHeadings
+---
+
+{show && (
+  <nav class="toc" aria-labelledby="toc-title">
+    <p class="toc__title" id="toc-title">{title}</p>
+    <ul>
+      {headings.map((heading) => (
+        <li class={`toc__item toc__item--depth-${heading.depth}`}>
+          <a href={`#${heading.slug}`}>{heading.text}</a>
+        </li>
+      ))}
+    </ul>
+  </nav>
+)}
+
+<style>
+  .toc {
+    padding-left: var(--space-md);
+    border-left: 1px solid var(--color-border);
+  }
+
+  .toc__title {
+    margin: 0 0 0.85rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+  }
+
+  .toc ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .toc__item--depth-3 {
+    padding-left: 1rem;
+    font-size: 0.875rem;
+  }
+
+  .toc a {
+    display: block;
+    padding: 0.2rem 0 0.2rem 0.75rem;
+    margin-left: -2px;
+    border-left: 2px solid transparent;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    line-height: 1.4;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .toc a:hover {
+    color: var(--color-text-primary);
+    border-left-color: var(--brand, var(--color-text-primary));
+  }
+
+  /* `:target` remplace en partie l'observateur du template : après un clic,
+     le titre visé se surligne. C'est moins que le suivi au défilement, mais
+     c'est gratuit. */
+  .toc a:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+</style>

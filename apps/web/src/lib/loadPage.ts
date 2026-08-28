@@ -19,6 +19,12 @@ export interface PageRecord {
   seo?: {
     title?: string
     description?: string
+    // Absent de cette interface jusqu'ici, alors que le champ existe en
+    // base et que `PageHead` le lit : l'image de partage propre à une page
+    // retombait donc toujours sur celle du site, sans que rien le dise.
+    // Une interface écrite à la main à côté d'un schéma est exactement
+    // l'endroit où ce genre d'oubli survit.
+    ogImageId?: string
     canonicalUrl?: string
     noindex?: boolean
   }

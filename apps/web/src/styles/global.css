@@ -129,14 +129,31 @@
   line-height: var(--leading-relaxed);
 }
 
-.prose h1,
+/* Les tailles sont explicites parce que le preflight de Tailwind remet
+   `font-size: inherit` sur tous les titres : sans ces trois règles, un `h2`
+   d'article sort à la taille d'un paragraphe, simplement en gras. Le défaut
+   ne se voit qu'à la lecture, et il est passé une fois. */
 .prose h2,
 .prose h3,
 .prose h4 {
   font-family: var(--font-heading);
-  font-weight: var(--font-weight-semibold);
-  margin-top: 2em;
-  margin-bottom: 0.75em;
+  font-weight: var(--font-weight-bold);
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  margin-top: 1.8em;
+  margin-bottom: 0.6em;
+}
+
+.prose h2 {
+  font-size: clamp(1.45rem, 2.4vw, 1.75rem);
+}
+
+.prose h3 {
+  font-size: clamp(1.2rem, 1.8vw, 1.35rem);
+}
+
+.prose h4 {
+  font-size: 1.0625rem;
 }
 
 .prose p {
@@ -159,9 +176,29 @@
   height: auto;
 }
 
+/* Même cause que les titres : le preflight retire les puces et le retrait.
+   Un article dont les listes ressemblent à des paragraphes perd sa
+   structure sans que rien ne le signale. */
 .prose ul,
 .prose ol {
-  padding-left: 1.25em;
+  margin-block: 1.25em;
+  padding-left: 1.5em;
+}
+
+.prose ul {
+  list-style: disc;
+}
+
+.prose ol {
+  list-style: decimal;
+}
+
+.prose li {
+  margin-block: 0.4em;
+}
+
+.prose li::marker {
+  color: var(--muted-foreground);
 }
 
 .prose blockquote {

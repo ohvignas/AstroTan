@@ -17,8 +17,7 @@ export interface NavItem {
 /** Navigation principale, dans l'en-tête. */
 export const mainNav: NavItem[] = [
   { href: "/", label: "Accueil" },
-  { href: "/a-propos", label: "À propos" },
-  { href: "/services", label: "Services" },
+  { href: "/fonctionnalites", label: "Fonctionnalités" },
   { href: "/tarifs", label: "Tarifs" },
   { href: "/blog", label: "Blog" },
   { href: "/contact", label: "Contact" },
@@ -27,11 +26,10 @@ export const mainNav: NavItem[] = [
 /** Colonnes du pied de page. La colonne « Social » vient de Convex. */
 export const footerNav = {
   offre: [
-    { href: "/services", label: "Services" },
+    { href: "/fonctionnalites", label: "Fonctionnalités" },
     { href: "/tarifs", label: "Tarifs" },
   ] as NavItem[],
   site: [
-    { href: "/a-propos", label: "À propos" },
     { href: "/blog", label: "Blog" },
     { href: "/contact", label: "Contact" },
   ] as NavItem[],

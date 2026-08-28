@@ -1,0 +1,206 @@
+---
+// Le gabarit d'un article, porté de `src/layouts/BlogLayout.astro`
+// d'`astro-emdash` : en-tête d'article, sommaire dans un rail droit
+// collant, corps à mesure de lecture confortable, partage, articles liés,
+// lien de retour.
+//
+// Il s'empile sur `BaseLayout` exactement comme dans le template, donc le
+// `<head>` (`PageHead`), la mesure d'audience (`Analytics`), l'en-tête et le
+// pied de page restent au même endroit pour toutes les pages du site.
+//
+// Retiré du template : son bloc `jsonLd` `BlogPosting`. `PageHead` émet déjà
+// l'`Article` et le fil d'Ariane à partir de sa propriété `article` — deux
+// blocs de données structurées décrivant le même article se contrediraient
+// dès que l'un des deux changerait.
+//
+// Le placement en grille est explicite (`grid-column` / `grid-row`) et non
+// laissé à l'ordre du DOM : le sommaire est écrit AVANT le corps pour
+// tomber en haut sur mobile, mais doit occuper la colonne étroite de droite
+// sur grand écran.
+import BaseLayout from "./BaseLayout.astro"
+import ArticleHero from "../components/blog/ArticleHero.astro"
+import TableOfContents from "../components/blog/TableOfContents.astro"
+import ShareButtons from "../components/blog/ShareButtons.astro"
+import RelatedPosts from "../components/blog/RelatedPosts.astro"
+import type { Heading } from "../lib/toc"
+import type { PostRecord, PostSummary } from "../lib/loadPost"
+
+export interface Props {
+  post: PostRecord
+  headings: Heading[]
+  coverUrl: string | null
+  coverAlt: string
+  canonicalUrl: string
+  relatedPosts: PostSummary[]
+  preview: boolean
+}
+
+const {
+  post,
+  headings,
+  coverUrl,
+  coverAlt,
+  canonicalUrl,
+  relatedPosts,
+  preview,
+} = Astro.props as Props
+
+const hasToc = headings.length >= 2
+---
+
+<BaseLayout
+  page={post}
+  fallbackTitle="Article introuvable"
+  article={{
+    title: post.title,
+    excerpt: post.excerpt,
+    publishedAt: post.publishedAt,
+    coverUrl,
+  }}
+>
+  {preview && (
+    <p class="preview-banner">
+      Aperçu — cet article n'est pas publié. Le lien expire au bout de 15
+      minutes.
+    </p>
+  )}
+
+  <article class="blog-layout container">
+    <ArticleHero
+      title={post.title}
+      excerpt={post.excerpt}
+      body={post.body}
+      publishedAt={post.publishedAt}
+      coverUrl={coverUrl}
+      coverAlt={coverAlt}
+    />
+
+    <div class={`blog-layout__content${hasToc ? " blog-layout__content--with-toc" : ""}`}>
+      {hasToc && (
+        <aside class="blog-layout__toc">
+          <TableOfContents headings={headings} />
+        </aside>
+      )}
+
+      {/* `.prose` vit dans `styles/global.css` : le corps est de l'HTML
+          injecté, donc hors de portée d'un style scopé. */}
+      <div class="blog-layout__article prose">
+        <slot />
+      </div>
+    </div>
+
+    <ShareButtons url={canonicalUrl} title={post.title} />
+
+    <RelatedPosts currentSlug={post.slug} posts={relatedPosts} />
+
+    <nav class="blog-layout__back">
+      <a href="/blog">
+        <span aria-hidden="true">←</span>
+        Tous les articles
+      </a>
+    </nav>
+  </article>
+</BaseLayout>
+
+<style>
+  .preview-banner {
+    margin: 0;
+    padding: 0.6rem 1rem;
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--foreground);
+    background: color-mix(in srgb, var(--warning) 25%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  }
+
+  .blog-layout {
+    display: grid;
+    gap: var(--space-2xl);
+    padding-block: var(--space-3xl);
+  }
+
+  .blog-layout__content {
+    display: grid;
+    gap: var(--space-xl);
+    align-items: start;
+  }
+
+  .blog-layout__content--with-toc {
+    grid-template-columns: minmax(0, 1fr) 16rem;
+  }
+
+  .blog-layout__content--with-toc .blog-layout__article {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .blog-layout__content--with-toc .blog-layout__toc {
+    grid-column: 2;
+    grid-row: 1;
+    position: sticky;
+    /* Sous l'en-tête collant, sinon le sommaire passe dessous. */
+    top: calc(var(--header-height) + 1.25rem);
+    max-height: calc(100vh - var(--header-height) - 3rem);
+    overflow-y: auto;
+  }
+
+  /* Mesure de lecture confortable : au-delà, l'œil perd la ligne suivante. */
+  .blog-layout__article {
+    max-width: 72ch;
+  }
+
+  /* Le titre visé par une ancre du sommaire ne doit pas se caler SOUS
+     l'en-tête collant. */
+  .blog-layout__article :global(h2),
+  .blog-layout__article :global(h3) {
+    scroll-margin-top: calc(var(--header-height) + 1rem);
+  }
+
+  .blog-layout__back a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    color: var(--color-text-primary);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .blog-layout__back a:hover {
+    border-color: var(--color-text-secondary);
+    background: var(--color-bg-secondary);
+  }
+
+  @media (width <= 64rem) {
+    .blog-layout__content--with-toc {
+      grid-template-columns: 1fr;
+    }
+
+    .blog-layout__content--with-toc .blog-layout__article,
+    .blog-layout__content--with-toc .blog-layout__toc {
+      grid-column: 1;
+      grid-row: auto;
+    }
+
+    .blog-layout__content--with-toc .blog-layout__article {
+      max-width: none;
+    }
+
+    .blog-layout__content--with-toc .blog-layout__toc {
+      position: static;
+      max-height: none;
+      overflow-y: visible;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .blog-layout__back a {
+      transition: none;
+    }
+  }
+</style>

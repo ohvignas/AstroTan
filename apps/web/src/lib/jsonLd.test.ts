@@ -46,9 +46,9 @@ describe("organizationJsonLd", () => {
       "https://illith.com",
     )
     expect(ld["@type"]).toBe("Organization")
-    expect(ld.name).toBe("Illith")
-    expect(ld.logo).toBe("https://illith.com/logo.png")
-    expect(ld.sameAs).toEqual(["https://linkedin.com/company/illith"])
+    expect(ld!.name).toBe("Illith")
+    expect(ld!.logo).toBe("https://illith.com/logo.png")
+    expect(ld!.sameAs).toEqual(["https://linkedin.com/company/illith"])
   })
 
   test("omet les champs absents plutôt que de les rendre vides", () => {
@@ -75,11 +75,11 @@ describe("articleJsonLd", () => {
 
   test("porte le titre, les dates et l'image", () => {
     const ld = articleJsonLd(post, SITE, "https://illith.com/blog/bienvenue")
-    expect(ld["@type"]).toBe("Article")
-    expect(ld.headline).toBe("Bienvenue")
-    expect(ld.datePublished).toBe(new Date(post.publishedAt).toISOString())
-    expect(ld.image).toBe(post.coverUrl)
-    expect((ld.publisher as { name: string }).name).toBe("Illith")
+    expect(ld!["@type"]).toBe("Article")
+    expect(ld!.headline).toBe("Bienvenue")
+    expect(ld!.datePublished).toBe(new Date(post.publishedAt).toISOString())
+    expect(ld!.image).toBe(post.coverUrl)
+    expect((ld!.publisher as { name: string }).name).toBe("Illith")
   })
 
   test("n'invente pas de date pour un article sans publishedAt", () => {

@@ -3,6 +3,7 @@
 // into the document head. Dropped into every page's `<head>`; it is the
 // only thing the SEO and GEO panels reach.
 import { api } from "@astrotan/backend/convex/_generated/api"
+import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import { getConvexClient } from "../lib/convexClient"
 import siteIcon from "../assets/icon_astrotan.png"
 import type { PageRecord } from "../lib/loadPage"
@@ -69,7 +70,12 @@ const site: SiteIdentity = {
 // platform renders it as a broken frame rather than skipping it.
 const ogImageId = page?.seo?.ogImageId ?? settings?.defaultSeo?.ogImageId
 const ogImageUrl = ogImageId
-  ? await getConvexClient().query(api.media.publicUrl, { storageId: ogImageId })
+  ? await getConvexClient().query(api.media.publicUrl, {
+      // `PageRecord` décrit la ligne en chaînes simples pour ne pas faire
+      // entrer les types Convex dans le site ; la conversion se fait donc
+      // ici, au seul endroit qui parle à Convex.
+      storageId: ogImageId as Id<"_storage">,
+    })
   : article?.coverUrl ?? null
 
 const description = page?.seo?.description ?? settings?.defaultSeo?.description

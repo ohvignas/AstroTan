@@ -62,8 +62,7 @@ const DEMO_PAGES = [
   // Une page est un couple : le fichier `.astro` ET sa ligne. Ces trois-là
   // ont leur fichier depuis le portage du template ; sans leur ligne, elles
   // répondent 404 — ce qui est l'invariant, pas une panne.
-  { slug: "a-propos", title: "À propos", publish: true },
-  { slug: "services", title: "Services", publish: true },
+  { slug: "fonctionnalites", title: "Fonctionnalités", publish: true },
   { slug: "tarifs", title: "Tarifs", publish: true },
 ]
 

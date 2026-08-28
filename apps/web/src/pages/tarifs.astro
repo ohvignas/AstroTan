@@ -21,43 +21,49 @@ const { page } = await loadPage(Astro)
 
 const plans = [
   {
-    name: "Starter",
-    price: "$0",
-    period: "forever",
-    description: "Everything you need to launch a personal site.",
+    name: "Gratuit",
+    price: "0 €",
+    description:
+      "Le site vitrine, complet. Vous le clonez, vous l'hébergez, il est à vous.",
     features: [
-      "Astro + the shared Convex backend",
-      "Blog and pages",
-      "SEO, sitemap and llms.txt",
-      "Community support",
+      "Le site public et toutes ses pages",
+      "Référencement : sitemap, llms.txt, données structurées",
+      "Déploiement Docker sur votre propre serveur",
+      "Le code source, sous licence libre",
     ],
-    cta: { label: "Get started", href: "/contact" },
+    cta: { label: "Cloner le dépôt", href: "https://github.com/OhVignas/AstroTan" },
   },
   {
-    name: "Professional",
-    price: "$29",
-    period: "month",
-    description: "For teams that need performance and reliability.",
+    name: "Complet",
+    price: "9,99 €",
+    period: "par mois",
+    description:
+      "Le site, plus l'administration qui va avec — et de quoi savoir ce qu'elle produit.",
     features: [
-      "Everything in Starter",
-      "Docker self-hosting behind Traefik",
-      "Self-hosted Umami analytics",
-      "Priority email support",
+      "Tout ce que comprend l'offre gratuite",
+      "Le tableau de bord : pages, articles, médias, redirections",
+      "Les statistiques d'audience, par page",
+      "Le suivi des messages reçus",
+      "L'agent IA — un assistant sur votre site (à venir)",
     ],
-    cta: { label: "Start free trial", href: "/contact" },
+    cta: { label: "Commencer", href: "/contact" },
+    // Mise en avant : c'est l'offre qui répond à la question que se pose
+    // quelqu'un qui compare, et la laisser au milieu sans marque obligerait
+    // à lire les trois colonnes pour s'en apercevoir.
     featured: true,
   },
   {
-    name: "Enterprise",
-    price: "Custom",
-    description: "Dedicated infrastructure, SLAs, and onboarding.",
+    name: "Sur mesure",
+    price: "Sur devis",
+    description:
+      "Votre site construit avec vous, avec les fonctionnalités dont vous avez besoin.",
     features: [
-      "Everything in Professional",
-      "Dedicated infrastructure",
-      "99.9% uptime SLA",
-      "Solutions engineering",
+      "Tout ce que comprend l'offre complète",
+      "Conception et intégration de vos pages",
+      "Les fonctionnalités propres à votre métier",
+      "Reprise de l'existant et mise en ligne",
     ],
-    cta: { label: "Contact sales", href: "/contact" },
+    cta: { label: "En parler", href: "/contact" },
   },
 ]
 ---
@@ -73,9 +79,9 @@ const plans = [
       <Hero
         variant="centered"
         size="md"
-        eyebrow="Pricing"
-        headline="Simple, transparent pricing"
-        subheadline="Three tiers, no hidden line. Demonstration content shipped with the template — replace it with your own."
+        eyebrow="Tarifs"
+        headline="Le site est gratuit. Le reste est à 9,99 €"
+        subheadline="Trois offres, aucune ligne cachée. Le site vitrine ne coûte rien et n'expire pas ; ce qui se paie, c'est l'administration qui va avec."
       />
 
       <div data-animate>
@@ -83,10 +89,10 @@ const plans = [
       </div>
 
       <CTA
-        eyebrow="Questions"
-        title="Questions about pricing?"
-        content="Talk to us and we will help you choose the right plan."
-        primaryText="Contact us"
+        eyebrow="Une question ?"
+        title="Pas sûr de l'offre qu'il vous faut ?"
+        content="Écrivez-nous, on vous répond avec ce qui correspond à votre cas — et on vous dira si l'offre gratuite suffit."
+        primaryText="Nous écrire"
         primaryHref="/contact"
       />
     </>

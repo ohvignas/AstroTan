@@ -1,155 +1,177 @@
 ---
-// La liste des articles. L'habillage vient du template ; la source de
-// données, non.
+// La liste des articles, portée de `src/pages/blog.astro` d'`astro-emdash` :
+// titre de page, chapô, compteur, un article mis en avant en pleine largeur,
+// puis une grille de cartes.
 //
 // À la différence d'une page, le contenu d'un article vit dans la base — un
 // article EST du contenu, et personne ne demandera à un agent de les écrire
 // un par un. Cette route lit donc de vraies lignes, là où `index.astro` ne
 // lit que ses propres réglages.
 //
+// Retiré du template, et chaque fois pour la même raison — l'information
+// n'existe pas côté public :
+//
+//   - le filtre par étiquette. Un article porte des `tagIds` ; `tags.list`
+//     exige un rôle, et le site public n'a ni session ni clé
+//     d'administration. Des pastilles affichant des identifiants bruts
+//     auraient été pires que pas de pastilles. Les rétablir demande une
+//     query publique qui rende les libellés — un ajout au backend, pas un
+//     portage de design.
+//   - la pagination. `listPublishedPosts` rend au plus un plafond fixe
+//     d'articles et prévient dans les logs quand il est atteint ; la
+//     pagination est une dette assumée du backend (voir `posts.ts`), pas
+//     quelque chose que cette page peut simuler.
+//
 // Elle n'a pas de ligne `pages` : ce n'est pas une page d'administration
 // mais un index engendré. `PageHead` reçoit `page={null}` et son titre de
-// repli, ce qui lui suffit pour rendre le canonique, `robots` et l'Open
-// Graph — plutôt qu'un second jeu de balises écrit à la main ici, qui aurait
-// divergé au premier changement.
+// repli, ce qui lui suffit pour le canonique, `robots` et l'Open Graph.
 export const prerender = false
 
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { getConvexClient } from "../../lib/convexClient"
 import { markdownToPlainText } from "../../lib/markdown"
+import type { PostSummary } from "../../lib/loadPost"
 import BaseLayout from "../../layouts/BaseLayout.astro"
+import BlogCard from "../../components/blog/BlogCard.astro"
 
 // Publiés uniquement, filtrés côté serveur dans la query — jamais ici.
 // Cette application ne porte ni session ni clé d'administration : une query
 // publique qui aurait oublié son filtre est une fuite de brouillons sans
 // rien d'autre sur le chemin.
-const posts = await getConvexClient().query(api.posts.listPublishedPosts, {})
+const posts = (await getConvexClient().query(
+  api.posts.listPublishedPosts,
+  {}
+)) as PostSummary[]
 
 // L'étiquette `posts` de la route : la boîte d'envoi de `publishPost`
 // l'invalide. Toute publication touche `posts`, donc cette liste est
 // périmée pendant des secondes, pas pendant `maxAge`.
 Astro.cache.set({ maxAge: 300, swr: 600, tags: ["posts"] })
 
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
+// Un article sans résumé saisi doit quand même se lire dans une carte :
+// `markdownToPlainText` garde le texte des liens et jette leurs URL.
+const withExcerpts = posts.map((post) => ({
+  ...post,
+  excerpt: post.excerpt || markdownToPlainText(post.body, 180),
+}))
+
+// Le plus récent passe en pleine largeur. Le template choisit un article
+// marqué `featured` et retombe sur le premier ; nous n'avons pas ce
+// drapeau, donc c'est toujours le premier — la query rend déjà du plus
+// récent au plus ancien.
+// `?? null` plutôt qu'une déstructuration : sous `noUncheckedIndexedAccess`,
+// `withExcerpts[0]` vaut `T | undefined`, et un garde `posts.length === 0`
+// écrit plus bas n'est pas quelque chose que TypeScript sait relier au
+// tableau. Le `null` explicite, si — et c'est lui qui pilote le rendu vide.
+const featured = withExcerpts[0] ?? null
+const rest = withExcerpts.slice(1)
 ---
 
 <BaseLayout page={null} fallbackTitle="Blog">
-  <section class="container blog">
-    <header class="section-head">
-      <p class="section-head__eyebrow">Blog</p>
-      <h1 class="section-head__title">Les derniers articles</h1>
-      <p class="section-head__lead">
+  <div class="blog-list container">
+    <header class="blog-list__hero">
+      <h1>Blog</h1>
+      <p class="blog-list__lead">
         Le blog de démonstration du template. Ses articles vivent dans la
         base et s'écrivent depuis le dashboard.
       </p>
+      <p class="blog-list__count">
+        {posts.length} {posts.length === 1 ? "article" : "articles"}
+      </p>
     </header>
 
-    {posts.length === 0 ? (
-      <p class="blog__empty">Aucun article publié pour le moment.</p>
+    {featured === null ? (
+      <div class="blog-list__empty">
+        <p class="blog-list__empty-title">
+          Aucun article publié pour le moment.
+        </p>
+        <p class="blog-list__empty-hint">
+          Un brouillon n'apparaît jamais ici — c'est l'invariant, pas un
+          défaut. Publiez-en un depuis le dashboard.
+        </p>
+      </div>
     ) : (
-      <ul class="blog__list">
-        {posts.map((post) => (
-          <li class="blog__item">
-            <article>
-              <h2>
-                <a href={`/blog/${post.slug}`}>{post.title}</a>
-              </h2>
-              {post.publishedAt && (
-                <p class="blog__date">
-                  <time datetime={new Date(post.publishedAt).toISOString()}>
-                    {dateFormat.format(post.publishedAt)}
-                  </time>
-                </p>
-              )}
-              <p class="blog__excerpt">
-                {/* Repli sur les premiers mots du corps quand aucun résumé
-                    n'a été écrit : un article sans résumé doit quand même se
-                    lire, et `markdownToPlainText` garde le texte des liens
-                    en jetant leurs URL. */}
-                {post.excerpt || markdownToPlainText(post.body, 180)}
-              </p>
-              <a class="blog__more" href={`/blog/${post.slug}`}>Lire l'article</a>
-            </article>
-          </li>
-        ))}
-      </ul>
+      <>
+        <section class="blog-list__featured" aria-label="Article à la une">
+          <BlogCard post={featured} variant="list" headingLevel="h2" />
+        </section>
+
+        {rest.length > 0 && (
+          <section class="blog-list__grid">
+            {rest.map((post) => (
+              <BlogCard post={post} variant="grid" headingLevel="h2" />
+            ))}
+          </section>
+        )}
+      </>
     )}
-  </section>
+  </div>
 </BaseLayout>
 
 <style>
-  .blog {
+  .blog-list {
+    display: grid;
+    gap: var(--space-xl);
     padding-block: var(--space-3xl);
   }
 
-  .blog__list {
+  .blog-list__hero {
+    max-width: 48rem;
     display: grid;
-    gap: var(--space-lg);
-    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
-    max-width: 62rem;
-    margin: var(--space-2xl) auto 0;
-    padding: 0;
-    list-style: none;
+    gap: var(--space-xs);
+    padding-bottom: var(--space-lg);
+    border-bottom: 1px solid var(--color-border);
   }
 
-  .blog__item {
-    padding: 1.75rem;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-2xl);
-    background: var(--card);
-    box-shadow: var(--shadow-sm);
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .blog__item:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-    border-color: color-mix(in srgb, var(--primary) 35%, var(--color-border));
-  }
-
-  .blog__item h2 {
+  .blog-list__hero h1 {
     margin: 0;
-    font-size: 1.25rem;
-    letter-spacing: -0.01em;
+    font-size: clamp(2.25rem, 4vw, 3.5rem);
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+    font-weight: var(--font-weight-extrabold);
   }
 
-  .blog__item h2 a {
-    color: inherit;
-    text-decoration: none;
+  .blog-list__lead {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 1.0625rem;
+    line-height: 1.7;
   }
 
-  .blog__item h2 a:hover {
-    text-decoration: underline;
-  }
-
-  .blog__date {
-    margin: 0.4rem 0 0;
-    font-size: 0.8125rem;
+  .blog-list__count {
+    margin: 0;
     color: var(--faint-foreground);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
   }
 
-  .blog__excerpt {
-    margin: 0.75rem 0 0;
-    font-size: 0.9375rem;
-    line-height: 1.65;
-    color: var(--muted-foreground);
-  }
-
-  .blog__more {
-    display: inline-block;
-    margin-top: 1rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--foreground);
-  }
-
-  .blog__empty {
-    max-width: 42rem;
-    margin: var(--space-2xl) auto 0;
+  .blog-list__empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-xs);
     padding: var(--space-3xl) var(--space-lg);
     text-align: center;
-    color: var(--muted-foreground);
     border: 1px dashed var(--color-border);
     border-radius: var(--radius-2xl);
+  }
+
+  .blog-list__empty-title {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 1.0625rem;
+  }
+
+  .blog-list__empty-hint {
+    margin: 0;
+    max-width: 34rem;
+    color: var(--faint-foreground);
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+
+  .blog-list__grid {
+    display: grid;
+    gap: var(--space-lg);
+    grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
   }
 </style>

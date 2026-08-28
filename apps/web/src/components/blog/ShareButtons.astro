@@ -1,0 +1,106 @@
+---
+// Le partage, porté de `src/components/blog/ShareButtons.astro`
+// d'`astro-emdash`.
+//
+// Le template en propose quatre : partage natif (`navigator.share`), X,
+// LinkedIn, et « copier le lien » (`navigator.clipboard`). Deux d'entre eux
+// sont des `<button>` pilotés par un script de 60 lignes ; ils ne sont pas
+// portés, parce que ce site n'envoie pas de JavaScript. Restent les deux qui
+// n'en ont jamais eu besoin : ce sont de simples liens vers une URL
+// d'intention, que le réseau social sait lire tout seul.
+//
+// Ce qu'on perd : la feuille de partage du système sur mobile, et le
+// bouton « copier ». Le second est le plus regretté — mais un visiteur sait
+// copier une barre d'adresse, et 60 lignes de script pour lui épargner ce
+// geste est un mauvais échange sur une page qui vend son absence de
+// JavaScript.
+import Icon from "../ui/primitives/Icon/Icon.astro"
+
+export interface Props {
+  url: string
+  title: string
+}
+
+const { url, title } = Astro.props as Props
+const encodedUrl = encodeURIComponent(url)
+const encodedTitle = encodeURIComponent(title)
+---
+
+<div class="share-buttons" role="group" aria-label="Partager cet article">
+  <span class="share-buttons__label">Partager</span>
+
+  <a
+    class="share-buttons__btn"
+    href={`https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedTitle}`}
+    target="_blank"
+    rel="noopener noreferrer"
+    aria-label="Partager sur X"
+  >
+    <Icon name="lucide:twitter" />
+    <span>X</span>
+  </a>
+
+  <a
+    class="share-buttons__btn"
+    href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`}
+    target="_blank"
+    rel="noopener noreferrer"
+    aria-label="Partager sur LinkedIn"
+  >
+    <Icon name="lucide:linkedin" />
+    <span>LinkedIn</span>
+  </a>
+</div>
+
+<style>
+  .share-buttons {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+  }
+
+  .share-buttons__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    margin-right: var(--space-xs);
+  }
+
+  .share-buttons__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    padding: 0.5rem 0.85rem;
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+
+  /* `:global()` : le SVG est rendu par `<Icon>`, un composant enfant. */
+  .share-buttons__btn :global(svg) {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .share-buttons__btn:hover {
+    border-color: var(--color-text-secondary);
+    background: var(--color-bg-secondary);
+  }
+
+  .share-buttons__btn:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .share-buttons__btn {
+      transition: none;
+    }
+  }
+</style>

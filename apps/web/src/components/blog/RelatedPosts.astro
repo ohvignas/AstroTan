@@ -1,0 +1,53 @@
+---
+// Les articles liés, portés de `src/components/blog/RelatedPosts.astro`
+// d'`astro-emdash`.
+//
+// Le template classe par nombre d'étiquettes partagées, puis par date. Nous
+// n'avons pas accès aux étiquettes côté public (voir `BlogCard.astro`), donc
+// il ne reste que la date : les trois articles publiés les plus récents,
+// celui qu'on lit exclu. C'est moins pertinent, et c'est dit ici plutôt que
+// laissé à deviner.
+import BlogCard from "./BlogCard.astro"
+import type { PostSummary } from "../../lib/loadPost"
+
+export interface Props {
+  currentSlug: string
+  posts: PostSummary[]
+  limit?: number
+}
+
+const { currentSlug, posts, limit = 3 } = Astro.props as Props
+
+const related = posts.filter((post) => post.slug !== currentSlug).slice(0, limit)
+---
+
+{related.length > 0 && (
+  <section class="related-posts">
+    <h2 class="related-posts__title">À lire ensuite</h2>
+    <div class="related-posts__grid">
+      {related.map((post) => (
+        <BlogCard post={post} variant="grid" />
+      ))}
+    </div>
+  </section>
+)}
+
+<style>
+  .related-posts {
+    margin-top: var(--space-3xl);
+    padding-top: var(--space-xl);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .related-posts__title {
+    margin: 0 0 var(--space-lg);
+    font-size: clamp(1.5rem, 2.5vw, 1.875rem);
+    letter-spacing: -0.01em;
+  }
+
+  .related-posts__grid {
+    display: grid;
+    gap: var(--space-lg);
+    grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  }
+</style>

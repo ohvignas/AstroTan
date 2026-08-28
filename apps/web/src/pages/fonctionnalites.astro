@@ -1,0 +1,162 @@
+---
+// Ce que le template sait faire, en une page.
+//
+// Elle remplace « À propos » et « Services », fusionnées : la première
+// racontait le projet, la seconde vendait une prestation que ce dépôt ne
+// fournit pas. Ce qu'un adoptant vient chercher, c'est la liste de ce qui
+// est déjà résolu — et elle n'a aucune raison d'être coupée en deux.
+//
+// Aucune donnée ne vient de la base ici hormis la ligne `pages` : les
+// tableaux ci-dessous sont littéraux, comme partout ailleurs sur ce site.
+// Le contenu d'une page EST son fichier.
+//
+// Sa ligne doit exister dans le dashboard avec le slug `fonctionnalites` et
+// être publiée — sinon cette route répond 404, délibérément.
+export const prerender = false
+
+import { loadPage } from "../lib/loadPage"
+import BaseLayout from "../layouts/BaseLayout.astro"
+import Hero from "../components/hero/Hero.astro"
+import FeatureTabs from "../components/landing/FeatureTabs.astro"
+import FeatureGrid from "../components/FeatureGrid.astro"
+import TechStack from "../components/landing/TechStack.astro"
+import LighthouseScores from "../components/landing/LighthouseScores.astro"
+import CTA from "../components/CTA.astro"
+import { FIGURES, STACK } from "../config/facts"
+
+const { page } = await loadPage(Astro)
+
+// Quatre onglets, pas cinq : `FeatureTabs` refuse au-delà de cinq, et une
+// rangée de pastilles qui déborde se lit moins bien qu'une qui tient.
+const tabs = [
+  {
+    id: "edition",
+    icon: "pen-line",
+    label: "Édition",
+    heading: "Écrire sans casser le design",
+    description:
+      "L'administration décide qui doit trouver une page — son titre, son slug, son statut, son SEO et son GEO. Jamais ce qu'elle contient : le balisage et les mots vivent dans le fichier .astro, écrits depuis une maquette.",
+    points: [
+      "Éditeur riche pour les articles, HTML assaini au stockage",
+      "Médiathèque avec titre, texte alternatif et remplacement du fichier",
+      "Aperçu d'un brouillon à sa vraie URL, par un jeton signé et expirable",
+    ],
+    visual:
+      "pages/         titre · slug · statut · SEO · GEO\nsrc/pages/     le balisage, la mise en page, les mots",
+  },
+  {
+    id: "trouvable",
+    icon: "search",
+    label: "Référencement",
+    heading: "Trouvable par les moteurs, et par les IA",
+    description:
+      "Les balises meta, les données structurées, le sitemap et le llms.txt sont engendrés depuis les mêmes champs. Ils ne peuvent donc pas décrire la page différemment.",
+    points: [
+      "JSON-LD Organization, Article, FAQPage et fil d'Ariane",
+      "sitemap.xml et llms.txt engendrés depuis les pages publiées",
+      "« ne pas indexer » et « ne pas reproduire » sont deux réglages distincts",
+    ],
+    visual:
+      "GET /sitemap.xml   → les pages publiées, et rien d'autre\nGET /llms.txt      → leurs résumés GEO",
+  },
+  {
+    id: "mesure",
+    icon: "activity",
+    label: "Mesure",
+    heading: "Savoir ce qui marche, sans céder vos visiteurs",
+    description:
+      "Umami tourne dans la même pile Docker. Aucune donnée ne quitte le serveur, et les identifiants qui lisent les statistiques ne touchent jamais le navigateur.",
+    points: [
+      "Les chiffres d'une page à côté de son éditeur",
+      "Sans cookie et sans donnée personnelle : la charge utile est documentée",
+      "Le tableau de bord reste utilisable quand la mesure est en panne",
+    ],
+    visual:
+      "POST /api/send  → 200\n{ hostname, url, referrer, screen }  — rien d'autre",
+  },
+  {
+    id: "livraison",
+    icon: "rocket",
+    label: "Mise en ligne",
+    heading: "Un déploiement qu'on sait annuler",
+    description:
+      "Une pile compose sur un VPS ordinaire, derrière Traefik, avec certificats automatiques et contrôles de santé. Le retour arrière rejoue le pipeline entier sur un sha — jamais les images seules.",
+    points: [
+      "Discipline expand / migrate / contract sur le schéma",
+      "Contrôles de santé sans dépendance, par construction",
+      "Procédure de rollback écrite, et la raison de chacune de ses étapes",
+    ],
+    visual: "gh workflow run rollback.yml -f sha=<sha>",
+  },
+]
+
+// La grille dit ce que les onglets ne peuvent pas contenir : les décisions
+// dont la valeur tient dans la phrase qui les explique.
+const decisions = [
+  {
+    icon: "lock",
+    title: "Accès sur invitation seule",
+    description:
+      "Pas d'inscription ouverte, pas d'OAuth. Le rôle vit sur l'utilisateur Better Auth, et chaque mutation le revérifie côté serveur : l'interface masque, elle ne décide pas.",
+  },
+  {
+    icon: "route",
+    title: "Renommer ne casse pas les liens",
+    description:
+      "Changer le slug d'une page ou d'un article frappe la redirection 301 correspondante, sans que personne y pense. Un manifeste des chemins réellement servis empêche d'écrire une redirection vers une page qui n'existe pas.",
+  },
+  {
+    icon: "eye-off",
+    title: "Un brouillon n'est jamais public",
+    description:
+      "Le site n'a ni session ni clé d'administration : il n'appelle que des queries publiques, et chacune filtre le statut côté serveur. Connaître l'adresse d'un brouillon ne suffit pas à le lire.",
+  },
+  {
+    icon: "image",
+    title: "Les images sont optimisées, vraiment",
+    description:
+      "Tout passe par astro:assets, y compris les fichiers de la médiathèque servis depuis Convex. Mesuré sur ce site : un logo de 1,3 Mo est livré en 2,6 ko de WebP.",
+  },
+  {
+    icon: "inbox",
+    title: "Les messages arrivent quelque part",
+    description:
+      "Le formulaire de contact écrit par une porte étroite — secret partagé, bornes vérifiées au serveur, limitation de débit — et les messages atterrissent dans un tableau de suivi plutôt que dans une boîte oubliée.",
+  },
+  {
+    icon: "shield",
+    title: "Tenu par des tests",
+    description:
+      "Plus de sept cents tests, dont une matrice de permissions qui exerce chaque mutation avec chaque rôle. Les invariants ne sont pas affirmés dans un fichier de documentation : ils échouent quand on les casse.",
+  },
+]
+---
+
+<BaseLayout page={page} fallbackTitle="Fonctionnalités">
+  <Hero
+    variant="centered"
+    size="md"
+    eyebrow="Fonctionnalités"
+    headline="Tout ce qui est déjà résolu"
+    subheadline="Un site vitrine et son administration, avec les décisions difficiles déjà prises, écrites, et tenues par des tests. Vous héritez du raisonnement, pas seulement du code."
+  />
+
+  <FeatureTabs tabs={tabs} name="fonctionnalites" />
+
+  <FeatureGrid title="Les décisions que vous héritez" features={decisions} columns={3} />
+
+  <TechStack items={STACK} />
+
+  <LighthouseScores items={FIGURES} />
+
+  <CTA
+    eyebrow="Prêt ?"
+    title="Clonez, supprimez la démonstration, écrivez la vôtre"
+    content="Tout ce que vous venez de lire est dans le dépôt, avec les tests qui le tiennent et la documentation qui explique pourquoi chaque décision a été prise ainsi."
+    primaryText="Nous écrire"
+    primaryHref="/contact"
+    secondaryText="Voir les tarifs"
+    secondaryHref="/tarifs"
+    centered
+  />
+</BaseLayout>

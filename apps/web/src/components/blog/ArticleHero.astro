@@ -1,0 +1,101 @@
+---
+// L'en-tête d'article, porté de `src/components/blog/ArticleHero.astro`
+// d'`astro-emdash` : titre très large, chapô, ligne de métadonnées, puis la
+// couverture pleine largeur au rapport 1200/540.
+//
+// Retiré du template : l'auteur (`post.data.author`) et `TagList`. Nos
+// articles portent `createdBy`, un identifiant Better Auth qu'aucune query
+// publique ne résout en nom affichable — et publier un identifiant de compte
+// sur une page publique serait une fuite, pas une signature.
+import PostCover from "./PostCover.astro"
+import { readingTime } from "../../lib/toc"
+
+export interface Props {
+  title: string
+  excerpt?: string
+  body: string
+  publishedAt?: number
+  coverUrl?: string | null
+  coverAlt?: string
+}
+
+const { title, excerpt, body, publishedAt, coverUrl, coverAlt } =
+  Astro.props as Props
+
+const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
+---
+
+<header class="article-hero">
+  <div class="article-hero__content">
+    <h1>{title}</h1>
+    {excerpt && <p class="article-hero__description">{excerpt}</p>}
+
+    <div class="article-hero__meta">
+      {publishedAt && (
+        <time datetime={new Date(publishedAt).toISOString()}>
+          {dateFormat.format(publishedAt)}
+        </time>
+      )}
+      <span class="article-hero__dot" aria-hidden="true">·</span>
+      <span>{readingTime(body)} min de lecture</span>
+    </div>
+  </div>
+
+  <figure class="article-hero__media">
+    <PostCover coverUrl={coverUrl} coverAlt={coverAlt} title={title} eager />
+  </figure>
+</header>
+
+<style>
+  .article-hero {
+    display: grid;
+    gap: var(--space-2xl);
+    margin-bottom: var(--space-2xl);
+  }
+
+  .article-hero__content {
+    display: grid;
+    gap: var(--space-md);
+    max-width: 52rem;
+  }
+
+  .article-hero h1 {
+    margin: 0;
+    font-size: clamp(2.25rem, 5vw, 3.75rem);
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+    font-weight: var(--font-weight-extrabold);
+    text-wrap: balance;
+  }
+
+  .article-hero__description {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: clamp(1.0625rem, 2vw, 1.25rem);
+    line-height: 1.6;
+    max-width: 42rem;
+    text-wrap: pretty;
+  }
+
+  .article-hero__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    color: var(--color-text-secondary);
+    font-size: 0.9375rem;
+  }
+
+  .article-hero__dot {
+    opacity: 0.5;
+  }
+
+  .article-hero__media {
+    margin: 0;
+    aspect-ratio: 1200 / 540;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-2xl);
+    background: var(--color-bg-secondary);
+  }
+</style>

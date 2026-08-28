@@ -50,7 +50,7 @@ describe("analyticsScripts", () => {
 
   test("un slash final dans l'URL ne produit pas de double slash", () => {
     expect(
-      analyticsScripts({ ...CONFIGURE, PUBLIC_UMAMI_URL: "https://stats.exemple.fr/" })[0].src,
+      analyticsScripts({ ...CONFIGURE, PUBLIC_UMAMI_URL: "https://stats.exemple.fr/" })[0]!.src,
     ).toBe("https://stats.exemple.fr/script.js")
   })
 })
