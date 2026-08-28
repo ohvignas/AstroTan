@@ -28,7 +28,7 @@ const { title, description, canonicalUrl, noindex = false, ogImageUrl } = Astro.
 
 // Global, not per-page (design spec §6.5: "JSON-LD `Organization`
 // global"). Built entirely from this app's own constants and the
-// request's own origin — never from `page.seo` or block content — so,
+// request's own origin — never from `page.seo` or the page body — so,
 // unlike `RichText.astro`'s `set:html`, there is no editor-authored value
 // flowing into this `set:html` call and nothing here needs sanitizing.
 const organizationJsonLd = {

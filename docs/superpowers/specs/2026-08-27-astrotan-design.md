@@ -23,9 +23,9 @@ deux apps : Docker sur VPS Hostinger derrière Traefik.
 
 ## 2. Périmètre
 
-**Dans la v1** : pages à blocs, blog, brouillon/publié + preview, médias, SEO par
-page + JSON-LD, navigation header/footer, slugs et redirections 301, utilisateurs
-et rôles.
+**Dans la v1** : pages en Markdown avec leurs réglages SEO/GEO, blog,
+brouillon/publié + preview, médias, JSON-LD, navigation header/footer, slugs et
+redirections 301, utilisateurs et rôles, statistiques par page (Umami).
 
 **Hors v1** : multilingue, révisions/historique, page-builder drag & drop,
 multi-tenant, formulaires de contact, recherche.
@@ -36,7 +36,7 @@ multi-tenant, formulaires de contact, recherche.
 astrotan/
 ├─ apps/
 │  ├─ web/                 Astro 7 · @astrojs/node standalone
-│  │  └─ src/components/blocks/*.astro    ← rendu des blocs, source unique
+│  │  └─ src/lib/markdown.ts              ← rendu Markdown + assainissement
 │  └─ admin/               TanStack Start 1 · React 19 · shadcn/ui
 ├─ packages/
 │  ├─ backend/             Convex : schema, functions, betterAuth/
@@ -54,7 +54,7 @@ de la codegen Convex (`convex dev` / `convex codegen`), qui doit donc avoir tour
 avant un typecheck à froid — la CI lance `convex codegen` avant `turbo typecheck`.
 
 Pas de `packages/ui` : les composants shadcn n'ont qu'un consommateur (`admin`),
-les blocs sont en `.astro`. Seuls les tokens CSS sont partagés.
+et la mise en page publique est en `.astro`. Seuls les tokens CSS sont partagés.
 
 ### Invariant de sécurité central
 
@@ -68,8 +68,8 @@ Tables applicatives :
 
 | Table | Champs | Index |
 |---|---|---|
-| `pages` | `slug`, `title`, `status`, `blocks[]`, `seo`, `publishedAt`, `createdBy`, `updatedBy` | `by_slug`, `by_status`, `by_created_by` |
-| `posts` | `slug`, `title`, `excerpt`, `coverId`, `blocks[]`, `status`, `publishedAt`, `createdBy`, `updatedBy`, `tagIds[]` | `by_slug`, `by_status_published`, `by_created_by` |
+| `pages` | `slug`, `title`, `status`, `body` (Markdown), `seo`, `geo`, `publishedAt`, `createdBy`, `updatedBy` | `by_slug`, `by_status`, `by_created_by` |
+| `posts` | `slug`, `title`, `excerpt`, `coverId`, `body` (Markdown), `status`, `seo`, `geo`, `publishedAt`, `createdBy`, `updatedBy`, `tagIds[]` | `by_slug`, `by_status_published`, `by_created_by` |
 | `tags` | `name`, `slug` | `by_slug` |
 | `media` | `storageId`, `filename`, `mime`, `width`, `height`, `alt`, `size` | `by_creation` |
 | `navigation` | `key: "header" \| "footer"`, `items[]` (2 niveaux max) | `by_key` |
@@ -86,28 +86,52 @@ vers un nom affichable passe par `profiles.by_auth_user`.
 
 Tables Better Auth : dans `convex/betterAuth/schema.ts` (Local Install, §5).
 
-### Blocs
+### Contenu : Markdown, pas de blocs
 
-`blocks[]` est un champ embarqué, pas une table. Union discriminée validée par
-Convex :
+**Révisé le 2026-08-28.** La première version de cette spec décrivait
+`blocks[]`, une union discriminée de six types de blocs rendus par un
+registre exhaustif. Le lot 2 l'a livrée, puis elle a été retirée du projet.
 
-```ts
-const block = v.union(
-  v.object({ type: v.literal("hero"),     title: v.string(), subtitle: v.optional(v.string()), mediaId: v.optional(v.id("media")), cta: v.optional(ctaValidator) }),
-  v.object({ type: v.literal("richText"), html: v.string() }),
-  v.object({ type: v.literal("features"), items: v.array(featureValidator) }),
-  v.object({ type: v.literal("gallery"),  mediaIds: v.array(v.id("media")) }),
-  v.object({ type: v.literal("faq"),      items: v.array(qaValidator) }),
-  v.object({ type: v.literal("cta"),      title: v.string(), cta: ctaValidator }),
-)
-```
+La raison n'est pas technique : le système marchait. C'est que c'était un
+constructeur de pages — une seconde façon, plus faible, de faire un travail
+que ce template fait déjà dans le code. La mise en page de ce template
+s'écrit en code et s'édite en code, y compris par un agent travaillant sur
+le site lui-même. Un éditeur de blocs dans l'admin entre en conflit avec ce
+code dès que les deux ne sont pas d'accord sur la mise en page.
 
-Justification : réordonner = une mutation atomique, pas de N+1 au rendu, et le type
-se propage jusqu'au composant `.astro` via un registre
-`Record<Block["type"], AstroComponent>` exhaustif — ajouter un type de bloc sans son
-composant devient une erreur TypeScript. Limite : 1 Mo par document Convex.
+`body` est donc du Markdown, stocké tel quel, rendu à la requête et
+**assaini après rendu, jamais avant** : Markdown laisse passer le HTML brut
+par conception, donc « ce n'est que du Markdown » n'est pas une propriété de
+sécurité. Le champ est borné à `MAX_BODY_LENGTH` (200 000 caractères).
 
-Pas de révisions en v1 : `draft` / `published` suffit à la boucle demandée.
+La séparation qui en résulte est le cœur du template :
+
+| Question | Répondue par |
+|---|---|
+| Que dit cette page ? | l'admin (`body`) |
+| Qui doit la trouver ? | l'admin (`seo`, `geo`) |
+| À quoi ressemble-t-elle ? | le code (`.astro`, Tailwind) |
+
+### Champs GEO
+
+`geo` est le pendant de `seo` pour les moteurs de réponse. Chaque champ
+existe parce qu'une machine le consomme réellement :
+
+| Champ | Consommé par |
+|---|---|
+| `summary` | l'extrait qu'un moteur de réponse cite tel quel ; alimente `llms.txt` |
+| `faq[]` | émis en JSON-LD `FAQPage`, le format le plus fidèlement repris |
+| `entities[]` | lève l'ambiguïté de nom (« Mercure » la planète ou l'élément) |
+| `noai` | distinct de `seo.noindex` : une page peut être indexable sans que son contenu doive être reproduit |
+
+La migration `convex/migrations.ts` (`blocksToMarkdown`) a converti les
+lignes existantes selon le cycle expand/migrate/contract de `CLAUDE.md`,
+avant que `body` ne devienne obligatoire et que `blocks` ne quitte le
+schéma. Conversion volontairement avec perte : les blocs portaient une
+intention de mise en page que le Markdown ne sait pas exprimer, et c'est
+précisément ce que le pivot déplace vers le code. Le *texte* est préservé
+intégralement ; les images de galerie deviennent une note visible plutôt
+qu'une suppression silencieuse.
 
 ## 5. Authentification et rôles
 
@@ -375,12 +399,13 @@ c'est là qu'est la sécurité :
 - Unicité des slugs, création automatique du 301 au changement de slug, refus d'une
   redirection sur un chemin prérendu.
 
-**apps/web** : `astro check` en CI, plus un test d'exhaustivité du registre de blocs
-(tout `Block["type"]` a un composant `.astro`, vérifié au type et au runtime).
+**apps/web** : `astro check` en CI, plus la suite d'assainissement de
+`src/lib/markdown.ts` — chaque cas y est du balisage qui atteindrait un visiteur
+en HTML brut si l'assainisseur était retiré ou appliqué avant le rendu.
 
 **E2E Playwright** contre la stack `docker compose` en CI : connexion → création de
-page → ajout et réordonnancement de blocs → preview, en vérifiant que l'URL publique
-renvoie encore 404 → publication → page en ligne en moins de 5 secondes.
+page → rédaction du contenu → preview, en vérifiant que l'URL publique renvoie
+encore 404 → publication → page en ligne en moins de 5 secondes.
 
 ## 9. Versions — figées par le spike du 2026-08-27
 
@@ -453,13 +478,19 @@ final (le rôle inchangé), pas sur le contenu de la réponse.
 
 ## 10. Découpage en lots
 
-1. **Socle** — monorepo, Convex, Better Auth Local Install, rôles, invitations.
-2. **Pages** — schéma des blocs, éditeur, rendu Astro, preview, cache, publication.
-3. **Blog** — posts, tags, médias, SEO, JSON-LD, sitemap.
+1. **Socle** — monorepo, Convex, Better Auth Local Install, rôles, invitations. *(livré)*
+2. **Pages** — contenu Markdown, éditeur, rendu Astro, preview, cache, publication. *(livré ; le système de blocs prévu à l'origine a été retiré — voir §4)*
+3. **Blog** — posts, tags, médias.
 4. **Navigation et redirections** — header/footer, slugs, 301.
 5. **Infra** — Docker, Traefik, CI/CD, rollback.
+6. **SEO, GEO et statistiques** — JSON-LD (`Organization`, `Article`, `FAQPage`), `sitemap.xml`, `robots.txt`, `llms.txt`, et intégration [Umami](https://umami.is/) : script sur le site, lecture de son API dans l'admin pour afficher les statistiques par page.
 
-Ce document est la référence d'architecture **commune aux cinq lots** : schéma,
+Les lots 3 à 6 sont numérotés dans l'ordre où ils ont été planifiés, pas
+dans un ordre d'exécution imposé : 4 et 5 ne dépendent pas de 3, et
+plusieurs peuvent avancer en parallèle. Le lot 6 dépend en revanche des
+champs `geo` livrés avec le lot 2.
+
+Ce document est la référence d'architecture **commune à tous les lots** : schéma,
 invariants de sécurité, cache, déploiement. Chaque lot reçoit ensuite son propre
 plan d'implémentation, qui s'y réfère sans le dupliquer. Le lot 1 est le seul à
 planifier maintenant ; les suivants seront planifiés à son achèvement, avec ce que

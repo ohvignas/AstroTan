@@ -5,7 +5,7 @@ import { ConvexError } from "convex/values"
 // `routes/_authed/users.tsx`'s own `ERROR_MESSAGES`/`describeError`, kept
 // as a separate copy here rather than a shared generic one because the
 // *codes* themselves are specific to this domain (`FIELD_TOO_LONG` names a
-// block/page field this screen knows how to talk about, `users.tsx` has
+// page field this screen knows how to talk about, `users.tsx` has
 // no equivalent). Shared between the list screen and the editor screen —
 // both call the same mutations and would otherwise have to keep two
 // copies of this dictionary in sync by hand.

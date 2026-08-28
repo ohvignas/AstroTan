@@ -315,7 +315,7 @@ function CreatePageDialog() {
         <DialogHeader>
           <DialogTitle>Nouvelle page</DialogTitle>
           <DialogDescription>
-            Créée comme brouillon — vous ajoutez les blocs et publiez ensuite.
+            Créée comme brouillon — vous rédigez le contenu et publiez ensuite.
           </DialogDescription>
         </DialogHeader>
         <form id="create-page-form" onSubmit={handleSubmit} noValidate>
