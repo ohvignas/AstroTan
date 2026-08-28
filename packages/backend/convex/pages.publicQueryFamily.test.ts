@@ -117,7 +117,31 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
     }),
   )
 
+  // M6 (whole-lot review): of the eight public (no-token) queries this
+  // scan discovers today, six are session-gated (`requireRole`) and throw
+  // for the unauthenticated caller this loop always is — landing in the
+  // blanket `catch { continue }` below and never reaching
+  // `assertNoDraftLeak` at all. Only these two actually run to
+  // completion unauthenticated. `expect(checked).toBeGreaterThan(0)`
+  // alone would still pass if one of these two were lost (a regression
+  // that made `getPublishedPage` newly session-gated, say) as long as the
+  // other kept running — this list is what turns "at least one query was
+  // checked" into "specifically the two queries this test actually knows
+  // how to exercise unauthenticated were checked."
+  const KNOWN_UNGATED_PUBLIC_QUERIES = ["pages.getPublishedPage", "pages.listPublishedPages"]
+
   let checked = 0
+  const checkedNames: string[] = []
+  // A skip must be visible, not silent — this task's own brief: "the
+  // blanket catch would also silently skip a future unauthenticated
+  // query that failed argument validation," indistinguishable from the
+  // expected "this query requires a session" case. Recording the error
+  // alongside the name (printed below, and inspectable on a failed
+  // `checkedNames` assertion via the array's own contents) means a
+  // wrongly-skipped query surfaces its actual failure reason instead of
+  // just vanishing from the count.
+  const skipped: { name: string; error: string }[] = []
+
   for (const q of publicFamily) {
     const fn = (api as unknown as Record<string, Record<string, unknown>>)[q.file]?.[q.name]
     if (!fn) throw new Error(`no api.${q.file}.${q.name} reference — is the module path right?`)
@@ -176,12 +200,35 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
     let result: unknown
     try {
       result = await t.query(fn as any, args)
-    } catch {
+    } catch (err) {
+      skipped.push({
+        name: `${q.file}.${q.name}`,
+        error: err instanceof Error ? err.message : String(err),
+      })
       continue
     }
     checked += 1
+    checkedNames.push(`${q.file}.${q.name}`)
     assertNoDraftLeak(result, draftId, `${q.file}.${q.name}`)
   }
 
+  // Printed unconditionally (not just on failure) — a skip is expected
+  // for the six session-gated queries, but "expected" must still mean
+  // "visible", not "silent". Anyone reading this test's own output can
+  // see exactly which queries were excluded and why, rather than having
+  // to trust the blanket catch got it right.
+  if (skipped.length > 0) {
+    console.info(
+      `pages.publicQueryFamily.test.ts: ${skipped.length} public quer${skipped.length === 1 ? "y" : "ies"} excluded from the leak check (threw when called unauthenticated):\n` +
+        skipped.map((s) => `  - ${s.name}: ${s.error}`).join("\n"),
+    )
+  }
+
   expect(checked).toBeGreaterThan(0)
+  // `arrayContaining`, not exact equality: a future Lot that adds another
+  // genuinely-ungated public query should extend `checkedNames`, not
+  // force an edit here — but losing either of these two specific,
+  // already-known-ungated queries must fail this test by name, not just
+  // by a falling count some other addition could mask.
+  expect(checkedNames).toEqual(expect.arrayContaining(KNOWN_UNGATED_PUBLIC_QUERIES))
 })
