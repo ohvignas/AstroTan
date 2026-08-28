@@ -2,46 +2,17 @@ import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { SiteDashboardPanel } from "@/components/site-dashboard"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 export const Route = createFileRoute("/_authed/")({
   component: DashboardPage,
 })
 
-const ROLE_LABELS = {
-  owner: "Propriétaire",
-  admin: "Administrateur",
-  editor: "Éditeur",
-} as const
-
 function DashboardPage() {
-  // Déjà souscrite par `AppShell` (même query, mêmes arguments) — ceci
-  // réutilise cette souscription plutôt que d'en ouvrir une seconde.
-  const profile = useQuery(api.profiles.me)
+  // `undefined` pendant le chargement, `null` si Umami n'est pas configuré.
   const umamiUrl = useQuery(api.analytics.umamiUrl)
 
-  return (
-    <div className="flex flex-col gap-4">
-      {/* L'audience d'abord : c'est la question qu'on se pose en ouvrant
-          l'administration le matin. L'identité de la session vient après —
-          elle est déjà dans la barre latérale. */}
-      <SiteDashboardPanel umamiUrl={umamiUrl} />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Votre session</CardTitle>
-          <CardDescription>
-            {profile ? `Connecté en tant que ${profile.displayName}` : "Chargement…"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          {profile && (
-            <p>
-              Rôle : <span className="font-medium text-foreground">{ROLE_LABELS[profile.role]}</span>
-            </p>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  )
+  // L'accueil ne répond qu'à une question : comment va le site. L'identité
+  // de la session et le rôle sont déjà dans la barre latérale — les répéter
+  // ici occupait la première place de l'écran sans rien apprendre.
+  return <SiteDashboardPanel umamiUrl={umamiUrl} />
 }
