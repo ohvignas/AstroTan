@@ -232,7 +232,7 @@ Index `by_status_next_attempt`.
    la même mutation — atomique, la ligne ne peut pas manquer.
 2. La mutation planifie `internal.revalidate.drain` immédiatement (chemin rapide).
 3. `drain` réclame les lignes `pending` dont `nextAttemptAt <= now`, POSTe sur
-   `${SITE_URL}/api/revalidate`, puis marque `done`, ou incrémente `attempts` avec
+   `${WEB_SITE_URL}/api/revalidate`, puis marque `done`, ou incrémente `attempts` avec
    backoff exponentiel (1 s, 5 s, 25 s, 2 min, 10 min) ; au-delà de 6 tentatives,
    `failed`.
 4. Un cron `crons.interval("revalidate-sweep", { seconds: 60 }, internal.revalidate.drain)`
@@ -317,6 +317,11 @@ Secrets : `CONVEX_DEPLOY_KEY`, `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`,
 `REVALIDATE_SECRET` et `PREVIEW_SECRET` sont partagés entre le déploiement Convex et
 le conteneur `web`, générés une fois (`openssl rand -hex 32`), stockés dans les
 secrets GitHub et via `npx convex env set`. Ils ne transitent jamais côté client.
+
+**`SITE_URL` est l'origine de l'ADMIN** — c'est le `baseURL` de Better Auth. L'origine
+du site public est **`WEB_SITE_URL`**, une variable distincte. Les confondre ferait
+silencieusement mal router soit l'authentification, soit la revalidation ; la spec
+disait initialement `${SITE_URL}/api/revalidate`, ce qui était faux.
 
 ### Rollback et migrations
 
