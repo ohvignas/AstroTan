@@ -1,6 +1,7 @@
 import type { FunctionReturnType } from "convex/server"
 import { useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import astrotanMark from "@/assets/astrotan-mark.png"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import {
@@ -18,7 +19,6 @@ import {
   SignpostIcon,
   LayoutDashboardIcon,
   NewspaperIcon,
-  ShieldIcon,
   UsersIcon,
 } from "lucide-react"
 
@@ -136,9 +136,17 @@ export function AppSidebar({
             between, so this is a static brand block, not the login-03/
             sidebar-07 template's interactive team switcher. */}
         <div className="flex items-center gap-2 px-2 py-1.5">
-          <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-            <ShieldIcon className="size-4" />
-          </div>
+          {/* La même marque que le site public — le fichier est copié dans
+              `apps/admin/src/assets/` parce que Vite ne suit pas un import
+              hors de la racine de l'application. Deux copies d'un fichier
+              qui change rarement, contre un import qui ne se résout pas. */}
+          <img
+            src={astrotanMark}
+            alt=""
+            width={32}
+            height={32}
+            className="size-8 rounded-lg object-contain"
+          />
           <div className="grid flex-1 text-left text-sm leading-tight">
             <span className="truncate font-medium">AstroTan</span>
             <span className="truncate text-xs text-sidebar-foreground/70">
