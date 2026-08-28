@@ -1,0 +1,27 @@
+# Contexte de build des deux images (docker/*.Dockerfile). Elles font
+# `COPY . .` : ce fichier est ce qui décide du contenu de l'image, et il
+# raisonne par catégorie — jamais par chemin applicatif nommé. L'arbre du
+# dépôt bouge à chaque lot ; une liste de `COPY` explicites casserait, ce
+# filtre non.
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+.output
+**/.output
+.astro
+**/.astro
+.turbo
+**/.turbo
+.claude
+docs
+# Tout `.env*` sauf les exemples : aucun secret local ne doit pouvoir
+# entrer dans une couche d'image, même en étant écrasé plus tard — les
+# couches restent lisibles.
+**/.env
+**/.env.*
+!**/.env.example
+**/.DS_Store
+**/*.tsbuildinfo
