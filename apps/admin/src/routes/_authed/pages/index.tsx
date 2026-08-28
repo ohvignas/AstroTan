@@ -339,7 +339,9 @@ function CreatePageDialog() {
         <DialogHeader>
           <DialogTitle>Nouvelle page</DialogTitle>
           <DialogDescription>
-            Créée comme brouillon — vous rédigez le contenu et publiez ensuite.
+            Créée comme brouillon. Elle ne s'affichera que lorsque son fichier{" "}
+            <code>{"src/pages/<slug>.astro"}</code> existera aussi — c'est lui
+            qui porte le design.
           </DialogDescription>
         </DialogHeader>
         <form id="create-page-form" onSubmit={handleSubmit} noValidate>

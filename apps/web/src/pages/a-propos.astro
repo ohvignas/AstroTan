@@ -1,0 +1,46 @@
+---
+// A third ordinary page, and it exists to make one rule visible: a page is
+// live only when BOTH halves are there — this file, and a published row
+// carrying the same slug. Creating the row in the dashboard alone gives a
+// page that answers 404, which is exactly what happened while writing this.
+//
+// Its row must exist in the dashboard with the slug `contact`, and be
+// published — otherwise this route answers 404, deliberately.
+export const prerender = false
+
+import { loadPage } from "../lib/loadPage"
+import PageHead from "../components/PageHead.astro"
+import SiteHeader from "../components/SiteHeader.astro"
+import SiteFooter from "../components/SiteFooter.astro"
+import "../styles/global.css"
+
+const { page } = await loadPage(Astro, "a-propos")
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <PageHead page={page} />
+  </head>
+  <body class="bg-white text-ink antialiased">
+    <SiteHeader />
+    {page === null ? (
+      <main class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center">
+        <h1 class="text-3xl font-bold">404</h1>
+        <p class="text-ink-mid">Cette page n'existe pas.</p>
+      </main>
+    ) : (
+      <main class="mx-auto max-w-2xl px-6 py-16">
+        <h1 class="text-3xl font-bold">{page.title}</h1>
+        <p class="mt-4 text-ink-mid">
+          Troisième page d’exemple. Elle existe parce que ce fichier existe — créer sa ligne dans l’administration ne suffit pas. Le titre ci-dessus, les champs
+          SEO et GEO, et la publication de cette page se règlent dans
+          l'administration ; tout le reste s'écrit ici, en code.
+        </p>
+      </main>
+    )}
+    <SiteFooter />
+  </body>
+</html>
