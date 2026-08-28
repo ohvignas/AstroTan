@@ -393,9 +393,10 @@ test("ssoLink frappe un jeton d'échange et construit le lien", async () => {
   const link = await admin.identity.action(api.analytics.ssoLink, {})
 
   // `url` est obligatoire : sans lui, la page `/sso` consomme le jeton et
-  // s'arrête sur un écran vide.
+  // s'arrête sur un écran vide. Elle vise le site mesuré, pas l'accueil
+  // d'Umami — on vient de l'éditeur d'un site précis.
   expect(link).toBe(
-    "https://umami.illith.test/sso?url=%2F&token=echange%2F%2Bjeton",
+    "https://umami.illith.test/sso?url=%2Fwebsites%2Fsite-1&token=echange%2F%2Bjeton",
   )
   // Ce qui voyage est le jeton d'ÉCHANGE, jamais celui du compte.
   expect(link).not.toContain("compte")

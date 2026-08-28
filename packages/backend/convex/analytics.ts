@@ -392,7 +392,12 @@ export const ssoLink = action({
 
       // `url` est obligatoire : sans lui la page `/sso` consomme le jeton et
       // s'arrête sur un écran vide. Constaté, pas déduit.
-      return `${cfg.url}/sso?url=%2F&token=${encodeURIComponent(body.token)}`
+      //
+      // Elle vise la page du site mesuré, pas l'accueil d'Umami : on vient
+      // de l'éditeur d'un site précis, et atterrir sur une liste de sites
+      // ferait recommencer une navigation qu'on connaît déjà.
+      const destination = encodeURIComponent(`/websites/${cfg.websiteId}`)
+      return `${cfg.url}/sso?url=${destination}&token=${encodeURIComponent(body.token)}`
     } catch {
       return null
     }
