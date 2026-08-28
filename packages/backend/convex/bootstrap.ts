@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values"
 import { internalMutation } from "./_generated/server"
 import { roleValidator } from "./validators"
-import { generateToken, hashToken } from "./lib/token"
+import { generateToken } from "./lib/token"
 
 // The operator's way back in.
 //
