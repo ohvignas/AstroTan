@@ -51,3 +51,50 @@ jobs:
 
       - name: Fail if routeTree.gen.ts is out of date
         run: git diff --exit-code -- apps/admin/src/routeTree.gen.ts
+
+  # Job séparé de `ci` : il ne partage ni son installation pnpm ni son
+  # cache, et il doit pouvoir échouer sans masquer un échec de test.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Seule l'image `admin` est construite ici. Celle du site exige un
+      # déploiement Convex JOIGNABLE PENDANT LE BUILD (`index.astro` est
+      # prérendu et l'interroge) : la construire sur une PR supposerait de
+      # donner l'URL de production à des PR venues de forks, où les secrets
+      # ne sont de toute façon pas disponibles. Le premier build réel de
+      # l'image `web` reste donc celui du workflow Deploy — limite connue,
+      # écrite ici plutôt que découverte.
+      - name: Build the admin image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/admin.Dockerfile
+          push: false
+          build-args: |
+            VITE_CONVEX_URL=http://ci.invalid
+            VITE_CONVEX_SITE_URL=http://ci.invalid
+            VITE_WEB_SITE_URL=http://ci.invalid
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Ces variables sont exactement celles que `docker-compose.yml` exige
+      # par `${VAR:?message}` — ni plus, ni moins. Pas d'`ACME_EMAIL` : le
+      # compose n'en lit aucune, l'adresse ACME est littérale dans
+      # `docker/traefik/traefik.yml` (Traefik n'interpole rien dans sa
+      # configuration statique). En poser une ici ferait croire que la
+      # variable existe.
+      - name: Validate the compose file
+        env:
+          GHCR_OWNER: ci
+          IMAGE_TAG: ci
+          WEB_DOMAIN: example.test
+          ADMIN_DOMAIN: admin.example.test
+          VITE_CONVEX_URL: http://ci.invalid
+          VITE_CONVEX_SITE_URL: http://ci.invalid
+          PREVIEW_SECRET: ci-secret-at-least-32-characters-long
+          REVALIDATE_SECRET: ci-secret-at-least-32-characters-long
+        run: docker compose -f docker/docker-compose.yml config >/dev/null
