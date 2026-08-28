@@ -129,10 +129,14 @@ jobs:
 
       # `--exclude '.env'` avec `--delete` : le `.env` du VPS n'est ni
       # écrasé ni supprimé. Il porte les variables que la commande
-      # ci-dessous ne passe pas — `WEB_DOMAIN`, `ADMIN_DOMAIN`,
-      # `PREVIEW_SECRET`, `REVALIDATE_SECRET`, `VITE_CONVEX_URL`,
-      # `VITE_CONVEX_SITE_URL` — et que `docker/docker-compose.yml` exige
-      # par la syntaxe `${VAR:?message}`.
+      # ci-dessous ne passe pas — `ACME_EMAIL`, `WEB_DOMAIN`,
+      # `ADMIN_DOMAIN`, `PREVIEW_SECRET`, `REVALIDATE_SECRET`,
+      # `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL` — et que
+      # `docker/docker-compose.yml` exige par la syntaxe `${VAR:?message}`.
+      # Un VPS amorcé avant que la configuration statique de Traefik ne
+      # passe en variables d'environnement n'a pas `ACME_EMAIL` : le
+      # premier déploiement après cette bascule échoue en la nommant, et
+      # c'est la bonne façon d'échouer (`docker/README.md`, mise à jour).
       - name: Ship the compose stack
         env:
           VPS_USER: ${{ secrets.VPS_USER }}

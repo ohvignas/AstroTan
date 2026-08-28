@@ -99,8 +99,11 @@ jobs:
           printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      # Le compose et la config Traefik du sha visé, pas ceux de `main` :
-      # rejouer un pipeline, c'est rejouer sa configuration aussi. Le
+      # Le compose du sha visé, pas celui de `main` : rejouer un pipeline,
+      # c'est rejouer sa configuration aussi — et depuis que la
+      # configuration statique de Traefik vit dans le `environment:` de ce
+      # même fichier, c'est bien toute la configuration du reverse proxy
+      # qui revient avec lui, sans fichier annexe à synchroniser. Le
       # `.env` du VPS reste intact (`--exclude '.env'`), il porte les
       # variables que la commande ci-dessous ne passe pas.
       - name: Ship the compose stack of that sha
