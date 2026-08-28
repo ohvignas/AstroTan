@@ -5,6 +5,7 @@ import type { FunctionReturnType } from "convex/server"
 import { ConvexError } from "convex/values"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
+import { RowActionsMenu } from "@/components/row-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,7 +24,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import {
   Dialog,
@@ -35,6 +35,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import {
   Field,
   FieldError,
@@ -57,7 +58,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { UserPlusIcon } from "lucide-react"
+import { BanIcon, UserMinusIcon, UserPlusIcon } from "lucide-react"
 
 export const Route = createFileRoute("/_authed/users")({
   component: UsersPage,
@@ -294,6 +295,11 @@ function UserTableRow({
   onRoleChange: (role: Role) => void
   onRemove: () => void
 }) {
+  // La confirmation est pilotée par état plutôt que par un
+  // `AlertDialogTrigger` : le menu se ferme au clic sur une entrée, et
+  // emporterait un déclencheur monté à l'intérieur avant qu'il n'ouvre quoi
+  // que ce soit.
+  const [removeOpen, setRemoveOpen] = useState(false)
   const role = user.role
   // Courtesy, not enforcement: an owner row can never legitimately change
   // role or be removed by this screen's actions — the single-owner
@@ -337,33 +343,44 @@ function UserTableRow({
         )}
       </TableCell>
       <TableCell className="text-right">
+        {/* La seule action de cette ligne est irréversible, donc elle est
+            repliée : le rôle se change dans la colonne d'à côté, et retirer
+            un compte ne doit pas être le bouton voisin. Rien à replier pour
+            un propriétaire ou pour soi-même — pas de bouton du tout, plutôt
+            qu'un menu vide. */}
         {canRemove && (
-          <AlertDialog>
-            <AlertDialogTrigger
-              render={
-                <Button variant="destructive" size="sm" disabled={pending} />
-              }
-            >
-              Retirer
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  Retirer {user.displayName} ?
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  Le compte est supprimé et son accès révoqué immédiatement.
-                  Cette action est irréversible.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Annuler</AlertDialogCancel>
-                <AlertDialogAction variant="destructive" onClick={onRemove}>
-                  Retirer
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <div className="flex items-center justify-end gap-1">
+            <RowActionsMenu label={`Autres actions pour ${user.displayName}`}>
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={pending}
+                onClick={() => setRemoveOpen(true)}
+              >
+                <UserMinusIcon />
+                Retirer
+              </DropdownMenuItem>
+            </RowActionsMenu>
+
+            <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Retirer {user.displayName} ?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Le compte est supprimé et son accès révoqué immédiatement.
+                    Cette action est irréversible.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Annuler</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={onRemove}>
+                    Retirer
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         )}
       </TableCell>
     </TableRow>
@@ -437,14 +454,23 @@ function InvitationsTable({
                 {new Date(invite.expiresAt).toLocaleDateString("fr-FR")}
               </TableCell>
               <TableCell className="text-right">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pendingId === invite._id}
-                  onClick={() => handleRevoke(invite._id)}
-                >
-                  Révoquer
-                </Button>
+                {/* Révoquer est la seule action de la ligne, et elle est
+                    irréversible : le lien déjà envoyé cesse de fonctionner.
+                    Elle est donc repliée, pas offerte au clic direct. */}
+                <div className="flex items-center justify-end gap-1">
+                  <RowActionsMenu
+                    label={`Autres actions pour l'invitation de ${invite.email}`}
+                  >
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={pendingId === invite._id}
+                      onClick={() => handleRevoke(invite._id)}
+                    >
+                      <BanIcon />
+                      Révoquer
+                    </DropdownMenuItem>
+                  </RowActionsMenu>
+                </div>
               </TableCell>
             </TableRow>
           ))}

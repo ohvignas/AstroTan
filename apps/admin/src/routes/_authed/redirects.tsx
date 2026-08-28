@@ -21,6 +21,7 @@ import { api } from "@astrotan/backend/convex/_generated/api"
 // server side had to move with it.
 import { MAX_REDIRECT_PATH_LENGTH } from "@astrotan/backend/convex/content"
 import { describeRedirectError } from "@/lib/redirectErrors"
+import { RowActionButton, RowActionsMenu } from "@/components/row-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -48,6 +49,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import {
   Field,
   FieldDescription,
@@ -75,7 +77,9 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   ChevronsUpDownIcon,
+  PencilIcon,
   PlusIcon,
+  Trash2Icon,
 } from "lucide-react"
 
 export const Route = createFileRoute("/_authed/redirects")({
@@ -426,17 +430,27 @@ function RedirectActions({ redirect }: { redirect: RedirectRow }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
 
   return (
-    <div className="flex justify-end gap-2">
-      <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-        Modifier
-      </Button>
-      <Button
-        variant="destructive"
-        size="sm"
-        onClick={() => setDeleteOpen(true)}
+    <div className="flex items-center justify-end gap-1">
+      <RowActionButton
+        label={`Modifier la redirection depuis /${redirect.from}`}
+        tooltip="Modifier"
+        onClick={() => setEditOpen(true)}
       >
-        Supprimer
-      </Button>
+        <PencilIcon />
+      </RowActionButton>
+      {/* Supprimer une redirection renvoie ses visiteurs sur une 404 : elle
+          est repliée derrière les trois points, pas voisine de Modifier. */}
+      <RowActionsMenu
+        label={`Autres actions pour la redirection depuis /${redirect.from}`}
+      >
+        <DropdownMenuItem
+          variant="destructive"
+          onClick={() => setDeleteOpen(true)}
+        >
+          <Trash2Icon />
+          Supprimer
+        </DropdownMenuItem>
+      </RowActionsMenu>
 
       {editOpen && (
         <RedirectFormDialog

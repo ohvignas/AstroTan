@@ -5,6 +5,7 @@ import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import { describePageError } from "@/lib/pageErrors"
+import { RowActionButton, RowActionsMenu } from "@/components/row-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,7 +18,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import {
   Dialog,
@@ -29,6 +29,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
 import {
   Field,
   FieldError,
@@ -44,7 +48,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { HomeIcon, PlusIcon, TriangleAlertIcon } from "lucide-react"
+import {
+  EyeOffIcon,
+  GlobeIcon,
+  HomeIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+  TriangleAlertIcon,
+} from "lucide-react"
 
 export const Route = createFileRoute("/_authed/pages/")({
   component: PagesListPage,
@@ -211,94 +223,128 @@ function PagesTable({
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      render={
-                        <Link
-                          to="/pages/$pageId"
-                          params={{ pageId: page._id }}
-                        />
-                      }
-                      nativeButton={false}
-                    >
-                      Éditer
-                    </Button>
-                    {canPublish &&
-                      (page.status === "published" ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={pending}
-                          onClick={() =>
-                            withPending(page._id, () =>
-                              unpublish({ id: page._id })
-                            )
-                          }
-                        >
-                          Dépublier
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          disabled={pending}
-                          onClick={() =>
-                            withPending(page._id, () =>
-                              publishPage({ id: page._id })
-                            )
-                          }
-                        >
-                          Publier
-                        </Button>
-                      ))}
-                    {(canPublish || isOwn) && (
-                      <AlertDialog>
-                        <AlertDialogTrigger
-                          render={
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              disabled={pending}
-                            />
-                          }
-                        >
-                          Supprimer
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Supprimer « {page.title} » ?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {page.status === "published"
-                                ? "Cette page est publiée : elle disparaîtra du site public une fois l'invalidation propagée. Cette action est irréversible."
-                                : "Ce brouillon sera supprimé définitivement. Cette action est irréversible."}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Annuler</AlertDialogCancel>
-                            <AlertDialogAction
-                              variant="destructive"
-                              onClick={() =>
-                                withPending(page._id, () =>
-                                  removePage({ id: page._id })
-                                )
-                              }
-                            >
-                              Supprimer
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                  </div>
+                  <PageRowActions
+                    page={page}
+                    canPublish={canPublish}
+                    isOwn={isOwn}
+                    pending={pending}
+                    onPublish={() =>
+                      withPending(page._id, () => publishPage({ id: page._id }))
+                    }
+                    onUnpublish={() =>
+                      withPending(page._id, () => unpublish({ id: page._id }))
+                    }
+                    onDelete={() =>
+                      withPending(page._id, () => removePage({ id: page._id }))
+                    }
+                  />
                 </TableCell>
               </TableRow>
             )
           })}
         </TableBody>
       </Table>
+    </div>
+  )
+}
+
+/**
+ * Une action visible, le reste replié.
+ *
+ * Éditer est ce qu'on vient faire sur cette ligne, et reste donc à un
+ * clic. Publier, dépublier et surtout supprimer passent derrière les trois
+ * points : la suppression est irréversible et n'a rien à faire à côté du
+ * geste courant.
+ *
+ * La confirmation est pilotée par état plutôt que par un
+ * `AlertDialogTrigger` : le menu se ferme au clic sur une entrée, et
+ * emporterait un déclencheur monté à l'intérieur avant qu'il n'ouvre quoi
+ * que ce soit. Le dialogue est donc rendu en dehors du menu.
+ */
+function PageRowActions({
+  page,
+  canPublish,
+  isOwn,
+  pending,
+  onPublish,
+  onUnpublish,
+  onDelete,
+}: {
+  page: PageRow
+  canPublish: boolean
+  isOwn: boolean
+  pending: boolean
+  onPublish: () => void
+  onUnpublish: () => void
+  onDelete: () => void
+}) {
+  const [deleteOpen, setDeleteOpen] = useState(false)
+
+  // Un éditeur qui ne possède pas la page n'a aucune entrée à voir : le
+  // bouton trois points ne se rend alors pas du tout, plutôt que d'ouvrir
+  // un menu vide. `canPublish` implique `canDelete`, d'où la seule
+  // condition.
+  const canDelete = canPublish || isOwn
+
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <RowActionButton
+        label={`Éditer la page ${page.title}`}
+        tooltip="Éditer"
+        render={<Link to="/pages/$pageId" params={{ pageId: page._id }} />}
+        nativeButton={false}
+      >
+        <PencilIcon />
+      </RowActionButton>
+
+      {canDelete && (
+        <RowActionsMenu label={`Autres actions pour la page ${page.title}`}>
+          {canPublish &&
+            (page.status === "published" ? (
+              <DropdownMenuItem disabled={pending} onClick={onUnpublish}>
+                <EyeOffIcon />
+                Dépublier
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem disabled={pending} onClick={onPublish}>
+                <GlobeIcon />
+                Publier
+              </DropdownMenuItem>
+            ))}
+          {/* Le séparateur n'a de sens qu'au-dessus de quelque chose : pour
+              un éditeur, « Supprimer » est la seule entrée du menu. */}
+          {canPublish && <DropdownMenuSeparator />}
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={pending}
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2Icon />
+            Supprimer
+          </DropdownMenuItem>
+        </RowActionsMenu>
+      )}
+
+      {canDelete && (
+        <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Supprimer « {page.title} » ?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {page.status === "published"
+                  ? "Cette page est publiée : elle disparaîtra du site public une fois l'invalidation propagée. Cette action est irréversible."
+                  : "Ce brouillon sera supprimé définitivement. Cette action est irréversible."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Annuler</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={onDelete}>
+                Supprimer
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   )
 }

@@ -18,6 +18,7 @@ import {
   UploadMediaDialog,
 } from "@/components/media-picker"
 import type { MediaItem } from "@/components/media-picker"
+import { RowActionButton, RowActionsMenu } from "@/components/row-actions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -29,6 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import {
   Table,
   TableBody,
@@ -43,6 +45,8 @@ import {
   ChevronsUpDownIcon,
   LayoutGridIcon,
   ListIcon,
+  PencilIcon,
+  Trash2Icon,
   UploadIcon,
 } from "lucide-react"
 
@@ -362,19 +366,28 @@ function MediaActions({
 
   return (
     <div
-      className={`flex gap-2 ${align === "end" ? "justify-end" : "justify-start"}`}
+      className={`flex items-center gap-1 ${align === "end" ? "justify-end" : "justify-start"}`}
     >
-      <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-        Modifier
-      </Button>
+      <RowActionButton
+        label={`Modifier « ${item.filename} »`}
+        tooltip="Modifier"
+        onClick={() => setEditOpen(true)}
+      >
+        <PencilIcon />
+      </RowActionButton>
+      {/* Supprimer est irréversible et se replie donc derrière les trois
+          points. Pour un éditeur qui n'a pas téléversé le fichier, il n'y a
+          rien à replier : pas de bouton du tout, plutôt qu'un menu vide. */}
       {ownsOrOutranks && (
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => setDeleteOpen(true)}
-        >
-          Supprimer
-        </Button>
+        <RowActionsMenu label={`Autres actions pour « ${item.filename} »`}>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2Icon />
+            Supprimer
+          </DropdownMenuItem>
+        </RowActionsMenu>
       )}
 
       <EditMediaDialog
