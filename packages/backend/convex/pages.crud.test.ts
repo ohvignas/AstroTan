@@ -4,6 +4,7 @@ import schema from "./schema"
 import { api, internal } from "./_generated/api"
 import { getFunctionName } from "convex/server"
 import { verifyPreviewToken } from "./lib/previewToken"
+import { MAX_BODY_LENGTH, MAX_GEO_SUMMARY_LENGTH } from "./content"
 import { ORIGIN, identityFor, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
 
 // Task 8 — the page editor screen's own mutations/queries: `create`,
@@ -53,7 +54,7 @@ test("create insère un brouillon appartenant à l'appelant", async () => {
   expect(page?.title).toBe("Ma page")
   expect(page?.slug).toBe("ma-page")
   expect(page?.status).toBe("draft")
-  expect(page?.blocks).toEqual([])
+  expect(page?.body).toBe("")
   expect(page?.createdBy).toBe(actor.id)
   expect(page?.updatedBy).toBe(actor.id)
 })
@@ -116,7 +117,7 @@ async function insertOwnedPage(
       slug: overrides.slug,
       title: "Titre initial",
       status: overrides.status ?? "draft",
-      blocks: [],
+      body: "",
       createdBy: overrides.createdBy,
       updatedBy: overrides.createdBy,
     }),
@@ -283,31 +284,54 @@ test("update refuse un id inexistant", async () => {
   ).rejects.toMatchObject({ data: { code: "NOT_FOUND" } })
 })
 
-test("update refuse un bloc dont un champ dépasse sa limite (hero.title)", async () => {
+test("update refuse un corps Markdown au-delà de sa limite", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
-  const id = await insertOwnedPage(t, { slug: "bloc-trop-long", createdBy: owner.id })
+  const id = await insertOwnedPage(t, { slug: "corps-trop-long", createdBy: owner.id })
   await expect(
     owner.identity.mutation(api.pages.update, {
       id,
-      blocks: [{ type: "hero", title: "x".repeat(500) }],
+      body: "x".repeat(MAX_BODY_LENGTH + 1),
     }),
-  ).rejects.toMatchObject({ data: { code: "FIELD_TOO_LONG", field: "hero.title" } })
+  ).rejects.toMatchObject({ data: { code: "FIELD_TOO_LONG", field: "body" } })
 })
 
-test("update accepte des blocs valides et les enregistre dans l'ordre fourni", async () => {
+test("update enregistre le corps Markdown tel quel, sans le reformater", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
-  const id = await insertOwnedPage(t, { slug: "reorder", createdBy: owner.id })
+  const id = await insertOwnedPage(t, { slug: "corps", createdBy: owner.id })
+  // Verbatim matters: an agent writes this field and reads it back, so any
+  // normalisation here would silently rewrite its work.
+  const body = "# Titre\n\nUn paragraphe avec du *gras*.\n\n- un\n- deux\n"
+  await owner.identity.mutation(api.pages.update, { id, body })
+  const page = await t.run((ctx) => ctx.db.get(id))
+  expect(page?.body).toBe(body)
+})
+
+test("update enregistre les champs GEO et les borne", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "geo", createdBy: owner.id })
+
   await owner.identity.mutation(api.pages.update, {
     id,
-    blocks: [
-      { type: "richText", html: "<p>Un</p>" },
-      { type: "hero", title: "Deux" },
-    ],
+    geo: {
+      summary: "Ce que fait la page, en une phrase.",
+      faq: [{ question: "Combien ?", answer: "Gratuit." }],
+      entities: ["AstroTan"],
+      noai: true,
+    },
   })
   const page = await t.run((ctx) => ctx.db.get(id))
-  expect(page?.blocks.map((b) => b.type)).toEqual(["richText", "hero"])
+  expect(page?.geo?.summary).toBe("Ce que fait la page, en une phrase.")
+  expect(page?.geo?.noai).toBe(true)
+
+  await expect(
+    owner.identity.mutation(api.pages.update, {
+      id,
+      geo: { summary: "x".repeat(MAX_GEO_SUMMARY_LENGTH + 1) },
+    }),
+  ).rejects.toMatchObject({ data: { code: "FIELD_TOO_LONG", field: "geo.summary" } })
 })
 
 test("update refuse de changer le slug vers un slug déjà pris par une autre page", async () => {

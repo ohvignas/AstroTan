@@ -6,7 +6,7 @@ import { verifyPreviewToken, signPreviewToken, PREVIEW_TOKEN_TTL_MS } from "./li
 import { requireRole, requireOwnDocument, requirePublishedPageWritable } from "./lib/authz"
 import { authComponent } from "./auth"
 import { insertOutboxRow } from "./revalidate"
-import { blockValidator, seoValidator, assertBlockWithinLimits, assertPageTextWithinLimits } from "./blocks"
+import { geoValidator, seoValidator, assertPageTextWithinLimits } from "./content"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // This task's own brief, verbatim: "the security-critical task of the
@@ -293,27 +293,28 @@ export const create = mutation({
       slug,
       title,
       status: "draft",
-      blocks: [],
+      body: "",
       createdBy: authUser._id,
       updatedBy: authUser._id,
     })
   },
 })
 
-// Patches title/slug/blocks/seo on an existing page. `requireOwnDocument`
+// Patches title/slug/body/seo/geo on an existing page. `requireOwnDocument`
 // is the ownership half of this section's own header comment: an editor
 // may only reach the `ctx.db.patch` below when `page.createdBy` is their
 // own id — owner/admin bypass that check and may edit any page. Every
 // field is `v.optional` and patched only when the caller actually sent
-// it, so a partial save (e.g. just reordering blocks) never has to first
-// re-read and re-send the title it isn't touching.
+// it, so a partial save (e.g. just the SEO panel) never has to first
+// re-read and re-send the body it isn't touching.
 export const update = mutation({
   args: {
     id: v.id("pages"),
     title: v.optional(v.string()),
     slug: v.optional(v.string()),
-    blocks: v.optional(v.array(blockValidator)),
+    body: v.optional(v.string()),
     seo: v.optional(seoValidator),
+    geo: v.optional(geoValidator),
   },
   handler: async (ctx, args) => {
     const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
@@ -343,8 +344,9 @@ export const update = mutation({
     const patch: {
       title?: string
       slug?: string
-      blocks?: typeof args.blocks
+      body?: string
       seo?: typeof args.seo
+      geo?: typeof args.geo
       updatedBy: string
     } = { updatedBy: authUser._id }
 
@@ -359,11 +361,9 @@ export const update = mutation({
       await assertSlugAvailable(ctx, slug, args.id)
       patch.slug = slug
     }
-    if (args.blocks !== undefined) {
-      args.blocks.forEach(assertBlockWithinLimits)
-      patch.blocks = args.blocks
-    }
+    if (args.body !== undefined) patch.body = args.body
     if (args.seo !== undefined) patch.seo = args.seo
+    if (args.geo !== undefined) patch.geo = args.geo
 
     // Bounds every text field that will actually land on the row after
     // this patch — the value just validated above where the caller sent
@@ -375,7 +375,9 @@ export const update = mutation({
     assertPageTextWithinLimits({
       title: patch.title ?? page.title,
       slug: patch.slug ?? page.slug,
+      body: patch.body ?? page.body,
       seo: patch.seo ?? page.seo,
+      geo: patch.geo ?? page.geo,
     })
 
     await ctx.db.patch(args.id, patch)
@@ -548,7 +550,7 @@ MUTATION_REGISTRY.push(
           slug: `registry-publish-${Date.now()}-${Math.random()}`,
           title: "Registry Check",
           status: "draft",
-          blocks: [],
+          body: "",
           createdBy: "registry-check",
           updatedBy: "registry-check",
         }),
@@ -583,7 +585,7 @@ MUTATION_REGISTRY.push(
           slug: `registry-update-${Date.now()}-${Math.random()}`,
           title: "Registry Check",
           status: "draft",
-          blocks: [],
+          body: "",
           createdBy: ownerId,
           updatedBy: ownerId,
         }),
@@ -601,7 +603,7 @@ MUTATION_REGISTRY.push(
           slug: `registry-remove-${Date.now()}-${Math.random()}`,
           title: "Registry Check",
           status: "draft",
-          blocks: [],
+          body: "",
           createdBy: ownerId,
           updatedBy: ownerId,
         }),
@@ -622,7 +624,7 @@ MUTATION_REGISTRY.push(
           slug: `registry-unpublish-${Date.now()}-${Math.random()}`,
           title: "Registry Check",
           status: "published",
-          blocks: [],
+          body: "",
           publishedAt: Date.now(),
           createdBy: "registry-check",
           updatedBy: "registry-check",
@@ -644,7 +646,7 @@ MUTATION_REGISTRY.push(
           slug: `registry-preview-${Date.now()}-${Math.random()}`,
           title: "Registry Check",
           status: "draft",
-          blocks: [],
+          body: "",
           createdBy: "registry-check",
           updatedBy: "registry-check",
         }),

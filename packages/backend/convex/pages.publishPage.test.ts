@@ -49,7 +49,7 @@ async function insertDraft(t: TestConvex<typeof schema>, slug = "brouillon") {
       slug,
       title: "Titre de brouillon",
       status: "draft",
-      blocks: [],
+      body: "",
       createdBy: "user_1",
       updatedBy: "user_1",
     }),

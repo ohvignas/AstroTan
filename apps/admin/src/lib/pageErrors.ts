@@ -22,7 +22,7 @@ const PAGE_ERROR_MESSAGES: Record<string, string> = {
   INVALID_PREVIEW_TOKEN: "Le lien de prévisualisation n'est plus valide.",
 }
 
-// `FIELD_TOO_LONG` carries a `field`/`max` payload (`blocks.ts`'s
+// `FIELD_TOO_LONG` carries a `field`/`max` payload (`content.ts`'s
 // `assertLength`) worth surfacing precisely — which field, what the limit
 // actually is — rather than a generic "too long" that leaves an operator
 // guessing which of several inputs on the page tripped it.

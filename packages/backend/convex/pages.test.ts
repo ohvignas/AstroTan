@@ -3,7 +3,6 @@ import { afterEach, beforeEach, expect, test } from "vitest"
 import schema from "./schema"
 import { api } from "./_generated/api"
 import { signPreviewToken, PREVIEW_TOKEN_TTL_MS } from "./lib/previewToken"
-import type { Block } from "./blocks"
 
 const modules = import.meta.glob("./**/*.ts")
 
@@ -23,13 +22,13 @@ afterEach(() => {
 function pageDoc(overrides: {
   slug: string
   status: "draft" | "published"
-  blocks?: Block[]
+  body?: string
 }) {
   return {
     slug: overrides.slug,
     title: "Titre de test",
     status: overrides.status,
-    blocks: overrides.blocks ?? [],
+    body: overrides.body ?? "",
     createdBy: "user_1",
     updatedBy: "user_1",
   }
@@ -37,7 +36,7 @@ function pageDoc(overrides: {
 
 async function insertPage(
   t: TestConvex<typeof schema>,
-  overrides: { slug: string; status: "draft" | "published"; blocks?: Block[] },
+  overrides: { slug: string; status: "draft" | "published"; body?: string },
 ) {
   return t.run((ctx) => ctx.db.insert("pages", pageDoc(overrides)))
 }

@@ -1,13 +1,12 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 import { roleValidator, pageStatusValidator, outboxStatusValidator } from "./validators"
-import { blockValidator, seoValidator } from "./blocks"
+import { geoValidator, seoValidator } from "./content"
 
-// `seoValidator` itself now lives in `blocks.ts`, alongside the length
-// bounds on `title`/`description`/`canonicalUrl` (`assertPageTextWithinLimits`)
-// — Convex's `v.string()` can't express a maximum itself — so Task 8's
-// `pages.update` mutation can import the identical validator rather than
-// redeclaring its shape.
+// `seoValidator`/`geoValidator` live in `content.ts`, alongside the length
+// bounds Convex's `v.string()` cannot express itself
+// (`assertPageTextWithinLimits`), so `pages.create`/`pages.update` import
+// the identical validators rather than redeclaring their shape.
 
 export default defineSchema({
   // Pas de champ `role` ici : il vit sur l'utilisateur Better Auth.
@@ -65,8 +64,19 @@ export default defineSchema({
     slug: v.string(),
     title: v.string(),
     status: pageStatusValidator,
-    blocks: v.array(blockValidator),
+    // The page's content, as Markdown. A page is text plus settings, not a
+    // tree of composable blocks — see `content.ts`'s header for why this
+    // template deliberately has no page builder.
+    //
+    // Required: the expand/migrate/contract cycle that replaced the old
+    // `blocks` field is complete (`migrations.ts`'s `blocksToMarkdown`,
+    // run against every existing row before this field was tightened and
+    // `blocks` dropped from the schema).
+    body: v.string(),
     seo: v.optional(seoValidator),
+    // Generative Engine Optimization: the abstract, FAQ and entities an
+    // answer engine needs to quote the page rather than paraphrase it.
+    geo: v.optional(geoValidator),
     publishedAt: v.optional(v.number()),
     // `v.string()`, not `v.id()`: both hold a Better Auth user id, and
     // Better Auth's tables live in a Convex *component* (Local Install,

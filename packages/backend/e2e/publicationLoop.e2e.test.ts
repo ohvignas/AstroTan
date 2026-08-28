@@ -152,16 +152,13 @@ test(
     const id = await owner.mutation(api.pages.create, { title: "E2E Publication Loop", slug })
     createdPageIds.push(id)
 
-    // A brand-new draft is not public, before it has any blocks at all.
+    // A brand-new draft is not public, before it has any body at all.
     expect((await publicResponse(slug)).status).toBe(404)
 
-    // Add two blocks.
+    // Write the body.
     await owner.mutation(api.pages.update, {
       id,
-      blocks: [
-        { type: "hero", title: "E2E-HERO-MARKER" },
-        { type: "richText", html: "<p>E2E-RICHTEXT-MARKER</p>" },
-      ],
+      body: "# E2E-HERO-MARKER\n\nE2E-RICHTEXT-MARKER\n",
     })
 
     // The dashboard's own "Preview" button: mint a real token
@@ -174,15 +171,13 @@ test(
     expect(previewBody1).toContain("E2E-RICHTEXT-MARKER")
     expect(previewBody1.indexOf("E2E-HERO-MARKER")).toBeLessThan(previewBody1.indexOf("E2E-RICHTEXT-MARKER"))
 
-    // Reorder: richText first, hero second — a second `update`, not a
-    // fresh page, the same "editor reorders blocks" action Task 8's
-    // screen performs with its up/down buttons.
+    // Rewrite the body with the two markers in the opposite order — a
+    // second `update`, not a fresh page: the same "editor saves an edit"
+    // action the editor screen performs, and what proves the preview
+    // reflects the latest save rather than a cached first render.
     await owner.mutation(api.pages.update, {
       id,
-      blocks: [
-        { type: "richText", html: "<p>E2E-RICHTEXT-MARKER</p>" },
-        { type: "hero", title: "E2E-HERO-MARKER" },
-      ],
+      body: "E2E-RICHTEXT-MARKER\n\n# E2E-HERO-MARKER\n",
     })
     const mint2 = await owner.mutation(api.pages.mintPreviewToken, { id })
     const preview2 = await fetch(`${WEB_URL}/preview/page/${id}?t=${mint2.token}`, { cache: "no-store" })

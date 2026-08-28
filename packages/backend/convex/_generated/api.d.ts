@@ -10,7 +10,7 @@
 
 import type * as _registry from "../_registry.js";
 import type * as auth from "../auth.js";
-import type * as blocks from "../blocks.js";
+import type * as content from "../content.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
@@ -20,6 +20,7 @@ import type * as lib_passwordStrength from "../lib/passwordStrength.js";
 import type * as lib_previewToken from "../lib/previewToken.js";
 import type * as lib_signInRateLimit from "../lib/signInRateLimit.js";
 import type * as lib_token from "../lib/token.js";
+import type * as migrations from "../migrations.js";
 import type * as pages from "../pages.js";
 import type * as profiles from "../profiles.js";
 import type * as revalidate from "../revalidate.js";
@@ -35,7 +36,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   _registry: typeof _registry;
   auth: typeof auth;
-  blocks: typeof blocks;
+  content: typeof content;
   crons: typeof crons;
   http: typeof http;
   invitations: typeof invitations;
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   "lib/previewToken": typeof lib_previewToken;
   "lib/signInRateLimit": typeof lib_signInRateLimit;
   "lib/token": typeof lib_token;
+  migrations: typeof migrations;
   pages: typeof pages;
   profiles: typeof profiles;
   revalidate: typeof revalidate;

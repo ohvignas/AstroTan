@@ -111,7 +111,7 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
       slug: "brouillon-confidentiel",
       title: "Brouillon confidentiel",
       status: "draft",
-      blocks: [],
+      body: "",
       createdBy: "user_1",
       updatedBy: "user_1",
     }),

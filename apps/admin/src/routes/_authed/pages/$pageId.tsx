@@ -5,27 +5,19 @@ import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import {
-  MAX_BLOCK_SUBTITLE_LENGTH,
-  MAX_BLOCK_TITLE_LENGTH,
+  MAX_BODY_LENGTH,
   MAX_CANONICAL_URL_LENGTH,
-  MAX_CTA_HREF_LENGTH,
-  MAX_CTA_LABEL_LENGTH,
-  MAX_FAQ_ANSWER_LENGTH,
-  MAX_FAQ_QUESTION_LENGTH,
-  MAX_FEATURE_ITEM_BODY_LENGTH,
-  MAX_FEATURE_ITEM_TITLE_LENGTH,
+  MAX_GEO_ANSWER_LENGTH,
+  MAX_GEO_ENTITIES,
+  MAX_GEO_ENTITY_LENGTH,
+  MAX_GEO_FAQ_ITEMS,
+  MAX_GEO_QUESTION_LENGTH,
+  MAX_GEO_SUMMARY_LENGTH,
   MAX_PAGE_TITLE_LENGTH,
-  MAX_RICH_TEXT_HTML_LENGTH,
   MAX_SEO_DESCRIPTION_LENGTH,
   MAX_SEO_TITLE_LENGTH,
   MAX_SLUG_LENGTH,
-} from "@astrotan/backend/convex/blocks"
-import {
-  BLOCK_TYPES,
-  BLOCK_TYPE_LABELS,
-  createDefaultBlock,
-} from "@/lib/pageBlocks"
-import type { Block } from "@/lib/pageBlocks"
+} from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 import { Button } from "@/components/ui/button"
@@ -43,19 +35,10 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  ArrowDownIcon,
   ArrowLeftIcon,
-  ArrowUpIcon,
   ExternalLinkIcon,
   PlusIcon,
   Trash2Icon,
@@ -114,7 +97,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
 
   const [title, setTitle] = useState(page.title)
   const [slug, setSlug] = useState(page.slug)
-  const [blocks, setBlocks] = useState<Block[]>(page.blocks)
+  const [body, setBody] = useState(page.body ?? "")
   const [seoTitle, setSeoTitle] = useState(page.seo?.title ?? "")
   const [seoDescription, setSeoDescription] = useState(
     page.seo?.description ?? ""
@@ -123,6 +106,18 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
     page.seo?.canonicalUrl ?? ""
   )
   const [seoNoindex, setSeoNoindex] = useState(page.seo?.noindex ?? false)
+
+  const [geoSummary, setGeoSummary] = useState(page.geo?.summary ?? "")
+  const [geoFaq, setGeoFaq] = useState<{ question: string; answer: string }[]>(
+    page.geo?.faq ?? []
+  )
+  // Held as one comma-separated string rather than an array of inputs:
+  // entities are short single words, and a row of add/remove buttons for
+  // each would be more chrome than content.
+  const [geoEntities, setGeoEntities] = useState(
+    (page.geo?.entities ?? []).join(", ")
+  )
+  const [geoNoai, setGeoNoai] = useState(page.geo?.noai ?? false)
 
   const [saving, setSaving] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -145,27 +140,6 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   const canWrite = profile.role !== "editor" || (isOwn && page.status !== "published")
   const canPublish = profile.role === "owner" || profile.role === "admin"
 
-  function addBlock(type: Block["type"]) {
-    setBlocks((prev) => [...prev, createDefaultBlock(type)])
-  }
-  function removeBlock(index: number) {
-    setBlocks((prev) => prev.filter((_, i) => i !== index))
-  }
-  function moveBlock(index: number, direction: -1 | 1) {
-    setBlocks((prev) => {
-      const next = [...prev]
-      const target = index + direction
-      if (target < 0 || target >= next.length) return prev
-      const [item] = next.splice(index, 1)
-      if (item === undefined) return prev
-      next.splice(target, 0, item)
-      return next
-    })
-  }
-  function updateBlock(index: number, next: Block) {
-    setBlocks((prev) => prev.map((b, i) => (i === index ? next : b)))
-  }
-
   async function handleSave() {
     setError(null)
     setSaving(true)
@@ -174,12 +148,26 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         id: page._id,
         title,
         slug,
-        blocks,
+        body,
         seo: {
           title: seoTitle.trim() || undefined,
           description: seoDescription.trim() || undefined,
           canonicalUrl: seoCanonicalUrl.trim() || undefined,
           noindex: seoNoindex,
+        },
+        geo: {
+          summary: geoSummary.trim() || undefined,
+          // Drop rows the operator started and left blank rather than
+          // sending them: an empty Q/A pair would be emitted as FAQPage
+          // JSON-LD with nothing in it.
+          faq: geoFaq.filter(
+            (item) => item.question.trim() !== "" && item.answer.trim() !== ""
+          ),
+          entities: geoEntities
+            .split(",")
+            .map((entity) => entity.trim())
+            .filter((entity) => entity !== ""),
+          noai: geoNoai,
         },
       })
     } catch (err) {
@@ -398,28 +386,108 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Blocs</CardTitle>
+          <CardTitle>Contenu</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {blocks.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              Aucun bloc — ajoutez-en un ci-dessous.
-            </p>
-          )}
-          {blocks.map((block, index) => (
-            <BlockCard
-              key={index}
-              block={block}
-              index={index}
-              total={blocks.length}
+        <CardContent className="flex flex-col gap-2">
+          {/* A plain textarea, deliberately. This field is read and written
+              by an agent as often as by a person, and every rich-text layer
+              that sits between the two ends up storing something other than
+              what was typed. Markdown in, Markdown out. */}
+          <Textarea
+            id="edit-body"
+            aria-label="Contenu Markdown de la page"
+            value={body}
+            maxLength={MAX_BODY_LENGTH}
+            disabled={!canWrite}
+            spellCheck
+            className="min-h-[28rem] font-mono text-sm leading-relaxed"
+            placeholder={"# Titre de la page\n\nVotre texte, en Markdown."}
+            onChange={(event) => setBody(event.target.value)}
+          />
+          <p className="text-right text-xs text-muted-foreground tabular-nums">
+            {body.length.toLocaleString("fr-FR")} /{" "}
+            {MAX_BODY_LENGTH.toLocaleString("fr-FR")} caractères
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>GEO — moteurs de réponse</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <Field>
+            <FieldLabel htmlFor="geo-summary">Résumé extractible</FieldLabel>
+            <Textarea
+              id="geo-summary"
+              value={geoSummary}
+              maxLength={MAX_GEO_SUMMARY_LENGTH}
               disabled={!canWrite}
-              onChange={(next) => updateBlock(index, next)}
-              onRemove={() => removeBlock(index)}
-              onMoveUp={() => moveBlock(index, -1)}
-              onMoveDown={() => moveBlock(index, 1)}
+              onChange={(event) => setGeoSummary(event.target.value)}
             />
-          ))}
-          {canWrite && <AddBlockControl onAdd={addBlock} />}
+            <FieldDescription>
+              Ce qu'un moteur de réponse citera tel quel. Deux ou trois
+              phrases factuelles, qui se suffisent hors contexte.
+            </FieldDescription>
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="geo-entities">Entités</FieldLabel>
+            <Input
+              id="geo-entities"
+              value={geoEntities}
+              disabled={!canWrite}
+              maxLength={(MAX_GEO_ENTITY_LENGTH + 2) * MAX_GEO_ENTITIES}
+              placeholder="AstroTan, Convex, Astro"
+              onChange={(event) => setGeoEntities(event.target.value)}
+            />
+            <FieldDescription>
+              Ce dont parle la page, séparé par des virgules — de quoi lever
+              une ambiguïté de nom. {MAX_GEO_ENTITIES} au maximum.
+            </FieldDescription>
+          </Field>
+
+          <div className="flex flex-col gap-2">
+            <FieldLabel>Questions / réponses</FieldLabel>
+            <FieldDescription>
+              Émises en JSON-LD <code>FAQPage</code> — le format que les
+              moteurs de réponse citent le plus fidèlement.{" "}
+              {MAX_GEO_FAQ_ITEMS} au maximum.
+            </FieldDescription>
+            <RepeatableItems
+              items={geoFaq}
+              disabled={!canWrite || geoFaq.length >= MAX_GEO_FAQ_ITEMS}
+              addLabel="Ajouter une question"
+              emptyItem={{ question: "", answer: "" }}
+              fields={[
+                { key: "question", label: "Question", max: MAX_GEO_QUESTION_LENGTH },
+                {
+                  key: "answer",
+                  label: "Réponse",
+                  max: MAX_GEO_ANSWER_LENGTH,
+                  multiline: true,
+                },
+              ]}
+              onChange={setGeoFaq}
+            />
+          </div>
+
+          <Field orientation="horizontal">
+            <Switch
+              id="geo-noai"
+              checked={geoNoai}
+              disabled={!canWrite}
+              onCheckedChange={(checked) => setGeoNoai(checked === true)}
+            />
+            <FieldLabel htmlFor="geo-noai">
+              Interdire la reprise par les IA génératives
+            </FieldLabel>
+          </Field>
+          <FieldDescription>
+            Distinct de <code>noindex</code> : une page peut rester indexable
+            par un moteur de recherche sans que son contenu soit repris par un
+            moteur de réponse.
+          </FieldDescription>
         </CardContent>
       </Card>
 
@@ -472,249 +540,6 @@ function DeletePageButton({
 // ---------------------------------------------------------------------
 // Block editor
 // ---------------------------------------------------------------------
-
-function BlockCard({
-  block,
-  index,
-  total,
-  disabled,
-  onChange,
-  onRemove,
-  onMoveUp,
-  onMoveDown,
-}: {
-  block: Block
-  index: number
-  total: number
-  disabled: boolean
-  onChange: (block: Block) => void
-  onRemove: () => void
-  onMoveUp: () => void
-  onMoveDown: () => void
-}) {
-  return (
-    <div className="rounded-lg border border-input p-3">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">
-          {index + 1}. {BLOCK_TYPE_LABELS[block.type]}
-        </span>
-        {!disabled && (
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              disabled={index === 0}
-              onClick={onMoveUp}
-              aria-label="Monter"
-            >
-              <ArrowUpIcon />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              disabled={index === total - 1}
-              onClick={onMoveDown}
-              aria-label="Descendre"
-            >
-              <ArrowDownIcon />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={onRemove}
-              aria-label="Supprimer le bloc"
-            >
-              <Trash2Icon />
-            </Button>
-          </div>
-        )}
-      </div>
-      <BlockFields block={block} disabled={disabled} onChange={onChange} />
-    </div>
-  )
-}
-
-function BlockFields({
-  block,
-  disabled,
-  onChange,
-}: {
-  block: Block
-  disabled: boolean
-  onChange: (block: Block) => void
-}) {
-  switch (block.type) {
-    case "hero":
-      return (
-        <div className="flex flex-col gap-3">
-          <LabeledInput
-            label="Titre"
-            value={block.title}
-            max={MAX_BLOCK_TITLE_LENGTH}
-            disabled={disabled}
-            onChange={(title) => onChange({ ...block, title })}
-          />
-          <LabeledTextarea
-            label="Sous-titre"
-            value={block.subtitle ?? ""}
-            max={MAX_BLOCK_SUBTITLE_LENGTH}
-            disabled={disabled}
-            onChange={(subtitle) =>
-              onChange({ ...block, subtitle: subtitle || undefined })
-            }
-          />
-          <OptionalCtaFields
-            cta={block.cta}
-            disabled={disabled}
-            onChange={(cta) => onChange({ ...block, cta })}
-          />
-        </div>
-      )
-    case "richText":
-      return (
-        <LabeledTextarea
-          label="HTML"
-          value={block.html}
-          max={MAX_RICH_TEXT_HTML_LENGTH}
-          disabled={disabled}
-          rows={6}
-          onChange={(html) => onChange({ ...block, html })}
-        />
-      )
-    case "features":
-      return (
-        <RepeatableItems
-          items={block.items}
-          disabled={disabled}
-          addLabel="Ajouter une fonctionnalité"
-          emptyItem={{ title: "", body: "" }}
-          fields={[
-            {
-              key: "title",
-              label: "Titre",
-              max: MAX_FEATURE_ITEM_TITLE_LENGTH,
-            },
-            {
-              key: "body",
-              label: "Texte",
-              max: MAX_FEATURE_ITEM_BODY_LENGTH,
-              multiline: true,
-            },
-          ]}
-          onChange={(items) => onChange({ ...block, items })}
-        />
-      )
-    case "gallery":
-      return (
-        <p className="text-sm text-muted-foreground">
-          Bloc galerie — la bibliothèque média n'est pas encore disponible dans
-          cette version ; ce bloc peut être ajouté/réordonné/supprimé mais n'a
-          pas encore d'images à éditer ici.
-        </p>
-      )
-    case "faq":
-      return (
-        <RepeatableItems
-          items={block.items}
-          disabled={disabled}
-          addLabel="Ajouter une question"
-          emptyItem={{ question: "", answer: "" }}
-          fields={[
-            {
-              key: "question",
-              label: "Question",
-              max: MAX_FAQ_QUESTION_LENGTH,
-            },
-            {
-              key: "answer",
-              label: "Réponse",
-              max: MAX_FAQ_ANSWER_LENGTH,
-              multiline: true,
-            },
-          ]}
-          onChange={(items) => onChange({ ...block, items })}
-        />
-      )
-    case "cta":
-      return (
-        <div className="flex flex-col gap-3">
-          <LabeledInput
-            label="Titre"
-            value={block.title}
-            max={MAX_BLOCK_TITLE_LENGTH}
-            disabled={disabled}
-            onChange={(title) => onChange({ ...block, title })}
-          />
-          <LabeledInput
-            label="Texte du bouton"
-            value={block.cta.label}
-            max={MAX_CTA_LABEL_LENGTH}
-            disabled={disabled}
-            onChange={(label) =>
-              onChange({ ...block, cta: { ...block.cta, label } })
-            }
-          />
-          <LabeledInput
-            label="Lien du bouton"
-            value={block.cta.href}
-            max={MAX_CTA_HREF_LENGTH}
-            disabled={disabled}
-            onChange={(href) =>
-              onChange({ ...block, cta: { ...block.cta, href } })
-            }
-          />
-        </div>
-      )
-    default: {
-      const exhaustive: never = block
-      throw new Error(`Unknown block type: ${JSON.stringify(exhaustive)}`)
-    }
-  }
-}
-
-function OptionalCtaFields({
-  cta,
-  disabled,
-  onChange,
-}: {
-  cta: { label: string; href: string } | undefined
-  disabled: boolean
-  onChange: (cta: { label: string; href: string } | undefined) => void
-}) {
-  const included = cta !== undefined
-  return (
-    <div className="flex flex-col gap-3 rounded-lg border border-dashed border-input p-2.5">
-      <Field orientation="horizontal">
-        <Switch
-          checked={included}
-          disabled={disabled}
-          onCheckedChange={(checked) =>
-            onChange(checked === true ? { label: "", href: "" } : undefined)
-          }
-        />
-        <FieldLabel>Inclure un bouton d'appel à l'action</FieldLabel>
-      </Field>
-      {included && (
-        <>
-          <LabeledInput
-            label="Texte du bouton"
-            value={cta.label}
-            max={MAX_CTA_LABEL_LENGTH}
-            disabled={disabled}
-            onChange={(label) => onChange({ ...cta, label })}
-          />
-          <LabeledInput
-            label="Lien du bouton"
-            value={cta.href}
-            max={MAX_CTA_HREF_LENGTH}
-            disabled={disabled}
-            onChange={(href) => onChange({ ...cta, href })}
-          />
-        </>
-      )}
-    </div>
-  )
-}
 
 function LabeledInput({
   label,
@@ -867,30 +692,3 @@ function RepeatableItems<T extends Record<string, string>>({
   )
 }
 
-function AddBlockControl({ onAdd }: { onAdd: (type: Block["type"]) => void }) {
-  const [type, setType] = useState<Block["type"]>("richText")
-  return (
-    <div className="flex items-center gap-2 border-t border-input pt-3">
-      <Select
-        items={BLOCK_TYPE_LABELS}
-        value={type}
-        onValueChange={(v) => setType(v as Block["type"])}
-      >
-        <SelectTrigger className="w-48">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {BLOCK_TYPES.map((t) => (
-            <SelectItem key={t} value={t}>
-              {BLOCK_TYPE_LABELS[t]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Button variant="outline" size="sm" onClick={() => onAdd(type)}>
-        <PlusIcon data-icon="inline-start" />
-        Ajouter un bloc
-      </Button>
-    </div>
-  )
-}
