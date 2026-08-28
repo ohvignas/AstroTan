@@ -352,6 +352,43 @@ test("un editor ne peut PAS supprimer la page de quelqu'un d'autre", async () =>
   expect(await t.run((ctx) => ctx.db.get(id))).not.toBeNull()
 })
 
+// Closing-fixes review: the same H1 gap `update` had — `requireOwnDocument`
+// alone lets an editor unilaterally turn a live, publicly served URL into a
+// 404 by deleting their own *published* page. An editor cannot inject
+// content that way (unlike `update`), but "an editor does not change what
+// the public site serves once it is published" applies just as much to
+// deleting the page out from under it. Only `editor` is refused here —
+// owner/admin already bypass `requireOwnDocument` above this check and are
+// unaffected by it, exactly like `update`'s own H1 guard.
+test("un editor ne peut PAS supprimer sa propre page une fois publiée", async () => {
+  const t = makeTestConvex()
+  const editorActor = await seedActor(t, "editor")
+  const id = await insertOwnedPage(t, {
+    slug: "page-publiee-editor-suppression",
+    createdBy: editorActor.id,
+    status: "published",
+  })
+  await expect(
+    editorActor.identity.mutation(api.pages.remove, { id }),
+  ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } })
+  expect(await t.run((ctx) => ctx.db.get(id))).not.toBeNull()
+})
+
+// An owner is never subject to this check — the refusal is `editor`-only,
+// same as `update`'s own equivalent test.
+test("un owner peut toujours supprimer une page publiée (le refus ne vise que l'editor)", async () => {
+  const t = makeTestConvex()
+  const editorActor = await seedActor(t, "editor")
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, {
+    slug: "page-publiee-owner-supprime",
+    createdBy: editorActor.id,
+    status: "published",
+  })
+  await expect(owner.identity.mutation(api.pages.remove, { id })).resolves.not.toThrow()
+  expect(await t.run((ctx) => ctx.db.get(id))).toBeNull()
+})
+
 test("supprimer une page publiée insère une ligne d'outbox et programme drain", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
@@ -592,6 +629,81 @@ test("publicationStatus retient la ligne la plus récente, pas la première trou
       createdAt: now,
     }),
   )
+  const status = await owner.identity.query(api.pages.publicationStatus, { id })
+  expect(status?.state).toBe("published")
+})
+
+// Closing-fixes review: `by_page_created_at` is an index on `["pageId",
+// "createdAt"]` — a row written before `pageId` existed on this table (or
+// any future row some other caller inserts without it) is structurally
+// invisible to `q.eq("pageId", args.id)`, no matter how recent it is or
+// what it actually recorded. Before this fix, `publicationStatus` treated
+// "the index found nothing" as "settled, report published" — the exact
+// `!x -> allow` shape this whole review has flagged everywhere else: a
+// page whose true last propagation attempt failed would show a green
+// "Publiée" badge, because the row recording that failure isn't
+// indexable by pageId at all. `state: "unknown"` is what an honest badge
+// renders instead of guessing.
+test("publicationStatus refuse de dire 'published' quand la seule ligne pertinente n'est pas indexable par pageId", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, {
+    slug: "statut-non-indexable",
+    createdBy: owner.id,
+    status: "published",
+  })
+  // Mirrors a pre-migration row: no `pageId` field at all, only the tag
+  // ties it back to this page. The last real attempt actually failed.
+  await t.run((ctx) =>
+    ctx.db.insert("revalidationOutbox", {
+      tags: ["pages", "page:statut-non-indexable"],
+      status: "failed",
+      attempts: 6,
+      nextAttemptAt: Date.now(),
+      lastError: "HTTP 500 (ligne pré-migration)",
+      createdAt: Date.now(),
+    }),
+  )
+  const status = await owner.identity.query(api.pages.publicationStatus, { id })
+  expect(status).toEqual({ state: "unknown" })
+})
+
+// A legacy un-indexable row for a *different* page's tag must never leak
+// into this page's answer — only tag-matching rows count.
+test("publicationStatus ignore les lignes non indexables d'une autre page", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, {
+    slug: "statut-non-indexable-autre-page",
+    createdBy: owner.id,
+    status: "published",
+  })
+  await t.run((ctx) =>
+    ctx.db.insert("revalidationOutbox", {
+      tags: ["pages", "page:une-toute-autre-page"],
+      status: "failed",
+      attempts: 6,
+      nextAttemptAt: Date.now(),
+      lastError: "sans rapport",
+      createdAt: Date.now(),
+    }),
+  )
+  const status = await owner.identity.query(api.pages.publicationStatus, { id })
+  expect(status).toEqual({ state: "published", publishedAt: undefined })
+})
+
+// A genuinely settled page (published outside `publishPage`, e.g. a
+// fixture) with zero outbox rows at all — indexable or not — must still
+// report `published`, not `unknown`: "no rows anywhere for this page" is
+// exactly the narrow case the original comment already covered correctly.
+test("publicationStatus renvoie published (pas unknown) pour une page publiée sans aucune ligne d'outbox", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, {
+    slug: "statut-sans-outbox",
+    createdBy: owner.id,
+    status: "published",
+  })
   const status = await owner.identity.query(api.pages.publicationStatus, { id })
   expect(status?.state).toBe("published")
 })

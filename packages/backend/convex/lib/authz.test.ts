@@ -21,6 +21,7 @@ import {
   isCurrentlyBanned,
   parseRole,
   requireOwnDocument,
+  requirePublishedPageWritable,
   requireRole,
 } from "./authz"
 import type { Role } from "../validators"
@@ -75,6 +76,50 @@ test("un admin écrit les documents des autres", () => {
 test("un rôle hors du système de types n'hérite pas d'un contournement de propriété", () => {
   const unknownRole = { _id: "u_1", role: "superadmin" as unknown as Role }
   expect(() => requireOwnDocument(unknownRole, { createdBy: "u_2" })).toThrow(/FORBIDDEN/)
+})
+
+// requirePublishedPageWritable est une fonction pure elle aussi. Closing
+// fixes review (H1 bis) : l'ancien garde-fou dans `pages.ts` était écrit
+// comme une liste de blocage (`authUser.role === "editor" && ...`) — un
+// quatrième rôle ajouté un jour à `requireRole([...])` hériterait
+// silencieusement du droit de réécrire une page publiée. `authz.ts` a déjà
+// sa propre convention pour ça (`OWNERSHIP_BYPASS`, liste d'autorisation) :
+// ce garde-fou la suit à l'identique, avec le même test qu'`OWNERSHIP_BYPASS`
+// lui-même — un rôle qui échappe au système de types ne doit pas hériter
+// silencieusement du droit d'écrire sur une page publiée.
+test("un editor ne peut pas écrire sur une page publiée", () => {
+  const editor = { _id: "u_1", role: "editor" as const }
+  expect(() => requirePublishedPageWritable(editor, { status: "published" })).toThrow(
+    /FORBIDDEN/,
+  )
+})
+
+test("un editor peut toujours écrire sur un brouillon", () => {
+  const editor = { _id: "u_1", role: "editor" as const }
+  expect(() =>
+    requirePublishedPageWritable(editor, { status: "draft" }),
+  ).not.toThrow()
+})
+
+test("un owner peut écrire sur une page publiée", () => {
+  const owner = { _id: "u_1", role: "owner" as const }
+  expect(() =>
+    requirePublishedPageWritable(owner, { status: "published" }),
+  ).not.toThrow()
+})
+
+test("un admin peut écrire sur une page publiée", () => {
+  const admin = { _id: "u_1", role: "admin" as const }
+  expect(() =>
+    requirePublishedPageWritable(admin, { status: "published" }),
+  ).not.toThrow()
+})
+
+test("un rôle hors du système de types n'hérite pas d'un contournement de l'interdiction d'écrire sur une page publiée", () => {
+  const unknownRole = { _id: "u_1", role: "superadmin" as unknown as Role }
+  expect(() =>
+    requirePublishedPageWritable(unknownRole, { status: "published" }),
+  ).toThrow(/FORBIDDEN/)
 })
 
 // parseRole et isCurrentlyBanned sont les deux fonctions pures qui portent

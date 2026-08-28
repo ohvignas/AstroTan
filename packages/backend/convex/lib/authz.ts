@@ -104,3 +104,29 @@ export function requireOwnDocument(
     throw new ConvexError({ code: "FORBIDDEN" })
   }
 }
+
+// H1 bis (closing fixes, whole-lot re-review): `requireOwnDocument` alone
+// lets `pages.update`/`pages.remove` compose into a public-content bypass
+// — `publishPage` gates on role, not ownership, so once any owner/admin
+// has published a page whose `createdBy` happens to be a given editor,
+// that editor's normal "write my own document" access reaches straight
+// into the live, publicly served row (or lets them delete it outright,
+// turning a live URL into a 404 — `pages.remove`'s own case). The original
+// guard (`pages.ts`) named the *refused* role directly
+// (`authUser.role === "editor" && ...`) — a deny-list on one literal role,
+// unlike `OWNERSHIP_BYPASS` just above, which is this file's own
+// convention for exactly this shape of decision: an allow-list, so a
+// fourth role added to some future `requireRole([...])` call inherits
+// *nothing* here by default, rather than silently inheriting the right to
+// rewrite or delete a published page because it happens not to be spelled
+// "editor".
+const PUBLISHED_PAGE_WRITE_ALLOWED: readonly Role[] = ["owner", "admin"]
+
+export function requirePublishedPageWritable(
+  authUser: { role: Role },
+  page: { status: string },
+) {
+  if (page.status !== "published") return
+  if (PUBLISHED_PAGE_WRITE_ALLOWED.includes(authUser.role)) return
+  throw new ConvexError({ code: "FORBIDDEN" })
+}

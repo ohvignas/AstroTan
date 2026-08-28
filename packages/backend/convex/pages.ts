@@ -3,7 +3,7 @@ import { mutation, query, type MutationCtx } from "./_generated/server"
 import { api, internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { verifyPreviewToken, signPreviewToken, PREVIEW_TOKEN_TTL_MS } from "./lib/previewToken"
-import { requireRole, requireOwnDocument } from "./lib/authz"
+import { requireRole, requireOwnDocument, requirePublishedPageWritable } from "./lib/authz"
 import { authComponent } from "./auth"
 import { insertOutboxRow } from "./revalidate"
 import { blockValidator, seoValidator, assertBlockWithinLimits, assertPageTextWithinLimits } from "./blocks"
@@ -190,6 +190,50 @@ export const publicationStatus = query({
       .withIndex("by_page_created_at", (q) => q.eq("pageId", args.id))
       .order("desc")
       .first()
+
+    // Closing-fixes review: `by_page_created_at` is an index on
+    // `["pageId", "createdAt"]` — a row written before `pageId` existed on
+    // this table is structurally invisible to `q.eq("pageId", args.id)`
+    // above, no matter how recent it is or what it actually recorded.
+    // Treating "the index found nothing" as "settled, report published"
+    // is the exact `!x -> allow` shape this whole review has flagged
+    // everywhere else: a page whose *actual* last propagation attempt
+    // failed would show a green "Publiée" badge, purely because the row
+    // recording that failure isn't indexable by `pageId`.
+    //
+    // The fix costs one more *bounded* index range scan, not a table
+    // scan: `pageId === undefined` is itself a valid equality clause on
+    // this same index (confirmed against `convex-test`'s own index
+    // semantics — an absent optional field is indexed like any other
+    // value), and the set it returns can only ever shrink over time,
+    // never grow like the table itself does, because every call site of
+    // `insertOutboxRow` in this codebase already passes a real `pageId`.
+    // Filtering that bounded, non-growing set down to this page's own tag
+    // in memory is therefore safe for the same reason `by_page_created_at`
+    // exists at all (M4's own comment above): it is never a scan of the
+    // whole, ever-growing table, reactive subscription included.
+    const unindexableRows = await ctx.db
+      .query("revalidationOutbox")
+      .withIndex("by_page_created_at", (q) => q.eq("pageId", undefined))
+      .collect()
+    const tag = `page:${page.slug}`
+    const latestUnindexable = unindexableRows
+      .filter((row) => row.tags.includes(tag))
+      .reduce<(typeof unindexableRows)[number] | null>(
+        (mostRecent, row) => (mostRecent === null || row.createdAt > mostRecent.createdAt ? row : mostRecent),
+        null,
+      )
+
+    // Whichever candidate is actually the most recent decides what
+    // follows: an unindexable row newer than (or the only one where)
+    // `latest` exists means the true "did the last publish actually
+    // land" answer isn't knowable from this page's own index scan at
+    // all — reporting "unknown" is what lets the badge render that
+    // honestly instead of guessing "published".
+    if (latestUnindexable && (!latest || latestUnindexable.createdAt > latest.createdAt)) {
+      return { state: "unknown" as const }
+    }
+
     // No outbox row at all for an already-`published` page is a real,
     // if narrow, possibility (data seeded directly as `published` outside
     // `publishPage`, e.g. a fixture) — treated as settled rather than
@@ -288,9 +332,13 @@ export const update = mutation({
     // *draft*; only a published page is refused, and only for `editor` —
     // owner/admin already bypass `requireOwnDocument` above and are
     // unaffected by this check.
-    if (authUser.role === "editor" && page.status === "published") {
-      throw new ConvexError({ code: "FORBIDDEN" })
-    }
+    //
+    // H1 bis (closing fixes): the check itself now lives in
+    // `lib/authz.ts` as `requirePublishedPageWritable` — an allow-list
+    // (`PUBLISHED_PAGE_WRITE_ALLOWED`), not a deny-list on the literal
+    // `"editor"` role, matching this same file's `OWNERSHIP_BYPASS`
+    // convention. See that function's own header for why.
+    requirePublishedPageWritable(authUser, page)
 
     const patch: {
       title?: string
@@ -357,11 +405,18 @@ export const update = mutation({
   },
 })
 
-// Deletes a page outright. Same ownership gate as `update`. A published
-// page's own tag is invalidated on the way out — without this, a cached
-// response for a page that no longer exists would keep serving stale
-// content for up to `maxAge`/`swr` (astro.config.ts's route rules)
-// instead of the 404 `[...slug].astro` would now render for that slug.
+// Deletes a page outright. Same ownership gate as `update` — and, closing
+// fixes review, the same `requirePublishedPageWritable` gate too: an
+// editor cannot inject content by deleting a page (unlike `update`), but
+// they can still unilaterally turn a live, publicly served URL into a
+// 404 by deleting their own *published* page. "An editor does not change
+// what the public site serves once it is published" applies to deletion
+// exactly as much as it applies to editing — same allow-list, same
+// owner/admin-only exemption, only `editor` refused. A published page's
+// own tag is invalidated on the way out — without this, a cached response
+// for a page that no longer exists would keep serving stale content for
+// up to `maxAge`/`swr` (astro.config.ts's route rules) instead of the 404
+// `[...slug].astro` would now render for that slug.
 export const remove = mutation({
   args: { id: v.id("pages") },
   handler: async (ctx, args) => {
@@ -369,6 +424,7 @@ export const remove = mutation({
     const page = await ctx.db.get(args.id)
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, page)
+    requirePublishedPageWritable(authUser, page)
 
     await ctx.db.delete(args.id)
 
