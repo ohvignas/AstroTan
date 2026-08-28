@@ -3,8 +3,18 @@ import { mutation, query } from "./_generated/server"
 import { api, internal } from "./_generated/api"
 import type { Id, Doc } from "./_generated/dataModel"
 import type { MutationCtx } from "./_generated/server"
-import { geoValidator, seoValidator, assertPageTextWithinLimits } from "./content"
-import { requireRole, requireOwnDocument } from "./lib/authz"
+import {
+  geoValidator,
+  seoValidator,
+  assertPageTextWithinLimits,
+  MAX_POST_BODY_LENGTH,
+  MAX_EXCERPT_LENGTH,
+} from "./content"
+import {
+  requireRole,
+  requireOwnDocument,
+  requirePublishedPageWritable,
+} from "./lib/authz"
 import { normalizeSlug } from "./lib/slug"
 import {
   PREVIEW_TOKEN_TTL_MS,
@@ -23,8 +33,11 @@ import { MUTATION_REGISTRY } from "./_registry"
 // and GEO validators, the same ownership rules, the same slug helper. Only
 // the envelope differs (`excerpt`, `coverId`, `tagIds`).
 
-export const MAX_POST_BODY_LENGTH = 200_000
-export const MAX_EXCERPT_LENGTH = 300
+// Defined in `content.ts` and re-exported here, so that every existing
+// `from "./posts"` import keeps working while the dashboard can reach the
+// same numbers through a module that pulls in no Convex functions. See
+// the comment beside their definition.
+export { MAX_POST_BODY_LENGTH, MAX_EXCERPT_LENGTH }
 
 /**
  * Page slugs that would be shadowed by a route this site already serves.
@@ -122,6 +135,38 @@ function assertPostTextWithinLimits(post: {
   }
 }
 
+// ---------------------------------------------------------------------
+// La famille d'administration
+// ---------------------------------------------------------------------
+//
+// Reading is open to all three roles; the ownership boundary lives in the
+// write mutations below, exactly as it does for pages (`pages.list` /
+// `pages.get` carry the same comment). Both queries are `requireRole`d, so
+// neither is reachable from `apps/web`, which has no session at all.
+
+// `.order("desc")` on `_creationTime` — the newest articles first, the
+// order an operator scanning a list actually wants. Deliberately *not*
+// `by_status_published`: this screen must show drafts too, and a draft has
+// no `publishedAt` to sort on.
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    return ctx.db.query("posts").order("desc").collect()
+  },
+})
+
+// A single post for the editor screen — `null` for a genuinely missing id
+// (the screen renders a "not found" state), same convention as
+// `ctx.db.get` itself and as `pages.get`.
+export const get = query({
+  args: { id: v.id("posts") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    return ctx.db.get(args.id)
+  },
+})
+
 export const create = mutation({
   args: { title: v.string(), slug: v.string() },
   handler: async (ctx, args) => {
@@ -162,6 +207,14 @@ export const update = mutation({
     const post = await ctx.db.get(args.id)
     if (!post) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, post)
+    // `requireOwnDocument` alone composes into a public-content bypass, and
+    // pages closed this exact hole before posts reopened it: publishing
+    // gates on role, not ownership, so once an owner or admin has published
+    // an article an editor wrote, that editor's ordinary "edit my own
+    // document" access reaches straight into the live, publicly served row.
+    // An editor still edits their own *draft* freely; only a published one
+    // is refused, and only for `editor`.
+    requirePublishedPageWritable(authUser, post)
 
     const patch: Partial<Doc<"posts">> & { updatedBy: string } = {
       updatedBy: authUser._id,
@@ -204,6 +257,23 @@ export const update = mutation({
     })
 
     await ctx.db.patch(args.id, patch)
+
+    // Saving an edit to a *published* article has to invalidate too, or the
+    // cached response stays stale for up to `maxAge` while the dashboard
+    // badge reads "Publié" — the same defect the pages review caught, and
+    // the same fix. `post` was read before the patch, so `post.slug` is
+    // always the pre-patch value.
+    if (post.status === "published") {
+      const tags = ["posts", `post:${post.slug}`]
+      // A renamed slug leaves the old URL cached under its own tag with
+      // nothing left to ever invalidate it: it would keep serving an
+      // article that should now 404 there. Both tags, or neither is safe.
+      if (patch.slug !== undefined && patch.slug !== post.slug) {
+        tags.push(`post:${patch.slug}`)
+      }
+      await insertOutboxRow(ctx, { kind: "post", postId: args.id }, tags)
+      await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+    }
   },
 })
 
@@ -214,7 +284,20 @@ export const remove = mutation({
     const post = await ctx.db.get(args.id)
     if (!post) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, post)
+    requirePublishedPageWritable(authUser, post)
+
     await ctx.db.delete(args.id)
+
+    // Deleting a published article without invalidating leaves it served
+    // from cache at its own URL for up to `maxAge` — an article that no
+    // longer exists, still readable.
+    if (post.status === "published") {
+      await insertOutboxRow(ctx, { kind: "post", postId: args.id }, [
+        "posts",
+        `post:${post.slug}`,
+      ])
+      await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+    }
   },
 })
 
@@ -268,6 +351,34 @@ const POST_PREVIEW_TOKEN_TYPE = "post"
 /** How many published posts `/blog` will list. See the plan's Decision 3. */
 export const PUBLISHED_POSTS_LIMIT = 100
 
+/**
+ * Attach the cover's URL and alt text, resolved server-side.
+ *
+ * A storage URL can only be obtained from a Convex context, and the public
+ * site has no session with which to ask a second time — so the resolution
+ * belongs here, in the one query it already makes.
+ *
+ * `alt` comes from the `media` sidecar, which is optional by design: a file
+ * uploaded outside the library has no row there. An empty alt is the honest
+ * answer in that case, and it renders as a decorative image rather than one
+ * announcing a filename.
+ */
+async function withCover<T extends { coverId?: Id<"_storage"> }>(
+  ctx: { db: any; storage: { getUrl: (id: Id<"_storage">) => Promise<string | null> } },
+  post: T
+): Promise<T & { coverUrl: string | null; coverAlt: string }> {
+  if (!post.coverId) return { ...post, coverUrl: null, coverAlt: "" }
+  const media = await ctx.db
+    .query("media")
+    .withIndex("by_storage", (q: any) => q.eq("storageId", post.coverId))
+    .unique()
+  return {
+    ...post,
+    coverUrl: await ctx.storage.getUrl(post.coverId),
+    coverAlt: media?.alt ?? "",
+  }
+}
+
 export const getPublishedPost = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
@@ -280,7 +391,7 @@ export const getPublishedPost = query({
     // both "no such slug" and "a draft with that slug" — from the public
     // site's point of view those are the same outcome, deliberately.
     if (post.status !== "published") return null
-    return post
+    return withCover(ctx, post)
   },
 })
 
@@ -305,7 +416,9 @@ export const listPublishedPosts = query({
           `older posts are not being listed. Time to add pagination.`
       )
     }
-    return posts.slice(0, PUBLISHED_POSTS_LIMIT)
+    return Promise.all(
+      posts.slice(0, PUBLISHED_POSTS_LIMIT).map((post) => withCover(ctx, post))
+    )
   },
 })
 

@@ -283,7 +283,7 @@ test("un storageId sans ligne media reste lisible — il n'y a simplement pas d'
 // updateAlt
 // ---------------------------------------------------------------------
 
-test("updateAlt remplace l'alternative textuelle et refuse de la vider", async () => {
+test("update remplace l'alternative textuelle et refuse de la vider", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
   const id = await owner.identity.mutation(api.media.register, {
@@ -291,10 +291,166 @@ test("updateAlt remplace l'alternative textuelle et refuse de la vider", async (
     storageId: await storeBlob(t),
   })
 
-  await owner.identity.mutation(api.media.updateAlt, { id, alt: "Un autre texte" })
+  await owner.identity.mutation(api.media.update, { id, alt: "Un autre texte" })
   expect((await t.run((ctx) => ctx.db.get(id)))?.alt).toBe("Un autre texte")
 
   await expect(
-    owner.identity.mutation(api.media.updateAlt, { id, alt: "  " }),
+    owner.identity.mutation(api.media.update, { id, alt: "  " }),
   ).rejects.toMatchObject({ data: { code: "INVALID_ALT" } })
+})
+
+// ---------------------------------------------------------------------
+// Remplacer le fichier, pas seulement son texte
+// ---------------------------------------------------------------------
+
+test("update change le nom affiché sans toucher au reste", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.media.register, {
+    ...VALID,
+    storageId: await storeBlob(t),
+  })
+
+  await owner.identity.mutation(api.media.update, { id, filename: "renomme.png" })
+  const row = await t.run((ctx) => ctx.db.get(id))
+  expect(row?.filename).toBe("renomme.png")
+  // Le champ non envoyé n'est pas écrasé : la boîte de dialogue peut
+  // enregistrer un champ sans relire ni renvoyer l'autre.
+  expect(row?.alt).toBe(VALID.alt)
+})
+
+test("replaceFile échange le fichier, garde la ligne, et supprime l'ancien", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const ancien = await storeBlob(t)
+  const id = await owner.identity.mutation(api.media.register, {
+    ...VALID,
+    storageId: ancien,
+  })
+
+  const nouveau = await storeBlob(t)
+  await owner.identity.mutation(api.media.replaceFile, {
+    id,
+    storageId: nouveau,
+    mime: "image/webp",
+    size: 2048,
+    width: 800,
+    height: 600,
+  })
+
+  const row = await t.run((ctx) => ctx.db.get(id))
+  expect(row?.storageId).toBe(nouveau)
+  expect(row?.mime).toBe("image/webp")
+  // Re-dérivées, jamais reportées : le nouveau fichier a ses propres
+  // dimensions, et garder celles de l'ancien réintroduirait le décalage de
+  // mise en page que ces champs servent à éviter.
+  expect(row?.width).toBe(800)
+  expect(row?.height).toBe(600)
+  expect(await t.run((ctx) => ctx.storage.getUrl(ancien))).toBeNull()
+})
+
+test("replaceFile repointe ce qui référençait l'ancien fichier", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const ancien = await storeBlob(t)
+  const mediaId = await owner.identity.mutation(api.media.register, {
+    ...VALID,
+    storageId: ancien,
+  })
+
+  const pageId = await owner.identity.mutation(api.pages.create, {
+    title: "Page",
+    slug: "page-og",
+  })
+  await owner.identity.mutation(api.pages.update, {
+    id: pageId,
+    seo: { ogImageId: ancien },
+  })
+  const postId = await owner.identity.mutation(api.posts.create, {
+    title: "Article",
+    slug: "article-couv",
+  })
+  await owner.identity.mutation(api.posts.update, { id: postId, coverId: ancien })
+
+  const nouveau = await storeBlob(t)
+  await owner.identity.mutation(api.media.replaceFile, {
+    id: mediaId,
+    storageId: nouveau,
+    mime: "image/png",
+    size: 512,
+  })
+
+  // Sans ce repointage, remplacer une image la détacherait en silence de
+  // tout ce qui l'utilise — et l'ancien fichier vient d'être supprimé.
+  expect((await t.run((ctx) => ctx.db.get(pageId)))?.seo?.ogImageId).toBe(nouveau)
+  expect((await t.run((ctx) => ctx.db.get(postId)))?.coverId).toBe(nouveau)
+})
+
+test("replaceFile applique les mêmes refus que register", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.media.register, {
+    ...VALID,
+    storageId: await storeBlob(t),
+  })
+
+  await expect(
+    owner.identity.mutation(api.media.replaceFile, {
+      id,
+      storageId: await storeBlob(t),
+      mime: "image/svg+xml",
+      size: 10,
+    }),
+  ).rejects.toMatchObject({ data: { code: "UNSUPPORTED_MIME" } })
+
+  await expect(
+    owner.identity.mutation(api.media.replaceFile, {
+      id,
+      storageId: await storeBlob(t),
+      mime: "image/png",
+      size: MAX_MEDIA_SIZE_BYTES + 1,
+    }),
+  ).rejects.toMatchObject({ data: { code: "FILE_TOO_LARGE" } })
+})
+
+test("un editor ne peut remplacer que le fichier de ses propres médias", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const foreign = await owner.identity.mutation(api.media.register, {
+    ...VALID,
+    storageId: await storeBlob(t),
+  })
+
+  const editor = await seedActor(t, "editor")
+  await expect(
+    editor.identity.mutation(api.media.replaceFile, {
+      id: foreign,
+      storageId: await storeBlob(t),
+      mime: "image/png",
+      size: 10,
+    }),
+  ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } })
+})
+
+test("remove refuse un média utilisé comme couverture d'article", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const storageId = await storeBlob(t)
+  const mediaId = await owner.identity.mutation(api.media.register, {
+    ...VALID,
+    storageId,
+  })
+
+  const postId = await owner.identity.mutation(api.posts.create, {
+    title: "Article",
+    slug: "article-couverture",
+  })
+  await owner.identity.mutation(api.posts.update, { id: postId, coverId: storageId })
+
+  // `isReferenced` ne balayait que les pages : supprimer l'image de
+  // couverture d'un article était autorisé, et laissait l'article pointer
+  // sur un fichier disparu.
+  await expect(
+    owner.identity.mutation(api.media.remove, { id: mediaId }),
+  ).rejects.toMatchObject({ data: { code: "MEDIA_IN_USE" } })
 })

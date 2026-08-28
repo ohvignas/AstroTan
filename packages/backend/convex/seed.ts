@@ -157,14 +157,29 @@ export const demoContent = internalMutation({
       },
     ]
 
+    // Une couverture, si la médiathèque contient déjà quelque chose : ça
+    // rend visible le chemin d'optimisation d'image distante, qui reste
+    // sinon du code que rien n'exerce.
+    const firstMedia = await ctx.db.query("media").first()
+
     for (const post of posts) {
       const existing = await ctx.db
         .query("posts")
         .withIndex("by_slug", (q) => q.eq("slug", post.slug))
         .unique()
-      if (existing) continue
+      if (existing) {
+        // Rattrape la couverture d'un article de démonstration créé avant
+        // qu'il y ait des médias. Volontairement le seul champ rattrapé :
+        // tout le reste a pu être édité depuis, et le seed n'a pas à
+        // écraser le travail de quelqu'un.
+        if (!existing.coverId && firstMedia && existing.status === "published") {
+          await ctx.db.patch(existing._id, { coverId: firstMedia.storageId })
+        }
+        continue
+      }
       await ctx.db.insert("posts", {
         ...post,
+        coverId: post.status === "published" ? firstMedia?.storageId : undefined,
         seo: { noindex: false },
         createdBy: author,
         updatedBy: author,

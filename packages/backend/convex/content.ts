@@ -32,6 +32,22 @@ import { ConvexError, v } from "convex/values"
 export const MAX_PAGE_TITLE_LENGTH = 200 // <title> / nav labels — generous but not unbounded
 export const MAX_SLUG_LENGTH = 200 // URL path segment; an operator-facing text input
 
+// The two bounds only an *article* needs — pages carry no body at all
+// (this file's own header). They are defined here rather than in
+// `posts.ts` for the reason the block above gives, "named so the editor
+// can import the same numbers": this module is pure — one import of
+// `convex/values` and not a single `query`/`mutation` — while `posts.ts`
+// is a deployment entry point whose module graph reaches `auth.ts`.
+// Importing *that* from the dashboard makes Convex log "Convex functions
+// should not be imported in the browser. This will throw an error in
+// future versions of `convex`" once per function in the graph. `posts.ts`
+// re-exports both, so nothing on the server side has to know they moved.
+export const MAX_POST_BODY_LENGTH = 200_000
+export const MAX_EXCERPT_LENGTH = 300
+
+// Same reasoning, for `tags.ts`.
+export const MAX_TAG_NAME_LENGTH = 50
+
 // `pages.seo` — mirrors design spec §6.5 (title, description, ogImage,
 // canonical, noindex). `title`/`description` bounds follow the point past
 // which Google truncates a search-result snippet; there's no protocol

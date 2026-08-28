@@ -483,3 +483,82 @@ test("publier un article ne perturbe pas le statut de propagation d'une page", a
     (await owner.identity.query(api.pages.publicationStatus, { id: pageId }))?.state,
   ).toBe("published")
 })
+
+// ---------------------------------------------------------------------
+// Les trois trous trouvés à la revue de la Task 7
+// ---------------------------------------------------------------------
+
+test("modifier un article publié invalide son cache", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, { title: "M", slug: "m" })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+  const apresPublication = (await outboxRows(t)).length
+
+  await owner.identity.mutation(api.posts.update, { id, title: "M, corrigé" })
+
+  // Sans ça, la réponse cachée reste périmée jusqu'à `maxAge` pendant que
+  // le badge du tableau de bord affiche « Publié ».
+  const rows = await outboxRows(t)
+  expect(rows).toHaveLength(apresPublication + 1)
+  expect(rows.at(-1)?.tags).toEqual(["posts", "post:m"])
+})
+
+test("renommer le slug d'un article publié invalide l'ancien ET le nouveau", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, { title: "R", slug: "avant" })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+
+  await owner.identity.mutation(api.posts.update, { id, slug: "apres" })
+
+  // N'invalider que le nouveau laisserait l'ancienne URL servie depuis le
+  // cache, avec plus rien pour l'invalider un jour.
+  expect((await outboxRows(t)).at(-1)?.tags).toEqual([
+    "posts",
+    "post:avant",
+    "post:apres",
+  ])
+})
+
+test("supprimer un article publié invalide son cache", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, { title: "S", slug: "s-del" })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+
+  await owner.identity.mutation(api.posts.remove, { id })
+
+  // Un article supprimé mais toujours servi depuis le cache reste lisible
+  // à son URL alors qu'il n'existe plus.
+  expect((await outboxRows(t)).at(-1)?.tags).toEqual(["posts", "post:s-del"])
+})
+
+test("un editor ne peut plus modifier ni supprimer son article une fois publié", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  const id = await editor.identity.mutation(api.posts.create, {
+    title: "Le mien",
+    slug: "le-mien-publie",
+  })
+
+  // Il l'édite librement tant qu'il est brouillon.
+  await editor.identity.mutation(api.posts.update, { id, title: "Le mien, v2" })
+
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.posts.publishPost, { id })
+
+  // Publier ne dépend pas de la propriété : une fois qu'un owner a publié
+  // l'article d'un editor, l'accès « je modifie mes documents » de cet
+  // editor atteindrait la ligne servie publiquement. C'est le contournement
+  // que les pages avaient fermé et que les articles rouvraient.
+  await expect(
+    editor.identity.mutation(api.posts.update, { id, title: "Détourné" }),
+  ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } })
+  await expect(
+    editor.identity.mutation(api.posts.remove, { id }),
+  ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } })
+
+  // L'owner, lui, passe outre — c'est la règle, pas une exception.
+  await owner.identity.mutation(api.posts.update, { id, title: "Corrigé par l'owner" })
+})

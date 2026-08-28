@@ -4,6 +4,7 @@ import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { requireRole } from "./lib/authz"
 import { slugify } from "./lib/slug"
+import { MAX_TAG_NAME_LENGTH } from "./content"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // Tags carry two strings for one idea: the `name` a human typed, kept
@@ -14,7 +15,10 @@ import { MUTATION_REGISTRY } from "./_registry"
 // same tag — allowing both would produce two URLs listing the same posts,
 // and nobody would notice until the second one had followers.
 
-export const MAX_TAG_NAME_LENGTH = 50
+// Defined in `content.ts` and re-exported here — same reasoning as
+// `posts.ts`'s own re-export: the dashboard needs this number and must not
+// pull a module full of Convex functions into the browser to get it.
+export { MAX_TAG_NAME_LENGTH }
 
 /**
  * Bound and derive, or refuse.

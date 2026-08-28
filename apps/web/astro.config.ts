@@ -30,6 +30,28 @@ export default defineConfig({
   // `loadPage` (`src/lib/loadPage.ts`), which is the documented opt-out
   // pattern and keeps the tag next to the slug it invalidates. The old
   // `/[...slug]` rule went with the catch-all route it described.
+  // Les images de la médiathèque vivent dans Convex storage : ce sont des
+  // URL *distantes*, servies au moment de la requête. `astro:assets`
+  // n'optimise une image distante que si son domaine est explicitement
+  // autorisé ici — sinon elle traverse le pipeline sans être touchée : pas
+  // de `srcset`, pas d'AVIF/WebP, pas de redimensionnement, et rien qui le
+  // signale. C'est le défaut silencieux que cette section existe pour
+  // fermer.
+  //
+  // Le domaine est dérivé de `PUBLIC_CONVEX_URL` plutôt qu'écrit en dur :
+  // il diffère entre le déploiement local (`127.0.0.1:3210`) et la
+  // production (`*.convex.cloud`), et une valeur figée n'optimiserait
+  // qu'un des deux.
+  image: {
+    remotePatterns: [
+      { protocol: "https", hostname: "**.convex.cloud" },
+      // Le déploiement local, pour que le comportement observé en
+      // développement soit celui de la production.
+      { protocol: "http", hostname: "127.0.0.1" },
+      { protocol: "http", hostname: "localhost" },
+    ],
+  },
+
   vite: {
     plugins: [tailwindcss()],
   },

@@ -6,6 +6,7 @@
 // preview (`?t=…`), the 404, and the cache tags; nothing else to wire up.
 export const prerender = false
 
+import { Image } from "astro:assets"
 import { loadPost } from "../../lib/loadPost"
 import { renderMarkdown } from "../../lib/markdown"
 import "../../styles/global.css"
@@ -63,6 +64,26 @@ const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
               {dateFormat.format(post.publishedAt)}
             </time>
           </p>
+        )}
+        {post.coverUrl && (
+          /* `<Image>` sur une URL *distante* : Astro ne l'optimise que
+             parce que le domaine de Convex storage est autorisé dans
+             `astro.config.ts` (`image.remotePatterns`). Sans cette
+             autorisation, l'image traverserait le pipeline sans être
+             touchée — pas de `srcset`, pas d'AVIF/WebP — et rien ne le
+             signalerait. `inferSize` lit les dimensions réelles du fichier
+             distant, ce qui évite le décalage de mise en page.
+
+             `loading="eager"` et `fetchpriority="high"` : sur un article,
+             la couverture est l'élément LCP. */
+          <Image
+            src={post.coverUrl}
+            alt={post.coverAlt}
+            inferSize
+            loading="eager"
+            fetchpriority="high"
+            class="mt-8 w-full rounded-lg"
+          />
         )}
         <article
           class="mt-10 leading-relaxed [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:pl-4 [&_h2]:mt-10 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mt-8 [&_h3]:text-xl [&_h3]:font-semibold [&_img]:rounded-lg [&_li]:ml-5 [&_ol]:mt-4 [&_ol]:list-decimal [&_p]:mt-4 [&_pre]:mt-4 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-ink [&_pre]:p-4 [&_pre]:text-sm [&_ul]:mt-4 [&_ul]:list-disc"
