@@ -73,6 +73,11 @@ test("drain POSTe sur WEB_SITE_URL/api/revalidate avec le secret et marque la li
   expect(init.method).toBe("POST")
   expect((init.headers as Record<string, string>)["x-revalidate-secret"]).toBe(REVALIDATE_SECRET)
   expect(JSON.parse(init.body as string)).toEqual({ tags: ["pages", "page:accueil"] })
+  // Closing-fixes review: `drain`'s own `fetch` call must carry a bounded
+  // `AbortSignal` — without one, a stalled-but-alive connection could run
+  // past `CLAIM_HOLD_MS`, letting the next cron sweep re-claim and
+  // re-attempt the same row while this call is still in flight.
+  expect(init.signal).toBeInstanceOf(AbortSignal)
 
   const row = await getRow(t, id)
   expect(row?.status).toBe("done")
@@ -215,6 +220,25 @@ test("une erreur réseau (fetch qui lève) est aussi traitée comme un échec", 
   expect(row?.status).toBe("pending")
   expect(row?.attempts).toBe(1)
   expect(row?.lastError).toMatch(/network unreachable/)
+})
+
+// Closing-fixes review: a stalled-but-alive connection must not be able to
+// outlive `CLAIM_HOLD_MS` — `fetch` now aborts after `FETCH_TIMEOUT_MS`,
+// which rejects with a `TimeoutError`, not a resolved response. That
+// rejection must fall into the same `catch` path as any other network
+// failure (attempts incremented, backoff scheduled), exactly like the
+// plain network-error case above.
+test("un fetch qui expire (AbortSignal.timeout) est aussi traité comme un échec", async () => {
+  const t = convexTest(schema, modules)
+  const id = await insertPendingRow(t)
+  fetchMock.mockRejectedValue(new DOMException("signal timed out", "TimeoutError"))
+
+  await t.action(internal.revalidate.drain, {})
+
+  const row = await getRow(t, id)
+  expect(row?.status).toBe("pending")
+  expect(row?.attempts).toBe(1)
+  expect(row?.lastError).toMatch(/timed out/)
 })
 
 // ---------------------------------------------------------------------

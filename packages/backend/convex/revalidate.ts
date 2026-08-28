@@ -128,7 +128,28 @@ export const listDueRows = internalQuery({
 // `CLAIM_HOLD_MS` from now — self-healing if the claiming `drain` call
 // itself crashes mid-flight, since the row becomes due again on its own
 // rather than staying claimed forever.
-const CLAIM_HOLD_MS = 2 * 60_000 // 2 minutes — comfortably longer than one fetch + one mutation round trip, short enough that a crashed `drain` doesn't strand a row past the next 60s cron sweep.
+// Closing-fixes review: the old comment ("short enough that a crashed
+// `drain` doesn't strand a row past the next 60s cron sweep") was false
+// for its own 2-minute value — 2 minutes is *twice* the 60s cron interval
+// (`crons.ts`), so a crashed `drain` was stranding a claimed row past two
+// sweeps, not zero. Worse, the hold bounded nothing at all in practice:
+// `drain`'s own `fetch` call had no `AbortSignal`, so a connection that
+// merely stalled (never actually crashing the action) could run past
+// `CLAIM_HOLD_MS` on its own, and the next sweep would re-claim the same
+// row and re-attempt delivery — reproducing exactly the double-attempt
+// the claim step (`claimRow`, above) exists to prevent.
+//
+// The fix is two numbers that have to satisfy one inequality, checked
+// here rather than only asserted: `FETCH_TIMEOUT_MS` (15s) + one mutation
+// round trip (`ctx.runMutation`, single-digit milliseconds in practice)
+// must stay comfortably under `CLAIM_HOLD_MS` (30s), which must itself
+// stay under the 60s cron interval — 15s + a few ms << 30s < 60s. That
+// ordering is what makes the comment true again: `drain` now always
+// either finishes (success or a bounded 15s timeout counted as a
+// failure) or is genuinely killed outright well before the next sweep
+// could possibly re-claim the same row while it's still in flight.
+const FETCH_TIMEOUT_MS = 15_000
+const CLAIM_HOLD_MS = 30_000
 
 export const claimRow = internalMutation({
   args: { id: v.id("revalidationOutbox") },
@@ -234,6 +255,15 @@ export const drain = internalAction({
             "x-revalidate-secret": secret,
           },
           body: JSON.stringify({ tags: row.tags }),
+          // Bounds this call to `FETCH_TIMEOUT_MS` (see `CLAIM_HOLD_MS`'s
+          // own header comment for the ordering this depends on) — a
+          // stalled-but-not-dead connection must not be allowed to run
+          // past the claim hold, or the next cron sweep re-claims and
+          // re-attempts the same row while this call is still in flight.
+          // The resulting `TimeoutError` is thrown, not returned, so it
+          // falls straight into the `catch` block below — treated exactly
+          // like any other network failure.
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         })
         if (!response.ok) {
           await ctx.runMutation(internal.revalidate.markAttemptFailed, {
