@@ -114,6 +114,7 @@ dans ce dépôt, pas des bonnes pratiques générales. Les lire avant d'écrire 
 | Convex | `convex`, `convex-setup-auth`, `convex-migration-helper` |
 | shadcn/ui et blocs UI | `shadcnblocks` |
 | SEO / GEO | `anthropic-skills:seo-geo`, `schema-markup`, `seo-audit` |
+| **Umami / mesure d'audience** | `umami-setup` (local) — **le point d'entrée**, il route vers les autres |
 
 ### Références vendorisées
 
