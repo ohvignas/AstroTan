@@ -147,6 +147,16 @@ function LeadsPage() {
                   key={lead._id}
                   draggable
                   onDragStart={(event) => {
+                    // Sans cette ligne, le navigateur fabrique son propre
+                    // fantôme à partir de la SÉLECTION de texte en cours —
+                    // d'où l'impression que toute la page se soulève. Lui
+                    // désigner la carte donne un fantôme de la taille de la
+                    // carte, et rien d'autre.
+                    event.dataTransfer.setDragImage(
+                      event.currentTarget,
+                      event.currentTarget.clientWidth / 2,
+                      24,
+                    )
                     event.dataTransfer.setData("text/plain", lead._id)
                     // Le statut d'origine voyage avec la carte : c'est ce
                     // qui permet à la colonne d'ignorer un dépôt sur
@@ -154,7 +164,10 @@ function LeadsPage() {
                     event.dataTransfer.setData("application/x-lead-status", lead.status)
                     event.dataTransfer.effectAllowed = "move"
                   }}
-                  className="cursor-grab rounded-lg border bg-card p-3 text-sm shadow-xs active:cursor-grabbing"
+                  // `select-none` : sans lui, un glissement commencé sur du texte
+                  // démarre une sélection au lieu d'un déplacement, et les
+                  // deux se disputent le geste.
+                  className="cursor-grab select-none rounded-lg border bg-card p-3 text-sm shadow-xs active:cursor-grabbing"
                 >
                   <button
                     type="button"
