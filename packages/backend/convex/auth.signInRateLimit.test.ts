@@ -54,6 +54,21 @@ beforeEach(() => {
   originalEnv = { ...process.env }
   process.env.BETTER_AUTH_SECRET = "test-secret-please-do-not-use-in-prod-x"
   process.env.SITE_URL = ORIGIN
+
+  // Le temps est figé pour toute cette suite, et ce n'est pas du confort.
+  // Chaque tentative de connexion fait un *vrai* hachage de mot de passe :
+  // sous charge — machine occupée, suites en parallèle — une boucle de
+  // quelques tentatives dépasse la durée de la fenêtre. Les deux limiteurs
+  // sont à fenêtre fixe, donc la fenêtre bascule en cours de test et la
+  // tentative censée être refusée repart avec un quota neuf. Rouge, sans
+  // que rien de ce qui est testé n'ait changé — observé trois fois.
+  //
+  // Seul `Date` est simulé, jamais les minuteries : les promesses doivent
+  // continuer de se résoudre normalement, sinon `t.fetch` ne rend jamais la
+  // main. Le test d'auto-expiration plus bas avance délibérément l'horloge
+  // avec `vi.setSystemTime` — il continue de fonctionner, c'est exactement
+  // à ça que sert une horloge simulée.
+  vi.useFakeTimers({ toFake: ["Date"] })
 })
 
 afterEach(() => {
