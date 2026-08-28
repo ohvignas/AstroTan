@@ -351,6 +351,21 @@ export const accept = mutation({
     // expirée, non consommée, et émise par quelqu'un qui en a toujours
     // l'autorité — est l'autorisation ; il n'y a par construction aucune
     // session Better Auth pour ce compte avant qu'il n'existe.
+    // `create` refuse déjà d'émettre vers un email qui a un compte, mais ce
+    // n'est pas suffisant ici : le compte peut naître ENTRE l'émission et
+    // l'acceptation, et `bootstrap:createInvitation` — le chemin de
+    // l'opérateur, hors interface — n'a pas cette vérification devant lui.
+    // Sans ce contrôle, Better Auth remonte son `APIError` brut jusque dans
+    // le formulaire (« User already exists. Use another email. ») : en
+    // anglais, sans code, donc intraduisible par l'écran qui l'affiche.
+    const existingAccount = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user" as const,
+      where: [{ field: "email" as const, operator: "eq" as const, value: invite.email }],
+    })
+    if (existingAccount) {
+      throw new ConvexError({ code: "ACCOUNT_ALREADY_EXISTS" })
+    }
+
     const auth = createAuth(ctx)
     await auth.api.createUser({
       body: {

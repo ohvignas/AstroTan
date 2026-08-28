@@ -445,6 +445,38 @@ test("create refuse une invitation vers un email qui a déjà un compte", async 
   ).rejects.toThrow(/ACCOUNT_ALREADY_EXISTS/)
 })
 
+// `create` refuse d'émettre vers un email déjà pris (test ci-dessus), mais
+// le compte peut naître ENTRE l'émission et l'acceptation — ou l'invitation
+// venir de `bootstrap:createInvitation`, qui est le chemin de l'opérateur.
+// Sans traduction, Better Auth remonte alors son `APIError` brut jusque
+// dans le formulaire : « User already exists. Use another email. », en
+// anglais, sans code, et impossible à expliquer à qui clique sur le lien.
+test("accept traduit un compte déjà existant en refus lisible", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  const { token } = await asAdmin.mutation(api.invitations.create, {
+    email: "course@example.com",
+    role: "editor",
+  })
+
+  // Le compte apparaît après l'émission — la course que `create` ne peut
+  // pas prévenir.
+  await seedUser(t, {
+    email: "course@example.com",
+    password: "correct horse battery staple course",
+    name: "Déjà là",
+    role: "editor",
+  })
+
+  await expect(
+    t.mutation(api.invitations.accept, {
+      name: "Invité·e",
+      token,
+      password: "correct horse battery staple accept",
+    }),
+  ).rejects.toThrow(/ACCOUNT_ALREADY_EXISTS/)
+})
+
 // --- Le deuxième verrou : même une invitation "owner" fabriquée hors de --
 // --- `create` échoue à la création du compte (databaseHooks, Task 6) -----
 
@@ -950,7 +982,10 @@ test("une invitation vers un email déjà pourvu d'un compte échoue, l'invitati
       token: secondToken,
       password: "correct horse battery staple 10",
     }),
-  ).rejects.toThrow(/already exists/i)
+  // Le refus porte désormais un code, et non plus le message anglais de
+  // Better Auth : c'est la même défense, mais celle-ci, l'écran sait la
+  // traduire à qui a cliqué sur le lien.
+  ).rejects.toThrow(/ACCOUNT_ALREADY_EXISTS/)
 
   const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect())
   const second = rows.find((r) => r.tokenHash === secondHash)

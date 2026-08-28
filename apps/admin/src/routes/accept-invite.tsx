@@ -190,6 +190,12 @@ const ACCEPT_ERROR_MESSAGES: Record<string, string> = {
   EXPIRED: "Cette invitation a expiré. Demandez-en une nouvelle.",
   ALREADY_ACCEPTED:
     "Un compte existe déjà pour cette invitation. Connectez-vous plutôt.",
+  // Distinct d'ALREADY_ACCEPTED : l'invitation, elle, n'a jamais été
+  // utilisée — c'est l'adresse qui a déjà un compte, créé par un autre
+  // chemin. Dire « déjà acceptée » enverrait chercher une acceptation qui
+  // n'a pas eu lieu.
+  ACCOUNT_ALREADY_EXISTS:
+    "Un compte existe déjà pour cette adresse. Connectez-vous plutôt.",
   // Reachable only from a caller that skipped this form: the gauge below
   // scores with the very function the mutation applies, so the submit
   // button is disabled long before a password this weak can be sent.
