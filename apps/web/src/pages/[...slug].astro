@@ -58,7 +58,7 @@ const canonicalUrl = page?.seo?.canonicalUrl ?? new URL(Astro.url.pathname, Astr
 // Rendered and sanitised here rather than in the template so the template
 // stays a single `set:html` — see `lib/markdown.ts` for why sanitising
 // after rendering (not before) is the load-bearing order.
-const bodyHtml = page === null ? "" : renderMarkdown(page.body ?? "")
+const bodyHtml = page === null ? "" : renderMarkdown(page.body)
 ---
 
 {

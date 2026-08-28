@@ -97,7 +97,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
 
   const [title, setTitle] = useState(page.title)
   const [slug, setSlug] = useState(page.slug)
-  const [body, setBody] = useState(page.body ?? "")
+  const [body, setBody] = useState(page.body)
   const [seoTitle, setSeoTitle] = useState(page.seo?.title ?? "")
   const [seoDescription, setSeoDescription] = useState(
     page.seo?.description ?? ""
