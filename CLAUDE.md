@@ -14,7 +14,7 @@ apps/web/          Astro 7 · @astrojs/node standalone · une page = un .astro
 apps/admin/        TanStack Start 1 · React 19 · shadcn/ui
 packages/backend/  Convex : schema, functions, betterAuth/ (Local Install)
 packages/tokens/   tokens Tailwind v4 partagés
-docker/            Dockerfiles · compose · Traefik
+docker/            Dockerfiles · compose Traefik · config statique Traefik
 ```
 
 **Ajouter une page**, c'est écrire `apps/web/src/pages/<slug>.astro`. Les trois
@@ -53,6 +53,9 @@ pnpm workspaces + Turborepo. Les types viennent de la codegen Convex : lancer
    L'admin décide **qui doit trouver la page**, jamais ce qu'elle contient.
 6. **Aucun changement de schéma destructif dans un seul déploiement.** Discipline
    expand / migrate / contract (spec §7) — c'est ce qui rend le rollback sûr.
+7. **Le rollback rejoue le pipeline entier sur un sha.** Jamais les images seules :
+   `convex deploy` a déjà remplacé functions et schéma (spec §7). Procédure :
+   [`docker/README.md`](docker/README.md).
 
 ## Règles du backend Convex — apprises à la dure
 
