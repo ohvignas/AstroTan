@@ -6,6 +6,12 @@
       "runtimeExecutable": "corepack",
       "runtimeArgs": ["pnpm", "--filter", "@astrotan/admin", "run", "dev"],
       "port": 3001
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "corepack",
+      "runtimeArgs": ["pnpm", "--filter", "@astrotan/web", "run", "dev"],
+      "port": 4321
     }
   ]
 }

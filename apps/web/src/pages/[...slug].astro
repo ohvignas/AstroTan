@@ -1,0 +1,83 @@
+---
+// Lot 2, Task 6; design spec §6.1/§6.2/§6.5. The CMS-driven catch-all:
+// renders a published `pages` document through `blockRegistry` (Task 5),
+// with per-request caching by tag so `publishPage`'s outbox (Lot 2, Task
+// 3) can invalidate exactly this page without a rebuild.
+//
+// `output: 'static'` (astro.config.ts) prerenders by default; this route
+// opts out explicitly rather than relying on `routeRules` alone — the
+// documented pattern from that config's own comment ("the opt-out is the
+// explicit call, not an absence of a `routeRules` entry").
+export const prerender = false
+
+import { api } from "@astrotan/backend/convex/_generated/api"
+import { getConvexClient } from "../lib/convexClient"
+import { blockRegistry } from "../lib/blockRegistry"
+import PageLayout from "../layouts/PageLayout.astro"
+
+// A `[...slug].astro` rest param is a single "/"-joined string ("" at the
+// route root) — not an array. `index.astro` is an exact-match static
+// route and takes priority over this catch-all for "/" itself (Astro's
+// own route-priority rules), so an empty slug reaching here would mean
+// something unexpected happened upstream; treated the same as any other
+// unmatched slug below rather than assumed impossible.
+const slug = Astro.params.slug ?? ""
+
+// The one call this entire app makes to read page content: a public
+// query that filters `status === "published"` server-side, no session,
+// no admin key (CLAUDE.md invariant #1; `convexClient.ts`'s own header).
+// `page` is `null` for both "no page with this slug" and "a draft with
+// this slug" — `getPublishedPage` deliberately makes those the same
+// outcome from this app's point of view (`packages/backend/convex/pages.ts`).
+const page = await getConvexClient().query(api.pages.getPublishedPage, { slug })
+
+if (page === null) {
+  // A real 404 status, not a redirect to a literal `/404` route or a
+  // silently-200 "not found" page — Task 6's own requirement. Never
+  // cached: simpler to reason about than caching a negative result under
+  // `page:{slug}` and relying on a future `publishPage` for that exact
+  // slug to remember to invalidate it.
+  Astro.response.status = 404
+  Astro.cache.set(false)
+} else {
+  // Per-page tag alongside the route-wide `pages` tag from `routeRules`
+  // (astro.config.ts) — `page:{slug}` is what lets `publishPage`'s outbox
+  // (design spec §6.2) invalidate exactly this page instead of every
+  // cached CMS page on every publish.
+  Astro.cache.set({ maxAge: 300, swr: 600, tags: ["pages", `page:${page.slug}`] })
+}
+
+// `page.seo.canonicalUrl` overrides the computed current-URL default;
+// stripped of query/hash either way, since a page's canonical identity
+// shouldn't depend on tracking params or a fragment.
+const canonicalUrl = page?.seo?.canonicalUrl ?? new URL(Astro.url.pathname, Astro.url.origin).href
+---
+
+{
+  page === null ? (
+    <PageLayout title="Page not found" canonicalUrl={canonicalUrl} noindex={true}>
+      <main class="mx-auto max-w-2xl px-6 py-24 text-center">
+        <h1 class="text-3xl font-bold text-ink">404</h1>
+        <p class="mt-4 text-ink-mid">This page does not exist.</p>
+      </main>
+    </PageLayout>
+  ) : (
+    <PageLayout
+      title={page.seo?.title || page.title}
+      description={page.seo?.description}
+      canonicalUrl={canonicalUrl}
+      noindex={page.seo?.noindex ?? false}
+    >
+      {page.blocks.map((block) => {
+        // The registry itself is the exhaustiveness guarantee (Task 5):
+        // `Record<Block["type"], AstroComponentFactory>` has no
+        // possibly-missing entries to guard against here — indexing by
+        // `block.type` (a `Block["type"]` member, not a bare `string`) is
+        // not affected by `noUncheckedIndexedAccess` the way a
+        // string-indexed lookup would be.
+        const Component = blockRegistry[block.type]
+        return <Component block={block} />
+      })}
+    </PageLayout>
+  )
+}
