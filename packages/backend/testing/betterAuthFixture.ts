@@ -33,7 +33,11 @@ import rateLimiterTest from "@convex-dev/rate-limiter/test"
 // pose plus : ce fichier n'est jamais un point d'entrée candidat pour le
 // bundler Convex, donc `import.meta.glob` (et n'importe quel import
 // runtime de `convex-test`) est sans risque ici.
-export const ORIGIN = "http://localhost:3000"
+// I9 (Lot 1 final review): the admin app actually serves on :3001 (port
+// 3000 belongs to a different app in this project) — a fixture hardcoding
+// the wrong port made the test suite self-consistently wrong about what
+// origin a real deployment would use.
+export const ORIGIN = "http://localhost:3001"
 
 // Chemins relatifs à CE fichier (`packages/backend/testing/`), donc
 // remontent d'un niveau puis entrent dans `convex/`.
