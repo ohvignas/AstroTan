@@ -92,6 +92,14 @@ const EDITABLE_ROLE_ITEMS: Record<"admin" | "editor", string> = {
 // through to a generic message rather than a blank one: the server refused
 // for a reason this screen doesn't have specific copy for yet, not for no
 // reason at all.
+//
+// Minor (Lot 1 final review, re-review): that claim of completeness was
+// false until `INVITATION_ALREADY_PENDING`/`ACCOUNT_ALREADY_EXISTS` were
+// added below — `invitations.create`'s own `by_email` duplicate checks
+// (Lot 1 final review) throw both, and neither was here, so the two most
+// common operator mistakes (re-inviting someone already invited, or
+// already onboarded) rendered the generic fallback message instead of
+// telling the operator what actually went wrong.
 const ERROR_MESSAGES: Record<string, string> = {
   FORBIDDEN:
     "Action refusée par le serveur : vous n'avez pas l'autorité pour ceci.",
@@ -109,6 +117,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   ALREADY_ACCEPTED: "Cette invitation a déjà été acceptée.",
   UNAUTHENTICATED: "Votre session a expiré. Reconnectez-vous.",
   BANNED: "Votre compte a été suspendu.",
+  INVITATION_ALREADY_PENDING:
+    "Une invitation est déjà en attente pour cette adresse email.",
+  ACCOUNT_ALREADY_EXISTS: "Un compte existe déjà pour cette adresse email.",
 }
 
 function describeError(error: unknown): string {

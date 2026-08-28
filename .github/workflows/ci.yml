@@ -36,3 +36,18 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # I6/I7 (Lot 1 final review, re-review): typecheck/lint/test never
+      # actually run the TanStack Router generator, so a committed
+      # `routeTree.gen.ts` that has drifted from `src/routes/**` (a route
+      # added or renamed without re-running `dev`/`build` locally before
+      # committing) would pass this workflow silently. Building is what
+      # regenerates it (the generator only ever runs as a Vite plugin, see
+      # `apps/admin/.gitignore`'s own comment on why there's no standalone
+      # codegen command for it) — the diff after that build is the actual
+      # drift check.
+      - name: Build admin (drift-checks routeTree.gen.ts)
+        run: pnpm --filter @astrotan/admin build
+
+      - name: Fail if routeTree.gen.ts is out of date
+        run: git diff --exit-code -- apps/admin/src/routeTree.gen.ts

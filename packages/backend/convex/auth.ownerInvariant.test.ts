@@ -1066,3 +1066,251 @@ test("I2 (contrôle) : un admin peut toujours s'auto-éditer un champ non-role v
   })
   expect(res.status).toBe(200)
 })
+
+// I1 (Lot 1 final review, re-review). The three application-layer checks
+// added to `users.ts`/`invitations.ts` in the first fix wave were correct
+// but sat in a layer the attack does not pass through: `/admin/set-role`,
+// `/admin/ban-user` and `/admin/remove-user` are public endpoints those
+// mutations don't wrap, `adminRole` grants the underlying permission with
+// no target-role rule of its own, and `assertOwnerInvariant` only ever
+// fires for an *owner* target — so an admin acting on another admin
+// sailed through untouched. Driven here exactly like every other test in
+// this file — the real HTTP surface, cookie-authenticated, never through
+// `users.ts` — because that is the actual attack surface `adminRole`
+// exposes, and testing anything less would prove nothing about it.
+//
+// Reproduces the reviewer's five measured cases against the real fixture:
+//   SETROLE admin->admin   200  {"role":"editor"}   # demoted another admin
+//   SETROLE editor->admin  200  {"role":"admin"}    # minted a new admin
+//   BAN     admin->admin   200
+//   REMOVE  admin->admin   200
+//   SETROLE admin->owner   403  OWNER_INVARIANT     # control: correctly refused
+// (the fifth was already correctly refused before this fix — see
+// `refuse qu'un admin modifie un owner via /admin/set-role` above, and the
+// `guardAdminRoleBoundary` comment on why an owner target stays that
+// guard's job, not this new one's, so that test's code doesn't change.)
+
+test("I1 (re-review) : un admin ne peut pas rétrograder un autre admin via /admin/set-role (chemin réel)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple i1r-1a",
+    name: "Owner",
+    role: "owner",
+  })
+  const targetAdmin = await seedUser(t, {
+    email: "target-admin@example.com",
+    password: "correct horse battery staple i1r-1b",
+    name: "Target Admin",
+    role: "admin",
+  })
+  await seedUser(t, {
+    email: "acting-admin@example.com",
+    password: "correct horse battery staple i1r-1c",
+    name: "Acting Admin",
+    role: "admin",
+  })
+  const actingAdminCookie = await signIn(
+    t,
+    "acting-admin@example.com",
+    "correct horse battery staple i1r-1c",
+  )
+
+  const res = await t.fetch("/api/auth/admin/set-role", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: ORIGIN,
+      cookie: actingAdminCookie,
+    },
+    body: JSON.stringify({ userId: targetAdmin.id, role: "editor" }),
+  })
+
+  expect(res.status).toBe(403)
+  const body = (await res.json()) as { code?: string }
+  expect(body.code).toBe("ADMIN_ROLE_BOUNDARY")
+
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple i1r-1a")
+  expect(await getRole(t, ownerCookie, targetAdmin.id)).toBe("admin")
+})
+
+test("I1 (re-review) : un admin ne peut pas promouvoir un editor en admin via /admin/set-role (chemin réel)", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple i1r-2a",
+    name: "Owner",
+    role: "owner",
+  })
+  const targetEditor = await seedUser(t, {
+    email: "target-editor@example.com",
+    password: "correct horse battery staple i1r-2b",
+    name: "Target Editor",
+    role: "editor",
+  })
+  await seedUser(t, {
+    email: "acting-admin@example.com",
+    password: "correct horse battery staple i1r-2c",
+    name: "Acting Admin",
+    role: "admin",
+  })
+  const actingAdminCookie = await signIn(
+    t,
+    "acting-admin@example.com",
+    "correct horse battery staple i1r-2c",
+  )
+
+  const res = await t.fetch("/api/auth/admin/set-role", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: ORIGIN,
+      cookie: actingAdminCookie,
+    },
+    body: JSON.stringify({ userId: targetEditor.id, role: "admin" }),
+  })
+
+  expect(res.status).toBe(403)
+  const body = (await res.json()) as { code?: string }
+  expect(body.code).toBe("ADMIN_ROLE_BOUNDARY")
+
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple i1r-2a")
+  expect(await getRole(t, ownerCookie, targetEditor.id)).toBe("editor")
+})
+
+test("I1 (re-review) : un admin ne peut pas bannir un autre admin via /admin/ban-user (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const targetAdmin = await seedUser(t, {
+    email: "target-admin@example.com",
+    password: "correct horse battery staple i1r-3a",
+    name: "Target Admin",
+    role: "admin",
+  })
+  await seedUser(t, {
+    email: "acting-admin@example.com",
+    password: "correct horse battery staple i1r-3b",
+    name: "Acting Admin",
+    role: "admin",
+  })
+  const actingAdminCookie = await signIn(
+    t,
+    "acting-admin@example.com",
+    "correct horse battery staple i1r-3b",
+  )
+
+  const res = await t.fetch("/api/auth/admin/ban-user", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: ORIGIN,
+      cookie: actingAdminCookie,
+    },
+    body: JSON.stringify({ userId: targetAdmin.id }),
+  })
+
+  expect(res.status).toBe(403)
+  const body = (await res.json()) as { code?: string }
+  expect(body.code).toBe("ADMIN_ROLE_BOUNDARY")
+
+  // The target's own credentials still sign in — not banned.
+  await signIn(t, "target-admin@example.com", "correct horse battery staple i1r-3a")
+})
+
+test("I1 (re-review) : un admin ne peut pas supprimer un autre admin via /admin/remove-user (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const targetAdmin = await seedUser(t, {
+    email: "target-admin@example.com",
+    password: "correct horse battery staple i1r-4a",
+    name: "Target Admin",
+    role: "admin",
+  })
+  await seedUser(t, {
+    email: "acting-admin@example.com",
+    password: "correct horse battery staple i1r-4b",
+    name: "Acting Admin",
+    role: "admin",
+  })
+  const actingAdminCookie = await signIn(
+    t,
+    "acting-admin@example.com",
+    "correct horse battery staple i1r-4b",
+  )
+
+  const res = await t.fetch("/api/auth/admin/remove-user", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: ORIGIN,
+      cookie: actingAdminCookie,
+    },
+    body: JSON.stringify({ userId: targetAdmin.id }),
+  })
+
+  expect(res.status).toBe(403)
+  const body = (await res.json()) as { code?: string }
+  expect(body.code).toBe("ADMIN_ROLE_BOUNDARY")
+
+  // The row survives — a fresh sign-in with the original password works.
+  await signIn(t, "target-admin@example.com", "correct horse battery staple i1r-4a")
+})
+
+// Controls: the guard must not restrict what it isn't supposed to.
+
+test("I1 (re-review, contrôle) : un admin peut définir le rôle d'un editor à editor via /admin/set-role (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const targetEditor = await seedUser(t, {
+    email: "target-editor@example.com",
+    password: "correct horse battery staple i1r-5a",
+    name: "Target Editor",
+    role: "editor",
+  })
+  await seedUser(t, {
+    email: "acting-admin@example.com",
+    password: "correct horse battery staple i1r-5b",
+    name: "Acting Admin",
+    role: "admin",
+  })
+  const actingAdminCookie = await signIn(
+    t,
+    "acting-admin@example.com",
+    "correct horse battery staple i1r-5b",
+  )
+
+  const res = await t.fetch("/api/auth/admin/set-role", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: ORIGIN,
+      cookie: actingAdminCookie,
+    },
+    body: JSON.stringify({ userId: targetEditor.id, role: "editor" }),
+  })
+
+  expect(res.status).toBe(200)
+})
+
+test("I1 (re-review, contrôle) : un owner peut rétrograder un admin via /admin/set-role (chemin réel)", async () => {
+  const t = makeTestConvex()
+  const targetAdmin = await seedUser(t, {
+    email: "target-admin@example.com",
+    password: "correct horse battery staple i1r-6a",
+    name: "Target Admin",
+    role: "admin",
+  })
+  await seedUser(t, {
+    email: "owner@example.com",
+    password: "correct horse battery staple i1r-6b",
+    name: "Owner",
+    role: "owner",
+  })
+  const ownerCookie = await signIn(t, "owner@example.com", "correct horse battery staple i1r-6b")
+
+  const res = await t.fetch("/api/auth/admin/set-role", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie: ownerCookie },
+    body: JSON.stringify({ userId: targetAdmin.id, role: "editor" }),
+  })
+
+  expect(res.status).toBe(200)
+  expect(await getRole(t, ownerCookie, targetAdmin.id)).toBe("editor")
+})

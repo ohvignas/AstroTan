@@ -10,7 +10,7 @@ import { components, internal } from "./_generated/api"
 import type { DataModel } from "./_generated/dataModel"
 import authSchema from "./betterAuth/schema"
 import authConfig from "./auth.config"
-import { parseRole } from "./validators"
+import { parseRole, type Role } from "./validators"
 import { assertOwnerInvariant, OwnerInvariantError } from "./lib/ownerGuard"
 import {
   SIGN_IN_EMAIL_RATE_LIMIT_CONFIG,
@@ -856,7 +856,16 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         }
 
         const isRevokeSingle = ctx.path === "/admin/revoke-user-session"
-        if (!OWNER_PROTECTED_PATHS.has(ctx.path) && !isRevokeSingle) return
+        // I1 (Lot 1 final review, re-review): `needsRoleBoundaryGuard`
+        // shares the same target resolution below with the owner guard
+        // (`needsOwnerGuard`), rather than re-fetching the target a
+        // second time or duplicating the userId/sessionToken branching —
+        // see `guardAdminRoleBoundary` further down for why the check
+        // itself still needs its own, separate function rather than being
+        // folded into the owner guard's own logic.
+        const needsOwnerGuard = OWNER_PROTECTED_PATHS.has(ctx.path) || isRevokeSingle
+        const needsRoleBoundaryGuard = ADMIN_ROLE_BOUNDARY_PATHS.has(ctx.path) || isRevokeSingle
+        if (!needsOwnerGuard && !needsRoleBoundaryGuard) return
 
         const internalAdapter = (ctx.context as OwnerHookEndpointContext["context"])
           ?.internalAdapter
@@ -914,6 +923,33 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
             message: "OWNER_PROTECTED: rôle de la cible non classifiable, refusé par prudence",
           })
         }
+        // I1 (Lot 1 final review, re-review): the role-table boundary —
+        // an admin actor may act only on a target that is currently
+        // `editor` (and, for `/admin/set-role`, may only ever grant
+        // `editor`). Runs against the *same* resolved `targetRole` the
+        // owner guard below also uses, for every path either guard cares
+        // about (`needsRoleBoundaryGuard` is `false` for a path only the
+        // owner guard protects, so this is a no-op there). Must run
+        // *before* the owner guard's own early `return` on a non-owner
+        // target: that `return` is correct for the owner invariant
+        // specifically (nothing to guard once the target isn't the
+        // owner), but this guard's entire reason to exist is exactly that
+        // "nothing to guard" case — an admin acting on another admin,
+        // never the owner. Originally placed in `users.ts`/
+        // `invitations.ts` (application layer) — moved here on review,
+        // because `/admin/set-role`/`/admin/ban-user`/etc. are public
+        // endpoints those mutations don't wrap; `adminRole` grants the
+        // underlying permission with no target-role rule of its own, and
+        // `assertOwnerInvariant` only ever fires for an *owner* target.
+        // Measured against the real fixture before this fix: an admin
+        // could demote or promote another admin, ban another admin, and
+        // remove another admin, all with a plain `200`, straight through
+        // `/admin/*`.
+        if (needsRoleBoundaryGuard) {
+          await guardAdminRoleBoundary(ctx, internalAdapter, targetRole, body)
+        }
+
+        if (!needsOwnerGuard) return
         if (targetRole !== "owner") return // positively not the owner: nothing to guard
 
         // The target IS the owner. Only *now* — with the target side of
@@ -963,6 +999,29 @@ const OWNER_PROTECTED_PATHS = new Set([
   "/admin/revoke-user-sessions",
 ])
 
+// I1 (Lot 1 final review, re-review): paths where `guardAdminRoleBoundary`
+// enforces spec §5's role table ("admin" may invite/edit "editor", never
+// another "admin"; everything else is "owner"-only). Deliberately its own
+// `Set`, parallel to (not merged into) `OWNER_PROTECTED_PATHS` — same
+// reasoning as `SIGN_IN_PATHS` above: a different concern (the RBAC role
+// table, not the single-owner invariant), covering a different, only
+// partially-overlapping set of paths, with its own lifecycle. Exact path
+// names verified against the installed `better-auth@1.6.17`'s
+// `plugins/admin/routes.mjs` (`createAuthEndpoint("/admin/...", ...)`
+// calls), not written from memory.
+//
+// `/admin/revoke-user-session` (singular) isn't in this set for the same
+// reason it isn't in `OWNER_PROTECTED_PATHS`: it names a session token,
+// not a `userId`, and is handled by the `isRevokeSingle` branch instead.
+const ADMIN_ROLE_BOUNDARY_PATHS = new Set([
+  "/admin/set-role",
+  "/admin/ban-user",
+  "/admin/unban-user",
+  "/admin/remove-user",
+  "/admin/update-user",
+  "/admin/revoke-user-sessions",
+])
+
 // Narrow shape for the pieces of `GenericEndpointContext` the hooks above
 // actually read. `body`/`context.session`/`context.internalAdapter` are
 // all present at runtime (verified empirically — see
@@ -981,6 +1040,137 @@ type OwnerHookEndpointContext = {
       countTotalUsers: (
         where?: { field: string; operator?: string; value: unknown }[],
       ) => Promise<number>
+    }
+  }
+}
+
+// I1 (Lot 1 final review, re-review): resolves the acting session's role
+// for `guardAdminRoleBoundary` below, tolerating both the cookie case
+// `getSessionFromCtx` handles natively and the bearer case it cannot —
+// see the big comment on `hooks.before`'s round-4 fix above for why:
+// `getSessionFromCtx` falls through to a fresh cookie-only lookup whenever
+// `ctx.context.session` isn't already populated, and that population is
+// exactly what the bearer plugin's own before-hook does — which has not
+// run yet when *our* `hooks.before` runs, since ours is registered ahead
+// of every plugin's own before-hooks. Verified against the installed
+// `better-auth@1.6.17`'s `api/routes/session.mjs`: `getSessionFromCtx`
+// starts with `if (ctx.context.session) return ctx.context.session`, and
+// only falls back to a request read (cookie-based) when that's unset.
+//
+// This matters here in a way it didn't for the owner guard's narrow
+// self-action carve-out (which can afford to fail closed on an
+// unresolvable session — it's a rare, owner-only edge case): `users
+// .setRole`/`users.remove` — this app's own, everyday path for exactly
+// the actions this guard protects — call `auth.api.setRole`/`auth.api
+// .removeUser` with the caller's session forwarded as *precisely* such a
+// bearer header. Verified against the installed `@convex-dev/better
+// -auth@0.12.5`'s `client/create-client.js`: `getHeaders` builds
+// `{ authorization: `Bearer ${session.token}` }` from the caller's own
+// session document. Failing closed on an unresolvable session the way the
+// owner guard's carve-out does would refuse *every* legitimate call
+// through that path, owner and admin-on-editor alike — not a narrow,
+// accepted regression, but this guard's entire purpose defeated for its
+// main caller.
+//
+// Resolved via `internalAdapter.findSession`, the exact same primitive
+// `isRevokeSingle` above already uses for a session token carried in the
+// request *body* — not a second implementation of the bearer plugin's own
+// HMAC-signing/verification (verified against the installed `better
+// -auth@1.6.17`'s `plugins/bearer/index.mjs`: the token this app's own
+// `getHeaders` puts in the `Authorization` header is the *raw, unsigned*
+// `session.token` value — the plugin signs it itself, on the caller's
+// behalf, only *after* receiving it, so there is no cryptographic
+// decision to duplicate here, only the same raw lookup-by-token-value
+// `findSession` already performs elsewhere in this file). A wrong answer
+// from this resolution is not a new security hole either way: this guard
+// only ever *refuses*, never grants — a role resolved from a stale or
+// no-longer-valid token, leading to a wrongly-permissive decision here,
+// still has to pass `adminMiddleware`'s own real authentication
+// afterward, exactly as if this guard did not exist at all.
+async function resolveActingRole(
+  ctx: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0],
+  internalAdapter: NonNullable<NonNullable<OwnerHookEndpointContext["context"]>["internalAdapter"]>,
+): Promise<Role | null> {
+  const cookieSession = await getSessionFromCtx(ctx).catch(() => null)
+  if (cookieSession?.user) return parseRole(cookieSession.user.role)
+
+  const requestLike = ctx.request ?? ctx.headers
+  if (!requestLike) return null
+  // Same dual-shape handling as better-auth's own `getIp` (verified
+  // against `utils/get-request-ip.mjs`): `ctx.request` is a real
+  // `Request` (`.headers` is a `Headers` instance); `ctx.headers` alone
+  // can be a `Headers` instance or a plain header record, hence the `"get"
+  // in headers` branch rather than assuming `.get` always exists.
+  const headers = "headers" in requestLike ? requestLike.headers : requestLike
+  const authHeader =
+    "get" in headers ? headers.get("authorization") : (headers as Record<string, string>).authorization
+  if (typeof authHeader !== "string" || authHeader.slice(0, 7).toLowerCase() !== "bearer ") {
+    return null
+  }
+  const token = authHeader.slice(7).trim()
+  if (!token) return null
+
+  const found = await internalAdapter.findSession(token)
+  return found ? parseRole(found.user.role) : null
+}
+
+// I1 (Lot 1 final review, re-review): the role-table check itself. `owner`
+// is unrestricted; every other actor — a positively-classified `admin`
+// (the case this guard exists for), a positively-classified `editor`
+// (already refused by RBAC before this ever runs — `editorRole` grants no
+// `user`/`session` permissions at all, see `auth.ts`'s role definitions —
+// restricted here too anyway, for the same "don't rely on a second place
+// to get this right" reasoning `ownerGuard.ts` gives for computing things
+// unconditionally rather than gating on a local pre-check), and an
+// unclassifiable or entirely unresolvable actor — is held to the same
+// floor: act only on a target that is currently `editor`.
+//
+// `body` is read raw here, exactly like the owner guard above and for the
+// identical reason (round 2's C3): `hooks.before` runs *ahead of* the
+// endpoint's own zod body validation, so `/admin/set-role`'s `role` field
+// could in principle arrive as something other than a plain string (its
+// own schema is `z.union([z.string(), z.array(z.string())])`) before that
+// validation ever normalizes it. `parseRole` already refuses anything
+// that isn't *exactly* one known role string — an array or a multi-role
+// value parses to `null`, which is never `"editor"`, so it's refused by
+// the same comparison without a separate array check.
+async function guardAdminRoleBoundary(
+  ctx: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0],
+  internalAdapter: NonNullable<NonNullable<OwnerHookEndpointContext["context"]>["internalAdapter"]>,
+  targetRole: Role,
+  body: Record<string, unknown> | undefined,
+): Promise<void> {
+  // A target who *is* the owner is exhaustively somebody else's job
+  // already: the owner guard right after this call (for the paths in
+  // `OWNER_PROTECTED_PATHS`), or `databaseHooks.user.update.before`'s own
+  // `assertOwnerInvariant` (for `/admin/set-role`/`/admin/unban-user`,
+  // which route through `internalAdapter.updateUser` and so trigger it,
+  // but aren't in `OWNER_PROTECTED_PATHS` — that set is only paths where
+  // better-auth can act *before* `databaseHooks` gets a chance to run).
+  // Returning here — before even resolving the actor — is what keeps this
+  // guard's refusal from shadowing that more specific `OWNER_INVARIANT`
+  // one with a less specific `ADMIN_ROLE_BOUNDARY`, not a weaker check:
+  // every path this guard covers refuses a non-owner actor targeting the
+  // owner through one of those two mechanisms regardless.
+  if (targetRole === "owner") return
+
+  const actorRole = await resolveActingRole(ctx, internalAdapter)
+  if (actorRole === "owner") return // owner is unrestricted by this guard
+
+  if (targetRole !== "editor") {
+    throw APIError.from("FORBIDDEN", {
+      code: "ADMIN_ROLE_BOUNDARY",
+      message: "ADMIN_ROLE_BOUNDARY: un admin ne peut agir que sur un compte editor",
+    })
+  }
+
+  if (ctx.path === "/admin/set-role") {
+    const requestedRole = parseRole(body?.role)
+    if (requestedRole !== "editor") {
+      throw APIError.from("FORBIDDEN", {
+        code: "ADMIN_ROLE_BOUNDARY",
+        message: "ADMIN_ROLE_BOUNDARY: un admin ne peut accorder que le rôle editor",
+      })
     }
   }
 }
