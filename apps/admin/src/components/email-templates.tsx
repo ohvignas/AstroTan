@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
+import { ChevronRightIcon } from "lucide-react"
 import type {
   CleEmail,
   DescriptionEmail,
@@ -23,14 +24,58 @@ import { Textarea } from "@/components/ui/textarea"
 import { SettingsGroup } from "@/components/settings-nav"
 import { ChampSecret } from "@/components/settings-environment"
 import type { SecretsBloc } from "@/components/settings-environment"
-import {
-  CleMaitresseBandeau,
-  Command,
-  SecretHorsPortee,
-} from "@/components/settings-secrets"
 
 // ---------------------------------------------------------------------
 // L'écran « Envoi des emails », en pièces rendues sans Convex.
+//
+// CE QUE CET ÉCRAN NE FAIT PAS : expliquer.
+//
+// Il s'adresse à quelqu'un qui vient d'installer ce template et veut que
+// ses emails partent. Cette personne n'est pas développeuse, n'ouvrira
+// jamais `convex/lib/resend.ts`, et n'a aucune décision à prendre à partir
+// de ce qu'elle y lirait. Trois formes sont donc admises à l'écran, et
+// rien d'autre :
+//
+//   • un ÉTAT — « Absent », « Mode d'essai », « Texte personnalisé » ;
+//   • une ÉTIQUETTE — « Clé Resend », « Adresse d'expédition » ;
+//   • une ACTION — « Enregistrer », « Modifier le texte ».
+//
+// Une phrase qui n'est aucun des trois est un commentaire de code qui a
+// fui dans l'interface. Elle redescend ici. La version précédente de cet
+// écran faisait 1 066 lignes pour poser une clé et une adresse ; l'essentiel
+// de ce volume était de la documentation d'architecture affichée à
+// quelqu'un qui n'en a pas l'usage.
+//
+// CE QUI A ÉTÉ RETIRÉ DE L'ÉCRAN, ET QUI EST VRAI QUAND MÊME :
+//
+//   • `RESEND_TEST_MODE` — tant qu'elle ne vaut pas exactement `"false"`,
+//     Resend ACCEPTE chaque envoi (code 200, identifiant de message, aucune
+//     erreur) et ne le délivre à personne. C'est la valeur par DÉFAUT, donc
+//     la panne atteint chaque adoptant, une fois, au pire moment. Elle est
+//     lue dans le constructeur du client Resend : elle ne se règle que dans
+//     l'environnement Convex, jamais depuis un champ. L'écran n'en dit plus
+//     que la conséquence — « aucun email n'est délivré » — parce que c'est
+//     la seule moitié dont on puisse faire quelque chose ;
+//   • la PRÉCÉDENCE environnement / base — `convex/lib/resend.ts` construit
+//     son client via le lecteur unique `secrets.lireSecret`, qui préfère la
+//     variable d'environnement quand elle existe et retombe sinon sur la
+//     valeur saisie ici, une fois déchiffrée. La seule occurrence où cette
+//     règle change ce que quelqu'un doit faire — les deux valeurs existent,
+//     et c'est l'environnement qui sert — est déjà dite par `SecretField`,
+//     au moment où elle se produit. Le reste était une leçon ;
+//   • le chiffrement — un jeton saisi ici est chiffré (AES-GCM) sous
+//     `SECRETS_KEY`, qui vit dans l'environnement Convex. Rassurant, sans
+//     conséquence sur un geste. Voir `convex/secrets.ts` ;
+//   • `SITE_URL` — l'origine du dashboard, donc celle des liens contenus
+//     DANS les emails (celui d'une invitation, le « répondre depuis le
+//     dashboard » d'une notification). Lue au chargement des modules Convex
+//     (`baseURL` de Better Auth), jamais au moment de l'usage : une valeur
+//     saisie à l'écran arriverait toujours trop tard. Elle ne se réglait
+//     donc pas ici, et un bloc qui n'est qu'explication et commande n'a pas
+//     sa place sur un écran de réglages. Voir la réserve du rapport ;
+//   • les COMMANDES shell. Un `npx convex env set …` affiché dans un
+//     dashboard dit à la personne qui le lit que l'écran ne sait pas faire
+//     son travail. Elles vivent dans `docker/README.md`.
 //
 // Deux raisons de tout garder présentatif — queries et mutations restent
 // dans `routes/_authed/settings/emails.tsx` :
@@ -38,17 +83,10 @@ import {
 //   • `vitest.config.ts` est en `environment: "node"` et rend avec
 //     `renderToStaticMarkup`. Un composant qui appelle `useQuery` exigerait
 //     un client Convex, donc un harnais, pour vérifier une phrase ;
-//   • les trois exigences non négociables de cet écran sont toutes des
-//     exigences de RENDU — une raison affichée et non masquée, un bandeau
-//     et non une note, un refus montré avant le clic. Elles se testent là
-//     où elles vivent.
-//
-// CE QUE CET ÉCRAN REPREND, et pourquoi il existe : `/settings/domaine` a
-// été réécrit sans reprendre `RESEND_API_KEY`, dont la seule interface de
-// saisie de toute l'administration a disparu avec l'ancienne page. Sans
-// cet écran, la clé ne se pose plus que par `npx convex run` ou par
-// l'environnement Convex — c'est-à-dire par un terminal, sur un dépôt qui
-// se veut un template.
+//   • les exigences non négociables de cet écran sont toutes des exigences
+//     de RENDU — une raison affichée et non masquée, un état et non un
+//     paragraphe, un refus montré avant le clic. Elles se testent là où
+//     elles vivent.
 // ---------------------------------------------------------------------
 
 /** Une ligne de `emails.list` : le catalogue, plus ce qu'on en a fait. */
@@ -97,17 +135,14 @@ export function validationLocale(
  * (`SettingsFormShell`) ne surveille que `emailFrom`, jamais ce champ-ci —
  * les deux vivent dans des composants différents et s'écrivent par deux
  * mutations différentes (`settings.update` contre `emails.setTemplate`).
- * Sans lui, fermer l'éditeur ou cliquer ailleurs dans le menu perdait un
- * texte tout juste tapé, en silence.
  *
- * Extraite ici plutôt que recalculée à chaque appelant, pour la même
- * raison que `validationLocale` juste au-dessus : c'est la valeur qui nourrit
- * à la fois la mention « Modifications non enregistrées » sous l'éditeur ET
- * le garde-fou de sortie (`useUnsavedChangesGuard`, câblé dans
- * `routes/_authed/settings/emails.tsx`) — une seule règle, jamais deux qui
+ * Elle nourrit maintenant TROIS choses, et c'est la raison de l'extraction :
+ * la mention « Modifications non enregistrées » sous l'éditeur, le
+ * garde-fou de navigation (`useUnsavedChangesGuard`), et `actionSurLigne`
+ * ci-dessous — le repli de l'accordéon. Une seule règle, jamais trois qui
  * pourraient diverger.
  *
- * `email` à `null` quand aucun éditeur n'est ouvert : rien n'est en cours
+ * `email` à `null` quand aucune ligne n'est dépliée : rien n'est en cours
  * d'édition, donc rien n'est modifié.
  */
 export function gabaritEnCoursModifie(
@@ -122,153 +157,145 @@ export function gabaritEnCoursModifie(
   )
 }
 
+/**
+ * Ce qu'un clic sur une ligne de l'accordéon doit déclencher.
+ *
+ * POURQUOI CETTE FONCTION EXISTE : replier une ligne dont le texte vient
+ * d'être retouché la perd, et ce geste ne passe par aucun blocage de
+ * routeur. Le garde-fou de sortie ne gardait que la navigation ; l'accordéon
+ * a ouvert une seconde porte sur exactement le même défaut. Les deux
+ * lisent maintenant le même `gabaritEnCoursModifie`.
+ *
+ * Extraite plutôt qu'écrite en ligne dans le gestionnaire de clic parce
+ * que c'est la seule partie du dispositif qui soit testable ici :
+ * `vitest.config.ts` est en `environment: "node"`, on ne peut pas cliquer.
+ * Une règle qu'aucun test ne tient est une règle qui se perd à la
+ * prochaine retouche — et celle-ci se perd en silence, comme le texte
+ * qu'elle protège.
+ */
+export type ActionLigne = "ouvrir" | "replier" | "confirmer"
+
+export function actionSurLigne({
+  ouverte,
+  cible,
+  modifie,
+}: {
+  /** La ligne dépliée, ou `null`. */
+  ouverte: CleEmail | null
+  /** Celle sur laquelle on vient de cliquer. */
+  cible: CleEmail
+  /** `gabaritEnCoursModifie` du texte en cours. */
+  modifie: boolean
+}): ActionLigne {
+  // Modifié : peu importe la cible. Replier perd le texte, en ouvrir une
+  // autre aussi — les deux passent par la question.
+  if (modifie) return "confirmer"
+  return ouverte === cible ? "replier" : "ouvrir"
+}
+
 // ---------------------------------------------------------------------
-// Le bandeau du mode d'essai
+// L'état de l'envoi — la première question de l'écran
 // ---------------------------------------------------------------------
 
 /**
- * La panne la plus silencieuse de ce déploiement, dite fort.
+ * « Est-ce que ça peut partir ? », en une ligne.
  *
- * Tant que `RESEND_TEST_MODE` ne vaut pas exactement `"false"`, Resend
- * **accepte** chaque envoi — code 200, identifiant de message, aucune
- * erreur nulle part — et ne le délivre à personne. Rien dans le dashboard,
- * rien dans les journaux, rien côté expéditeur ne distingue ce cas d'un
- * envoi réussi. Le seul symptôme est du côté du destinataire, qui ne dira
- * rien puisqu'il ne sait pas qu'on lui a écrit.
- *
- * Cette phrase existait déjà — dans l'aide d'une variable « hors de
- * portée », au bas d'une page de réglages. Personne ne l'a jamais lue.
- * C'est la valeur par DÉFAUT : sur un template, elle atteint chaque
- * adoptant, une fois, au pire moment — la première invitation qu'il
- * envoie.
+ * Deux états suffisent à répondre non, et ils sont indépendants : le mode
+ * d'essai (Resend accepte et ne délivre pas) et l'absence de clé (rien
+ * n'est même tenté). Ils s'affichent ensemble quand les deux tiennent —
+ * en corriger un ne suffirait pas, et n'annoncer que le premier ferait
+ * croire le contraire.
  */
-export function BandeauModeEssai({ actif }: { actif: boolean }) {
-  if (!actif) {
+export function EtatEnvoi({
+  testMode,
+  cleAbsente = false,
+}: {
+  testMode: boolean
+  /** `false` aussi quand on ne peut pas savoir (editor) : on n'affirme rien. */
+  cleAbsente?: boolean
+}) {
+  if (!testMode && !cleAbsente) {
     return (
-      <p className="rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-        <strong>Envois réels.</strong> Chaque invitation et chaque
-        notification part vraiment. Le domaine de l'adresse d'expédition
-        doit être vérifié chez Resend, sinon Resend refuse.
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <span
+          aria-hidden="true"
+          className="size-1.5 shrink-0 rounded-full bg-muted-foreground/60"
+        />
+        Envois réels.
       </p>
     )
   }
   return (
-    <div
-      // `role="alert"` et non un simple encadré : c'est un état du
-      // déploiement qui invalide tout ce que la page permet de régler
-      // en dessous, et il doit s'annoncer à qui n'a pas le rendu visuel.
-      role="alert"
-      className="flex flex-col gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-3 text-sm"
-    >
-      <p className="font-medium text-destructive">
-        Mode d'essai : Resend accepte les envois et ne les délivre pas.
-      </p>
-      <p className="text-muted-foreground">
-        C'est la valeur par défaut. Aucune invitation, aucune notification
-        n'arrive à son destinataire — et rien ne le signale : Resend répond
-        « envoyé ». Tout ce qui se règle sur cette page reste sans effet
-        visible tant que <code className="text-xs">RESEND_TEST_MODE</code>{" "}
-        ne vaut pas <code className="text-xs">false</code>.
-      </p>
-      <p className="text-muted-foreground">
-        Lue dans le constructeur du client Resend : elle ne se règle que
-        dans l'environnement Convex, jamais depuis cet écran.
-      </p>
-      <Command>
-        cd packages/backend && npx convex env set RESEND_TEST_MODE false
-      </Command>
+    // `role="alert"` : ce sont des états du déploiement qui invalident tout
+    // ce que la page permet de régler en dessous, et ils doivent s'annoncer
+    // à qui n'a pas le rendu visuel.
+    <div role="alert" className="flex flex-col gap-1">
+      {testMode ? (
+        <p className="flex items-center gap-2 text-sm text-destructive">
+          <span
+            aria-hidden="true"
+            className="size-1.5 shrink-0 rounded-full bg-destructive"
+          />
+          Mode d&apos;essai — aucun email n&apos;est délivré.
+        </p>
+      ) : null}
+      {cleAbsente ? (
+        <p className="flex items-center gap-2 text-sm text-destructive">
+          <span
+            aria-hidden="true"
+            className="size-1.5 shrink-0 rounded-full bg-destructive"
+          />
+          Aucune clé Resend — rien ne part.
+        </p>
+      ) : null}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------
-// La clé, l'origine des liens, l'adresse d'expédition
+// La clé, et l'adresse d'expédition
 // ---------------------------------------------------------------------
 
 /**
- * `RESEND_API_KEY` — reprise de l'ancienne page « Domaine & emails ».
+ * `RESEND_API_KEY` — la seule interface de saisie de cette clé du dépôt.
  *
- * `resend.configured` dit ce que porte l'ENVIRONNEMENT ; `secrets` ce qui
- * est rangé en base, chiffré. C'est la comparaison des deux que
- * `SecretField` affiche, avec la règle de précédence.
+ * Aucune aide sous le champ : le titre du groupe traduit le nom technique,
+ * la pastille de `SecretField` donne l'état, et `EtatEnvoi` dit en haut de
+ * page ce qu'on perd quand elle manque. Une phrase de plus ici ne dirait
+ * qu'une quatrième fois la même chose.
  */
 export function SectionCleResend({
   secrets,
-  resend,
 }: {
   secrets: SecretsBloc
-  resend: { configured: boolean }
 }) {
   if (secrets.cleMaitresse === null) {
     return (
-      <SettingsGroup title="La clé Resend">
+      <SettingsGroup title="Clé Resend">
         <p className="text-sm text-muted-foreground">
-          La clé d'envoi est réservée au propriétaire et aux
-          administrateurs — y compris son état. Le reste de cette page est
-          consultable.
+          Réservée au propriétaire et aux administrateurs.
         </p>
       </SettingsGroup>
     )
   }
   return (
-    <SettingsGroup title="La clé Resend">
-      <CleMaitresseBandeau etat={secrets.cleMaitresse} />
-      <ChampSecret bloc={secrets} nom="RESEND_API_KEY">
-        Sans elle, une invitation est bien créée mais son email ne part pas,
-        et une notification de lead non plus. Le lead, lui, est enregistré
-        quoi qu'il arrive. <strong>La base est lue</strong> :{" "}
-        <code className="text-xs">convex/lib/resend.ts</code> construit le
-        client via le lecteur unique{" "}
-        <code className="text-xs">secrets.lireSecret</code>, qui préfère la
-        variable d'environnement quand elle existe et retombe sinon sur la
-        valeur saisie ici, une fois déchiffrée.
-        {resend.configured
-          ? " Une valeur est posée dans l'environnement : c'est elle qui sert."
-          : " Aucune valeur dans l'environnement de ce déploiement."}
-      </ChampSecret>
+    <SettingsGroup title="Clé Resend">
+      {/* Sans clé maîtresse, `ChampSecret` masque le champ (le serveur
+          refuserait l'écriture). Sans cette ligne, il ne resterait qu'un
+          cadre vide. La commande qui la pose est dans `docker/README.md` :
+          elle s'adresse à qui a un terminal, pas à qui a ce dashboard. */}
+      {secrets.cleMaitresse === "posee" ? null : (
+        <p className="text-sm text-destructive">
+          La saisie n&apos;est pas disponible sur ce déploiement.
+        </p>
+      )}
+      <ChampSecret bloc={secrets} nom="RESEND_API_KEY" />
     </SettingsGroup>
   )
 }
 
 /**
- * `SITE_URL`, parce que c'est elle qui compose les liens DANS les emails.
- *
- * L'invitation ne contient qu'un lien, et c'est tout son contenu utile ;
- * la notification de lead en porte un vers le dashboard. Fausse ou
- * absente, les emails partent bien et ne mènent nulle part — un défaut
- * qui ne se voit qu'en cliquant, donc chez quelqu'un d'autre.
- *
- * Lue au chargement des modules Convex (`baseURL` de Better Auth) : une
- * valeur saisie à l'écran arriverait toujours trop tard, d'où
- * `SecretHorsPortee` plutôt qu'un champ.
- */
-export function OrigineDesLiens({ adminUrl }: { adminUrl: string | null }) {
-  return (
-    <SecretHorsPortee
-      nom="SITE_URL"
-      raison={
-        <>
-          L'origine du <strong>dashboard</strong>, et donc celle des liens
-          contenus dans les emails : celui d'une invitation, et le
-          « répondre depuis le dashboard » d'une notification de lead. Lue
-          au chargement des modules Convex, pas au moment de l'usage — une
-          valeur saisie ici arriverait toujours trop tard.{" "}
-          {adminUrl === null ? (
-            <Badge variant="destructive">Absente</Badge>
-          ) : (
-            <>
-              Actuellement <code className="text-xs">{adminUrl}</code>.
-            </>
-          )}
-        </>
-      }
-      commande="cd packages/backend && npx convex env set SITE_URL https://admin.exemple.fr"
-    />
-  )
-}
-
-/**
- * L'adresse d'expédition — le premier champ de ce dépôt qui règle
+ * L'adresse d'expédition — le seul champ de ce dépôt qui règle
  * `settings.emailFrom`.
  *
  * Elle ne s'enregistre pas toute seule, et c'est le même raisonnement
@@ -277,10 +304,18 @@ export function OrigineDesLiens({ adminUrl }: { adminUrl: string | null }) {
  * elle devient l'expéditeur de tout ce qui part pendant cette seconde.
  * La barre d'enregistrement l'attend donc au clic (`SettingsFormShell`).
  *
- * Le repli est affiché quand le champ est vide, et il n'est pas décoratif :
- * `choisirExpediteur` retombe sur le bac à sable de Resend, qui ne délivre
- * qu'aux adresses de test du compte. Sans cette phrase, on ne le découvre
- * que par ses destinataires — c'est-à-dire jamais.
+ * Deux phrases seulement sous le champ, et chacune tient parce qu'on
+ * resterait bloqué sans elle :
+ *
+ *   • le domaine doit être vérifié chez Resend, sinon l'envoi échoue sans
+ *     que rien ne dise pourquoi ;
+ *   • champ vide, l'expéditeur devient le bac à sable de Resend, qui ne
+ *     délivre qu'aux adresses de test du compte. C'est un ÉTAT — celui du
+ *     champ tel qu'il est en ce moment — et sans lui on ne le découvre que
+ *     par ses destinataires, c'est-à-dire jamais.
+ *
+ * Le format attendu est dans le placeholder plutôt que sous le champ : il
+ * y est lu au moment où on écrit, et il ne prend pas de ligne.
  */
 export function ChampAdresseExpedition({
   valeur,
@@ -301,7 +336,7 @@ export function ChampAdresseExpedition({
 
   return (
     <Field>
-      <FieldLabel htmlFor="email-from">Adresse d'expédition</FieldLabel>
+      <FieldLabel htmlFor="email-from">Adresse d&apos;expédition</FieldLabel>
       <Input
         id="email-from"
         type="text"
@@ -310,27 +345,21 @@ export function ChampAdresseExpedition({
         disabled={!canWrite}
         onChange={(event) => onChange?.(event.target.value)}
       />
-      <FieldDescription>
-        <code className="text-xs">Nom &lt;adresse@votredomaine.fr&gt;</code>,
-        ou l'adresse seule. Le domaine doit être{" "}
-        <strong>vérifié chez Resend</strong>, sinon Resend refuse l'envoi —
-        les enregistrements DNS à créer se vérifient depuis{" "}
-        {lienDomaine ?? <>l'écran Domaine &amp; emails</>}.
-      </FieldDescription>
       {saisie.length === 0 ? (
         <FieldDescription>
-          Champ vide : les emails partent de{" "}
-          <code className="text-xs">{EXPEDITEUR_BAC_A_SABLE}</code>, le bac à
-          sable de Resend — il ne délivre qu'aux adresses de test de votre
-          compte et ne doit pas rester en production.
+          Vide : les emails partent de{" "}
+          <code className="text-xs">{EXPEDITEUR_BAC_A_SABLE}</code>, qui ne
+          délivre qu&apos;aux adresses de test de votre compte Resend.
         </FieldDescription>
-      ) : null}
+      ) : (
+        <FieldDescription>
+          Le domaine doit être vérifié chez Resend —{" "}
+          {lienDomaine ?? <>voir Domaine &amp; DNS</>}.
+        </FieldDescription>
+      )}
       {invalide ? (
         <p role="alert" className="text-sm text-destructive">
-          Ce n'est pas une adresse : écrivez{" "}
-          <code className="text-xs">bonjour@exemple.fr</code> ou{" "}
-          <code className="text-xs">Nom &lt;bonjour@exemple.fr&gt;</code>. En
-          l'état, le serveur refuserait l'enregistrement.
+          Ce n&apos;est pas une adresse.
         </p>
       ) : null}
     </Field>
@@ -338,15 +367,59 @@ export function ChampAdresseExpedition({
 }
 
 // ---------------------------------------------------------------------
-// La liste des envois
+// La liste : un accordéon, replié à l'arrivée
 // ---------------------------------------------------------------------
 
 /**
- * Une carte par email du catalogue — pas une par ligne enregistrée.
+ * Ce qu'on lit d'un email verrouillé, en une phrase d'utilisateur.
  *
- * `emails.list` rend toujours le catalogue entier : l'écran montre ce que
- * le site PEUT envoyer, pas ce que quelqu'un a déjà modifié. C'est ce qui
- * lui permet d'écrire « par défaut » sans avoir à le deviner.
+ * Le catalogue porte déjà une `raisonNonDesactivable` — trois lignes qui
+ * démontrent l'irréversibilité au développeur qui voudrait rendre
+ * l'interrupteur actif. Elle reste où elle est : c'est la justification de
+ * la décision, et elle a sa place à côté du code qui l'applique.
+ *
+ * Ici il faut l'autre moitié : le fait, pas le raisonnement. « Sans lui,
+ * personne ne peut créer de compte » se lit en une seconde et suffit à ne
+ * pas ouvrir un ticket pour un interrupteur grisé — ce qui est tout ce
+ * qu'on lui demande.
+ *
+ * Le repli sur le texte du catalogue n'est pas décoratif : un quatrième
+ * email non désactivable ajouté sans passer ici afficherait sa raison
+ * longue plutôt que rien du tout.
+ */
+const RAISON_COURTE: Partial<Record<CleEmail, string>> = {
+  invitation: "Sans lui, personne ne peut créer de compte.",
+  passwordReset: "Sans lui, un mot de passe perdu ne se récupère plus.",
+}
+
+function raisonAffichee(email: EmailAffiche): string | null {
+  if (email.desactivable) return null
+  return RAISON_COURTE[email.cle] ?? email.raisonNonDesactivable
+}
+
+/**
+ * Une ligne par email du catalogue, repliée.
+ *
+ * REPLIÉE À L'ARRIVÉE, et c'est le cœur de la refonte : on ne vient
+ * presque jamais ici pour réécrire un texte, on vient pour vérifier que
+ * l'envoi peut partir. Les trois emails tiennent alors dans un coup d'œil,
+ * et on les lit les uns par rapport aux autres — voir que celui du dessus
+ * est coupé pendant qu'on modifie celui du dessous est précisément ce
+ * qu'un panneau latéral aurait empêché.
+ *
+ * CE QUI RESTE LISIBLE SANS DÉPLIER : qu'un email est coupé, qu'un texte a
+ * été personnalisé, et qu'un texte enregistré a été écarté. Ce sont les
+ * trois états qui expliquent pourquoi quelque chose n'arrive pas ; les
+ * cacher derrière un clic ferait de l'accordéon un endroit où l'on range
+ * les pannes.
+ *
+ * Un `<button>` et un rendu conditionnel plutôt qu'un composant
+ * d'accordéon : l'ouverture est décidée par la route (une seule à la fois,
+ * et un texte modifié pose une question avant de replier — voir
+ * `actionSurLigne`). Un accordéon piloté de l'extérieur avec une ouverture
+ * annulable revient à réécrire la même logique par-dessus la sienne, et
+ * son panneau ne se rend pas en `renderToStaticMarkup` — ces tests-ci ne
+ * verraient plus rien.
  */
 export function ListeEmails({
   emails,
@@ -354,7 +427,7 @@ export function ListeEmails({
   onModifier,
   canWrite = true,
   cleOuverte = null,
-  /** L'éditeur du gabarit ouvert, rendu dans sa propre carte. */
+  /** L'éditeur du gabarit déplié, rendu dans sa propre ligne. */
   editeur,
 }: {
   emails: readonly EmailAffiche[]
@@ -365,9 +438,9 @@ export function ListeEmails({
   editeur?: (email: EmailAffiche) => ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-4">
+    <ul className="divide-y divide-foreground/10">
       {emails.map((email) => (
-        <CarteEmail
+        <LigneEmailAffichee
           key={email.cle}
           email={email}
           onToggle={onToggle}
@@ -377,11 +450,11 @@ export function ListeEmails({
           editeur={editeur}
         />
       ))}
-    </div>
+    </ul>
   )
 }
 
-function CarteEmail({
+function LigneEmailAffichee({
   email,
   onToggle,
   onModifier,
@@ -396,42 +469,79 @@ function CarteEmail({
   ouvert: boolean
   editeur?: (email: EmailAffiche) => ReactNode
 }) {
+  const panneauId = `gabarit-${email.cle}`
   const interrupteurId = `email-actif-${email.cle}`
+  const raison = raisonAffichee(email)
+
   return (
-    <SettingsGroup>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h2 className="font-heading text-base leading-snug font-medium">
+    <li>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
+        {/* Le titre EST le bouton de dépliage : la cible est large, et
+            l'interrupteur reste dehors — un contrôle dans un bouton n'est
+            ni cliquable ni annonçable correctement. */}
+        {/* `w-full` en dessous de `sm` : le titre prend sa ligne, la
+            pastille et l'interrupteur passent dessous. Partagée, la ligne
+            coupait « Invitation à rejoindre l'administration » en trois
+            morceaux autour d'une pastille. */}
+        <button
+          type="button"
+          aria-expanded={ouvert}
+          aria-controls={panneauId}
+          disabled={!canWrite}
+          onClick={() => onModifier?.(email.cle)}
+          className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-default sm:w-auto sm:flex-1"
+        >
+          <ChevronRightIcon
+            aria-hidden="true"
+            className={`size-4 shrink-0 text-muted-foreground transition-transform duration-150 ${
+              ouvert ? "rotate-90" : ""
+            }`}
+          />
+          <span className="font-heading text-sm leading-snug font-medium">
             {email.titre}
-          </h2>
-          <p className="text-sm text-muted-foreground">{email.quand}</p>
-          <p className="text-sm text-muted-foreground">
-            <strong>Destinataire :</strong> {email.destinataire}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+          </span>
+        </button>
+
+        <div className="flex w-full items-center gap-3 pl-6 sm:w-auto sm:pl-0">
           <Badge variant={email.personnalise ? "secondary" : "outline"}>
             {email.personnalise ? "Texte personnalisé" : "Texte par défaut"}
           </Badge>
-          <label
-            htmlFor={interrupteurId}
-            className="flex items-center gap-2 text-sm"
-          >
-            <span className="text-muted-foreground">
-              {email.actif ? "Actif" : "Désactivé"}
-            </span>
-            <Switch
-              id={interrupteurId}
-              checked={email.actif}
-              // Deux refus distincts, et le second n'est pas cosmétique :
-              // `emails.setActif` LÈVE sur un email non désactivable, dans
-              // les deux sens. L'interrupteur inerte n'est donc pas une
-              // politesse d'interface, c'est la seule façon de ne pas
-              // proposer un geste dont le serveur ne veut pas.
-              disabled={!canWrite || !email.desactivable}
-              onCheckedChange={(actif: boolean) => onToggle(email.cle, actif)}
-            />
-          </label>
+
+          {email.desactivable ? (
+            <label
+              htmlFor={interrupteurId}
+              className="flex shrink-0 cursor-pointer items-center gap-2 text-sm sm:ml-auto"
+            >
+              <span
+                className={
+                  email.actif ? "text-muted-foreground" : "text-destructive"
+                }
+              >
+                {email.actif ? "Actif" : "Coupé"}
+              </span>
+              <Switch
+                id={interrupteurId}
+                checked={email.actif}
+                disabled={!canWrite}
+                onCheckedChange={(actif: boolean) => onToggle(email.cle, actif)}
+              />
+            </label>
+          ) : (
+            // Deux refus distincts, et le second n'est pas cosmétique :
+            // `emails.setActif` LÈVE sur un email non désactivable, dans
+            // les deux sens. L'interrupteur inerte n'est pas une politesse
+            // d'interface, c'est la seule façon de ne pas proposer un geste
+            // dont le serveur ne veut pas. Il reste affiché, en position
+            // « actif » : le retirer ferait perdre l'information que
+            // l'email, lui, part bien.
+            <label
+              htmlFor={interrupteurId}
+              className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground sm:ml-auto"
+            >
+              <span>Toujours actif</span>
+              <Switch id={interrupteurId} checked disabled />
+            </label>
+          )}
         </div>
       </div>
 
@@ -439,62 +549,30 @@ function CarteEmail({
           interrupteur grisé sans phrase se lit « c'est cassé », et la
           personne qui le lit ainsi ouvre un ticket au lieu de comprendre
           qu'on lui épargne un verrouillage irréversible. */}
-      {email.desactivable ? null : (
-        <p className="rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-          <strong>Cet envoi ne se coupe pas.</strong>{" "}
-          {email.raisonNonDesactivable}
-        </p>
+      {raison === null ? null : (
+        <p className="pb-2.5 pl-6 text-sm text-muted-foreground">{raison}</p>
       )}
-
-      {email.desactivable && !email.actif ? (
-        <p className="text-sm text-muted-foreground">
-          Coupé : cet email ne part plus. Le reste continue — un lead est
-          enregistré même quand sa notification est désactivée.
-        </p>
-      ) : null}
 
       {/* Un texte enregistré que la relecture a écarté. L'envoi n'échoue
           pas — `gabaritPour` repart du texte du code — et c'est
           précisément pour cela qu'il faut le dire ici : rien d'autre ne le
           dira. */}
       {email.probleme === null ? null : (
-        <p role="alert" className="text-sm text-destructive">
-          <strong>Votre texte enregistré a été écarté</strong> et n'est pas
-          celui qui part aujourd'hui : {email.probleme} Le texte du code est
-          envoyé à sa place. Ouvrez l'éditeur pour le corriger.
+        <p role="alert" className="pb-2.5 pl-6 text-sm text-destructive">
+          Texte enregistré écarté, le texte par défaut part à sa place :{" "}
+          {email.probleme}
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="cursor-pointer"
-          disabled={!canWrite}
-          onClick={() => onModifier?.(email.cle)}
-        >
-          {ouvert ? "Fermer l'éditeur" : "Modifier le texte"}
-        </Button>
-        {email.majAt === null ? null : (
-          <span className="text-xs text-muted-foreground">
-            Modifié le{" "}
-            {new Intl.DateTimeFormat("fr-FR", {
-              dateStyle: "short",
-              timeStyle: "short",
-            }).format(new Date(email.majAt))}
-            {email.majParNom === null ? "" : ` par ${email.majParNom}`}
-          </span>
-        )}
+      <div id={panneauId} hidden={!ouvert} className="pb-3">
+        {ouvert && editeur ? editeur(email) : null}
       </div>
-
-      {ouvert && editeur ? editeur(email) : null}
-    </SettingsGroup>
+    </li>
   )
 }
 
 // ---------------------------------------------------------------------
-// L'éditeur d'un gabarit
+// L'éditeur d'un gabarit, déplié dans sa ligne
 // ---------------------------------------------------------------------
 
 /**
@@ -509,6 +587,11 @@ function CarteEmail({
  * Le bouton d'enregistrement est inerte tant que le refus tient : proposer
  * un geste dont on sait déjà qu'il échouera n'est pas de la permissivité,
  * c'est un piège.
+ *
+ * `quand` et `destinataire` sont ici et non sur la ligne repliée : ils
+ * décrivent l'email, et on ne les lit qu'au moment de décider ce qu'on va
+ * écrire dedans. Sur la ligne repliée, ils ajoutaient trois phrases à une
+ * liste qu'on doit pouvoir parcourir des yeux.
  */
 export function EditeurGabarit({
   email,
@@ -572,9 +655,21 @@ export function EditeurGabarit({
   }
 
   const bloque = erreur !== null || !modifie || enregistrement === "envoi"
+  const obligatoires = email.variablesObligatoires
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-input p-3">
+    <div className="ml-6 flex flex-col gap-4 rounded-lg bg-muted/40 p-4">
+      <dl className="flex flex-col gap-1 text-sm text-muted-foreground">
+        <div className="flex gap-2">
+          <dt className="shrink-0 font-medium text-foreground">Part</dt>
+          <dd>{email.quand}</dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="shrink-0 font-medium text-foreground">Vers</dt>
+          <dd>{email.destinataire}</dd>
+        </div>
+      </dl>
+
       <Field>
         <FieldLabel htmlFor={`objet-${email.cle}`}>Objet</FieldLabel>
         <Input
@@ -585,10 +680,6 @@ export function EditeurGabarit({
           disabled={!canWrite}
           onChange={(event) => onObjet?.(event.target.value)}
         />
-        <FieldDescription>
-          Une seule ligne. Un saut de ligne dans un objet ajoute des
-          en-têtes à l'email : le serveur le refuse.
-        </FieldDescription>
       </Field>
 
       <Field>
@@ -602,29 +693,19 @@ export function EditeurGabarit({
           disabled={!canWrite}
           onChange={(event) => onCorps?.(event.target.value)}
         />
-        <FieldDescription>
-          Du texte simple : le code compose le HTML autour. Les valeurs
-          insérées à la place des variables sont échappées.
-        </FieldDescription>
       </Field>
 
       <div className="flex flex-col gap-2">
         <p className="text-sm text-muted-foreground">
-          Variables disponibles pour cet email — cliquer en insère une dans
-          le corps, à l'endroit du curseur.
-          {email.variablesObligatoires.length > 0 ? (
+          Variables — cliquer en insère une dans le corps.
+          {obligatoires.length > 0 ? (
             <>
               {" "}
               <strong>
-                {email.variablesObligatoires
-                  .map((nom) => `{{${nom}}}`)
-                  .join(", ")}
+                {obligatoires.map((nom) => `{{${nom}}}`).join(", ")}
               </strong>{" "}
-              {email.variablesObligatoires.length > 1
-                ? "sont obligatoires"
-                : "est obligatoire"}{" "}
-              : sans elle, la personne qui reçoit cet email ne peut rien en
-              faire.
+              {obligatoires.length > 1 ? "sont obligatoires" : "est obligatoire"}
+              .
             </>
           ) : null}
         </p>
@@ -687,6 +768,16 @@ export function EditeurGabarit({
             Modifications non enregistrées.
           </span>
         ) : null}
+        {email.majAt === null ? null : (
+          <span className="text-xs text-muted-foreground">
+            Modifié le{" "}
+            {new Intl.DateTimeFormat("fr-FR", {
+              dateStyle: "short",
+              timeStyle: "short",
+            }).format(new Date(email.majAt))}
+            {email.majParNom === null ? "" : ` par ${email.majParNom}`}
+          </span>
+        )}
       </div>
     </div>
   )

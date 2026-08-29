@@ -46,7 +46,15 @@ export interface SettingsPageDef {
    * ouverte, sinon le menu ment sur l'endroit où l'on est.
    */
   title: string
-  /** La phrase sous le `h1` : ce qu'on fait ici, pas ce que c'est. */
+  /**
+   * La phrase sous le `h1` : ce qu'on fait ici, pas ce que c'est.
+   *
+   * Vide quand le titre suffit — « Envoi des emails » au-dessus de « Clé
+   * Resend », « Adresse d'expédition » et « Ce que ce site envoie » n'a
+   * rien à annoncer que la page ne dise déjà. L'en-tête omet alors le
+   * paragraphe plutôt que de rendre un `<p>` vide, qui laisserait un
+   * blanc sans cause visible.
+   */
   description: string
 }
 
@@ -98,8 +106,12 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
     // Voisine de « Domaine & DNS », et la frontière tient en un mot :
     // là-bas les enregistrements DNS qui autorisent le domaine à écrire,
     // ici la clé, l'adresse et le TEXTE de chaque message.
-    description:
-      "La clé Resend, l'adresse d'expédition, et chacun des emails que ce site envoie — quand il part, à qui, et avec quel texte.",
+    //
+    // Sans phrase : la page énumérait sous son titre les trois groupes qui
+    // suivent immédiatement. Trois lignes à lire avant d'atteindre le
+    // premier état, pour apprendre ce que les trois `h2` disent deux cents
+    // pixels plus bas.
+    description: "",
   },
   {
     to: "/settings/mesure",
@@ -216,9 +228,11 @@ export function SettingsPageHeader({
   return (
     <header className="flex flex-col gap-2">
       <h1 className="text-xl font-medium">{page.title}</h1>
-      <p className="max-w-prose text-sm text-muted-foreground">
-        {page.description}
-      </p>
+      {page.description === "" ? null : (
+        <p className="max-w-prose text-sm text-muted-foreground">
+          {page.description}
+        </p>
+      )}
       {canWrite ? null : (
         <p className="max-w-prose rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
           Ces réglages s'appliquent à toutes les pages à la fois : seuls le

@@ -23,7 +23,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import type { ReactElement } from "react"
 import { describe, expect, test } from "vitest"
 import { AiPage, MeasurementPage } from "./settings-environment"
-import { OrigineDesLiens, SectionCleResend } from "./email-templates"
+import { SectionCleResend } from "./email-templates"
 import type { SecretsBloc } from "./settings-environment"
 import type { SecretEtat } from "./settings-secrets"
 
@@ -65,10 +65,7 @@ const UMAMI_ABSENT = { configured: false, url: null, shared: false }
 function pages(secrets: SecretsBloc): [string, ReactElement][] {
   return [
     ["IA", <AiPage secrets={secrets} />],
-    [
-      "Envoi des emails",
-      <SectionCleResend secrets={secrets} resend={{ configured: true }} />,
-    ],
+    ["Envoi des emails", <SectionCleResend secrets={secrets} />],
     [
       "Mesure & pixels",
       <MeasurementPage umamiApi={UMAMI_CONFIGURE} secrets={secrets} />,
@@ -133,20 +130,38 @@ describe("les variables hors de portée", () => {
     expect(html).toMatch(/ne peut pas.*savoir|Ne se règle pas ici/i)
   })
 
-  test("SITE_URL se lit, ne se saisit pas", () => {
-    // Lue au chargement des modules Convex (`baseURL` de Better Auth) :
-    // une valeur en base arriverait toujours trop tard. Elle a suivi la
-    // page « Envoi des emails », parce que c'est elle qui compose les
-    // liens contenus DANS les emails.
-    const html = render(<OrigineDesLiens adminUrl="https://admin.exemple.fr" />)
-    expect(html).not.toContain("secret-SITE_URL")
-    expect(html).toContain("https://admin.exemple.fr")
-  })
+  // `test("SITE_URL se lit, ne se saisit pas")` était ici, et son composant
+  // (`OrigineDesLiens`) est parti avec la refonte de « Envoi des emails » :
+  // un bloc qui n'était qu'une explication et une commande, sur un écran
+  // qui ne doit montrer que des états, des étiquettes et des actions.
+  //
+  // Ce qu'il gardait reste vrai et n'est plus dit nulle part dans
+  // l'administration : `SITE_URL` compose les liens contenus DANS les
+  // emails, et une valeur saisie à l'écran arriverait toujours trop tard
+  // (elle est lue au chargement des modules Convex). Le raisonnement est
+  // conservé en commentaire dans `email-templates.tsx`. Comme
+  // `WEB_SITE_URL` avant elle, elle attend un écran qui l'accueille —
+  // « Domaine et DNS » est le candidat naturel pour les deux.
 })
 
 describe("la précédence, écrite à l'écran", () => {
-  test("chaque page qui porte un jeton dit que l'environnement gagne", () => {
-    for (const [nom, element] of pages(bloc())) {
+  // « Envoi des emails » ne l'écrit plus, et c'est une décision, pas un
+  // oubli : cet écran s'adresse à quelqu'un qui vient d'installer le
+  // template et ne lira jamais `convex/secrets.ts`. Une leçon de
+  // précédence affichée en permanence à côté d'un champ n'y change aucun
+  // geste.
+  //
+  // Ce que la règle avait d'ACTIONNABLE est gardé, et au bon moment : dès
+  // que les deux valeurs existent, `SecretField` (`settings-secrets.tsx`)
+  // écrit que celle saisie est ignorée et donne la façon de la faire
+  // servir. C'est le seul cas où quelqu'un pouvait perdre une heure, et il
+  // est couvert par le test suivant. Les deux pages qui listent PLUSIEURS
+  // jetons gardent la phrase générale, où elle sert d'en-tête à un
+  // tableau.
+  test("chaque page qui liste plusieurs jetons dit que l'environnement gagne", () => {
+    const listes = pages(bloc()).filter(([nom]) => nom !== "Envoi des emails")
+    expect(listes.length).toBe(2)
+    for (const [nom, element] of listes) {
       expect(render(element), nom).toMatch(
         /variable d(&#x27;|')environnement du même nom l(&#x27;|')emporte/
       )
