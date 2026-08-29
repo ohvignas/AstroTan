@@ -13,6 +13,10 @@ import { MUTATION_REGISTRY } from "./_registry"
 import { isCurrentlyBanned, requireRole } from "./lib/authz"
 import { makeResend } from "./lib/resend"
 import { resoudreExpediteur } from "./lib/expediteur"
+// Déplacés dans `lib/gabarit.ts`, où le rendu des gabarits d'email en a
+// besoin aussi. Une règle d'échappement recopiée en deux endroits finit
+// par diverger, et c'est la copie oubliée qui laisse passer l'injection.
+import { escapeHtml, singleLine } from "./lib/gabarit"
 import { lireSecret } from "./secrets"
 import { listUsersWithRole } from "./users"
 import { assertSharedSecret } from "./lib/sharedSecret"
@@ -668,27 +672,6 @@ export const staffRecipients = internalQuery({
     return [...new Set(emails)]
   },
 })
-
-/** `&`, `<`, `>` et `"` échappés : le corps du message vient d'Internet. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-}
-
-/**
- * Une seule ligne, sans retour chariot.
- *
- * Le nom et le sujet sont saisis par le visiteur et atterrissent dans
- * l'en-tête `Subject:` d'un email. Un retour à la ligne y ouvre la porte à
- * l'injection d'en-têtes ; les bornes de longueur de `content.ts` ne
- * disent rien des caractères de contrôle.
- */
-function singleLine(value: string): string {
-  return value.replace(/[\r\n\t]+/g, " ").trim()
-}
 
 /**
  * Prévenir les responsables qu'un message est arrivé.
