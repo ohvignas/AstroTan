@@ -15,10 +15,18 @@ export const Route = createFileRoute("/_authed/settings")({
 
 function SettingsLayout() {
   return (
-    // `items-start` est ce qui permet au menu de rester collé pendant que
-    // la colonne de droite défile : étiré sur toute la hauteur,
-    // `position: sticky` n'a plus de course.
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">
+    // Pas de `lg:items-start` ici, et c'est délibéré : il étirait sa
+    // portée à TOUTE la rangée, colonne de droite comprise. Or c'est elle
+    // qui contient la barre d'enregistrement, et une colonne qui s'arrête
+    // à la fin de son contenu prive cette barre de toute course pour
+    // coller en bas (voir `save-bar.tsx` et `app-shell.tsx`).
+    //
+    // Le menu, lui, a toujours besoin de ne PAS être étiré — étiré sur
+    // toute la hauteur, son propre `sticky` n'a plus de course non plus.
+    // Il porte donc son `lg:self-start` lui-même, dans `SettingsNav` : la
+    // contrainte est déclarée sur l'élément qu'elle concerne, et n'atteint
+    // plus son voisin par ricochet.
+    <div className="flex flex-col gap-4 lg:flex-row lg:gap-8">
       <SettingsNav />
       {/* `min-w-0` : sans lui, un bloc de commande large (les `<pre>` des
           pages d'environnement) impose sa largeur à la colonne flex et

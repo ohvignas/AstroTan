@@ -109,11 +109,34 @@ export function SaveBar({
     //
     // `-mb-4` la fait reposer au ras du bas du conteneur : arrivé en bas de
     // page elle se décolle et reprend sa place dans le flux, si bien que le
-    // dernier champ du formulaire n'est jamais masqué au repos. `mt-4`
-    // garde l'écart avec la dernière carte.
+    // dernier champ du formulaire n'est jamais masqué au repos.
+    //
+    // `mt-auto` et non `mt-4`, et c'est la moitié d'un correctif dont
+    // l'autre moitié est dans `AppShell` — les deux ensemble, ou aucune
+    // des deux :
+    //
+    //   `position: sticky` ne POUSSE jamais un élément vers le bas ; il le
+    //   RETIENT quand le défilement l'emmènerait hors de l'écran. Sur un
+    //   écran plus court que la fenêtre — `settings/referencement` fait
+    //   ~570 px — la barre n'a donc aucune course : elle se pose là où le
+    //   contenu s'arrête, à mi-hauteur, et « collée en bas » ne veut plus
+    //   rien dire. Le défaut ne se voyait pas sur les longs écrans, qui
+    //   débordent et défilent ; c'est pour cela qu'il a pu passer.
+    //
+    //   `mt-auto` mange l'espace libre du conteneur et repousse la barre
+    //   contre son bord bas. Encore faut-il que ce conteneur descende
+    //   jusqu'en bas de la fenêtre — ce que `AppShell` lui accorde via
+    //   `data-slot="save-bar"` ci-dessous.
+    //
+    // Sans espace libre — un écran long, celui des articles — `mt-auto`
+    // vaut zéro et le `gap-4` du parent garde seul l'écart avec la
+    // dernière carte.
     <div
+      // La prise que `AppShell` utilise pour reconnaître la colonne à
+      // étirer. À ne pas renommer sans changer la règle là-bas.
+      data-slot="save-bar"
       className={cn(
-        "sticky bottom-0 z-20 mt-4 border-t bg-background px-4 py-3",
+        "sticky bottom-0 z-20 mt-auto border-t bg-background px-4 py-3",
         className
       )}
     >

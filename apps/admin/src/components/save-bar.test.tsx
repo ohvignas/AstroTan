@@ -12,6 +12,8 @@
 //     l'opérateur lit — dont l'état d'échec, dont la phrase doit dire que
 //     rien n'est perdu ;
 //   • le rendu de `SaveBar` dans ses quatre états.
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import {
@@ -148,5 +150,71 @@ describe("SaveBar", () => {
 
   test("la barre est collante en bas", () => {
     expect(render("saved")).toContain("sticky bottom-0")
+  })
+})
+
+// ---------------------------------------------------------------------
+// Le collage en bas de l'écran
+//
+// `sticky bottom-0` sur la barre a longtemps suffi à faire croire le
+// collage acquis — le test ci-dessus le vérifiait, et il passait, pendant
+// que la barre flottait en plein milieu de `settings/referencement`.
+//
+// Parce que `position: sticky` ne pousse rien vers le bas : il retient un
+// élément que le défilement emmènerait hors de l'écran. Sur une page plus
+// courte que la fenêtre, il n'y a rien à retenir, et la barre se pose là
+// où le contenu s'arrête. Le collage tient donc à trois faits répartis
+// sur trois fichiers, et il suffit d'en perdre un pour rouvrir le défaut.
+// Ce qui suit les nomme tous les trois, là où on les cherchera.
+//
+// Ce sont des assertions sur du TEXTE SOURCE, et c'est assumé : un
+// `sticky` cassé est un fait de mise en page, que ni `vitest` en
+// environnement `node` ni jsdom (qui n'implémente aucune mise en page)
+// ne peuvent constater. Le défaut a été observé, et le correctif vérifié,
+// dans un vrai navigateur sur une reconstitution de l'arbre réel. Ceci
+// n'en est pas la preuve : c'est le garde-fou contre la refonte qui
+// enlèverait une des trois pièces sans savoir qu'elle en était une.
+// ---------------------------------------------------------------------
+
+const APP_SHELL = readFileSync(
+  fileURLToPath(new URL("./app-shell.tsx", import.meta.url)),
+  "utf8"
+)
+const SETTINGS_LAYOUT = readFileSync(
+  fileURLToPath(new URL("../routes/_authed/settings.tsx", import.meta.url)),
+  "utf8"
+)
+const SETTINGS_NAV = readFileSync(
+  fileURLToPath(new URL("./settings-nav.tsx", import.meta.url)),
+  "utf8"
+)
+
+describe("le collage en bas de l'écran", () => {
+  test("la barre se pousse au bas de sa colonne, et se laisse reconnaître", () => {
+    const html = render("saved")
+    // `mt-auto` mange l'espace libre de la colonne : sans lui, une page
+    // courte laisse la barre juste sous sa dernière carte.
+    expect(html).toContain("mt-auto")
+    // La prise sur laquelle `AppShell` sélectionne la colonne à étirer.
+    expect(html).toContain('data-slot="save-bar"')
+  })
+
+  test("AppShell étire l'écran qui porte une barre", () => {
+    // Sans cette règle, `mt-auto` n'a aucun espace libre à manger : la
+    // colonne s'arrête à la fin de son contenu, bien au-dessus du bas de
+    // la fenêtre.
+    expect(APP_SHELL).toContain("*:has-[[data-slot=save-bar]]:flex-1")
+  })
+
+  test("la rangée des réglages n'aligne plus toute la page en haut", () => {
+    // `lg:items-start` visait le menu — qui porte désormais son propre
+    // `lg:self-start` — mais atteignait aussi la colonne de droite, et
+    // l'empêchait de descendre jusqu'en bas de la fenêtre. La chaîne
+    // entière, et non `not.toContain` : le commentaire qui explique le
+    // retrait nomme forcément la classe retirée.
+    expect(SETTINGS_LAYOUT).toContain(
+      '"flex flex-col gap-4 lg:flex-row lg:gap-8"'
+    )
+    expect(SETTINGS_NAV).toContain("lg:self-start")
   })
 })
