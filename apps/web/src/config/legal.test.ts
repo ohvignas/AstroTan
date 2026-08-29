@@ -3,7 +3,9 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { consentConfig } from "./consent"
-import { processings, TABLE_COVERAGE } from "./legal"
+import { FIGURES } from "./facts"
+import { ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED, legalEntity, legalHost, processings, TABLE_COVERAGE } from "./legal"
+import { REPO_URL } from "./nav"
 
 // ---------------------------------------------------------------------
 // La moitié « page publiée » du garde-fou du registre des traitements.
@@ -257,4 +259,144 @@ test("la preuve n'est pas purgée avant que le bandeau ne redemande son avis", (
   // deux sens, puisque le traitement continue sans preuve.
   const { CONSENT_RETENTION_DAYS } = constantesDeRetention()
   expect(CONSENT_RETENTION_DAYS).toBe(consentConfig.expirationDays)
+})
+
+// ---------------------------------------------------------------------
+// Le garde-fou : refuser les valeurs d'exemple
+// ---------------------------------------------------------------------
+//
+// Le défaut que ce bloc corrige : `legalEntity.name` vaut « AstroTan »,
+// `legalHost` pointe un hébergeur figé, `facts.ts` publie les métriques du
+// TEMPLATE (« 778 tests », « 1,3 ko de JavaScript »), et `nav.ts` pointe le
+// dépôt GitHub d'AstroTan — quatre façons différentes, pour un site qui
+// aurait oublié de les remplacer, de désigner AstroTan comme responsable de
+// traitement, ou de publier la comptabilité d'un autre projet que le sien.
+// Aucun des huit tests au-dessus de ce bloc ne les regarde : ils vérifient
+// la cohérence interne des durées de rétention, jamais l'identité elle-même.
+//
+// La difficulté qui a dicté la forme de ce garde-fou : il doit être capable
+// de refuser ces valeurs — sinon ce n'est qu'un commentaire de plus, le
+// défaut même que ce bloc corrige — MAIS ce dépôt, tel qu'il est committé,
+// LES CONTIENT ENCORE : ce repo est le template AstroTan lui-même, pas le
+// site de quelqu'un. Un test qui échoue purement sur leur présence casse
+// la CI de ce dépôt en permanence, ce qui n'est pas non plus tolérable, et
+// qu'on ne corrige pas en les faisant tolérer silencieusement : ce serait le
+// garde-fou décoratif qu'on vient de corriger ailleurs cette semaine, avec
+// un visage différent.
+//
+// Le mécanisme retenu — un marqueur explicite qu'il faut RETIRER :
+// `ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED`, exporté par `legal.ts`, vaut
+// `true` dans ce dépôt. Tant qu'il vaut `true`, ce test tolère les valeurs
+// d'exemple ci-dessous : c'est la déclaration explicite, visible en tête de
+// `legal.ts`, que ce dépôt EST le template non personnalisé — pas un
+// contournement silencieux. Dès qu'il vaut `false` — ce que fait un
+// adoptant en train de personnaliser le site, à n'importe quel moment de sa
+// checklist — ce test exige qu'AUCUNE valeur d'exemple ne subsiste, et
+// nomme précisément celles qui restent. Passer le marqueur à `false` AVANT
+// d'avoir tout rempli est un usage valide : le test rougit alors comme une
+// liste de tâches, et il n'y a aucune manière de le faire repasser au vert
+// sans avoir réellement remplacé les valeurs qu'il liste — remettre le
+// marqueur à `true` après avoir commencé à personnaliser le reste serait un
+// mensonge qu'un relecteur humain peut repérer à la lecture du diff, ce
+// qu'aucun mécanisme purement automatique ne peut garantir à la place d'une
+// revue de code.
+//
+// Alternatives envisagées et écartées :
+//   - Un avertissement en sortie de console : personne ne les lit, et
+//     c'est très exactement le reproche fait au défaut d'origine.
+//   - Un garde-fou au build (`astro build` qui échoue) : plus fort dans
+//     l'absolu, mais hors de portée d'ici — ce fichier ne touche que
+//     `apps/web/src/config/`, pas la configuration de build. Rien
+//     n'empêche de l'ajouter en complément un jour ; ça n'annule pas
+//     l'utilité de celui-ci, qui s'exécute plus tôt (à chaque `pnpm test`,
+//     donc en CI, avant tout déploiement qui en dépend).
+//   - Faire échouer le test dès que les valeurs d'exemple sont présentes,
+//     sans marqueur : casse la CI de ce dépôt en permanence, pour un signal
+//     qu'un adoptant ne verrait alors jamais différemment de son propre
+//     échec normal en cours de personnalisation.
+
+/** Recopie littérale des valeurs livrées par défaut — voir `legal.ts` et `facts.ts`. */
+const VALEURS_EXEMPLE = {
+  legalEntity: {
+    name: "AstroTan",
+    form: "Projet open source — à remplacer par votre raison sociale",
+    address: "Adresse à compléter",
+    email: "contact@exemple.fr",
+    publicationDirector: "À compléter",
+  },
+  legalHost: {
+    name: "Hostinger International Ltd.",
+    address: "61 Lordou Vironos Street, 6023 Larnaca, Chypre",
+    contact: "https://www.hostinger.fr",
+  },
+  repoUrl: "https://github.com/OhVignas/AstroTan",
+}
+
+function detecterSentinelles(): string[] {
+  const trouvees: string[] = []
+
+  for (const [champ, valeur] of Object.entries(VALEURS_EXEMPLE.legalEntity)) {
+    if (legalEntity[champ as keyof typeof legalEntity] === valeur) {
+      trouvees.push(`legalEntity.${champ} vaut encore « ${valeur} »`)
+    }
+  }
+
+  for (const [champ, valeur] of Object.entries(VALEURS_EXEMPLE.legalHost)) {
+    if (legalHost[champ as keyof typeof legalHost] === valeur) {
+      trouvees.push(`legalHost.${champ} vaut encore « ${valeur} »`)
+    }
+  }
+
+  // Comparaison sur `value` + `label` uniquement (pas `detail`, en prose
+  // libre) : c'est le couple qui porte le chiffre et ce qu'il mesure — la
+  // signature d'une métrique du TEMPLATE, pas de votre site. Comparaison
+  // globale plutôt que champ par champ : `FIGURES` est une liste, pas des
+  // propriétés indépendantes d'une même identité — soit ce sont encore
+  // celles d'AstroTan, soit elles ont été mesurées sur le vrai site.
+  const figuresActuelles = FIGURES.map((f) => `${f.value}|${f.label}`)
+  if (JSON.stringify(figuresActuelles) === JSON.stringify(getDefaultFigures())) {
+    trouvees.push("facts.ts publie encore les chiffres mesurés sur le template AstroTan (FIGURES)")
+  }
+
+  if (REPO_URL === VALEURS_EXEMPLE.repoUrl) {
+    trouvees.push(`nav.ts (REPO_URL) pointe encore « ${VALEURS_EXEMPLE.repoUrl} »`)
+  }
+
+  return trouvees
+}
+
+/**
+ * Recopie littérale de `FIGURES` telle que livrée par `facts.ts`. Un import
+ * suffirait pour la valeur courante — utile pour la comparer à elle-même —
+ * mais ce test doit détecter que `FIGURES` n'a PAS changé depuis la livraison
+ * du template, ce qu'une comparaison à sa propre valeur ne peut jamais faire.
+ */
+function getDefaultFigures() {
+  return [
+    { value: "1,3 ko", label: "de JavaScript en tout" },
+    { value: "26 ko", label: "à la première visite" },
+    { value: "778", label: "tests automatisés" },
+    { value: "1", label: "commande pour revenir en arrière" },
+  ].map((f) => f.value + "|" + f.label)
+}
+
+test("aucune valeur d'exemple ne peut atteindre la production sans refus explicite", () => {
+  const sentinelles = detecterSentinelles()
+  if (sentinelles.length === 0) return
+
+  expect(
+    ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED,
+    [
+      "Ce dépôt publie encore des valeurs d'exemple :",
+      ...sentinelles.map((s) => `  - ${s}`),
+      "",
+      "Si ce dépôt EST le template AstroTan tel quel (pas un site en production),",
+      "c'est attendu : ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED (dans legal.ts) doit",
+      "rester à `true`, et ce test doit rester vert avec ces valeurs en place.",
+      "",
+      "Si vous personnalisez ce template pour un vrai site : ne passez PAS ce",
+      "marqueur à `false` tant que la liste ci-dessus n'est pas vide — ou passez-le",
+      "à `false` dès maintenant et utilisez cette liste comme votre feuille de route.",
+    ].join("\n"),
+  ).toBe(true)
 })

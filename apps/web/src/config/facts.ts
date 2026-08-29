@@ -8,6 +8,15 @@
 //
 // Règle : quand une de ces valeurs change, on la MESURE avant de l'écrire.
 // Les commandes qui les produisent sont notées à côté de chacune.
+//
+// À REMPLIR (ou À RETIRER) avant un vrai déploiement : `FIGURES` décrit le
+// dépôt AstroTan lui-même — « 778 tests », « 1,3 ko de JavaScript » n'ont
+// aucun sens sur le site d'un adoptant, qui vend autre chose que ce
+// template. `index.astro` et `fonctionnalites.astro`, qui l'affichent, sont
+// eux-mêmes des pages de démonstration destinées à être réécrites. Le
+// garde-fou de `legal.test.ts` (voir `ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED`
+// dans `legal.ts`) le vérifie : il refuse ces valeurs par défaut dès que ce
+// marqueur passe à `false`.
 
 export interface Figure {
   value: string

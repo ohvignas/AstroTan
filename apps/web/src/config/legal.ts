@@ -42,6 +42,43 @@ export interface LegalHost {
   contact: string
 }
 
+// =============================================================================
+// À REMPLIR — c'est tout ce qu'il y a à remplir dans ce fichier.
+//
+// `legalEntity` et `legalHost` ci-dessous décrivent AstroTan, pas votre site.
+// Rien après cette section (le registre des traitements, le DPO) n'a besoin
+// d'être touché pour un site ordinaire — ce sont des mécanismes, pas une
+// identité.
+// =============================================================================
+
+/**
+ * Marqueur explicite : ce dépôt tourne encore avec l'identité d'exemple
+ * d'AstroTan (raison sociale, adresse, hébergeur…), pas la vôtre.
+ *
+ * Pourquoi un booléen plutôt qu'un commentaire : un commentaire ne bloque
+ * rien, et « lire la doc avant de déployer » est précisément la discipline
+ * qui a laissé passer les mentions légales fausses que ce fichier corrige.
+ * `legal.test.ts` refuse les valeurs d'exemple ci-dessous dès que ce
+ * marqueur vaut `false` — donc dès que vous déclarez avoir personnalisé le
+ * site. Tant qu'il reste à `true`, le test les tolère : c'est l'état normal
+ * du dépôt AstroTan lui-même, qui n'est le site de personne.
+ *
+ * Ce que ça veut dire pour vous, concrètement :
+ *   1. Remplissez `legalEntity`, `legalHost`, et vérifiez `facts.ts` /
+ *      `nav.ts` (repérés par le même garde-fou).
+ *   2. Passez cette valeur à `false`.
+ *   3. Lancez `pnpm test` : s'il reste une valeur d'exemple oubliée, le
+ *      test échoue et la nomme. Continuez jusqu'au vert.
+ *
+ * Ne passez PAS ce marqueur à `false` avant l'étape 1 — le mettre à `false`
+ * en premier est un moyen valide de s'en servir comme liste de tâches (le
+ * test rougit et énumère ce qu'il reste à faire), mais un `false` qui reste
+ * accompagné de valeurs d'exemple est un échec du test, pas un contournement
+ * possible : il n'existe aucune combinaison des deux qui passe au vert sans
+ * que les valeurs d'exemple aient réellement disparu.
+ */
+export const ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED = true
+
 export const legalEntity: LegalEntity = {
   name: "AstroTan",
   form: "Projet open source — à remplacer par votre raison sociale",
@@ -55,6 +92,13 @@ export const legalHost: LegalHost = {
   address: "61 Lordou Vironos Street, 6023 Larnaca, Chypre",
   contact: "https://www.hostinger.fr",
 }
+
+// =============================================================================
+// Ce qui suit décrit un MÉCANISME (le registre des traitements, le DPO), pas
+// une identité. Un site ordinaire n'a rien à y changer — sauf `dpo` si vous
+// en désignez un, et le tableau `processings` si vous ajoutez ou retirez un
+// traitement de données réel (voir le commentaire de `Processing`).
+// =============================================================================
 
 /**
  * Où les données partent, et pourquoi. Le tableau que le RGPD appelle

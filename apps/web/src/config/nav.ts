@@ -48,5 +48,15 @@ export const footerNav = {
   ] as NavItem[],
 }
 
-/** Dépôt du projet, affiché dans l'en-tête et le pied de page. */
+/**
+ * Dépôt du projet, affiché dans l'en-tête et le pied de page.
+ *
+ * À REMPLIR : la valeur par défaut pointe le dépôt du template AstroTan
+ * lui-même. Sur un site en production, remplacez-la par votre propre dépôt
+ * (si vous en publiez un), ou retirez le badge GitHub de `Header.astro` et
+ * `Footer.astro` si vous n'en publiez pas — un lien vers un dépôt qui n'est
+ * pas le vôtre n'a rien à faire sur votre site. Couvert par le même
+ * garde-fou que `legal.ts` et `facts.ts` (voir
+ * `ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED` dans `legal.ts`).
+ */
 export const REPO_URL = "https://github.com/OhVignas/AstroTan"
