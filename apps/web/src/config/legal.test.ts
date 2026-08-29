@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
+import { consentConfig } from "./consent"
 import { processings, TABLE_COVERAGE } from "./legal"
 
 // ---------------------------------------------------------------------
@@ -132,4 +133,98 @@ test("la durée de purge Umami écrite dans le SQL est celle publiée sur /confi
     durees[0],
     "la durée appliquée par docker/umami-purge.sql doit être celle que /confidentialite publie",
   ).toBe(Number(dureePubliee![1]))
+})
+
+// ---------------------------------------------------------------------
+// Les durées Convex — le maillon qui manquait encore
+// ---------------------------------------------------------------------
+// Le test ci-dessus lie `docker/umami-purge.sql` à la ligne « Mesurer
+// l'audience ». Rien ne liait `packages/backend/convex/retention.ts` aux
+// deux lignes qu'il purge, et les deux ont dérivé : la page annonçait
+// « Aucune purge automatique n'est en place aujourd'hui » pour les fiches
+// de contact, et « conservé sans limite, puisque c'est la preuve qui est
+// demandée » pour les enregistrements de consentement — alors qu'un cron
+// mensuel supprimait les unes à trois ans et les autres à un an.
+//
+// Le sens de l'erreur est celui qui coûte le plus cher : quelqu'un peut
+// invoquer une preuve de consentement de quatorze mois pour répondre à une
+// réclamation, et découvrir qu'elle a été supprimée.
+//
+// Comme pour le SQL d'Umami, `apps/web` ne dépend pas de `packages/backend`
+// pour ces valeurs : les importer ferait entrer le runtime serveur de
+// Convex dans le bundle du site. Le fichier est lu par son chemin.
+function constantesDeRetention(): Record<string, number> {
+  const ici = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(
+    resolve(ici, "../../../../packages/backend/convex/retention.ts"),
+    "utf-8",
+  )
+  const valeurs: Record<string, number> = {}
+  for (const [, nom, expression] of source.matchAll(
+    /export const ([A-Z_]+_RETENTION_DAYS)\s*=\s*([^\n]+)/g,
+  )) {
+    const nettoye = expression.trim()
+    // Un produit d'entiers (`3 * 365`) ou un entier. Évalué à la main
+    // plutôt que par `eval` : le fichier lu est du code, et un test qui
+    // exécute le code qu'il inspecte n'inspecte plus rien.
+    expect(
+      nettoye,
+      `${nom} n'est plus un produit d'entiers littéraux — adapter ce test`,
+    ).toMatch(/^\d+(\s*\*\s*\d+)*$/)
+    valeurs[nom] = nettoye.split("*").reduce((acc, n) => acc * Number(n.trim()), 1)
+  }
+  return valeurs
+}
+
+test("la durée publiée pour les fiches de contact est celle que le cron applique", () => {
+  const { LEAD_RETENTION_DAYS } = constantesDeRetention()
+  expect(LEAD_RETENTION_DAYS, "LEAD_RETENTION_DAYS introuvable dans retention.ts").toBeGreaterThan(0)
+
+  const ligne = processings.find(
+    (p) => p.purpose === "Répondre à un message envoyé par le formulaire de contact",
+  )
+  expect(ligne).toBeDefined()
+
+  // Le nombre de jours, écrit en toutes lettres dans la page, est ce qui
+  // rend la comparaison mécanique : « 3 ans » seul se compare mal à
+  // `3 * 365`, et c'est justement l'approximation qui laisse dériver.
+  const jours = ligne!.retention.match(/(\d+)\s*jours/)
+  expect(jours, "la ligne publiée doit nommer sa durée en jours").not.toBeNull()
+  expect(Number(jours![1])).toBe(LEAD_RETENTION_DAYS)
+
+  // Le sens de la phrase, pas seulement son nombre : la ligne a longtemps
+  // affirmé l'inverse exact de ce que le code fait.
+  expect(ligne!.retention).not.toMatch(/aucune purge/i)
+  expect(ligne!.retention).not.toMatch(/sans limite/i)
+})
+
+test("la durée publiée pour les preuves de consentement est celle que le cron applique", () => {
+  const { CONSENT_RETENTION_DAYS } = constantesDeRetention()
+  expect(CONSENT_RETENTION_DAYS, "CONSENT_RETENTION_DAYS introuvable dans retention.ts").toBeGreaterThan(0)
+
+  const ligne = processings.find((p) => p.purpose === "Enregistrer le choix exprimé sur les cookies")
+  expect(ligne).toBeDefined()
+
+  // La ligne porte DEUX durées — celle du cookie dans le navigateur, et
+  // celle de la preuve en base. On ne compare que la seconde, sinon le test
+  // passerait en lisant la première.
+  const enBase = ligne!.retention.split("En base")[1]
+  expect(enBase, "la ligne doit distinguer « En base » de la durée du cookie").toBeDefined()
+  const jours = enBase!.match(/(\d+)\s*jours/)
+  expect(jours, "la moitié « En base » doit nommer sa durée en jours").not.toBeNull()
+  expect(Number(jours![1])).toBe(CONSENT_RETENTION_DAYS)
+
+  expect(enBase).not.toMatch(/sans limite/i)
+})
+
+test("la preuve n'est pas purgée avant que le bandeau ne redemande son avis", () => {
+  // Le couplage que `retention.ts` déclare ne pas pouvoir vérifier lui-même
+  // (« ces deux nombres DOIVENT rester égaux ») : `packages/backend` ne
+  // dépend pas d'`apps/web`. Ici, les deux sont à portée.
+  //
+  // Une preuve purgée AVANT l'expiration du cookie laisserait un visiteur
+  // porteur d'un consentement valide dont plus rien n'atteste — le pire des
+  // deux sens, puisque le traitement continue sans preuve.
+  const { CONSENT_RETENTION_DAYS } = constantesDeRetention()
+  expect(CONSENT_RETENTION_DAYS).toBe(consentConfig.expirationDays)
 })

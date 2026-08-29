@@ -91,6 +91,14 @@ export const legalHost: LegalHost = {
  * `umami-purge` ; détail dans `docker/README.md` §13.10). Le jour où une
  * durée change d'un côté ou de l'autre, c'est ici que sa valeur réelle
  * vient s'écrire.
+ *
+ * Et ce n'est pas laissé à la vigilance : `legal.test.ts` relit
+ * `packages/backend/convex/retention.ts` et `docker/umami-purge.sql`, et
+ * refuse toute durée publiée ici qui ne serait pas celle appliquée là-bas.
+ * Les deux entrées les plus anciennes de ce tableau — les fiches de contact
+ * et les preuves de consentement — avaient précisément dérivé, en affirmant
+ * qu'aucune purge n'existait alors que le cron en exécutait une depuis un
+ * lot.
  */
 export interface Processing {
   purpose: string
@@ -114,10 +122,19 @@ export const processings: Processing[] = [
       "uniquement à compter les envois et à arrêter les rafales " +
       "automatisées",
     basis: "Intérêt légitime — répondre à quelqu'un qui nous écrit",
+    // La durée est celle de `LEAD_RETENTION_DAYS`
+    // (`packages/backend/convex/retention.ts`), recopiée ici — `apps/web`
+    // ne peut pas l'importer sans faire entrer le runtime serveur de Convex
+    // dans le bundle du site. Ce que la recopie coûte, `legal.test.ts` le
+    // rembourse : il relit `retention.ts` et refuse toute divergence. Le
+    // nombre de JOURS est écrit en clair pour cette raison — « 3 ans » seul
+    // se compare mal à `3 * 365`, et c'est cette approximation qui laisse
+    // dériver.
     retention:
-      "Jusqu'à la suppression de la fiche depuis l'administration. Aucune " +
-      "purge automatique n'est en place aujourd'hui : rien ne supprime une " +
-      "fiche que personne ne supprime.",
+      "3 ans après le dernier message reçu — 1095 jours exactement, " +
+      "appliqués par une purge automatique mensuelle qui supprime la fiche " +
+      "avec tout son historique. Avant ce terme, une suppression depuis " +
+      "l'administration l'efface immédiatement.",
     recipients:
       "Convex, Inc. (hébergement de la base, États-Unis), et le service " +
       "d'automatisation configuré le cas échéant (webhook de lead)",
@@ -169,10 +186,17 @@ export const processings: Processing[] = [
     // CNIL) verrait sinon la page annoncer une durée que le site n'applique
     // plus, ce qui est précisément le genre d'écart que ce fichier existe
     // pour rendre impossible.
+    // La durée en base est celle de `CONSENT_RETENTION_DAYS`
+    // (`packages/backend/convex/retention.ts`), et elle doit rester égale à
+    // `expirationDays` ci-dessus : une preuve purgée avant l'expiration du
+    // cookie laisserait un visiteur porteur d'un consentement valide que
+    // plus rien n'atteste. `legal.test.ts` vérifie les deux égalités.
     retention:
       `Dans le navigateur : ${consentConfig.expirationDays} jours. En base, ` +
-      "quand la traçabilité est activée : conservé sans limite, puisque c'est " +
-      "la preuve qui est demandée.",
+      "quand la traçabilité est activée : 365 jours, puis une purge " +
+      "automatique mensuelle supprime la preuve. C'est la durée de validité " +
+      "du consentement lui-même : passé ce délai le bandeau redemande son " +
+      "avis, et l'ancienne réponse n'autorise plus rien.",
     recipients:
       "Personne, sauf si la traçabilité est activée — dans ce cas Convex, Inc. " +
       "(hébergement de la base, États-Unis)",
