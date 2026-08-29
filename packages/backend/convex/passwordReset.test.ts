@@ -134,15 +134,67 @@ function jetonDuLien(texte: string | undefined): string {
   return decodeURIComponent(trouve[1])
 }
 
+/**
+ * Les TROIS façons dont `/reset-password` accepte réellement un jeton.
+ *
+ * L'endpoint le lit `const token = ctx.body.token || ctx.query?.token`
+ * (`api/routes/password.mjs` de la version installée). Ce `||` — un OU
+ * sur la véracité, pas sur la présence — ouvre trois entrées distinctes,
+ * et non deux :
+ *
+ *   - `corps` : le jeton dans le corps, le chemin nominal, celui que
+ *     l'écran de réinitialisation emprunte.
+ *   - `query` : aucune clé `token` dans le corps, le jeton dans l'URL.
+ *   - `query-corps-vide` : le jeton dans l'URL ET `token: ""` dans le
+ *     corps. La chaîne vide est un `string` pour qui teste le TYPE, et
+ *     falsy pour ce `||` : les deux lecteurs ne regardent alors plus le
+ *     même jeton. C'est exactement le contournement qui a fait tomber
+ *     les deux gardes ci-dessous, et `""` est la seule valeur qui le
+ *     produise (`null` et `undefined` ne sont pas des `string` pour la
+ *     garde non plus, donc ne créent aucun écart).
+ *
+ * La source est un paramètre OBLIGATOIRE, sans valeur par défaut, et
+ * c'est le seul point de ce fichier qui empêche le trou de se reformer :
+ * la faille a vécu parce que ce helper n'exerçait que `corps`, si bien
+ * que dix-huit tests verts ne disaient rien des deux autres entrées. Un
+ * défaut par défaut aurait laissé le prochain test répéter l'angle mort
+ * en silence ; ici, écrire un test force à nommer l'entrée qu'il exerce
+ * — et `SOURCES_DE_JETON` est là pour qu'il les prenne toutes.
+ */
+type SourceDeJeton = "corps" | "query" | "query-corps-vide"
+
+/**
+ * Toute garde de `/reset-password` se déroule sur CETTE liste, jamais sur
+ * une source choisie à la main. Une entrée qui s'ajouterait ici couvre
+ * d'office chaque garde déjà écrite ; une garde qui s'ajoute plus bas
+ * hérite d'office de chaque entrée.
+ */
+const SOURCES_DE_JETON = ["corps", "query", "query-corps-vide"] as const satisfies readonly [
+  SourceDeJeton,
+  ...SourceDeJeton[],
+]
+
 async function reinitialiser(
   t: ReturnType<typeof makeTestConvex>,
   token: string,
   nouveauMotDePasse: string,
+  source: SourceDeJeton,
 ) {
-  return t.fetch("/api/auth/reset-password", {
+  const corps: Record<string, unknown> = { newPassword: nouveauMotDePasse }
+  let chemin = "/api/auth/reset-password"
+  if (source === "corps") {
+    corps.token = token
+  } else {
+    chemin += `?token=${encodeURIComponent(token)}`
+    // La clé est POSÉE et vide, elle n'est pas omise : c'est la
+    // différence entre les deux entrées par la query, et c'est la vide
+    // qui contournait.
+    if (source === "query-corps-vide") corps.token = ""
+  }
+  return t.fetch(chemin, {
     method: "POST",
     headers: { "content-type": "application/json", origin: ORIGIN },
-    body: JSON.stringify({ token, newPassword: nouveauMotDePasse }),
+    body: JSON.stringify(corps),
   })
 }
 
@@ -268,7 +320,7 @@ test("le jeton envoyé réinitialise réellement le mot de passe", async () => {
   await seedActeur(t, "actif@exemple.fr")
 
   const token = await obtenirUnJeton(t, "actif@exemple.fr")
-  const res = await reinitialiser(t, token, "un-nouveau-mot-de-passe")
+  const res = await reinitialiser(t, token, "un-nouveau-mot-de-passe", "corps")
   expect(res.status).toBe(200)
 
   // La preuve que ce n'est pas seulement un 200 poli : l'ancien mot de
@@ -293,7 +345,7 @@ test("réinitialiser révoque les autres sessions", async () => {
   expect(await avant.text()).toContain("actif@exemple.fr")
 
   const token = await obtenirUnJeton(t, "actif@exemple.fr")
-  await reinitialiser(t, token, "un-nouveau-mot-de-passe")
+  await reinitialiser(t, token, "un-nouveau-mot-de-passe", "corps")
 
   const apres = await t.fetch("/api/auth/get-session", {
     headers: { cookie: ancienneSession, origin: ORIGIN },
@@ -326,7 +378,7 @@ test("le jeton n'est jamais stocké en clair dans la table `verification`", asyn
 
   // Et le jeton fonctionne quand même : l'empreinte est transparente pour
   // l'appelant, pas un changement de protocole.
-  expect((await reinitialiser(t, token, "un-nouveau-mot-de-passe")).status).toBe(200)
+  expect((await reinitialiser(t, token, "un-nouveau-mot-de-passe", "corps")).status).toBe(200)
 })
 
 test("la durée de vie du jeton est posée explicitement, jamais héritée", async () => {
@@ -353,7 +405,7 @@ test("une réinitialisation laisse une ligne au journal d'audit", async () => {
   await seedActeur(t, "actif@exemple.fr")
 
   const token = await obtenirUnJeton(t, "actif@exemple.fr")
-  await reinitialiser(t, token, "un-nouveau-mot-de-passe")
+  await reinitialiser(t, token, "un-nouveau-mot-de-passe", "corps")
 
   const journal = await t.run(async (ctx) => ctx.db.query("auditLog").collect())
   expect(journal).toHaveLength(1)
@@ -395,104 +447,132 @@ const MOT_DE_PASSE_FAIBLE = "motdepasse1"
 /** Le témoin d'`passwordStrength.test.ts` : quatre classes, quatorze caractères, aucun défaut. */
 const MOT_DE_PASSE_ROBUSTE = "Marmotte#V3rte"
 
-// --- Trou 1 : la robustesse, la même qu'à l'inscription -------------------
+// --- Les deux gardes, déroulées sur CHAQUE entrée de jeton ---------------
+//
+// Tout ce bloc tourne une fois par `SOURCES_DE_JETON`. Ce n'est pas de la
+// minutie : les deux gardes ci-dessous ont réellement été contournables
+// par `query-corps-vide` pendant que leurs versions `corps` étaient
+// vertes, parce que la garde lisait le jeton par son TYPE
+// (`typeof body.token === "string"`, vrai pour `""`) là où l'endpoint le
+// lit par sa VÉRACITÉ (`ctx.body.token || ctx.query?.token`, faux pour
+// `""`). Deux lecteurs du même champ, deux conventions, et la garde
+// s'appliquait à un jeton pendant que l'endpoint en consommait un autre.
+//
+// Dérouler la liste est ce qui rend ce trou incapable de se reformer :
+// une garde ajoutée ici est d'office éprouvée sur les trois entrées, et
+// les contre-tests « ça marche encore » tournent sur les trois aussi —
+// donc si l'endpoint cessait d'accepter la query, les cas correspondants
+// vireraient au rouge au lieu de devenir des tests vides qui passent.
+for (const source of SOURCES_DE_JETON) {
+  // --- Trou 1 : la robustesse, la même qu'à l'inscription -----------------
 
-test("réinitialiser refuse un mot de passe que l'invitation refuserait", async () => {
-  // Better Auth ne vérifie que la LONGUEUR sur ce chemin (vérifié dans
-  // `api/routes/password.mjs` de la version installée : `PASSWORD_TOO_SHORT`
-  // / `PASSWORD_TOO_LONG`, rien d'autre). `invitations.accept` applique en
-  // plus `MIN_PASSWORD_SCORE`. Un chemin de récupération plus permissif que
-  // l'inscription est une porte dérobée involontaire — et c'est celle qu'un
-  // attaquant choisira.
-  const t = makeTestConvex()
-  await seedActeur(t, "actif@exemple.fr")
-  const token = await obtenirUnJeton(t, "actif@exemple.fr")
+  test(`réinitialiser refuse un mot de passe que l'invitation refuserait (jeton : ${source})`, async () => {
+    // Better Auth ne vérifie que la LONGUEUR sur ce chemin (vérifié dans
+    // `api/routes/password.mjs` de la version installée : `PASSWORD_TOO_SHORT`
+    // / `PASSWORD_TOO_LONG`, rien d'autre). `invitations.accept` applique en
+    // plus `MIN_PASSWORD_SCORE`. Un chemin de récupération plus permissif que
+    // l'inscription est une porte dérobée involontaire — et c'est celle qu'un
+    // attaquant choisira.
+    const t = makeTestConvex()
+    await seedActeur(t, "actif@exemple.fr")
+    const token = await obtenirUnJeton(t, "actif@exemple.fr")
 
-  const refus = await reinitialiser(t, token, MOT_DE_PASSE_FAIBLE)
-  expect(refus.status).toBe(400)
-  // Le même code que `invitations.accept` : l'écran qui soumet ce
-  // formulaire branche sur un seul vocabulaire, pas sur deux.
-  expect(await refus.text()).toContain("WEAK_PASSWORD")
+    const refus = await reinitialiser(t, token, MOT_DE_PASSE_FAIBLE, source)
+    expect(refus.status).toBe(400)
+    // Le même code que `invitations.accept` : l'écran qui soumet ce
+    // formulaire branche sur un seul vocabulaire, pas sur deux.
+    expect(await refus.text()).toContain("WEAK_PASSWORD")
 
-  // Pas seulement un code d'erreur poli : le mot de passe n'a pas bougé.
-  await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE)).resolves.toBeTruthy()
+    // Pas seulement un code d'erreur poli : le mot de passe n'a pas bougé.
+    await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE)).resolves.toBeTruthy()
 
-  // Et le jeton n'a pas été consommé au passage. Refuser ne doit pas coûter
-  // à la personne le seul lien qu'elle ait reçu : elle doit pouvoir
-  // recommencer avec un mot de passe correct, sans redemander un email —
-  // sans quoi la protection deviendrait elle-même un moyen de la bloquer.
-  expect((await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE)).status).toBe(200)
-})
+    // Et le jeton n'a pas été consommé au passage. Refuser ne doit pas coûter
+    // à la personne le seul lien qu'elle ait reçu : elle doit pouvoir
+    // recommencer avec un mot de passe correct, sans redemander un email —
+    // sans quoi la protection deviendrait elle-même un moyen de la bloquer.
+    expect((await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE, source)).status).toBe(200)
+  })
 
-test("réinitialiser accepte encore un mot de passe robuste", async () => {
-  // Le contre-test du précédent : une garde qui refuserait TOUT passerait
-  // le test ci-dessus tout en fermant le seul chemin de récupération du
-  // dépôt.
-  const t = makeTestConvex()
-  await seedActeur(t, "actif@exemple.fr")
-  const token = await obtenirUnJeton(t, "actif@exemple.fr")
+  test(`réinitialiser accepte encore un mot de passe robuste (jeton : ${source})`, async () => {
+    // Le contre-test du précédent, à double titre. Une garde qui refuserait
+    // TOUT passerait le test ci-dessus tout en fermant le seul chemin de
+    // récupération du dépôt ; et une entrée que l'endpoint n'accepterait
+    // PLUS rendrait le test ci-dessus vert pour la mauvaise raison — un
+    // refus qui ne prouve plus rien de la garde. Exiger 200 ici est ce qui
+    // maintient chaque source honnête : elle doit vraiment aboutir.
+    const t = makeTestConvex()
+    await seedActeur(t, "actif@exemple.fr")
+    const token = await obtenirUnJeton(t, "actif@exemple.fr")
 
-  expect((await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE)).status).toBe(200)
-  await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE_ROBUSTE)).resolves.toBeTruthy()
-})
+    expect((await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE, source)).status).toBe(200)
+    await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE_ROBUSTE)).resolves.toBeTruthy()
+  })
 
-// --- Trou 2 : la suspension vaut aussi à la CONSOMMATION ------------------
+  // --- Trou 2 : la suspension vaut aussi à la CONSOMMATION ----------------
 
-test("un compte suspendu après l'envoi ne peut plus consommer son jeton", async () => {
-  // Le refus de `sendResetPassword` est à l'ÉMISSION. Quelqu'un qui demande
-  // une réinitialisation puis est suspendu dans l'heure gardait un jeton
-  // valide — et donc un retour dans l'administration. La suspension doit
-  // valoir au moment où le jeton est CONSOMMÉ.
-  const t = makeTestConvex()
-  await seedActeur(t, "actif@exemple.fr")
-  const token = await obtenirUnJeton(t, "actif@exemple.fr")
+  test(`un compte suspendu après l'envoi ne peut plus consommer son jeton (jeton : ${source})`, async () => {
+    // Le refus de `sendResetPassword` est à l'ÉMISSION. Quelqu'un qui demande
+    // une réinitialisation puis est suspendu dans l'heure gardait un jeton
+    // valide — et donc un retour dans l'administration. La suspension doit
+    // valoir au moment où le jeton est CONSOMMÉ.
+    const t = makeTestConvex()
+    await seedActeur(t, "actif@exemple.fr")
+    const token = await obtenirUnJeton(t, "actif@exemple.fr")
 
-  await definirSuspension(t, "actif@exemple.fr", true)
+    await definirSuspension(t, "actif@exemple.fr", true)
 
-  const refus = await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE)
-  const jetonBidon = await reinitialiser(t, "un-jeton-qui-n-existe-pas", MOT_DE_PASSE_ROBUSTE)
+    const refus = await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE, source)
+    // Le témoin passe par la MÊME entrée : comparer un refus arrivé par la
+    // query à un refus arrivé par le corps ne dirait rien de l'oracle.
+    const jetonBidon = await reinitialiser(
+      t,
+      "un-jeton-qui-n-existe-pas",
+      MOT_DE_PASSE_ROBUSTE,
+      source,
+    )
 
-  // Indistinguable d'un jeton inconnu, au code ET au corps. Sinon la
-  // réponse devient un oracle qui dit « ce compte existe, et il est
-  // suspendu » — le même piège que la demande évite déjà plus haut.
-  // Cette comparaison est aussi ce qui rattrape une divergence future :
-  // le message d'`INVALID_TOKEN` est recopié depuis Better Auth (il n'est
-  // pas exporté), et s'il changeait de leur côté, ce test virerait au
-  // rouge au lieu de laisser un oracle s'installer en silence.
-  expect(refus.status).toBe(jetonBidon.status)
-  expect(await refus.text()).toBe(await jetonBidon.text())
+    // Indistinguable d'un jeton inconnu, au code ET au corps. Sinon la
+    // réponse devient un oracle qui dit « ce compte existe, et il est
+    // suspendu » — le même piège que la demande évite déjà plus haut.
+    // Cette comparaison est aussi ce qui rattrape une divergence future :
+    // le message d'`INVALID_TOKEN` est recopié depuis Better Auth (il n'est
+    // pas exporté), et s'il changeait de leur côté, ce test virerait au
+    // rouge au lieu de laisser un oracle s'installer en silence.
+    expect(refus.status).toBe(jetonBidon.status)
+    expect(await refus.text()).toBe(await jetonBidon.text())
 
-  // Et le mot de passe n'a pas changé. On lève la suspension pour le
-  // prouver par la seule voie qui le prouve vraiment — un compte suspendu
-  // ne peut de toute façon pas se connecter.
-  await definirSuspension(t, "actif@exemple.fr", false)
-  await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE_ROBUSTE)).rejects.toThrow()
-  await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE)).resolves.toBeTruthy()
-})
+    // Et le mot de passe n'a pas changé. On lève la suspension pour le
+    // prouver par la seule voie qui le prouve vraiment — un compte suspendu
+    // ne peut de toute façon pas se connecter.
+    await definirSuspension(t, "actif@exemple.fr", false)
+    await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE_ROBUSTE)).rejects.toThrow()
+    await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE)).resolves.toBeTruthy()
+  })
 
-test("un ban EXPIRÉ ne bloque pas non plus la consommation du jeton", async () => {
-  // Même raison qu'à l'émission : `isCurrentlyBanned` est la SEULE
-  // définition de « suspendu » du dépôt, et un `banExpires` déjà passé est
-  // un ban LEVÉ. Refuser ici enfermerait quelqu'un dont la sanction est
-  // terminée — hors de son compte, et hors du seul chemin qui l'y
-  // ramènerait.
-  const t = makeTestConvex()
-  await seedActeur(t, "actif@exemple.fr")
-  const token = await obtenirUnJeton(t, "actif@exemple.fr")
+  test(`un ban EXPIRÉ ne bloque pas non plus la consommation du jeton (jeton : ${source})`, async () => {
+    // Même raison qu'à l'émission : `isCurrentlyBanned` est la SEULE
+    // définition de « suspendu » du dépôt, et un `banExpires` déjà passé est
+    // un ban LEVÉ. Refuser ici enfermerait quelqu'un dont la sanction est
+    // terminée — hors de son compte, et hors du seul chemin qui l'y
+    // ramènerait.
+    const t = makeTestConvex()
+    await seedActeur(t, "actif@exemple.fr")
+    const token = await obtenirUnJeton(t, "actif@exemple.fr")
 
-  await definirSuspension(t, "actif@exemple.fr", true)
-  await t.run(async (ctx) =>
-    ctx.runMutation(components.betterAuth.adapter.updateOne, {
-      input: {
-        model: "user",
-        where: [{ field: "email", operator: "eq", value: "actif@exemple.fr" }],
-        update: { banExpires: Date.now() - 60_000 },
-      },
-    }),
-  )
+    await definirSuspension(t, "actif@exemple.fr", true)
+    await t.run(async (ctx) =>
+      ctx.runMutation(components.betterAuth.adapter.updateOne, {
+        input: {
+          model: "user",
+          where: [{ field: "email", operator: "eq", value: "actif@exemple.fr" }],
+          update: { banExpires: Date.now() - 60_000 },
+        },
+      }),
+    )
 
-  expect((await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE)).status).toBe(200)
-})
+    expect((await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE, source)).status).toBe(200)
+  })
+}
 
 // --- Trou 3 : la demande est limitée en débit ----------------------------
 

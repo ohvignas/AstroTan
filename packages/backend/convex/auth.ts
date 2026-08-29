@@ -403,17 +403,34 @@ async function guardPasswordReset(
   // pas déjà une chaîne simple est laissé à l'endpoint, dont c'est le
   // travail de le refuser — et qui rendra son propre `INVALID_TOKEN`.
   //
-  // Le jeton se lit dans le corps OU dans la query, dans cet ordre :
-  // `const token = ctx.body.token || ctx.query?.token` dans
-  // `api/routes/password.mjs`. Lire une seule des deux sources laisserait
-  // l'autre contourner ces deux gardes.
+  // Le jeton se lit dans le corps OU dans la query, et il faut le lire
+  // avec le MÊME ordre de vérité que l'endpoint, pas seulement dans le
+  // même ordre de sources : `const token = ctx.body.token ||
+  // ctx.query?.token` (`api/routes/password.mjs` de la version
+  // installée, ligne 140). Ce `||` bascule sur la VÉRACITÉ, pas sur la
+  // présence ni sur le type.
+  //
+  // La version précédente choisissait par le TYPE (`typeof body.token
+  // === "string" ? … : query.token`), et cet écart était exploitable :
+  // `""` est un `string`, donc la garde s'arrêtait dessus, n'y trouvait
+  // aucune ligne `reset-password:` et sortait en silence — pendant que
+  // l'endpoint, pour qui `""` est falsy, basculait sur la query et
+  // consommait le VRAI jeton qui s'y trouvait. Un
+  // `POST /reset-password?token=<vrai>` au corps `{"token":"",
+  // "newPassword":"…"}` passait donc les deux gardes ci-dessous d'un
+  // coup : plancher de robustesse et compte suspendu. `""` est la seule
+  // valeur qui produise cet écart — `null` et `undefined` ne sont des
+  // chaînes pour personne, et zod refuse tout le reste.
+  //
+  // Reprendre le `||` tel quel est ce qui referme l'écart par
+  // construction : la garde ne peut plus désigner un autre jeton que
+  // celui que l'endpoint consommera. Le `.length > 0` qui suit n'est pas
+  // une seconde règle mais la conséquence directe du même `||` : une
+  // chaîne vide des deux côtés n'est un jeton pour personne, et
+  // l'endpoint la refuse lui-même par son `if (!token)`.
   const query = authCtx.query as { token?: unknown } | undefined
-  const jeton =
-    typeof body?.token === "string"
-      ? body.token
-      : typeof query?.token === "string"
-        ? query.token
-        : null
+  const brut = (body?.token || query?.token) as unknown
+  const jeton = typeof brut === "string" && brut.length > 0 ? brut : null
   if (jeton === null || typeof body?.newPassword !== "string") return
   const nouveauMotDePasse = body.newPassword
 
