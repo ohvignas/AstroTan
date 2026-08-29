@@ -75,6 +75,14 @@ export function describePageError(error: unknown): string {
       const code = (data as { code?: unknown }).code
       if (code === "FIELD_TOO_LONG")
         return describeFieldTooLong(data as Record<string, unknown>)
+      // `REQUIRED_PAGE` porte sa propre phrase depuis le serveur : le motif
+      // du refus vit à côté de la règle qui refuse, dans
+      // `convex/lib/requiredPages.ts`, plutôt que recopié ici où il
+      // divergerait le jour où la liste change.
+      if (code === "REQUIRED_PAGE") {
+        const message = (data as { message?: unknown }).message
+        if (typeof message === "string") return message
+      }
       if (typeof code === "string") {
         const refusal = describeSlugRefusal(code, data as Record<string, unknown>)
         if (refusal !== null) return refusal

@@ -777,3 +777,55 @@ test("la page d'accueil n'est pas signalée « sans fichier »", async () => {
   // Celle-là n'a vraiment aucun fichier : le signalement doit rester utile.
   expect(par("disparue")?.servedByRoute).toBe(false)
 })
+
+// Les trois pages réglementaires ne peuvent ni se dépublier ni se
+// supprimer. Elles sont référencées par le pied de page et par le bandeau
+// de cookies depuis TOUTES les pages du site : les retirer laisse des liens
+// morts à l'endroit exact où un visiteur doit pouvoir s'informer avant de
+// décider, et le lien mort ne se voit depuis aucun écran de
+// l'administration. Voir `lib/requiredPages.ts`.
+
+async function pagePubliee(t: TestConvex<typeof schema>, slug: string, authorId: string) {
+  return t.run((ctx) =>
+    ctx.db.insert("pages", {
+      slug,
+      title: "Page",
+      status: "published" as const,
+      createdBy: authorId,
+      updatedBy: authorId,
+      publishedAt: Date.now(),
+    }),
+  )
+}
+
+test("une page réglementaire ne peut pas être dépubliée", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await pagePubliee(t, "cookies", owner.id)
+
+  await expect(owner.identity.mutation(api.pages.unpublish, { id })).rejects.toMatchObject({
+    data: { code: "REQUIRED_PAGE" },
+  })
+  expect((await t.run((ctx) => ctx.db.get(id)))?.status).toBe("published")
+})
+
+test("une page réglementaire ne peut pas être supprimée", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await pagePubliee(t, "confidentialite", owner.id)
+
+  await expect(owner.identity.mutation(api.pages.remove, { id })).rejects.toMatchObject({
+    data: { code: "REQUIRED_PAGE" },
+  })
+  expect(await t.run((ctx) => ctx.db.get(id))).not.toBeNull()
+})
+
+test("le refus est étroit : une page ordinaire se dépublie toujours", async () => {
+  // Le garde-fou porte sur trois slugs, pas sur le principe de dépublier.
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await pagePubliee(t, "tarifs", owner.id)
+
+  await owner.identity.mutation(api.pages.unpublish, { id })
+  expect((await t.run((ctx) => ctx.db.get(id)))?.status).toBe("draft")
+})

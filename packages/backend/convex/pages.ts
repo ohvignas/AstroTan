@@ -15,6 +15,7 @@ import { RESERVED_PAGE_SLUGS } from "./posts"
 import { mintRenameRedirect } from "./redirects"
 import { isServedByRoute } from "./lib/servedPaths"
 import { publicPath } from "./lib/publicPath"
+import { REQUIRED_PAGE_REASON, isRequiredPage } from "./lib/requiredPages"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // This task's own brief, verbatim: "the security-critical task of the
@@ -559,6 +560,12 @@ export const remove = mutation({
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, page)
     requirePublishedPageWritable(authUser, page)
+    // Les pages réglementaires ne se suppriment pas : le pied de page et le
+    // bandeau de cookies pointent vers elles depuis TOUTES les pages du
+    // site, et rien dans l'administration ne montrerait le lien mort.
+    if (isRequiredPage(page.slug)) {
+      throw new ConvexError({ code: "REQUIRED_PAGE", message: REQUIRED_PAGE_REASON })
+    }
 
     await ctx.db.delete(args.id)
 
@@ -586,6 +593,13 @@ export const unpublish = mutation({
     const page = await ctx.db.get(args.id)
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
     if (page.status !== "published") return
+    // Même raison que pour la suppression, en pire : dépublier ne laisse
+    // aucune trace visible, et la page répond 404 alors que tout le site
+    // continue de renvoyer vers elle — y compris le bandeau de cookies, à
+    // l'instant précis où quelqu'un doit s'informer avant de décider.
+    if (isRequiredPage(page.slug)) {
+      throw new ConvexError({ code: "REQUIRED_PAGE", message: REQUIRED_PAGE_REASON })
+    }
 
     await ctx.db.patch(args.id, { status: "draft" })
     await insertOutboxRow(ctx, { kind: "page", pageId: args.id }, ["pages", `page:${page.slug}`])
