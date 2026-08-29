@@ -159,6 +159,15 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
       // est là pour forcer exactement cette décision au lieu de la laisser
       // passer en silence.
       args = { storageId: "kg000000000000000000000000000000" }
+    } else if (q.argFields.length === 1 && q.argFields[0] === "visitorId") {
+      // `consent.history` : la preuve de consentement d'un appareil,
+      // réservée aux rôles owner/admin. Comme les autres queries gardées par
+      // session, l'appel non authentifié de cette boucle lève avant que
+      // l'argument ne soit lu — la valeur n'a donc pas d'importance, mais la
+      // forme doit être DÉCLARÉE ici plutôt que de tomber dans le `throw`
+      // du bas, qui existe pour forcer cette décision au lieu de la laisser
+      // passer en silence.
+      args = { visitorId: "visiteur-inexistant" }
     } else if (q.argFields.length === 1 && q.argFields[0] === "id") {
       // Task 8's `pages.get`/`pages.publicationStatus`: both session-gated
       // (`requireRole`), so calling them with no identity at all (this

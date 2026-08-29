@@ -26,26 +26,14 @@ describe("analyticsScripts", () => {
     ])
   })
 
-  test("l'enregistrement de session est un SECOND script, pas une option", () => {
-    // Constaté dans les réglages d'Umami : activer Replays ou Heatmaps y
-    // fait apparaître une deuxième balise, `recorder.js`.
+  test("l'enregistrement de session n'est PAS chargé ici", () => {
+    // `recorder.js` rejoue ce qu'une personne a fait sur la page. Il existe
+    // toujours, mais derrière le bandeau — voir `consent.ts`. Le charger
+    // ici le poserait avant toute réponse, ce qui vide le bandeau de son
+    // sens sans que rien ne le signale.
     expect(
       analyticsScripts({ ...CONFIGURE, PUBLIC_UMAMI_RECORDER: "true" }),
-    ).toEqual([
-      { src: "https://stats.exemple.fr/script.js", websiteId: "site-1" },
-      { src: "https://stats.exemple.fr/recorder.js", websiteId: "site-1" },
-    ])
-  })
-
-  test("l'enregistrement reste éteint tant qu'il n'est pas demandé mot pour mot", () => {
-    // Il rejoue ce qu'une personne a fait sur la page, là où le comptage
-    // note seulement qu'elle est venue. Une valeur approximative ne doit
-    // pas l'allumer par accident.
-    for (const valeur of ["", "false", "1", "oui", "TRUE"]) {
-      expect(
-        analyticsScripts({ ...CONFIGURE, PUBLIC_UMAMI_RECORDER: valeur }),
-      ).toHaveLength(1)
-    }
+    ).toEqual([{ src: "https://stats.exemple.fr/script.js", websiteId: "site-1" }])
   })
 
   test("un slash final dans l'URL ne produit pas de double slash", () => {

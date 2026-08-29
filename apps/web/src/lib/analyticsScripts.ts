@@ -1,23 +1,17 @@
-// Quels scripts de mesure la page doit charger, et à quelles conditions.
+// Quels scripts de mesure la page charge sans rien demander à personne.
 //
 // Une fonction pure plutôt qu'une suite de conditions dans le `.astro` :
 // c'est ici que se décide si le site parle à un service tiers, et cette
 // décision mérite d'être vérifiable sans rendre une page.
+//
+// La frontière avec `consent.ts` est la seule chose à retenir : ici vivent
+// les balises qui ne déposent rien sur l'appareil du visiteur et
+// n'identifient personne — elles n'ont pas à attendre un accord. Tout le
+// reste est dans `consent.ts` et n'est posé qu'après réponse.
 
 export interface AnalyticsEnv {
   PUBLIC_UMAMI_URL?: string
   PUBLIC_UMAMI_WEBSITE_ID?: string
-  /**
-   * L'enregistrement de session — Replays et Heatmaps d'Umami.
-   *
-   * Séparé, et faux par défaut, parce que ce n'est pas la même promesse que
-   * le comptage : le comptage enregistre qu'une page a été vue, alors que
-   * l'enregistrement rejoue ce qu'une personne a fait dessus. Le second
-   * peut capter du contenu saisi, et fait sortir la mesure du régime « sans
-   * cookie et sans donnée personnelle » qui permet de se passer de bandeau
-   * de consentement. Ce n'est pas une case à cocher, c'est une décision.
-   */
-  PUBLIC_UMAMI_RECORDER?: string
 }
 
 export interface AnalyticsScript {
@@ -26,11 +20,16 @@ export interface AnalyticsScript {
 }
 
 /**
- * Les scripts à poser dans le `<head>`, dans l'ordre.
+ * Les scripts à poser dans le `<head>`.
  *
  * Vide quand la mesure n'est pas configurée : l'absence de configuration est
  * l'interrupteur, de sorte qu'un adoptant qui n'en veut pas n'ait rien à
  * désactiver, et qu'aucune requête ne parte vers un tiers.
+ *
+ * Un seul script en sort, et c'est voulu : `script.js` d'Umami compte des
+ * pages vues sans cookie, sans stockage local et sans adresse IP conservée.
+ * `recorder.js` — Replays et Heatmaps — rejoue ce qu'une personne a fait sur
+ * la page ; il n'est pas ici mais dans `consent.ts`, derrière le bandeau.
  */
 export function analyticsScripts(
   // `Record<string, …>` et non `AnalyticsEnv` seul : `import.meta.env` est
@@ -45,17 +44,5 @@ export function analyticsScripts(
   // qui échoue silencieusement, ce qui est pire que pas de balise.
   if (!base || !websiteId) return []
 
-  const scripts: AnalyticsScript[] = [{ src: `${base}/script.js`, websiteId }]
-
-  // `recorder.js` est bien un SECOND script, pas une option du premier —
-  // constaté dans les réglages d'Umami, qui affiche les deux balises dès
-  // que Replays ou Heatmaps est activé.
-  //
-  // Le côté Umami doit l'être aussi : sans l'interrupteur sur le site dans
-  // Umami, ce script est chargé pour rien. Les deux moitiés, encore.
-  if (env.PUBLIC_UMAMI_RECORDER === "true") {
-    scripts.push({ src: `${base}/recorder.js`, websiteId })
-  }
-
-  return scripts
+  return [{ src: `${base}/script.js`, websiteId }]
 }

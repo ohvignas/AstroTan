@@ -12,6 +12,12 @@ import { getConvexClient } from "../../lib/convexClient"
 import SiteBrand from "../SiteBrand.astro"
 import Icon from "../ui/primitives/Icon/Icon.astro"
 import { footerNav, REPO_URL } from "../../config/nav"
+import { shouldAskConsent } from "../../lib/consent"
+
+// Le lien « Gérer les cookies » n'a de sens que si quelque chose est à
+// gérer. Un site sans traceur soumis à consentement n'affiche ni bandeau ni
+// bouton — et ne prétend donc pas offrir un réglage qui n'existe pas.
+const ask = shouldAskConsent(import.meta.env)
 
 const settings = await getConvexClient().query(api.settings.get, {})
 const siteName = settings?.siteName ?? "AstroTan"
@@ -86,6 +92,21 @@ function socialIcon(url: string): string {
         </ul>
       </div>
     </div>
+
+    <nav class="footer__legal" aria-label="Informations légales">
+      {footerNav.legal.map((item) => (
+        <a href={item.href}>{item.label}</a>
+      ))}
+      {/* `data-consent-trigger` rouvre le panneau de réglages — le
+          `CookieTrigger` d'Open Consent, en attribut. Le bouton n'existe que
+          si le bandeau existe : sans traceur configuré, `ConsentBanner` ne
+          rend rien et ce bouton n'aurait rien à ouvrir. */}
+      {ask && (
+        <button type="button" class="footer__consent" data-consent-trigger>
+          Gérer les cookies
+        </button>
+      )}
+    </nav>
 
     <div class="footer__meta">
       <p>© {year} {siteName}</p>
@@ -176,13 +197,46 @@ function socialIcon(url: string): string {
     height: 1rem;
   }
 
+  .footer__legal {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-md);
+    margin-top: var(--space-2xl);
+    font-size: 0.875rem;
+  }
+
+  .footer__legal a {
+    color: var(--color-text-secondary);
+    text-decoration: none;
+  }
+
+  .footer__legal a:hover {
+    color: var(--color-text-primary);
+  }
+
+  .footer__consent {
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .footer__consent:hover {
+    color: var(--color-text-primary);
+  }
+
   .footer__meta {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-lg);
     flex-wrap: wrap;
-    margin-top: var(--space-2xl);
+    margin-top: var(--space-lg);
     padding-top: var(--space-lg);
     border-top: 1px solid var(--color-border);
     color: var(--color-text-secondary);

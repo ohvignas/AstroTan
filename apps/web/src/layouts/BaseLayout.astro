@@ -18,6 +18,8 @@ import PageHead from "../components/PageHead.astro"
 import Analytics from "../components/Analytics.astro"
 import Header from "../components/layout/Header.astro"
 import Footer from "../components/layout/Footer.astro"
+import GoogleConsentMode from "../components/consent/GoogleConsentMode.astro"
+import ConsentBanner from "../components/consent/ConsentBanner.astro"
 import type { PageRecord } from "../lib/loadPage"
 import "../styles/global.css"
 
@@ -88,6 +90,11 @@ const { page, fallbackTitle, article } = Astro.props as Props
       }
     </script>
 
+    {/* AVANT `Analytics` et avant toute balise tierce : Consent Mode pose
+        un défaut « tout refusé » que Google doit connaître avant de recevoir
+        quoi que ce soit. Après, le défaut arriverait trop tard. */}
+    <GoogleConsentMode />
+
     <PageHead page={page} fallbackTitle={fallbackTitle} article={article} />
     <Analytics />
     <slot name="head" />
@@ -102,6 +109,11 @@ const { page, fallbackTitle, article } = Astro.props as Props
     </main>
 
     <Footer />
+
+    {/* En fin de `<body>` : le bandeau ne doit pas retarder le premier
+        rendu. Il ne s'affiche que si ce site charge réellement un traceur
+        soumis à consentement — sinon le composant ne rend rien du tout. */}
+    <ConsentBanner />
 
     <style>
       .site-body {

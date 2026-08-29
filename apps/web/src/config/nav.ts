@@ -33,6 +33,19 @@ export const footerNav = {
     { href: "/blog", label: "Blog" },
     { href: "/contact", label: "Contact" },
   ] as NavItem[],
+  /**
+   * Les pages réglementaires. Dans le pied de page et nulle part ailleurs :
+   * la loi demande qu'elles soient accessibles depuis toutes les pages, pas
+   * qu'elles concurrencent la navigation principale.
+   *
+   * Chacune est un couple fichier + ligne publiée, comme toute page de ce
+   * site — sans sa ligne dans l'administration, le lien mène à un 404.
+   */
+  legal: [
+    { href: "/mentions-legales", label: "Mentions légales" },
+    { href: "/confidentialite", label: "Confidentialité" },
+    { href: "/cookies", label: "Cookies" },
+  ] as NavItem[],
 }
 
 /** Dépôt du projet, affiché dans l'en-tête et le pied de page. */

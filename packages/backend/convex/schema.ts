@@ -1,7 +1,12 @@
 import { defineSchema, defineTable } from "convex/server"
 import { v } from "convex/values"
 import { LEAD_STATUSES } from "./content"
-import { roleValidator, pageStatusValidator, outboxStatusValidator } from "./validators"
+import {
+  roleValidator,
+  pageStatusValidator,
+  outboxStatusValidator,
+  consentActionValidator,
+} from "./validators"
 import { geoValidator, seoValidator } from "./content"
 
 // `seoValidator`/`geoValidator` live in `content.ts`, alongside the length
@@ -217,6 +222,29 @@ export default defineSchema({
     // anonymes le jour où quelqu'un s'en va.
     actorName: v.optional(v.string()),
   }).index("by_lead", ["leadId"]),
+
+  // La preuve du consentement — voir `consent.ts` pour pourquoi elle est
+  // éteinte par défaut. Une ligne par geste, jamais écrasée : « a accepté
+  // puis retiré » est une information, et un enregistrement qui garde
+  // seulement le dernier état ne peut plus la produire.
+  consentRecords: defineTable({
+    consentVersion: v.string(),
+    visitorId: v.string(),
+    consentId: v.string(),
+    action: consentActionValidator,
+    // ISO 8601 tel que le navigateur l'a produit, gardé en chaîne : c'est
+    // l'heure de l'appareil qui a répondu, pas celle de notre serveur, et
+    // les convertir en nombre effacerait le fuseau — qui fait partie de la
+    // preuve.
+    timestamp: v.string(),
+    analytics: v.boolean(),
+    marketing: v.boolean(),
+    preferences: v.boolean(),
+  })
+    .index("by_visitor", ["visitorId"])
+    // Ce qui rend l'écriture idempotente : la requête part en `keepalive`
+    // au moment où quelqu'un quitte la page, et peut être rejouée.
+    .index("by_consent", ["consentId"]),
 
   redirects: defineTable({
     // Normalisé comme un slug de page : sans slash de tête ni de fin, pour

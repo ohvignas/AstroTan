@@ -111,6 +111,7 @@ dans ce dépôt, pas des bonnes pratiques générales. Les lire avant d'écrire 
 | Écrire une query, mutation, table ou index Convex | `convex-function` (local) |
 | Intégrer une maquette HTML, performance, images, polices | `mockup-to-astro` (local) |
 | Better Auth × Convex | `better-auth` (local) |
+| **Consentement, cookies, RGPD, pixels** | `consent-rgpd` (local) |
 | Convex | `convex`, `convex-setup-auth`, `convex-migration-helper` |
 | shadcn/ui et blocs UI | `shadcnblocks` |
 | SEO / GEO | `anthropic-skills:seo-geo`, `schema-markup`, `seo-audit` |

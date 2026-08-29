@@ -1,0 +1,633 @@
+---
+// Le bandeau de consentement, et le panneau de réglages qui va avec.
+//
+// Porté du modèle d'Open Consent (MIT) : mêmes catégories, même
+// `consentVersion`, même journal de traçabilité, même Google Consent Mode.
+// Open Consent se livre en composants React par le registre shadcn ; le site
+// public ne charge aucun framework, et un bandeau ne justifie pas d'en
+// ajouter un. Ce qui est repris est le modèle, pas le paquet.
+//
+// Trois principes tiennent tout le fichier :
+//
+//  1. Refuser coûte un clic, comme accepter. Un bouton « Tout refuser » au
+//     même niveau que « Tout accepter », pas caché derrière « Personnaliser ».
+//  2. Rien n'est coché d'avance. Un interrupteur pré-activé n'est pas un
+//     consentement, c'est une case à décocher.
+//  3. Tant que personne n'a répondu, aucune requête ne part. Le HTML servi
+//     ne contient AUCUNE balise tierce — elles sont injectées après le clic.
+//
+// Le script est bundlé (pas `is:inline`) pour importer la logique de
+// `lib/consent.ts`, qui est testée. Un bandeau dont la décision vit dans une
+// chaîne de caractères en ligne n'est vérifiable qu'à l'œil.
+import {
+  CATEGORY_LABELS,
+  activeCategories,
+  shouldAskConsent,
+} from "../../lib/consent"
+import { consentConfig } from "../../config/consent"
+
+const categories = activeCategories(import.meta.env)
+// Aucun tiers configuré : pas de bandeau. Demander l'autorisation de faire
+// une chose qu'on ne fait pas est une nuisance, et une description fausse du
+// site.
+const ask = shouldAskConsent(import.meta.env)
+---
+
+{
+  ask && (
+    <>
+      <div
+        class:list={["consent-banner", `consent-banner--${consentConfig.position}`]}
+        data-consent-banner
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="consent-title"
+        hidden
+      >
+        <h2 id="consent-title" class="consent-banner__title">Cookies et traceurs</h2>
+        <p class="consent-banner__text">
+          Ce site mesure son audience sans cookie ni adresse IP conservée, et
+          cela ne demande rien. Ce qui suit, en revanche, dépose quelque chose
+          sur votre appareil ou transmet une information à un tiers — et ne se
+          fera pas sans votre accord.
+        </p>
+        <div class="consent-banner__actions">
+          <button type="button" class="consent-btn consent-btn--primary" data-consent="accept_all">
+            Tout accepter
+          </button>
+          <button type="button" class="consent-btn consent-btn--primary" data-consent="reject_all">
+            Tout refuser
+          </button>
+          <button type="button" class="consent-btn consent-btn--quiet" data-consent-open>
+            Personnaliser
+          </button>
+        </div>
+        <p class="consent-banner__links">
+          <a href={consentConfig.cookiePolicyUrl}>Politique de cookies</a>
+          <span aria-hidden="true">·</span>
+          <a href={consentConfig.privacyPolicyUrl}>Confidentialité</a>
+        </p>
+      </div>
+
+      {/* `<dialog>` natif : la capture du focus, la fermeture par Échap et
+          l'inertie du reste de la page sont fournies par le navigateur.
+          Les réimplémenter en JavaScript est le chemin le plus court vers un
+          panneau qu'on ne peut pas quitter au clavier. */}
+      <dialog class="consent-dialog" data-consent-dialog aria-labelledby="consent-dialog-title">
+        <form method="dialog" class="consent-dialog__form">
+          <h2 id="consent-dialog-title">Vos choix</h2>
+
+          <div class="consent-dialog__row consent-dialog__row--locked">
+            <div>
+              <h3>Strictement nécessaire</h3>
+              <p>
+                Ce qui fait fonctionner le site : votre choix ci-dessous, le
+                thème clair ou sombre, la protection du formulaire de contact.
+                Rien n'est transmis à un tiers.
+              </p>
+            </div>
+            <span class="consent-dialog__always">Toujours actif</span>
+          </div>
+
+          {categories.map((category) => (
+            <div class="consent-dialog__row">
+              <div>
+                <h3>{CATEGORY_LABELS[category].title}</h3>
+                <p>{CATEGORY_LABELS[category].description}</p>
+              </div>
+              <label class="consent-switch">
+                {/* Jamais `checked` au rendu : le script coche d'après une
+                    réponse déjà donnée, et rien d'autre. */}
+                <input type="checkbox" data-consent-category={category} />
+                <span class="consent-switch__track" aria-hidden="true" />
+                <span class="consent-switch__label">
+                  Autoriser — {CATEGORY_LABELS[category].title}
+                </span>
+              </label>
+            </div>
+          ))}
+
+          <div class="consent-dialog__actions">
+            <button type="button" class="consent-btn consent-btn--quiet" data-consent="reject_all">
+              Tout refuser
+            </button>
+            <button type="button" class="consent-btn consent-btn--quiet" data-consent="accept_all">
+              Tout accepter
+            </button>
+            <button type="button" class="consent-btn consent-btn--primary" data-consent="custom">
+              Enregistrer mes choix
+            </button>
+          </div>
+
+          <p class="consent-dialog__meta" data-consent-meta hidden />
+        </form>
+      </dialog>
+    </>
+  )
+}
+
+<script>
+  import {
+    CONSENT_CATEGORIES,
+    CONSENT_STORAGE_KEY,
+    allDenied,
+    allGranted,
+    consentModeState,
+    cookiesToClear,
+    parseConsent,
+    tagsToInject,
+    type ConsentAction,
+    type ConsentCategory,
+    type ConsentChoices,
+    type ConsentRecord,
+  } from "../../lib/consent"
+  import { consentConfig } from "../../config/consent"
+
+  /**
+   * `gtag` est posé par `GoogleConsentMode.astro`, en ligne dans le `<head>` :
+   * une déclaration de fonction au premier niveau d'un script classique est
+   * une variable globale. L'appeler plutôt que de pousser un tableau dans
+   * `dataLayer` est délibéré — les commandes `consent` de Google se lisent
+   * depuis l'objet `arguments`, et un tableau poussé à la place est ignoré
+   * en silence.
+   */
+  declare global {
+    interface Window {
+      gtag?: (...args: unknown[]) => void
+    }
+  }
+
+  // Un objet explicite plutôt que `import.meta.env` en bloc : ce qui part
+  // dans le bundle du navigateur est alors la liste écrite ici, et rien
+  // d'autre ne peut s'y glisser par inadvertance.
+  const env = {
+    PUBLIC_UMAMI_URL: import.meta.env.PUBLIC_UMAMI_URL,
+    PUBLIC_UMAMI_WEBSITE_ID: import.meta.env.PUBLIC_UMAMI_WEBSITE_ID,
+    PUBLIC_UMAMI_RECORDER: import.meta.env.PUBLIC_UMAMI_RECORDER,
+    PUBLIC_META_PIXEL_ID: import.meta.env.PUBLIC_META_PIXEL_ID,
+    PUBLIC_GOOGLE_TAG_ID: import.meta.env.PUBLIC_GOOGLE_TAG_ID,
+  }
+
+  const banner = document.querySelector<HTMLElement>("[data-consent-banner]")
+  const dialog = document.querySelector<HTMLDialogElement>("[data-consent-dialog]")
+
+  // Le site peut n'avoir aucun tiers : le composant ne rend alors rien, et
+  // ce script n'a rien à piloter.
+  if (banner && dialog) {
+    const meta = dialog.querySelector<HTMLElement>("[data-consent-meta]")
+
+    /** Le stockage peut être verrouillé — navigation privée, cookies bloqués. */
+    function readStored(): string | null {
+      try {
+        return localStorage.getItem(CONSENT_STORAGE_KEY)
+      } catch {
+        return null
+      }
+    }
+
+    function writeStored(record: ConsentRecord): void {
+      try {
+        localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(record))
+      } catch {
+        // Rien à rattraper : sans stockage, la question sera reposée à la
+        // page suivante. Reposer la question est le comportement sûr — le
+        // contraire serait de supposer un accord qu'on ne peut pas relire.
+      }
+    }
+
+    /**
+     * L'identifiant d'appareil, gardé d'une réponse à l'autre pour relier une
+     * mise à jour à l'état qu'elle remplace. Aléatoire, jamais dérivé de quoi
+     * que ce soit qui décrive la personne.
+     */
+    function newId(): string {
+      if (crypto.randomUUID) return crypto.randomUUID()
+      const bytes = crypto.getRandomValues(new Uint8Array(16))
+      return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
+    }
+
+    let current = parseConsent(readStored(), consentConfig, Date.now())
+
+    function choicesOf(record: ConsentRecord | null): ConsentChoices {
+      if (!record) return allDenied()
+      return {
+        analytics: record.analytics,
+        marketing: record.marketing,
+        preferences: record.preferences,
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Poser les balises
+    // ------------------------------------------------------------------
+
+    const injected = new Set<string>()
+
+    function injectTags(choices: ConsentChoices): void {
+      for (const tag of tagsToInject(env, choices)) {
+        // Idempotence : on peut rouvrir ses réglages et confirmer deux fois.
+        // Deux fois le même pixel, c'est deux fois la même conversion.
+        if (injected.has(tag.id)) continue
+        injected.add(tag.id)
+
+        const el = document.createElement("script")
+        el.id = `consent-${tag.id}`
+        if (tag.src) {
+          el.src = tag.src
+          el.async = true
+        }
+        if (tag.code) el.text = tag.code
+        for (const [name, value] of Object.entries(tag.attrs ?? {})) {
+          el.setAttribute(name, value)
+        }
+        document.head.appendChild(el)
+      }
+    }
+
+    /**
+     * Retirer un accord doit effacer ce que le tiers a déjà déposé.
+     *
+     * Un bandeau qui coupe le futur en laissant le passé sur l'appareil n'a
+     * pas retiré l'accord, il a arrêté d'en ajouter. Les cookies visés sont
+     * nommés dans `consentTags`.
+     */
+    function clearCookies(choices: ConsentChoices): void {
+      const host = location.hostname
+      // Le point de tête couvre les sous-domaines : Google et Meta posent sur
+      // `.exemple.fr`, et un effacement sans ce point rate la cible.
+      const domains = [host, `.${host}`, `.${host.split(".").slice(-2).join(".")}`]
+      for (const name of cookiesToClear(env, choices)) {
+        for (const domain of domains) {
+          document.cookie = `${name}=; Max-Age=0; path=/; domain=${domain}`
+        }
+        document.cookie = `${name}=; Max-Age=0; path=/`
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Enregistrer une réponse
+    // ------------------------------------------------------------------
+
+    function apply(action: ConsentAction, choices: ConsentChoices): void {
+      const record: ConsentRecord = {
+        consentVersion: consentConfig.consentVersion,
+        visitorId: current?.visitorId ?? newId(),
+        consentId: newId(),
+        action,
+        timestamp: new Date().toISOString(),
+        ...choices,
+      }
+
+      const previous = choicesOf(current)
+      current = record
+      writeStored(record)
+
+      // Consent Mode d'abord : Google doit connaître la réponse avant que
+      // `gtag.js` ne soit posé, sinon la balise démarre sur le défaut et
+      // n'est corrigée qu'après son premier envoi.
+      if (consentConfig.googleConsentMode.enabled) {
+        window.gtag?.("consent", "update", consentModeState(choices))
+      }
+
+      injectTags(choices)
+      clearCookies(choices)
+      trace(record)
+
+      banner!.hidden = true
+      if (dialog!.open) dialog!.close()
+
+      // Un tiers déjà chargé ne se décharge pas d'une page : son code est en
+      // mémoire. Le retrait n'est complet qu'au rechargement, et le dire est
+      // plus honnête que de laisser croire à un effet immédiat.
+      const revoked = CONSENT_CATEGORIES.some((c) => previous[c] && !choices[c])
+      if (revoked && injected.size > 0) location.reload()
+
+      document.dispatchEvent(new CustomEvent("astrotan:consent", { detail: record }))
+    }
+
+    /**
+     * La traçabilité — la preuve du consentement, éteinte par défaut.
+     *
+     * `keepalive` : la réponse peut arriver au moment où la personne quitte
+     * la page, et une requête ordinaire serait annulée par la navigation.
+     * L'échec est silencieux à dessein : un journal indisponible ne doit pas
+     * empêcher quelqu'un d'exprimer un refus.
+     */
+    function trace(record: ConsentRecord): void {
+      if (!consentConfig.traceability.enabled) return
+      void fetch(consentConfig.traceability.endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(record),
+        keepalive: true,
+      }).catch(() => {})
+    }
+
+    // ------------------------------------------------------------------
+    // Le panneau
+    // ------------------------------------------------------------------
+
+    function switches(): NodeListOf<HTMLInputElement> {
+      return dialog!.querySelectorAll<HTMLInputElement>("[data-consent-category]")
+    }
+
+    function openDialog(): void {
+      const choices = choicesOf(current)
+      for (const input of switches()) {
+        const category = input.dataset.consentCategory as ConsentCategory
+        input.checked = choices[category]
+      }
+      if (meta) {
+        if (current) {
+          meta.hidden = false
+          meta.textContent = `Choix enregistré le ${new Date(current.timestamp).toLocaleString("fr-FR")} — politique version ${current.consentVersion}.`
+        } else {
+          meta.hidden = true
+        }
+      }
+      dialog!.showModal()
+    }
+
+    function readSwitches(): ConsentChoices {
+      const choices = allDenied()
+      for (const input of switches()) {
+        choices[input.dataset.consentCategory as ConsentCategory] = input.checked
+      }
+      return choices
+    }
+
+    for (const el of document.querySelectorAll<HTMLElement>("[data-consent]")) {
+      el.addEventListener("click", () => {
+        const action = el.dataset.consent as ConsentAction
+        if (action === "accept_all") apply("accept_all", allGranted())
+        else if (action === "reject_all") apply("reject_all", allDenied())
+        else apply(current ? "update" : "custom", readSwitches())
+      })
+    }
+
+    for (const el of document.querySelectorAll<HTMLElement>("[data-consent-open]")) {
+      el.addEventListener("click", (event) => {
+        event.preventDefault()
+        openDialog()
+      })
+    }
+
+    // Rouvrir ses réglages depuis n'importe où — le pied de page, la page
+    // « Cookies ». C'est le `CookieTrigger` d'Open Consent, en attribut
+    // plutôt qu'en composant : n'importe quel lien déjà écrit le devient.
+    document.addEventListener("click", (event) => {
+      const trigger = (event.target as HTMLElement | null)?.closest("[data-consent-trigger]")
+      if (!trigger) return
+      event.preventDefault()
+      openDialog()
+    })
+
+    // ------------------------------------------------------------------
+    // Démarrage
+    // ------------------------------------------------------------------
+
+    if (current) {
+      // Une réponse valide existe : on pose ce qui a été accordé, sans
+      // reposer la question.
+      if (consentConfig.googleConsentMode.enabled) {
+        window.gtag?.("consent", "update", consentModeState(choicesOf(current)))
+      }
+      injectTags(choicesOf(current))
+    } else {
+      banner.hidden = false
+    }
+  }
+</script>
+
+<style>
+  .consent-banner {
+    position: fixed;
+    z-index: 60;
+    display: grid;
+    gap: var(--space-sm);
+    width: min(26rem, calc(100vw - 2rem));
+    padding: var(--space-lg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    background: var(--color-bg-primary);
+    box-shadow: var(--shadow-md);
+  }
+
+  .consent-banner--bottom-left {
+    inset-block-end: 1rem;
+    inset-inline-start: 1rem;
+  }
+  .consent-banner--bottom-right {
+    inset-block-end: 1rem;
+    inset-inline-end: 1rem;
+  }
+  .consent-banner--bottom {
+    inset-block-end: 1rem;
+    inset-inline: 1rem;
+    width: min(48rem, calc(100vw - 2rem));
+    margin-inline: auto;
+  }
+  .consent-banner--top {
+    inset-block-start: 1rem;
+    inset-inline: 1rem;
+    width: min(48rem, calc(100vw - 2rem));
+    margin-inline: auto;
+  }
+
+  .consent-banner__title {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  .consent-banner__text {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+
+  .consent-banner__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .consent-banner__links {
+    margin: 0;
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+  }
+
+  .consent-banner__links a {
+    color: inherit;
+  }
+
+  .consent-btn {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    padding: 0.5rem 0.9rem;
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    background: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+  }
+
+  .consent-btn--primary {
+    background: var(--color-brand-primary);
+    border-color: var(--color-brand-primary);
+    color: #fff;
+  }
+
+  .consent-btn--quiet {
+    background: transparent;
+  }
+
+  .consent-btn:hover {
+    filter: brightness(0.96);
+  }
+
+  .consent-dialog {
+    /* `margin: auto` explicite : la feuille de style globale remet `margin`
+       à zéro sur tous les éléments, ce qui écrase le centrage que le
+       navigateur applique lui-même à un `<dialog>` modal. Sans cette ligne,
+       le panneau s'ouvre collé en haut à gauche. */
+    margin: auto;
+    width: min(38rem, calc(100vw - 2rem));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    padding: 0;
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+  }
+
+  .consent-dialog::backdrop {
+    background: rgb(0 0 0 / 0.45);
+  }
+
+  .consent-dialog__form {
+    display: grid;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+  }
+
+  .consent-dialog h2 {
+    margin: 0;
+    font-size: 1.125rem;
+  }
+
+  .consent-dialog__row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding-block: var(--space-sm);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .consent-dialog__row h3 {
+    margin: 0 0 0.25rem;
+    font-size: 0.9375rem;
+  }
+
+  .consent-dialog__row p {
+    margin: 0;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    color: var(--color-text-secondary);
+  }
+
+  .consent-dialog__always {
+    flex: none;
+    align-self: center;
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+  }
+
+  .consent-switch {
+    flex: none;
+    align-self: center;
+    position: relative;
+    display: inline-flex;
+    cursor: pointer;
+  }
+
+  /* Le libellé est lu par les technologies d'assistance et masqué à l'œil :
+     un interrupteur dont le seul nom est sa position visuelle n'a pas de nom. */
+  .consent-switch__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .consent-switch input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .consent-switch__track {
+    display: block;
+    width: 2.75rem;
+    height: 1.5rem;
+    border-radius: var(--radius-full);
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    transition: background 0.15s ease;
+  }
+
+  .consent-switch__track::after {
+    content: "";
+    display: block;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin: 0.125rem;
+    border-radius: var(--radius-full);
+    background: var(--color-bg-primary);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.15s ease;
+  }
+
+  .consent-switch input:checked + .consent-switch__track {
+    background: var(--color-brand-primary);
+    border-color: var(--color-brand-primary);
+  }
+
+  .consent-switch input:checked + .consent-switch__track::after {
+    transform: translateX(1.25rem);
+  }
+
+  .consent-switch input:focus-visible + .consent-switch__track {
+    outline: 2px solid var(--color-brand-primary);
+    outline-offset: 2px;
+  }
+
+  .consent-dialog__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .consent-dialog__meta {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .consent-switch__track,
+    .consent-switch__track::after {
+      transition: none;
+    }
+  }
+</style>

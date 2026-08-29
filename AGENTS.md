@@ -141,6 +141,12 @@ One line each; the reasoning is in [`CLAUDE.md`](CLAUDE.md).
 6. No destructive schema change in a single deployment — expand / migrate /
    contract.
 7. A rollback replays the whole pipeline at a sha, never the images alone.
+8. No third-party tag is ever written into the HTML. A tag that stores
+   something on the visitor's device, or identifies them, is declared in
+   `apps/web/src/lib/consent.ts` and injected only after an answer. Adding
+   one means bumping `consentVersion` in `apps/web/src/config/consent.ts`,
+   otherwise people will have "accepted" a third party that did not exist
+   when they clicked. Skill: `consent-rgpd`.
 
 ## Environment gotchas
 

@@ -64,6 +64,12 @@ const DEMO_PAGES = [
   // répondent 404 — ce qui est l'invariant, pas une panne.
   { slug: "fonctionnalites", title: "Fonctionnalités", publish: true },
   { slug: "tarifs", title: "Tarifs", publish: true },
+  // Les pages réglementaires. Publiées comme les autres : une page légale
+  // en brouillon est un lien mort dans le pied de page de tout le site, et
+  // c'est exactement le genre de manque qu'on ne remarque jamais soi-même.
+  { slug: "mentions-legales", title: "Mentions légales", publish: true },
+  { slug: "confidentialite", title: "Politique de confidentialité", publish: true },
+  { slug: "cookies", title: "Politique de cookies", publish: true },
 ]
 
 const FIRST_POST_BODY_MD = `Ce site tourne sur AstroTan. Cet article est du contenu

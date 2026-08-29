@@ -60,3 +60,14 @@ export const outboxStatusValidator = v.union(
   v.literal("failed"),
 )
 export type OutboxStatus = "pending" | "done" | "failed"
+
+// L'action que le visiteur a exercée sur le bandeau de consentement.
+// Déclaré ici, avec les autres unions fermées, et non dans `consent.ts` :
+// `schema.ts` l'utilise, et faire importer au schéma un fichier qui déclare
+// des mutations créerait un cycle avec `_generated/api`.
+export const consentActionValidator = v.union(
+  v.literal("accept_all"),
+  v.literal("reject_all"),
+  v.literal("custom"),
+  v.literal("update"),
+)

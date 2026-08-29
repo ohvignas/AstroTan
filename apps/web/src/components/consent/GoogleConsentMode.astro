@@ -1,0 +1,27 @@
+---
+// Google Consent Mode v2 — l'état par défaut, posé avant tout le reste.
+//
+// Obligatoire depuis mars 2024 pour tout site qui envoie du trafic de l'EEE,
+// du Royaume-Uni ou de la Suisse vers Google Analytics ou Google Ads : sans
+// ces signaux, Google cesse de traiter les données de ces régions. Ce n'est
+// pas une conformité de plus, c'est la condition pour que la balise serve
+// encore à quelque chose.
+//
+// Ce bloc doit s'exécuter AVANT `gtag.js`. Ici c'est acquis par
+// construction : `gtag.js` n'est jamais dans le HTML, il est injecté par le
+// bandeau après réponse — donc forcément après ce script, qui est en ligne
+// dans le `<head>`.
+//
+// `is:inline` est délibéré. Bundlé, ce script partirait dans un fichier
+// séparé chargé en différé, et « avant gtag.js » deviendrait une course.
+import { consentModeDefault } from "../../lib/consent"
+import { consentConfig } from "../../config/consent"
+
+// Rien à faire tant qu'aucune balise Google n'existe sur ce site : un bloc
+// de consentement sans destinataire est du code mort dans chaque page.
+const enabled =
+  consentConfig.googleConsentMode.enabled && Boolean(import.meta.env.PUBLIC_GOOGLE_TAG_ID)
+const code = enabled ? consentModeDefault(consentConfig) : null
+---
+
+{code && <script is:inline set:html={code} />}

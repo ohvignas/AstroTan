@@ -8,8 +8,11 @@
 export const SERVED_PATHS: readonly string[] = [
   "/",
   "/blog",
+  "/confidentialite",
   "/contact",
+  "/cookies",
   "/fonctionnalites",
+  "/mentions-legales",
   "/tarifs"
 ]
 
