@@ -779,13 +779,17 @@ export const notifyStaff = internalAction({
     const text = relance ? `${relance}\n\n${corpsTexte}` : corpsTexte
 
     // Le gabarit est du texte brut : ses sauts de ligne ont besoin de
-    // `pre-wrap`, et le lien de réponse n'est plus une ancre `<a>` parce
-    // qu'un texte réécrit peut le déplacer, le renommer ou le retirer — on
-    // ne peut pas en reconstruire une sans deviner. `rendreHtml` échappe
-    // les valeurs (elles viennent d'Internet), pas le gabarit.
+    // `pre-wrap`. `rendreHtml` échappe les valeurs (elles viennent
+    // d'Internet), pas le gabarit — et c'est ici que la distinction compte
+    // le plus de tout le dépôt : la clé `leadNotification` lui dit que
+    // `lien` est construit par le serveur, donc cliquable, et que `nom`,
+    // `email`, `sujet` et `message` sortent du formulaire de contact public,
+    // donc jamais. Sans cette séparation, un visiteur anonyme ferait arriver
+    // le lien de son choix, cliquable et signé du domaine du site, dans la
+    // boîte de chaque owner et admin.
     const html = [
       relance ? `<p>${escapeHtml(relance)}</p>` : "",
-      `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs)}</p>`,
+      `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs, "leadNotification")}</p>`,
     ].join("")
 
     const resend = await makeResend(ctx)

@@ -138,3 +138,33 @@ export const CATALOGUE: readonly DescriptionEmail[] = [
       "Cliquez sur ce lien pour en choisir un nouveau : {{lien}}",
   },
 ]
+
+/**
+ * Par email, les variables dont la valeur est **construite par le serveur**.
+ *
+ * C'est la liste qui décide ce qui peut devenir un lien cliquable dans la
+ * partie HTML (`rendreHtml`, `lib/gabarit.ts`), et elle existe parce que les
+ * variables d'un même email n'ont pas toutes la même provenance :
+ * `leadNotification` interpole `nom`, `email`, `sujet` et `message`, tous
+ * saisis par un visiteur anonyme du formulaire de contact, dans un email
+ * envoyé depuis le domaine du site à un owner ou un admin. Mettre en lien ce
+ * que ce visiteur écrit, ce serait lui offrir l'hameçonnage des
+ * administrateurs du déploiement — un outil qui n'existe pas aujourd'hui et
+ * qu'il ne faut pas créer.
+ *
+ * `lien` est la seule variable des trois emails que le serveur fabrique
+ * lui-même (`${SITE_URL}/accept-invite?token=…`, `${SITE_URL}/leads`, l'URL
+ * de réinitialisation de Better Auth) ; c'est aussi la seule qui a besoin
+ * d'être cliquable.
+ *
+ * `Record<CleEmail, …>` et non un champ optionnel de `DescriptionEmail` :
+ * un quatrième email ajouté à `CleEmail` ne compile plus tant qu'il n'a pas
+ * décidé ici ce qu'il met en lien, alors qu'un champ oublié serait, lui,
+ * silencieux. C'est le même rappel que le premier test de
+ * `catalogueEmails.test.ts`, mais rendu par le typage.
+ */
+export const VARIABLES_DE_CONFIANCE: Record<CleEmail, readonly string[]> = {
+  invitation: ["lien"],
+  leadNotification: ["lien"],
+  passwordReset: ["lien"],
+}

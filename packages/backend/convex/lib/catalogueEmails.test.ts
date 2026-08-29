@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { CATALOGUE } from "./catalogueEmails"
+import { CATALOGUE, VARIABLES_DE_CONFIANCE } from "./catalogueEmails"
 
 describe("CATALOGUE", () => {
   test("décrit exactement les emails que ce dépôt envoie", () => {
@@ -31,6 +31,29 @@ describe("CATALOGUE", () => {
     // porte, sur le seul chemin de création de compte du dépôt.
     const invitation = CATALOGUE.find((e) => e.cle === "invitation")!
     expect(invitation.variablesObligatoires).toContain("lien")
+  })
+
+  test("les seules variables de confiance sont celles que le serveur construit", () => {
+    // Ce qui est « de confiance » devient un lien CLIQUABLE dans la partie
+    // HTML de l'email (`rendreHtml`, `lib/gabarit.ts`). Les quatre autres
+    // variables de la notification de lead sont saisies par un visiteur
+    // anonyme du formulaire de contact, et l'email part vers un owner ou un
+    // admin : les mettre en lien serait offrir l'hameçonnage des
+    // administrateurs du déploiement, depuis le domaine du site. Ce test est
+    // le garde-fou de cette liste — l'y ajouter un champ du visiteur le fait
+    // échouer.
+    expect(VARIABLES_DE_CONFIANCE.leadNotification).toEqual(["lien"])
+    for (const champ of ["nom", "email", "sujet", "message"]) {
+      expect(VARIABLES_DE_CONFIANCE.leadNotification, champ).not.toContain(champ)
+    }
+  })
+
+  test("une variable de confiance est d'abord une variable de l'email", () => {
+    for (const email of CATALOGUE) {
+      for (const nom of VARIABLES_DE_CONFIANCE[email.cle]) {
+        expect(email.variables, email.cle).toContain(nom)
+      }
+    }
   })
 
   test("chaque variable obligatoire est déclarée dans les variables", () => {

@@ -286,12 +286,14 @@ export const sendInvitationEmail = internalAction({
       // provenance du jour — c'est `leads.ts` qui reçoit d'Internet, et les
       // deux envois doivent se lire pareil.
       subject: singleLine(rendreTexte(gabarit.objet, valeurs)),
-      // Le corps est du texte brut, y compris celui du catalogue : un
-      // gabarit réécrit peut déplacer, renommer ou retirer le lien, si
-      // bien qu'aucune ancre `<a>` ne peut être reconstruite autour de lui
-      // sans deviner. `white-space:pre-wrap` rend les sauts de ligne du
-      // texte, et les clients de messagerie transforment l'URL en lien.
-      html: `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs)}</p>`,
+      // Le corps est du texte brut : `white-space:pre-wrap` rend ses sauts
+      // de ligne. L'ancre autour du lien n'est plus laissée au client de
+      // messagerie — la plupart transforment une URL nue, pas tous, et cet
+      // email n'existe QUE pour son lien. `rendreHtml` la fabrique là où il
+      // sait encore d'où vient chaque caractère, quel que soit l'endroit où
+      // un gabarit réécrit a déplacé `{{lien}}` ; la clé lui dit quelles
+      // variables le serveur construit (`VARIABLES_DE_CONFIANCE`).
+      html: `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs, "invitation")}</p>`,
       text: rendreTexte(gabarit.corps, valeurs),
     })
   },

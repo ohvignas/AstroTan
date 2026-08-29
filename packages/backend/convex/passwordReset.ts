@@ -135,7 +135,12 @@ export const envoyer = internalAction({
       // y injectent. Même geste que les deux autres envois du dépôt, pour
       // qu'ils se relisent pareil.
       subject: singleLine(rendreTexte(gabarit.objet, valeurs)),
-      html: `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs)}</p>`,
+      // La clé dit à `rendreHtml` quelles variables le serveur construit,
+      // donc lesquelles peuvent devenir une ancre `<a href>` : ici `lien`,
+      // et rien d'autre. Sans elle, cet email — le seul chemin de
+      // récupération d'un compte — repartirait avec une URL nue, que
+      // certaines messageries ne rendent pas cliquable.
+      html: `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs, "passwordReset")}</p>`,
       text: rendreTexte(gabarit.corps, valeurs),
     })
   },
