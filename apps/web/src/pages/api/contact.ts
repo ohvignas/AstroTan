@@ -40,6 +40,29 @@ const MAX_BODY_BYTES =
   MAX_LEAD_BODY_LENGTH +
   2_048
 
+/**
+ * L'empreinte de l'adresse du visiteur, pour compter ses envois.
+ *
+ * On envoie une EMPREINTE, jamais l'adresse. Deux raisons, et la seconde
+ * compte autant que la première :
+ *
+ *  - la politique de confidentialité annonce que le formulaire ne conserve
+ *    pas d'adresse IP, et cette phrase doit rester vraie ;
+ *  - le secret partagé entre dans le condensé, donc l'empreinte n'est pas
+ *    reversible par un dictionnaire d'adresses IPv4 — qui, sans lui, se
+ *    parcourt en entier.
+ *
+ * `sha-256` par la Web Crypto, disponible dans le runtime d'Astro comme
+ * dans celui de Convex.
+ */
+async function empreinteOrigine(adresse: string, secret: string): Promise<string> {
+  const octets = new TextEncoder().encode(`${adresse}|${secret}`)
+  const digest = await crypto.subtle.digest("SHA-256", octets)
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+}
+
 function redirect(to: string): Response {
   // 303 et non 302 : après un POST, il force le navigateur à suivre en GET.
   // C'est ce qui évite qu'un rafraîchissement renvoie le formulaire.
@@ -79,6 +102,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const subject = String(form.get("subject") ?? "")
   const body = String(form.get("message") ?? "")
 
+  // L'adresse ne quitte jamais ce processus : seule son empreinte part.
+  // C'est elle qui sert de clé au compteur d'envois, côté Convex.
+  const origin = await empreinteOrigine(clientAddress, secret)
+
   try {
     await getConvexClient().mutation(api.leads.submit, {
       secret,
@@ -89,6 +116,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       // Recopié tel quel, jamais pour identifier quelqu'un : il sert à
       // reconnaître une vague d'envois automatiques après coup.
       userAgent: request.headers.get("user-agent") ?? undefined,
+      origin,
     })
   } catch (error) {
     // Les refus du modèle — adresse invalide, champ vide, trop long — sont
@@ -102,15 +130,16 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     if (code === "INVALID_EMAIL" || code === "EMPTY" || code === "TOO_LONG") {
       return redirect(`/contact?erreur=${code.toLowerCase()}`)
     }
+    // Trop d'envois en peu de temps. Un motif distinct, parce que « réessayez
+    // dans un moment » et « le service est en panne » demandent deux gestes
+    // différents à la personne.
+    if (code === "RATE_LIMITED") {
+      return redirect("/contact?erreur=trop_d_envois")
+    }
     // Panne inattendue — Convex injoignable, secret refusé. La personne
     // n'y peut rien, mais elle doit savoir que son message n'est pas parti.
     return redirect("/contact?erreur=indisponible")
   }
-
-  // `clientAddress` est lu ici et pas plus haut : il n'a de sens qu'une fois
-  // le message accepté, et le lire tôt donnerait l'illusion qu'il sert à
-  // filtrer alors que la limitation vit dans Convex.
-  void clientAddress
 
   return redirect("/contact?envoye=1")
 }

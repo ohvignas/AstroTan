@@ -22,7 +22,7 @@ import { api } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
 import { requireRole } from "./lib/authz"
 import { consentActionValidator } from "./validators"
-import { timingSafeEqualHex } from "./lib/previewToken"
+import { assertSharedSecret } from "./lib/sharedSecret"
 
 
 
@@ -44,14 +44,16 @@ export const record = mutation({
     preferences: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const expected = process.env.CONSENT_LOG_SECRET
-    // Un déploiement sans secret refuse, jamais ne laisse passer : l'oubli
-    // de configuration est le cas fréquent, et c'est celui où une porte
-    // ouverte ne se voit pas.
-    if (!expected) throw new Error("CONSENT_LOG_SECRET is not set")
-    if (!timingSafeEqualHex(args.secret, expected)) {
-      throw new Error("Secret invalide")
-    }
+    // Haché des deux côtés avant comparaison, comme `leads.submit` et
+    // `/api/revalidate`. Ce chemin comparait les chaînes BRUTES : la
+    // comparaison sortait alors plus tôt sur des longueurs différentes, et
+    // son temps dépendait de la longueur du secret attendu. C'était le seul
+    // des trois comparateurs du dépôt à ne pas suivre sa propre règle.
+    //
+    // Le helper refuse aussi quand le secret attendu est absent : un
+    // déploiement mal configuré refuse tout le monde, il ne laisse pas
+    // passer.
+    await assertSharedSecret(args.secret, process.env.CONSENT_LOG_SECRET)
 
     if (
       args.visitorId.length > MAX_ID_LENGTH ||

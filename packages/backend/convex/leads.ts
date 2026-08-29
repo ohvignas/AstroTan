@@ -14,7 +14,16 @@ import { MUTATION_REGISTRY } from "./_registry"
 import { isCurrentlyBanned, requireRole } from "./lib/authz"
 import { makeResend } from "./lib/resend"
 import { listUsersWithRole } from "./users"
-import { timingSafeEqualHex } from "./lib/previewToken"
+import { assertSharedSecret } from "./lib/sharedSecret"
+import { RateLimiter } from "@convex-dev/rate-limiter"
+import { components } from "./_generated/api"
+import {
+  LEAD_EMAIL_LIMIT_CONFIG,
+  LEAD_EMAIL_LIMIT_NAME,
+  LEAD_ORIGIN_LIMIT_CONFIG,
+  LEAD_ORIGIN_LIMIT_NAME,
+  origineDeComptage,
+} from "./lib/leadRateLimit"
 import {
   LEAD_STATUSES,
   MAX_LEAD_BODY_LENGTH,
@@ -30,36 +39,35 @@ import {
 // `submit` est la SEULE écriture publique de tout le backend. Partout
 // ailleurs, `apps/web` ne fait que lire. Cette exception est étroite par
 // construction : elle exige un secret partagé que seul le serveur détient,
-// et elle est appelée par une route Astro qui voit l'IP et limite le débit
-// — deux choses qu'un navigateur ne peut pas fournir honnêtement.
+// et elle est appelée par une route Astro qui voit l'adresse du visiteur —
+// deux choses qu'un navigateur ne peut pas fournir honnêtement.
+//
+// La limitation de débit est ICI, et il faut le dire parce que ce
+// commentaire a affirmé le contraire pendant des semaines : il renvoyait à
+// la route Astro, laquelle renvoyait à Convex, et aucune des deux ne la
+// portait. Une revue de sécurité a relevé que le seul chemin d'écriture
+// public du backend était sans limite, alors que chaque envoi déclenche en
+// plus un appel de webhook sortant et un email.
 
 const statusValidator = v.union(...LEAD_STATUSES.map((s) => v.literal(s)))
 
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")
-}
-
 /**
- * Le secret partagé, comparé à temps constant.
+ * Le secret partagé, comparé à temps constant et haché des deux côtés.
  *
- * Les deux côtés sont hachés avant comparaison : le condensé fait toujours
- * 64 caractères, donc la comparaison ne peut pas révéler la longueur du
- * secret attendu par le temps qu'elle met — ni lever sur des longueurs
- * différentes. C'est le même raisonnement que `/api/revalidate`, avec les
- * outils disponibles ici (pas de `node:crypto` dans ce runtime).
+ * La règle vit dans `lib/sharedSecret.ts` : elle était recopiée ici, dans
+ * `/api/revalidate` et dans `consent.record`, et le troisième exemplaire
+ * avait divergé.
  */
 async function assertSecret(provided: string): Promise<void> {
-  const expected = process.env.LEAD_SUBMIT_SECRET
-  // Un déploiement sans secret refuse tout le monde. L'inverse — accepter
-  // quand rien n'est configuré — transformerait un oubli de configuration
-  // en porte ouverte, et personne ne le verrait.
-  if (!expected) throw new ConvexError({ code: "NOT_CONFIGURED" })
-  const [a, b] = await Promise.all([sha256Hex(provided), sha256Hex(expected)])
-  if (!timingSafeEqualHex(a, b)) throw new ConvexError({ code: "FORBIDDEN" })
+  await assertSharedSecret(provided, process.env.LEAD_SUBMIT_SECRET)
 }
+
+// Même montage qu'à la connexion : la configuration est statique ici, le
+// contexte Convex n'arrive qu'à l'appel.
+const limiteur = new RateLimiter(components.rateLimiter, {
+  [LEAD_ORIGIN_LIMIT_NAME]: LEAD_ORIGIN_LIMIT_CONFIG,
+  [LEAD_EMAIL_LIMIT_NAME]: LEAD_EMAIL_LIMIT_CONFIG,
+})
 
 function assertBounded(value: string, max: number, field: string): void {
   if (value.length > max) throw new ConvexError({ code: "TOO_LONG", field })
@@ -68,6 +76,15 @@ function assertBounded(value: string, max: number, field: string): void {
 export const submit = mutation({
   args: {
     secret: v.string(),
+    /**
+     * Une EMPREINTE de l'adresse du visiteur, jamais l'adresse elle-même.
+     * La route Astro la hache avec le secret partagé : Convex ne voit donc
+     * pas d'IP, et la politique de confidentialité peut continuer d'écrire
+     * que le formulaire n'en conserve pas. Optionnel — un appelant qui ne
+     * la fournit pas tombe dans un seau commun, il n'obtient pas un budget
+     * neuf.
+     */
+    origin: v.optional(v.string()),
     name: v.string(),
     email: v.string(),
     subject: v.optional(v.string()),
@@ -76,6 +93,15 @@ export const submit = mutation({
   },
   handler: async (ctx, args): Promise<null> => {
     await assertSecret(args.secret)
+
+    // Deux compteurs, dans cet ordre. L'origine d'abord : elle est plus
+    // large, donc elle arrête l'envoi automatisé avant qu'il ne consomme le
+    // budget d'une adresse qu'il ne possède pas.
+    const origine = origineDeComptage(args.origin)
+    const parOrigine = await limiteur.limit(ctx, LEAD_ORIGIN_LIMIT_NAME, { key: origine })
+    if (!parOrigine.ok) {
+      throw new ConvexError({ code: "RATE_LIMITED", retryAfter: parOrigine.retryAfter })
+    }
 
     const name = args.name.trim()
     const email = args.email.trim().toLowerCase()
@@ -86,6 +112,13 @@ export const submit = mutation({
     // message, et le laisser passer remplirait le tableau de cartes vides.
     if (name.length === 0 || body.length === 0) {
       throw new ConvexError({ code: "EMPTY" })
+    }
+
+    // Après normalisation : `A@B.fr` et `a@b.fr` doivent partager un seul
+    // budget, sinon la casse suffit à le contourner.
+    const parEmail = await limiteur.limit(ctx, LEAD_EMAIL_LIMIT_NAME, { key: email })
+    if (!parEmail.ok) {
+      throw new ConvexError({ code: "RATE_LIMITED", retryAfter: parEmail.retryAfter })
     }
     assertBounded(name, MAX_LEAD_NAME_LENGTH, "name")
     assertBounded(email, MAX_LEAD_EMAIL_LENGTH, "email")

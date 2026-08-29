@@ -96,7 +96,11 @@ export const processings: Processing[] = [
     data:
       "Nom, adresse électronique, sujet, contenu du message, dates du premier " +
       "et du dernier envoi, nombre de messages, et le « user-agent » — la " +
-      "carte de visite que votre navigateur envoie à chaque requête",
+      "carte de visite que votre navigateur envoie à chaque requête. " +
+      "S'ajoute une empreinte de votre adresse IP — le condensé de cette " +
+      "adresse et d'un secret, jamais l'adresse elle-même — qui sert " +
+      "uniquement à compter les envois et à arrêter les rafales " +
+      "automatisées",
     basis: "Intérêt légitime — répondre à quelqu'un qui nous écrit",
     retention:
       "Jusqu'à la suppression de la fiche depuis l'administration. Aucune " +

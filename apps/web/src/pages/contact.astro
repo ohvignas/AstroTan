@@ -48,6 +48,12 @@ const MESSAGES_ERREUR: Record<string, string> = {
   illisible: "Le formulaire n'a pas pu être lu. Réessayez.",
   // Une panne de notre côté. Le dire franchement, et donner l'autre chemin :
   // quelqu'un qui a une question n'a pas à attendre que nous soyons réparés.
+  // Un motif distinct de « indisponible » : ici le service marche, c'est le
+  // rythme qui est refusé, et la personne n'a rien d'autre à faire
+  // qu'attendre. Lui proposer l'email serait l'envoyer contourner une
+  // limite qui existe pour une raison.
+  trop_d_envois:
+    "Vous avez envoyé plusieurs messages coup sur coup. Patientez un moment avant de réessayer — les précédents nous sont bien parvenus.",
   indisponible:
     "L'envoi est momentanément indisponible. Écrivez-nous par email, votre message arrivera au même endroit.",
 }

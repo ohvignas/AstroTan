@@ -117,11 +117,6 @@ export const POST: APIRoute = async (context) => {
   const expected = getRevalidateSecret()
   const provided = context.request.headers.get("x-revalidate-secret") ?? ""
   if (!isValidSecret(provided, expected)) {
-    // Une 301 fraîche doit être visible sur la même horloge que le reste :
-    // sans cette purge, le mémo de 60 s du middleware la garderait invisible
-    // une minute pendant que tout le reste se propage en secondes.
-    purgeRedirectMemo()
-
     return new Response(null, { status: 401 })
   }
 
@@ -150,5 +145,21 @@ export const POST: APIRoute = async (context) => {
   // API) before that's safe, not just a bigger fleet behind the same
   // config.
   await context.cache.invalidate({ tags })
+
+  // Une 301 fraîche doit être visible sur la même horloge que le reste :
+  // sans cette purge, le mémo de 60 s du middleware la garderait invisible
+  // une minute pendant que tout le reste se propage en secondes.
+  //
+  // Cet appel se trouvait dans la branche du secret INVALIDE, au-dessus, ce
+  // qui retournait exactement son intention. Deux conséquences, et la
+  // seconde annulait la raison d'être de la ligne :
+  //
+  //  - n'importe qui pouvait poster un mauvais secret pour forcer le
+  //    middleware à réinterroger Convex à la requête suivante, sans jamais
+  //    s'authentifier ;
+  //  - une invalidation LÉGITIME ne purgeait rien, donc la redirection
+  //    fraîchement créée restait invisible jusqu'à une minute.
+  purgeRedirectMemo()
+
   return new Response(null, { status: 200 })
 }
