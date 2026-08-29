@@ -7,6 +7,7 @@ import { assertOwnerInvariant, OwnerInvariantError } from "./lib/ownerGuard"
 import { authComponent, createAuth } from "./auth"
 import { parseRole, roleValidator, type Role } from "./validators"
 import { MUTATION_REGISTRY } from "./_registry"
+import { journaliser } from "./lib/auditEvent"
 
 // Read-only user listing pages through the raw `betterAuth` component
 // adapter (`components.betterAuth.adapter.findMany`), not through
@@ -186,6 +187,22 @@ export const setRole = mutation({
 
     const { auth, headers } = await authComponent.getAuth(createAuth, ctx)
     await auth.api.setRole({ body: { userId: args.userId, role: args.role }, headers })
+
+    // APRÈS l'écriture et DANS la même mutation : Convex valide ou annule
+    // la transaction entière, donc il n'existe aucun état où le rôle a
+    // changé sans que le journal le dise. Une action planifiée aurait pu
+    // échouer seule — voir `lib/auditEvent.ts`.
+    //
+    // L'adresse du compte visé plutôt que son identifiant Better Auth :
+    // c'est ce qu'une personne qui relit reconnaît. Contrairement à
+    // `leads.remove`, le compte n'est pas effacé par ce geste, et savoir
+    // à qui on a donné quel pouvoir est précisément l'objet du journal.
+    await journaliser(ctx, {
+      acteur: actor,
+      action: "role.change",
+      cible: target.email,
+      detail: args.role,
+    })
   },
 })
 
@@ -236,6 +253,15 @@ export const remove = mutation({
 
     const { auth, headers } = await authComponent.getAuth(createAuth, ctx)
     await auth.api.removeUser({ body: { userId: args.userId }, headers })
+
+    // Même raison, même place que dans `setRole` : la suppression d'un
+    // compte d'administration est exactement le geste qu'on ne peut pas
+    // reconstituer après coup — la ligne visée n'existe plus.
+    await journaliser(ctx, {
+      acteur: actor,
+      action: "user.remove",
+      cible: target.email,
+    })
   },
 })
 

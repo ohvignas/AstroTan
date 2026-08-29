@@ -17,6 +17,7 @@ import { isServedByRoute } from "./lib/servedPaths"
 import { publicPath } from "./lib/publicPath"
 import { REQUIRED_PAGE_REASON, isRequiredPage } from "./lib/requiredPages"
 import { MUTATION_REGISTRY } from "./_registry"
+import { journaliser } from "./lib/auditEvent"
 
 // This task's own brief, verbatim: "the security-critical task of the
 // whole lot — the boundary between what the public internet can read and
@@ -589,9 +590,11 @@ export const remove = mutation({
 export const unpublish = mutation({
   args: { id: v.id("pages") },
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["owner", "admin"])
+    const acteur = await requireRole(ctx, ["owner", "admin"])
     const page = await ctx.db.get(args.id)
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
+    // Rien n'a changé, donc rien à journaliser : une ligne « a dépublié »
+    // sur un brouillon qui l'était déjà rendrait le journal faux.
     if (page.status !== "published") return
     // Même raison que pour la suppression, en pire : dépublier ne laisse
     // aucune trace visible, et la page répond 404 alors que tout le site
@@ -603,6 +606,11 @@ export const unpublish = mutation({
 
     await ctx.db.patch(args.id, { status: "draft" })
     await insertOutboxRow(ctx, { kind: "page", pageId: args.id }, ["pages", `page:${page.slug}`])
+    // Dans la même mutation que le geste — comme l'insert d'outbox juste
+    // au-dessus, et pour la même raison : ce qui doit rester vrai ensemble
+    // doit s'écrire ensemble. Dépublier ne laisse aucune trace visible
+    // ailleurs : la page répond 404 et rien ne dit qui l'a décidé.
+    await journaliser(ctx, { acteur, action: "page.unpublish", cible: page.slug })
     await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
   },
 })
@@ -657,12 +665,18 @@ export const mintPreviewToken = mutation({
 export const publishPage = mutation({
   args: { id: v.id("pages") },
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["owner", "admin"])
+    const acteur = await requireRole(ctx, ["owner", "admin"])
     const page = await ctx.db.get(args.id)
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
 
     await ctx.db.patch(args.id, { status: "published", publishedAt: Date.now() })
     await insertOutboxRow(ctx, { kind: "page", pageId: args.id }, ["pages", `page:${page.slug}`])
+    // Le slug plutôt que l'identifiant : c'est l'URL qui s'est mise à
+    // répondre au public, et c'est sous ce nom qu'on relira le geste.
+    // Republier une page déjà publiée est journalisé aussi — c'est un
+    // geste, même quand `status` ne bouge pas, exactement comme la ligne
+    // d'outbox qui repart à chaque fois.
+    await journaliser(ctx, { acteur, action: "page.publish", cible: page.slug })
     // The fast path (design spec §6.2, step 2): don't wait for the next
     // 60s cron sweep (`crons.ts`) when nothing is wrong. `runAfter(0, ...)`
     // schedules `drain` to run essentially immediately, once this

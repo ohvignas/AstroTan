@@ -11,6 +11,7 @@ import type { ActionCtx } from "./_generated/server"
 import { api, internal } from "./_generated/api"
 import { requireRole } from "./lib/authz"
 import { MUTATION_REGISTRY } from "./_registry"
+import { journaliser } from "./lib/auditEvent"
 import {
   SECRETS_KEY_COMMANDE,
   chiffrer,
@@ -192,6 +193,15 @@ export const brut = internalQuery({
  * Range la ligne déjà chiffrée. Appelée par l'action `set`, jamais seule :
  * elle ne sait pas chiffrer et ne doit pas apprendre — l'IV aléatoire est
  * précisément ce qu'une mutation ne peut pas produire.
+ *
+ * C'est AUSSI ici qu'est journalisé le geste, et pas dans l'action qui
+ * l'a déclenché : une action n'écrit pas en base, elle appelle des
+ * mutations, et deux mutations séparées peuvent réussir l'une sans
+ * l'autre. Rangement et trace partagent donc la même transaction — le
+ * journal ne peut pas manquer une écriture de jeton.
+ *
+ * `majParEmail` n'entre jamais en base : il ne sert qu'à `journaliser`,
+ * en repli, si l'acteur n'a pas encore de profil.
  */
 export const ranger = internalMutation({
   args: {
@@ -200,6 +210,7 @@ export const ranger = internalMutation({
     chiffre: v.bytes(),
     quatreDerniers: v.string(),
     majPar: v.string(),
+    majParEmail: v.string(),
   },
   handler: async (ctx, args) => {
     const existante = await ctx.db
@@ -213,6 +224,18 @@ export const ranger = internalMutation({
       majAt: Date.now(),
       majPar: args.majPar,
     }
+    // Le NOM du jeton, jamais sa valeur — ni entière, ni tronquée aux
+    // quatre derniers caractères que `secrets.status` rend à un owner
+    // devant son écran. Un journal se relit longtemps après, souvent par
+    // plus de monde que cet écran-là.
+    await journaliser(ctx, {
+      acteur: { _id: args.majPar, email: args.majParEmail },
+      action: "secret.set",
+      cible: args.nom,
+      // Écraser une clé encore en service et en poser une première ne se
+      // rattrapent pas de la même façon ; la trace doit les distinguer.
+      detail: existante !== null ? "remplacement" : "création",
+    })
     if (existante !== null) {
       await ctx.db.patch(existante._id, patch)
       return existante._id
@@ -272,6 +295,7 @@ export const set = action({
       chiffre,
       quatreDerniers: quatreDerniers(valeur),
       majPar: acteur._id,
+      majParEmail: acteur.email,
     })
     return null
   },
@@ -287,14 +311,19 @@ export const set = action({
 export const clear = mutation({
   args: { nom: nomValidator },
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["owner", "admin"])
+    const acteur = await requireRole(ctx, ["owner", "admin"])
     const row = await ctx.db
       .query("secrets")
       .withIndex("by_nom", (q) => q.eq("nom", args.nom))
       .unique()
     // Absente : réponse ordinaire, pas une erreur. Deux onglets ouverts, et
-    // le second clic n'a plus rien à supprimer.
-    if (row !== null) await ctx.db.delete(row._id)
+    // le second clic n'a plus rien à supprimer. Rien n'est journalisé dans
+    // ce cas : une ligne « a retiré » sur un geste qui n'a rien retiré
+    // rendrait le journal faux, ce qui est pire qu'incomplet.
+    if (row !== null) {
+      await ctx.db.delete(row._id)
+      await journaliser(ctx, { acteur, action: "secret.clear", cible: args.nom })
+    }
     return null
   },
 })

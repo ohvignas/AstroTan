@@ -7,7 +7,6 @@ import {
   mutation,
   query,
 } from "./_generated/server"
-import type { MutationCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
@@ -16,6 +15,7 @@ import { makeResend } from "./lib/resend"
 import { resoudreExpediteur } from "./lib/expediteur"
 import { listUsersWithRole } from "./users"
 import { assertSharedSecret } from "./lib/sharedSecret"
+import { journaliser, nomDeLAuteur } from "./lib/auditEvent"
 import { RateLimiter } from "@convex-dev/rate-limiter"
 import { components } from "./_generated/api"
 import {
@@ -368,26 +368,6 @@ export const newCount = query({
   },
 })
 
-/**
- * Le nom sous lequel l'équipe se connaît, recopié dans l'événement.
- *
- * `profiles.displayName` plutôt que l'adresse : c'est ce que l'écran des
- * utilisateurs affiche déjà. L'email sert de repli — un profil peut
- * manquer le temps qu'`auth.onUpdate` le répare —, et il vaut toujours
- * mieux qu'une ligne sans auteur.
- */
-async function nomDeLAuteur(
-  ctx: MutationCtx,
-  authUserId: string,
-  email: string,
-): Promise<string> {
-  const profile = await ctx.db
-    .query("profiles")
-    .withIndex("by_auth_user", (q) => q.eq("authUserId", authUserId))
-    .unique()
-  return profile?.displayName ?? email
-}
-
 export const move = mutation({
   args: { id: v.id("leads"), status: statusValidator },
   handler: async (ctx, args): Promise<null> => {
@@ -423,7 +403,7 @@ export const remove = mutation({
   handler: async (ctx, args): Promise<null> => {
     // Supprimer est réservé : un éditeur classe, il n'efface pas ce qu'un
     // visiteur a écrit.
-    await requireRole(ctx, ["owner", "admin"])
+    const acteur = await requireRole(ctx, ["owner", "admin"])
     const lead = await ctx.db.get(args.id)
     if (lead === null) throw new ConvexError({ code: "NOT_FOUND" })
 
@@ -445,6 +425,18 @@ export const remove = mutation({
     for (const event of events) await ctx.db.delete(event._id)
 
     await ctx.db.delete(args.id)
+    // L'IDENTIFIANT de la fiche, et rien d'autre : ni l'adresse, ni le nom.
+    // `/confidentialite` promet l'effacement et `dataSubject.ts` le rend
+    // exécutable ; recopier ici l'adresse d'une personne qu'on vient
+    // d'effacer le défairait, dans une table qui, elle, ne s'efface pas.
+    // Le journal répond à « qui a supprimé une fiche, et quand » — la
+    // question qu'on ne peut pas reconstituer autrement — sans avoir
+    // besoin de répondre à « laquelle ».
+    await journaliser(ctx, {
+      acteur,
+      action: "lead.remove",
+      cible: args.id,
+    })
     return null
   },
 })

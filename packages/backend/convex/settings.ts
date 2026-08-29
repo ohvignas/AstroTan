@@ -9,6 +9,7 @@ import {
   seoValidator,
 } from "./content"
 import { requireRole } from "./lib/authz"
+import { journaliser } from "./lib/auditEvent"
 import { readUmamiConfig } from "./lib/umamiToken"
 import { refuseWebhookUrl } from "./lib/webhookUrl"
 import { MUTATION_REGISTRY } from "./_registry"
@@ -278,7 +279,16 @@ export const update = mutation({
   handler: async (ctx, args) => {
     // Site-wide settings are not an editor's call: the name, the logo and
     // the SEO defaults apply to every page at once.
-    await requireRole(ctx, ["owner", "admin"])
+    const acteur = await requireRole(ctx, ["owner", "admin"])
+
+    // Les NOMS des champs touchés, relevés avant toute normalisation :
+    // `args` est réassigné plus bas, et le journal doit dire ce que
+    // l'appel a demandé. Jamais les VALEURS — `leadWebhookSecret` est le
+    // secret qui signe chaque envoi de webhook, et un journal se relit
+    // longtemps après, souvent par plus de monde que cet écran. Le client
+    // Convex supprime les champs `undefined` avant l'envoi, donc ces clés
+    // sont exactement les champs soumis.
+    const champsTouches = Object.keys(args).sort().join(", ")
 
     if (args.siteName !== undefined) {
       const siteName = args.siteName.trim()
@@ -350,6 +360,12 @@ export const update = mutation({
     }
 
     const existing = await ctx.db.query("settings").first()
+    // Dans la même mutation que l'écriture — voir `lib/auditEvent.ts`.
+    await journaliser(ctx, {
+      acteur,
+      action: "settings.update",
+      detail: champsTouches || undefined,
+    })
     if (existing) {
       await ctx.db.patch(existing._id, patch)
       return existing._id
