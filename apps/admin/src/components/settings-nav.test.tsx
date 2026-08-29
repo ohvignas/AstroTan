@@ -60,11 +60,18 @@ describe("SETTINGS_PAGES", () => {
 // `?raw` : on lit le TEXTE des fichiers de route, on ne les exécute pas.
 // Les importer déclencherait `createFileRoute`, qui veut le registre du
 // routeur.
-const ROUTE_FILES = import.meta.glob("../routes/_authed/settings/*.tsx", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-})
+//
+// Le second motif exclut les fichiers de test co-localisés (`*.test.tsx`,
+// par ex. `identite.test.tsx`) : `*.tsx` les capture aussi, puisque `*` ne
+// s'arrête pas au point à l'intérieur d'un même segment de chemin.
+const ROUTE_FILES = import.meta.glob(
+  ["../routes/_authed/settings/*.tsx", "!../routes/_authed/settings/*.test.tsx"],
+  {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }
+)
 
 describe("les fichiers de route", () => {
   test("il en existe un par page déclarée, et pas un de plus", () => {

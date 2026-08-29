@@ -315,6 +315,40 @@ function HomePageField({
   )
 }
 
+/**
+ * Ce que l'écran dit de l'image en cours, selon son état.
+ *
+ * Trois états et non deux : « aucun réglage » et « le fichier réglé a
+ * disparu » demandent le même geste mais ne se sont pas produits pour la
+ * même raison, et seule la seconde mérite d'être expliquée.
+ *
+ * Dans les DEUX cas, le site sert l'image du dépôt. C'est ce qui manquait :
+ * un message rouge occupant la place de l'image laissait croire qu'aucun
+ * logo n'était en ligne, alors qu'il y en a toujours un.
+ */
+export function EtatImage({
+  etat,
+  noun,
+}: {
+  etat: "defaut" | "introuvable"
+  noun: string
+}) {
+  if (etat === "defaut") {
+    return (
+      <span className="text-sm text-muted-foreground">
+        Aucun {noun} choisi : le site sert celui du dépôt.
+      </span>
+    )
+  }
+  return (
+    <span className="text-sm text-muted-foreground">
+      Le fichier choisi n’existe plus dans le stockage — supprimé ou remplacé
+      depuis. Le site sert le {noun} du dépôt en attendant ; choisissez-en un
+      autre, ou retirez le réglage.
+    </span>
+  )
+}
+
 function ImageField({
   value,
   disabled,
@@ -377,6 +411,19 @@ function ImageField({
             fichier du dépôt est utilisé.
           </p>
         </div>
+      ) : introuvable ? (
+        <div className="flex items-center gap-3">
+          {/* Même image de repli que la branche « aucun réglage » : dans
+              les deux cas, le site sert le fichier du dépôt, et l'écran ne
+              doit jamais laisser croire qu'il n'y a plus de logo en
+              ligne. */}
+          <img
+            src={feminin ? defaultIcon : defaultLogo}
+            alt=""
+            className="h-10 w-auto max-w-32 rounded border border-border bg-muted object-contain p-1"
+          />
+          <EtatImage etat="introuvable" noun={noun} />
+        </div>
       ) : (
         <div className="flex items-center gap-3">
           <div className="flex size-20 items-center justify-center overflow-hidden rounded-lg border border-input bg-muted">
@@ -387,36 +434,19 @@ function ImageField({
                 className="size-full object-contain"
               />
             ) : (
-              <ImageIcon
-                className={
-                  introuvable
-                    ? "size-5 text-destructive"
-                    : "size-5 text-muted-foreground"
-                }
-              />
+              <ImageIcon className="size-5 text-muted-foreground" />
             )}
           </div>
           <div className="min-w-0 text-sm">
-            {introuvable ? (
-              <p className="text-destructive">
-                Ce fichier n'existe plus dans le stockage — il a été supprimé
-                ou remplacé depuis qu'il a été choisi. Le site sert le{" "}
-                {noun} du dépôt en attendant. Choisissez-en un
-                {feminin ? "e" : ""} autre, ou retirez-le.
-              </p>
-            ) : (
-              <>
-                <p className="truncate font-medium">
-                  {selected?.filename ?? "Fichier hors médiathèque"}
-                </p>
-                <p className="truncate text-muted-foreground">
-                  {/* Un `storageId` peut exister sans ligne `media` — un
-                      fichier téléversé hors de la médiathèque. `media.ts`
-                      appelle cela une réponse ordinaire, pas un échec. */}
-                  {selected?.alt ?? "Texte alternatif inconnu"}
-                </p>
-              </>
-            )}
+            <p className="truncate font-medium">
+              {selected?.filename ?? "Fichier hors médiathèque"}
+            </p>
+            <p className="truncate text-muted-foreground">
+              {/* Un `storageId` peut exister sans ligne `media` — un
+                  fichier téléversé hors de la médiathèque. `media.ts`
+                  appelle cela une réponse ordinaire, pas un échec. */}
+              {selected?.alt ?? "Texte alternatif inconnu"}
+            </p>
           </div>
         </div>
       )}
