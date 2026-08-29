@@ -59,7 +59,17 @@ function isPrivateOctets([a, b]: [number, number, number, number]): boolean {
 // `hostname` est déjà en notation pointée classique à ce stade (voir le
 // commentaire d'en-tête) : un simple split(".") suffit, pas besoin de
 // gérer les formes décimale/octale/hexadécimale.
-function isPrivateIpv4(hostname: string): boolean {
+//
+// Exportée parce que `dns.ts` pose la même question sur une autre entrée :
+// un enregistrement A qui pointe vers `192.168.1.10` ne rend pas le site
+// joignable, exactement comme une URL de webhook vers `192.168.1.10` ne
+// mène nulle part de légitime. La liste des plages est UNE règle ; en
+// écrire une seconde copie dans `dns.ts` la ferait diverger en silence à
+// la première correction — ce dépôt a déjà payé ce motif.
+//
+// `refuseWebhookUrl` n'est pas le bon point d'entrée pour cet autre
+// appelant : elle exige `https:` et refuserait un hôte nu.
+export function isPrivateIpv4(hostname: string): boolean {
   const parts = hostname.split(".")
   if (parts.length !== 4) return false
   const octets = parts.map((part) => Number(part))
