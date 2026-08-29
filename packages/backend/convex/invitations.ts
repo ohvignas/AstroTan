@@ -10,6 +10,7 @@ import { roleValidator } from "./validators"
 import { MAX_DISPLAY_NAME_LENGTH } from "./profiles"
 import { MUTATION_REGISTRY } from "./_registry"
 import { makeResend } from "./lib/resend"
+import { resoudreExpediteur } from "./lib/expediteur"
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -239,7 +240,7 @@ export const sendInvitationEmail = internalAction({
 
     const resend = await makeResend(ctx)
     await resend.sendEmail(ctx, {
-      from: "AstroTan <onboarding@resend.dev>",
+      from: await resoudreExpediteur(ctx),
       to: claimed.email,
       subject: "Invitation à rejoindre AstroTan",
       html: `<p>Vous avez été invité·e à rejoindre AstroTan.</p><p><a href="${link}">Créer votre compte</a></p>`,

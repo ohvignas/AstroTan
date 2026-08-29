@@ -57,6 +57,19 @@ test("update crée la ligne au premier enregistrement, puis la modifie", async (
   expect(rows[0]?.siteName).toBe("Illith École")
 })
 
+test("update accepte emailFrom, et get l'expose : ce n'est pas un secret", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+
+  await owner.identity.mutation(api.settings.update, {
+    siteName: "Illith",
+    emailFrom: "AstroTan <bonjour@exemple.fr>",
+  })
+  expect((await t.query(api.settings.get, {}))?.emailFrom).toBe(
+    "AstroTan <bonjour@exemple.fr>"
+  )
+})
+
 test("update refuse un nom vide ou trop long, et n'est pas ouvert aux editors", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")

@@ -291,6 +291,11 @@ export default defineSchema({
     leadWebhookSecret: v.optional(v.string()),
     leadWebhookLastStatus: v.optional(v.string()),
     leadWebhookLastAt: v.optional(v.number()),
+
+    // L'adresse d'expédition des emails. PAS un secret : elle apparaît dans
+    // l'en-tête de chaque message envoyé. Elle peut donc rester dans
+    // `settings`, contrairement aux jetons.
+    emailFrom: v.optional(v.string()),
   }),
 
   // Les jetons saisis depuis l'écran des réglages — CHIFFRÉS, jamais en

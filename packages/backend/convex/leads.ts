@@ -13,6 +13,7 @@ import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
 import { isCurrentlyBanned, requireRole } from "./lib/authz"
 import { makeResend } from "./lib/resend"
+import { resoudreExpediteur } from "./lib/expediteur"
 import { listUsersWithRole } from "./users"
 import { assertSharedSecret } from "./lib/sharedSecret"
 import { RateLimiter } from "@convex-dev/rate-limiter"
@@ -768,7 +769,7 @@ export const notifyStaff = internalAction({
       // notification interne n'a pas à révéler à chacun la liste des
       // adresses des autres.
       await resend.sendEmail(ctx, {
-        from: "AstroTan <onboarding@resend.dev>",
+        from: await resoudreExpediteur(ctx),
         to,
         subject: singleLine(`Nouveau message de ${name}`),
         html,

@@ -55,6 +55,8 @@ test("la projection publique ne rend aucun secret", async () => {
     "homePageSlug",
     "defaultSeo",
     "socials",
+    // Pas un secret : elle apparaît dans l'en-tête de chaque email envoyé.
+    "emailFrom",
   ]
   const interdits = champs.filter((champ) => !AUTORISES.includes(champ))
   expect(interdits).toEqual([])

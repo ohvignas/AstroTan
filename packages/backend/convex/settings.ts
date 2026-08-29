@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values"
-import { mutation, query } from "./_generated/server"
+import { internalQuery, mutation, query } from "./_generated/server"
 import { api } from "./_generated/api"
 import {
   MAX_SITE_NAME_LENGTH,
@@ -89,6 +89,10 @@ export const get = query({
       homePageSlug: settings.homePageSlug,
       defaultSeo: settings.defaultSeo,
       socials: settings.socials,
+      // Pas un secret : elle apparaît dans l'en-tête de chaque email
+      // envoyé. Ajoutée à la projection explicite, pas en remplaçant la
+      // projection par la ligne entière — voir le commentaire au-dessus.
+      emailFrom: settings.emailFrom,
     }
   },
 })
@@ -238,6 +242,12 @@ export const homePageSlug = query({
   },
 })
 
+/** Lecture interne pour les actions d'envoi. Jamais publique : inutile au navigateur. */
+export const expediteur = internalQuery({
+  args: {},
+  handler: async (ctx) => (await ctx.db.query("settings").first())?.emailFrom ?? null,
+})
+
 function assertLength(value: string, max: number, field: string): void {
   if (value.length > max) {
     throw new ConvexError({ code: "FIELD_TOO_LONG", field, max })
@@ -260,6 +270,10 @@ export const update = mutation({
     leadWebhookSecret: v.optional(v.union(v.string(), v.null())),
     defaultSeo: v.optional(seoValidator),
     socials: v.optional(v.array(socialValidator)),
+    // Pas de variante `| null` : comme `siteName`, il n'existe pas encore
+    // d'écran qui envoie « efface ce champ ». Elle reste donc dans
+    // `...rest` sans piéger `db.patch`.
+    emailFrom: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Site-wide settings are not an editor's call: the name, the logo and
