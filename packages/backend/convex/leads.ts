@@ -762,7 +762,7 @@ export const notifyStaff = internalAction({
       `<p><a href="${escapeHtml(link)}">Répondre depuis le dashboard</a></p>`,
     ].join("")
 
-    const resend = makeResend()
+    const resend = await makeResend(ctx)
     for (const to of recipients) {
       // Un email par destinataire, pas un seul avec plusieurs `to` : une
       // notification interne n'a pas à révéler à chacun la liste des

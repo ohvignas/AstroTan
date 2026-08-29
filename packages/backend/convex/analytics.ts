@@ -1,7 +1,9 @@
 import { v } from "convex/values"
 import { action, query } from "./_generated/server"
+import type { ActionCtx } from "./_generated/server"
 import { api } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
+import { lireSecret } from "./secrets"
 import { requireRole } from "./lib/authz"
 import {
   clearUmamiToken,
@@ -97,6 +99,32 @@ async function fetchStats(
   }
 }
 
+/**
+ * La configuration Umami, environnement d'abord, base ensuite.
+ *
+ * `readUmamiConfig(process.env)` ne voyait que l'environnement : un
+ * identifiant saisi dans l'administration était chiffré, rangé, et ignoré.
+ * Un réglage décoratif est pire qu'un réglage absent — on croit avoir agi.
+ *
+ * `lireSecret` porte la précédence à un seul endroit : si la variable
+ * d'environnement existe, elle gagne, et le comportement est identique à
+ * celui d'avant pour tout déploiement déjà configuré.
+ */
+async function resoudreUmamiConfig(ctx: ActionCtx) {
+  const [url, websiteId, username, password] = await Promise.all([
+    lireSecret(ctx, "UMAMI_API_URL"),
+    lireSecret(ctx, "UMAMI_API_WEBSITE_ID"),
+    lireSecret(ctx, "UMAMI_API_USERNAME"),
+    lireSecret(ctx, "UMAMI_API_PASSWORD"),
+  ])
+  return readUmamiConfig({
+    UMAMI_API_URL: url ?? undefined,
+    UMAMI_API_WEBSITE_ID: websiteId ?? undefined,
+    UMAMI_API_USERNAME: username ?? undefined,
+    UMAMI_API_PASSWORD: password ?? undefined,
+  })
+}
+
 export const forPath = action({
   args: { path: v.string() },
   handler: async (ctx, args): Promise<AnalyticsResult> => {
@@ -105,7 +133,7 @@ export const forPath = action({
     // Convex function: the UI hides, it does not decide.
     await requireRole(ctx, ["owner", "admin", "editor"])
 
-    const cfg = readUmamiConfig(process.env)
+    const cfg = await resoudreUmamiConfig(ctx)
     // Not configured is an ordinary answer, not a failure: a template that
     // ships without analytics must not look broken to whoever adopts it.
     if (cfg === null) {
@@ -355,6 +383,13 @@ export const umamiLinks = query({
   args: {},
   handler: async (ctx): Promise<UmamiLinks | null> => {
     await requireRole(ctx, ["owner", "admin", "editor"])
+    // `umamiLinks` est une QUERY : elle ne peut pas appeler `lireSecret`, qui
+    // exige un contexte d'action pour déchiffrer. Elle reste donc sur
+    // l'environnement, et c'est sans conséquence — elle ne lit qu'une URL et
+    // un identifiant de partage, qui ne sont pas des secrets : ils
+    // apparaissent dans la barre d'adresse de quiconque ouvre le tableau
+    // Umami. Les identifiants de CONNEXION, eux, ne passent que par les
+    // actions.
     const url = readUmamiConfig(process.env)?.url ?? null
     if (url === null) return null
 
@@ -409,7 +444,7 @@ export const siteSummary = action({
       topReferrers: null,
     }
 
-    const cfg = readUmamiConfig(process.env)
+    const cfg = await resoudreUmamiConfig(ctx)
     if (cfg === null) return { ...empty, status: "not-configured" }
 
     const now = fenetre.endAt
@@ -544,7 +579,7 @@ export const ssoLink = action({
   handler: async (ctx): Promise<string | null> => {
     await requireRole(ctx, ["owner", "admin"])
 
-    const cfg = readUmamiConfig(process.env)
+    const cfg = await resoudreUmamiConfig(ctx)
     if (cfg === null) return null
 
     try {

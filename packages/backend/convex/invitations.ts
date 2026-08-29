@@ -1,5 +1,4 @@
 import { ConvexError, v } from "convex/values"
-import type { Resend } from "@convex-dev/resend"
 import { internalAction, internalMutation, mutation, query } from "./_generated/server"
 import { api, components, internal } from "./_generated/api"
 import { decideAccess, requireRole } from "./lib/authz"
@@ -20,7 +19,9 @@ const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 // `leads.ts`'s own notification send: one place decides how this project
 // talks to Resend, so the two can't drift into disagreeing about test
 // mode.
-const resend: Resend = makeResend()
+// Construit à CHAQUE envoi, plus au chargement du module : la clé peut
+// désormais venir de la base, ce qui demande un contexte d'action et une
+// lecture asynchrone. Le coût est un objet de plus par email envoyé.
 
 // Le seul chemin par lequel un compte peut naître dans ce système : une
 // invitation valide, jamais expirée, jamais déjà consommée, pour l'email et
@@ -236,6 +237,7 @@ export const sendInvitationEmail = internalAction({
     if (!siteUrl) throw new Error("SITE_URL is not set on this Convex deployment")
     const link = `${siteUrl}/accept-invite?token=${encodeURIComponent(claimed.token)}`
 
+    const resend = await makeResend(ctx)
     await resend.sendEmail(ctx, {
       from: "AstroTan <onboarding@resend.dev>",
       to: claimed.email,
