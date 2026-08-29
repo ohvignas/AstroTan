@@ -5,7 +5,8 @@ import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Verdict } from "@astrotan/backend/convex/dns"
 import { describeSettingsError } from "@/lib/settingsErrors"
-import { OrigineDesLiens, ResultatsDns } from "@/components/domain-check"
+import type { LigneEtat } from "@/components/domain-check"
+import { TableauDns, TableauEtats } from "@/components/domain-check"
 import { useAutoSave } from "@/components/save-bar"
 import { SettingsGroup } from "@/components/settings-nav"
 import {
@@ -148,20 +149,14 @@ function DomaineForm({
       </SettingsGroup>
 
       <SettingsGroup>
-        <OrigineDesLiens
-          adminUrl={environment.adminUrl}
-          hote={hoteDe(environment.adminUrl)}
-          correspond={correspondAuDomaine(hoteDe(environment.adminUrl), domaineEnregistre)}
-          declare={domaineEnregistre}
+        <TableauEtats
+          lignes={lignesEtat(
+            domaineEnregistre,
+            environment.adminUrl,
+            environment.webUrl
+          )}
         />
       </SettingsGroup>
-
-      <AvertissementDivergence
-        declare={domaineEnregistre}
-        webUrl={environment.webUrl}
-      />
-
-      <ProcedureDeChangement />
     </SettingsFormShell>
   )
 }
@@ -236,32 +231,83 @@ function VerificationDns({ domaine }: { domaine: string | null }) {
 
       {resultat !== null ? (
         <div className="flex flex-col gap-5">
-          <GroupeVerdicts titre="Le site" verdicts={resultat.site} />
-          <GroupeVerdicts titre="Les emails" verdicts={resultat.email} />
+          {/* Deux tableaux plutôt qu'un seul : « Le site » et « Les
+              emails » se corrigent chez le même hébergeur mais pour deux
+              pannes qui n'ont rien à voir — le site injoignable d'un côté,
+              les emails refusés de l'autre. Deux titres suivis de prose ne
+              disaient pas cette frontière ; deux tableaux la montrent. */}
+          <TableauDns titre="Le site" verdicts={resultat.site} />
+          <TableauDns titre="Les emails" verdicts={resultat.email} />
         </div>
       ) : null}
     </div>
   )
 }
 
-function GroupeVerdicts({
-  titre,
-  verdicts,
-}: {
-  titre: string
-  verdicts: Verdict[]
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <h3 className="font-heading text-sm font-medium">{titre}</h3>
-      <ResultatsDns verdicts={verdicts} />
-    </div>
-  )
-}
+// ---------------------------------------------------------------------
+// L'écart entre ce qu'on déclare et ce que le déploiement porte.
+//
+// Deux lignes d'état, dans la langue du tableau des DNS : une étiquette,
+// les valeurs qui divergent, un signe. Elles remplacent deux paragraphes
+// retirés sur consigne. Ce qu'ils annonçaient — liens d'emails morts,
+// limiteurs de débit à un seul seau pour tout Internet — est écrit en
+// commentaire en tête de `domain-check.tsx`, à côté des lignes qui le
+// signalent. Le fait reste à l'écran, la conséquence descend dans le code.
+// ---------------------------------------------------------------------
 
-// ---------------------------------------------------------------------
-// L'écart entre ce qu'on déclare et ce que l'image porte.
-// ---------------------------------------------------------------------
+/**
+ * Les deux lignes, calculées ensemble.
+ *
+ * Ensemble et non chacune dans son composant : elles se rendent dans le
+ * même tableau, et deux fonctions rendraient deux formes de « rien à
+ * comparer » là où il n'en faut qu'une.
+ */
+export function lignesEtat(
+  declare: string | null,
+  adminUrl: string | null,
+  webUrl: string | null
+): LigneEtat[] {
+  const lignes: LigneEtat[] = []
+
+  // `declare === null` rend `correspondAuDomaine` vrai : sans domaine
+  // déclaré il n'y a rien à comparer, donc rien à afficher en rouge. La
+  // branche divergente a donc toujours un `declare` — d'où le `?? ""`, qui
+  // n'est qu'un garde-fou de type.
+  const hoteAdmin = hoteDe(adminUrl)
+  const liensOk = correspondAuDomaine(hoteAdmin, declare)
+  lignes.push({
+    cle: "liens",
+    etiquette: "Liens des emails",
+    valeurs: liensOk
+      ? [adminUrl ?? "non réglée"]
+      : [hoteAdmin ?? "non réglée", declare ?? ""],
+    ok: liensOk,
+  })
+
+  // Origine inconnue : rien à comparer, donc pas de ligne. Un « ok »
+  // affiché sans avoir rien pu lire serait un mensonge, et un « ko » une
+  // panne inventée.
+  const construitPour = hoteDe(webUrl)
+  if (construitPour !== null) {
+    if (declare === null || construitPour === declare) {
+      lignes.push({
+        cle: "build",
+        etiquette: "Site construit pour",
+        valeurs: [construitPour],
+        ok: true,
+      })
+    } else {
+      lignes.push({
+        cle: "build",
+        etiquette: "Site construit pour",
+        valeurs: [construitPour, declare],
+        ok: false,
+      })
+    }
+  }
+
+  return lignes
+}
 
 /**
  * Le domaine pour lequel ce déploiement a été construit — ou `null`.
@@ -286,7 +332,7 @@ function hoteDe(origine: string | null): string | null {
 /**
  * L'hôte de `SITE_URL` correspond-il au domaine déclaré ?
  *
- * Pas une égalité stricte, contrairement à `AvertissementDivergence` :
+ * Pas une égalité stricte, contrairement à la ligne « Site construit pour » :
  * `ADMIN_DOMAIN` est conventionnellement un SOUS-domaine du site
  * (`admin.exemple.fr` pour `exemple.fr` — `docker/.env.example`), jamais le
  * même hôte. `declare === null` rend `true` : sans domaine déclaré, il n'y
@@ -298,98 +344,39 @@ function correspondAuDomaine(hote: string | null, declare: string | null): boole
   return hote === declare || hote.endsWith(`.${declare}`)
 }
 
-function AvertissementDivergence({
-  declare,
-  webUrl,
-}: {
-  declare: string | null
-  webUrl: string | null
-}) {
-  const construitPour = hoteDe(webUrl)
-  if (declare === null || construitPour === null) return null
-  if (construitPour === declare) return null
-  return (
-    <SettingsGroup>
-      <p className="text-sm">
-        {/* La conséquence est mesurée, pas pronostiquée : sans hôte
-            reconnu, `security.allowedDomains` est vide, Astro ignore
-            `x-forwarded-for` et `clientAddress` retombe sur l'adresse de
-            Traefik — la même pour tout Internet. Les deux limiteurs
-            (`/api/contact`, `/api/consent`) n'ont alors qu'un seul seau.
-            Voir `apps/web/src/lib/allowedDomains.ts`. */}
-        <strong>
-          Cette image a été construite pour{" "}
-          <code className="text-xs">{construitPour}</code>
-        </strong>
-        , et vous avez déclaré{" "}
-        <code className="text-xs">{declare}</code>. Tant que les deux
-        diffèrent, le site ne reconnaît plus ses propres requêtes : tous les
-        visiteurs comptent pour un seul aux yeux de ses deux limiteurs de
-        débit — cinq messages de contact par heure pour tout Internet, puis
-        plus rien.
-      </p>
-    </SettingsGroup>
-  )
-}
-
 // ---------------------------------------------------------------------
-// Les cinq endroits.
+// LES CINQ ENDROITS OÙ UN DOMAINE SE CHANGE — RETIRÉS DE L'ÉCRAN.
+//
+// Cet écran portait une liste ordonnée de cinq étapes, sous le titre
+// « Changer de domaine se fait en cinq endroits, et aucun n'est cet
+// écran ». Elle est supprimée sur consigne, sans rien pour la remplacer :
+// une procédure manuelle affichée dans une interface n'est pas de la
+// documentation, c'est l'aveu que l'écran ne fait pas son travail. Sur un
+// template installé par des tiers, chaque adoptant la referait et
+// plusieurs la rateraient. Le correctif — faire suivre automatiquement ce
+// qui peut l'être — est une refonte d'architecture, pas cet écran-ci.
+//
+// Le contenu, pour qu'il ne se perde pas d'ici là (les trois premiers
+// points vivent aussi dans `docker/README.md`) :
+//
+//   1. Les enregistrements DNS chez l'hébergeur — ceux que le bouton
+//      « Vérifier » de cet écran lit.
+//   2. `WEB_DOMAIN` et `ADMIN_DOMAIN` dans le `docker/.env` du VPS :
+//      Traefik y prend ses règles de routage et ses certificats
+//      Let's Encrypt.
+//   3. Reconstruire LES DEUX images avec leurs build-args — `WEB_DOMAIN`
+//      pour le site, qu'`astro.config.ts` fige dans
+//      `security.allowedDomains` AU BUILD (un `docker/.env` corrigé sans
+//      reconstruction ne change donc rien), et `VITE_WEB_SITE_URL` pour le
+//      dashboard, d'où partent les liens d'aperçu.
+//   4. `npx convex env set SITE_URL https://admin.exemple.fr` et
+//      `npx convex env set WEB_SITE_URL https://exemple.fr`.
+//   5. Le domaine d'expédition, vérifié chez Resend — sinon Resend refuse
+//      les envois.
+//
+// Puis redéployer. Un seul oublié et la panne ne dit pas son nom :
+// certificat émis pour un domaine que personne ne visite, aperçus qui
+// pointent ailleurs, ou conteneur du site qui refuse de démarrer. Les deux
+// premières de ces pannes sont exactement ce que `lignesEtat` ci-dessus
+// rend visible d'un coup d'œil, sans une phrase.
 // ---------------------------------------------------------------------
-
-/**
- * La seule procédure de ce dépôt qui dise OÙ un domaine se change.
- *
- * Elle annonçait trois endroits ; il y en a cinq. Manquaient le build-arg
- * `WEB_DOMAIN` de l'image du site — `astro.config.ts` le fige dans
- * `security.allowedDomains`, un `docker/.env` corrigé sans reconstruction
- * ne change donc rien — et `VITE_WEB_SITE_URL` de l'image du dashboard,
- * dont les liens d'aperçu sortent.
- *
- * Elle reste sur cet écran, et pas dans le seul `docker/README.md` :
- * l'opérateur qui change de domaine commence ici, puisque c'est ici qu'il
- * le déclare.
- */
-function ProcedureDeChangement() {
-  return (
-    <SettingsGroup title="Changer de domaine se fait en cinq endroits, et aucun n'est cet écran">
-      <ol className="ml-4 flex list-decimal flex-col gap-2 text-sm text-muted-foreground">
-        <li>
-          Les <strong>enregistrements DNS</strong> chez votre hébergeur — ceux
-          que le bouton ci-dessus vérifie.
-        </li>
-        <li>
-          <code className="text-xs">WEB_DOMAIN</code> et{" "}
-          <code className="text-xs">ADMIN_DOMAIN</code> dans le{" "}
-          <code className="text-xs">docker/.env</code> du VPS : Traefik y prend
-          ses règles de routage et ses certificats Let&apos;s Encrypt.
-        </li>
-        <li>
-          <strong>Reconstruire les deux images</strong> avec leurs build-args
-          — <code className="text-xs">WEB_DOMAIN</code> pour le site (Astro le
-          fige dans <code className="text-xs">security.allowedDomains</code> au
-          build) et <code className="text-xs">VITE_WEB_SITE_URL</code> pour le
-          dashboard, d&apos;où partent les liens d&apos;aperçu.
-        </li>
-        <li>
-          <code className="text-xs">
-            npx convex env set SITE_URL https://admin.exemple.fr
-          </code>{" "}
-          et{" "}
-          <code className="text-xs">
-            npx convex env set WEB_SITE_URL https://exemple.fr
-          </code>
-          .
-        </li>
-        <li>
-          Le <strong>domaine d&apos;expédition</strong>, vérifié chez Resend —
-          sinon Resend refuse les envois.
-        </li>
-      </ol>
-      <p className="text-sm text-muted-foreground">
-        Puis redéployer. Un seul oublié et la panne ne dit pas son nom :
-        certificat émis pour un domaine que personne ne visite, aperçus qui
-        pointent ailleurs, ou conteneur du site qui refuse de démarrer.
-      </p>
-    </SettingsGroup>
-  )
-}

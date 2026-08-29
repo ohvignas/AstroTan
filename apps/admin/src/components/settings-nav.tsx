@@ -96,8 +96,11 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
     // « DNS » la nomme.
     label: "Domaine & DNS",
     title: "Domaine et DNS",
-    description:
-      "Le nom de domaine sur lequel ce déploiement doit répondre, et les enregistrements DNS que votre hébergeur attend — pour le site comme pour les emails.",
+    // Sans phrase, comme « Envoi des emails ». Elle annonçait en vingt-cinq
+    // mots ce que la page montre dès son premier champ : le domaine, puis
+    // un tableau d'enregistrements DNS avec un signe par ligne. Vingt-cinq
+    // mots à lire avant d'atteindre le premier état.
+    description: "",
   },
   {
     to: "/settings/emails",
