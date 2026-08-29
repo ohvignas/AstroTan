@@ -9,6 +9,7 @@ import {
   seoValidator,
 } from "./content"
 import { requireRole } from "./lib/authz"
+import { readUmamiConfig } from "./lib/umamiToken"
 import { refuseWebhookUrl } from "./lib/webhookUrl"
 import { MUTATION_REGISTRY } from "./_registry"
 
@@ -97,6 +98,72 @@ export const getPrivate = query({
   handler: async (ctx) => {
     await requireRole(ctx, ["owner", "admin", "editor"])
     return ctx.db.query("settings").first()
+  },
+})
+
+/**
+ * L'état des intégrations posées dans l'ENVIRONNEMENT du déploiement.
+ *
+ * Une clé d'API ne va pas en base, et il ne s'agit pas d'un goût
+ * d'architecture : la table `settings` a une projection publique
+ * (`get` ci-dessus), un jour quelqu'un y recopiera un champ de trop, et ce
+ * jour-là une clé OpenRouter serait lisible par tout Internet. C'est
+ * arrivé, une fois, pour le secret de signature du webhook. Les clés
+ * vivent donc dans `npx convex env set`, où aucune query ne peut les
+ * atteindre par accident.
+ *
+ * Mais un opérateur ne peut pas non plus deviner ce qu'il a posé il y a
+ * trois mois sur un déploiement, et un écran qui n'en dit rien le laisse
+ * chercher dans un terminal. D'où cette query : elle rend des BOOLÉENS,
+ * jamais des valeurs. `settings.environment.test.ts` échoue si une valeur
+ * de secret apparaît dans le résultat.
+ *
+ * Les trois chaînes qu'elle rend — les deux origines et l'URL d'Umami —
+ * n'en sont pas : elles figurent dans la barre d'adresse de tout visiteur.
+ *
+ * Ce qu'elle NE PEUT PAS dire, et l'écran le dit à sa place : l'état des
+ * variables `PUBLIC_*` d'`apps/web` (pixels, script Umami). Elles sont
+ * figées au BUILD de l'image du site — Convex ne les voit pas, et n'a
+ * aucun moyen de les voir.
+ *
+ * Mêmes rôles que `getPrivate`, à dessein : celle-ci rend strictement
+ * moins que celle-là, qui donne déjà la ligne entière (secret du webhook
+ * compris) à un editor. Plus restrictive ici, l'écran des réglages
+ * n'aurait plus rien à montrer à qui a pourtant le droit de le consulter.
+ */
+export const environment = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    const env = process.env
+    return {
+      // Aucune fonction de ce dépôt ne lit encore cette clé : l'écran le
+      // dit, plutôt que d'afficher une pastille verte pour une
+      // fonctionnalité qui n'existe pas.
+      openRouter: { configured: Boolean(env.OPENROUTER_API_KEY) },
+      resend: {
+        configured: Boolean(env.RESEND_API_KEY),
+        // Même lecture que `lib/resend.ts` — `!== "false"` — et pas une
+        // seconde interprétation écrite à côté : les deux divergeraient,
+        // et l'écran annoncerait des envois réels là où rien ne part.
+        testMode: env.RESEND_TEST_MODE !== "false",
+      },
+      // Les identifiants avec lesquels le dashboard LIT les statistiques,
+      // et non le script qui les collecte : celui-là est une variable de
+      // build d'`apps/web`, invisible d'ici.
+      umamiApi: {
+        configured: readUmamiConfig(env) !== null,
+        url: readUmamiConfig(env)?.url ?? null,
+        // Un lien de partage est un secret porteur ; on dit s'il existe,
+        // jamais lequel (`analytics.umamiLinks` le compose côté serveur).
+        shared: Boolean(env.UMAMI_API_SHARE_ID),
+      },
+      consentLog: { configured: Boolean(env.CONSENT_LOG_SECRET) },
+      /** L'origine du dashboard — celle des liens envoyés par email. */
+      adminUrl: env.SITE_URL ?? null,
+      /** L'origine du site public — celle qu'on appelle pour invalider son cache. */
+      webUrl: env.WEB_SITE_URL ?? null,
+    }
   },
 })
 

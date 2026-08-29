@@ -28,14 +28,18 @@ import defaultLogo from "@/assets/logo_astrotan.png"
 import { MediaPicker } from "@/components/media-picker"
 import { RepeatableItems } from "@/components/repeatable-items"
 import { SaveBar, useAutoSave } from "@/components/save-bar"
-import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+  AiSection,
+  DomainSection,
+  EmailsSection,
+  MeasurementSection,
+} from "@/components/settings-environment"
+import {
+  SettingsNav,
+  SettingsSection,
+  useCurrentSection,
+} from "@/components/settings-nav"
+import { Button } from "@/components/ui/button"
 import {
   Field,
   FieldDescription,
@@ -59,6 +63,7 @@ export const Route = createFileRoute("/_authed/settings")({
 })
 
 type Settings = FunctionReturnType<typeof api.settings.getPrivate>
+type Environment = FunctionReturnType<typeof api.settings.environment>
 type PageRow = FunctionReturnType<typeof api.pages.list>[number]
 type Social = { label: string; url: string }
 
@@ -135,8 +140,18 @@ function SettingsPage() {
   // dashboard, lui, a une session et a besoin de la ligne entière.
   const settings = useQuery(api.settings.getPrivate)
   const pages = useQuery(api.pages.list)
+  // L'état des variables d'environnement — des booléens, jamais des
+  // valeurs. Les quatre dernières sections de l'écran décrivent ce que
+  // `convex env set` a reçu ; sans cette query elles n'auraient rien à
+  // dire, et une clé posée ou non se vérifierait dans un terminal.
+  const environment = useQuery(api.settings.environment)
 
-  if (profile === undefined || settings === undefined || pages === undefined) {
+  if (
+    profile === undefined ||
+    settings === undefined ||
+    pages === undefined ||
+    environment === undefined
+  ) {
     return <p className="text-sm text-muted-foreground">Chargement…</p>
   }
 
@@ -152,8 +167,10 @@ function SettingsPage() {
       <div>
         <h1 className="text-lg font-medium">Réglages</h1>
         <p className="text-sm text-muted-foreground">
-          Ce qui appartient au site entier plutôt qu'à une page : son nom,
-          son logo, la page servie à la racine et les valeurs SEO par défaut.
+          Ce qui appartient au site entier plutôt qu'à une page. Les
+          quatre premières sections s'enregistrent ici ; les quatre
+          dernières décrivent l'environnement du déploiement, qui se règle
+          en ligne de commande.
         </p>
       </div>
 
@@ -165,18 +182,17 @@ function SettingsPage() {
         </p>
       )}
 
-      <HomePageCard
-        homePageSlug={settings?.homePageSlug ?? null}
-        pages={pages}
-        canWrite={canWrite}
-      />
-
       {/* Seeded from `settings` exactly once, on its first render — the
           same convention as the page editor. `api.settings.getPrivate` is a live
           subscription, so re-seeding on every update (a concurrent
           administrator, or this screen's own save resolving) would wipe
           whatever is being typed. */}
-      <SettingsForm settings={settings} canWrite={canWrite} />
+      <SettingsForm
+        settings={settings}
+        pages={pages}
+        environment={environment}
+        canWrite={canWrite}
+      />
     </div>
   )
 }
@@ -184,16 +200,21 @@ function SettingsPage() {
 // ---------------------------------------------------------------------
 // Page d'accueil
 //
-// Its own card and its own mutation, applied the moment the choice is
-// made rather than waiting on the form's "Enregistrer" below: it is a
-// single decision with a single value, and `settings.setHomePage` is a
-// separate mutation precisely because pointing `/` somewhere is not the
-// same act as editing the site's metadata. The `<Select>` reads straight
-// from the live query rather than from local state, so a refused call
-// leaves it showing what is actually stored.
+// Its own mutation, applied the moment the choice is made rather than
+// waiting on the form's "Enregistrer": it is a single decision with a
+// single value, and `settings.setHomePage` is a separate mutation
+// precisely because pointing `/` somewhere is not the same act as editing
+// the site's metadata. The `<Select>` reads straight from the live query
+// rather than from local state, so a refused call leaves it showing what
+// is actually stored.
+//
+// Plus de carte à elle, en revanche : elle vit désormais DANS la section
+// « Site », et la barre de sauvegarde ne la concerne toujours pas. Un
+// champ qui s'enregistre au choix, à côté de champs qui attendent la
+// barre, demande de le dire — c'est ce que fait sa description.
 // ---------------------------------------------------------------------
 
-function HomePageCard({
+function HomePageField({
   homePageSlug,
   pages,
   canWrite,
@@ -244,75 +265,78 @@ function HomePageCard({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Page d'accueil</CardTitle>
-        <CardDescription>
-          La page choisie ici est celle que le site sert à la racine
-          (<code>/</code>). Sans choix, <code>/</code> répond 404.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        <Field>
-          <FieldLabel htmlFor="home-page">Page servie à /</FieldLabel>
-          <Select
-            items={items}
-            value={homePageSlug ?? NO_HOME_PAGE}
-            disabled={!canWrite || pending}
-            onValueChange={(value) => handleChange(value as string)}
-          >
-            <SelectTrigger id="home-page" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_HOME_PAGE}>Aucune</SelectItem>
-              {danglingSlug !== null && (
-                <SelectItem value={danglingSlug}>
-                  {danglingSlug} — page introuvable
-                </SelectItem>
-              )}
-              {pages.map((page) => (
-                <SelectItem key={page._id} value={page.slug}>
-                  {page.title} — /{page.slug}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <FieldDescription>
-            {danglingSlug !== null
-              ? `Aucune page ne porte le slug « ${danglingSlug} » : la racine du site répond 404. Choisissez-en une autre.`
-              : selected === null
-                ? "Aucune page d'accueil : la racine du site répond 404."
-                : selected.status !== "published"
-                  ? "Cette page est encore un brouillon : la racine répondra 404 tant qu'elle n'est pas publiée."
-                  : canWrite
-                    ? "Le choix est enregistré immédiatement."
-                    : ""}
-          </FieldDescription>
-        </Field>
-      </CardContent>
-    </Card>
+    <>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <Field>
+        <FieldLabel htmlFor="home-page">Page servie à la racine (/)</FieldLabel>
+        <Select
+          items={items}
+          value={homePageSlug ?? NO_HOME_PAGE}
+          disabled={!canWrite || pending}
+          onValueChange={(value) => handleChange(value as string)}
+        >
+          <SelectTrigger id="home-page" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_HOME_PAGE}>Aucune</SelectItem>
+            {danglingSlug !== null && (
+              <SelectItem value={danglingSlug}>
+                {danglingSlug} — page introuvable
+              </SelectItem>
+            )}
+            {pages.map((page) => (
+              <SelectItem key={page._id} value={page.slug}>
+                {page.title} — /{page.slug}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <FieldDescription>
+          {danglingSlug !== null
+            ? `Aucune page ne porte le slug « ${danglingSlug} » : la racine du site répond 404. Choisissez-en une autre.`
+            : selected === null
+              ? "Aucune page d'accueil : la racine du site répond 404."
+              : selected.status !== "published"
+                ? "Cette page est encore un brouillon : la racine répondra 404 tant qu'elle n'est pas publiée."
+                : canWrite
+                  ? "Enregistré dès le choix, sans passer par la barre en bas d'écran — c'est une autre mutation."
+                  : ""}
+        </FieldDescription>
+      </Field>
+    </>
   )
 }
 
 // ---------------------------------------------------------------------
-// Identité, réseaux sociaux, SEO par défaut
+// Les huit sections, et l'unique état qui les traverse
 //
-// One form and one "Enregistrer" for the three, because they are one
+// One form and one "Enregistrer" for the lot, because they are one
 // mutation: `settings.update` patches whatever it is given, and splitting
-// them into three buttons would be three round trips to write one row.
+// them into a button per section would be autant d'allers-retours pour
+// écrire une seule ligne — et autant de barres collées en bas de l'écran,
+// qui ne sauraient plus laquelle parle.
+//
+// Le découpage en sections est donc une affaire de MISE EN PAGE, pas de
+// modèle : les champs restent un seul état local, une seule photo `auto`,
+// une seule photo `manual`, une seule barre. C'est aussi ce qui fait
+// qu'une modification dans « SEO par défaut » et une autre dans
+// « Réseaux sociaux » partent ensemble, au lieu de se marcher dessus.
 // ---------------------------------------------------------------------
 
 function SettingsForm({
   settings,
+  pages,
+  environment,
   canWrite,
 }: {
   settings: Settings
+  pages: PageRow[]
+  environment: Environment
   canWrite: boolean
 }) {
   const updateSettings = useMutation(api.settings.update)
@@ -411,219 +435,234 @@ function SettingsForm({
     describeError: describeSettingsError,
   })
 
+  // Le menu suit le défilement. Le hook est appelé ici et non dans
+  // `SettingsNav` : il observe les `<section>` rendues juste en dessous,
+  // et un composant qui se dit lui-même quelle ancre est courante serait
+  // un composant qui dépend de ce qui l'entoure sans le déclarer.
+  const current = useCurrentSection()
+
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>Identité</CardTitle>
-          <CardDescription>
-            Le nom et le logo repris sur chaque page du site public.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Field data-invalid={canWrite && trimmedSiteName.length === 0}>
-            <FieldLabel htmlFor="site-name">Nom du site</FieldLabel>
-            <Input
-              id="site-name"
-              autoComplete="off"
-              value={siteName}
-              maxLength={MAX_SITE_NAME_LENGTH}
-              disabled={!canWrite}
-              onChange={(event) => setSiteName(event.target.value)}
-            />
-            {canWrite && trimmedSiteName.length === 0 ? (
-              <FieldError>
-                Le nom du site ne peut pas être vide — le serveur refuse
-                l'enregistrement.
-              </FieldError>
-            ) : (
+      {/* Deux colonnes à partir de `lg`, une seule en dessous — où le
+          menu redevient une bande de pastilles horizontale (voir
+          `SettingsNav`). `items-start` est ce qui permet au menu de
+          rester collé pendant que la colonne de droite défile : étiré sur
+          toute la hauteur, `position: sticky` n'a plus de course. */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">
+        <SettingsNav current={current} />
+
+        {/* `min-w-0` : sans lui, un bloc de commande large (les `<pre>`
+            des sections d'environnement) impose sa largeur à la colonne
+            flex et pousse le menu hors de l'écran. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          <SettingsSection id="site">
+            <Field data-invalid={canWrite && trimmedSiteName.length === 0}>
+              <FieldLabel htmlFor="site-name">Nom du site</FieldLabel>
+              <Input
+                id="site-name"
+                autoComplete="off"
+                value={siteName}
+                maxLength={MAX_SITE_NAME_LENGTH}
+                disabled={!canWrite}
+                onChange={(event) => setSiteName(event.target.value)}
+              />
+              {canWrite && trimmedSiteName.length === 0 ? (
+                <FieldError>
+                  Le nom du site ne peut pas être vide — le serveur refuse
+                  l'enregistrement.
+                </FieldError>
+              ) : (
+                <FieldDescription>
+                  {trimmedSiteName.length}/{MAX_SITE_NAME_LENGTH}
+                </FieldDescription>
+              )}
+            </Field>
+
+            <Field>
+              <FieldLabel>Logo</FieldLabel>
               <FieldDescription>
-                {trimmedSiteName.length}/{MAX_SITE_NAME_LENGTH}
+                Large, avec le nom écrit. C'est lui dans la barre de menu du
+                site.
               </FieldDescription>
+              <ImageField
+                value={logoId}
+                disabled={!canWrite}
+                onChange={setLogoId}
+                noun="logo"
+              />
+            </Field>
+
+            <Field>
+              <FieldLabel>Icône</FieldLabel>
+              <FieldDescription>
+                Carrée. Elle sert de favicon, dans l'onglet du navigateur et
+                partout où la place est contrainte — un logo large y serait
+                illisible.
+              </FieldDescription>
+              <ImageField
+                value={iconId}
+                disabled={!canWrite}
+                onChange={setIconId}
+                noun="icône"
+              />
+            </Field>
+
+            <HomePageField
+              homePageSlug={settings?.homePageSlug ?? null}
+              pages={pages}
+              canWrite={canWrite}
+            />
+          </SettingsSection>
+
+          <SettingsSection id="seo">
+            <Field>
+              <FieldLabel htmlFor="default-seo-title">Titre SEO</FieldLabel>
+              <Input
+                id="default-seo-title"
+                value={seoTitle}
+                maxLength={MAX_SEO_TITLE_LENGTH}
+                disabled={!canWrite}
+                placeholder={trimmedSiteName || "Nom du site"}
+                onChange={(event) => setSeoTitle(event.target.value)}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="default-seo-description">
+                Description
+              </FieldLabel>
+              <Textarea
+                id="default-seo-description"
+                value={seoDescription}
+                maxLength={MAX_SEO_DESCRIPTION_LENGTH}
+                disabled={!canWrite}
+                onChange={(event) => setSeoDescription(event.target.value)}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="default-seo-canonical">
+                URL canonique
+              </FieldLabel>
+              <Input
+                id="default-seo-canonical"
+                value={seoCanonicalUrl}
+                maxLength={MAX_CANONICAL_URL_LENGTH}
+                disabled={!canWrite}
+                placeholder="https://…"
+                onChange={(event) => setSeoCanonicalUrl(event.target.value)}
+              />
+            </Field>
+            <Field orientation="horizontal">
+              <Switch
+                id="default-seo-noindex"
+                checked={seoNoindex}
+                disabled={!canWrite}
+                onCheckedChange={(checked) => setSeoNoindex(checked === true)}
+              />
+              <FieldLabel htmlFor="default-seo-noindex">
+                Exclure des moteurs de recherche (noindex)
+              </FieldLabel>
+            </Field>
+            <FieldDescription>
+              Activé ici, c'est le site entier qui sort de l'index — à réserver
+              à une mise en ligne qui n'est pas encore publique.
+            </FieldDescription>
+          </SettingsSection>
+
+          <SettingsSection id="reseaux">
+            <FieldDescription>
+              {MAX_SOCIALS} liens au maximum.
+            </FieldDescription>
+            <RepeatableItems
+              items={socials}
+              disabled={!canWrite || socials.length >= MAX_SOCIALS}
+              addLabel="Ajouter un lien"
+              emptyItem={{ label: "", url: "" }}
+              fields={[
+                { key: "label", label: "Libellé", max: MAX_SOCIAL_LABEL_LENGTH },
+                { key: "url", label: "URL", max: MAX_SOCIAL_URL_LENGTH },
+              ]}
+              onChange={setSocials}
+            />
+          </SettingsSection>
+
+          <SettingsSection id="leads">
+            <Field>
+              <FieldLabel htmlFor="webhook-url">Adresse du webhook</FieldLabel>
+              <Input
+                id="webhook-url"
+                type="url"
+                placeholder="https://hook.eu2.make.com/…"
+                value={webhookUrl}
+                disabled={!canWrite}
+                onChange={(event) => setWebhookUrl(event.target.value)}
+              />
+              <FieldDescription>
+                En `https` uniquement, et jamais une adresse interne : un champ
+                d'URL qui déclenche un appel sortant est refusé sur
+                `localhost`, les plages privées et l'adresse de métadonnées de
+                l'hébergeur. Vider le champ débranche le webhook.{" "}
+                <strong>
+                  Ce champ n'est jamais enregistré automatiquement : il
+                  attend le bouton.
+                </strong>{" "}
+                `https://exemple.co` est une adresse valide en route vers
+                `https://exemple.com`, et sauvegardée une seconde elle
+                enverrait à un inconnu les leads reçus pendant cette
+                seconde.
+              </FieldDescription>
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="webhook-secret">Secret de signature</FieldLabel>
+              <Input
+                id="webhook-secret"
+                type="text"
+                placeholder="une longue chaîne aléatoire"
+                value={webhookSecret}
+                disabled={!canWrite}
+                onChange={(event) => setWebhookSecret(event.target.value)}
+              />
+              <FieldDescription>
+                Chaque envoi porte un en-tête `x-astrotan-signature`,
+                HMAC-SHA256 du corps avec ce secret. Il permet à votre scénario
+                de vérifier que l'appel vient bien de vous — une URL de webhook
+                traverse des journaux et des captures d'écran, elle n'est pas
+                un secret.
+              </FieldDescription>
+            </Field>
+
+            {settings?.leadWebhookLastStatus && (
+              <p className="text-sm text-muted-foreground">
+                {/* L'état du dernier envoi, visible ici plutôt que dans des
+                    journaux : un webhook muet depuis trois semaines est le
+                    défaut le plus courant de ce genre d'intégration. */}
+                Dernier envoi : {settings.leadWebhookLastStatus}
+                {settings.leadWebhookLastAt &&
+                  ` — ${new Intl.DateTimeFormat("fr-FR", {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  }).format(new Date(settings.leadWebhookLastAt))}`}
+              </p>
             )}
-          </Field>
+          </SettingsSection>
 
-          <Field>
-            <FieldLabel>Logo</FieldLabel>
-            <FieldDescription>
-              Large, avec le nom écrit. C'est lui dans la barre de menu du
-              site.
-            </FieldDescription>
-            <ImageField
-              value={logoId}
-              disabled={!canWrite}
-              onChange={setLogoId}
-              noun="logo"
-            />
-          </Field>
+          {/* Les quatre dernières sections ne portent aucun champ : elles
+              décrivent l'environnement du déploiement. Voir l'en-tête de
+              `settings-environment.tsx` pour ce qui interdit à chacune
+              d'être un formulaire. */}
+          <AiSection configured={environment.openRouter.configured} />
+          <EmailsSection resend={environment.resend} adminUrl={environment.adminUrl} />
+          <DomainSection adminUrl={environment.adminUrl} webUrl={environment.webUrl} />
+          <MeasurementSection umamiApi={environment.umamiApi} />
+        </div>
+      </div>
 
-          <Field>
-            <FieldLabel>Icône</FieldLabel>
-            <FieldDescription>
-              Carrée. Elle sert de favicon, dans l'onglet du navigateur et
-              partout où la place est contrainte — un logo large y serait
-              illisible.
-            </FieldDescription>
-            <ImageField
-              value={iconId}
-              disabled={!canWrite}
-              onChange={setIconId}
-              noun="icône"
-            />
-          </Field>
-        </CardContent>
-      </Card>
+      {/* La barre reste hors des deux colonnes, enfant direct du
+          conteneur de la page : ses marges négatives (`-mx-4`) sont
+          calculées contre le `p-4` d'`AppShell`, et l'imbriquer dans la
+          colonne de droite la rétrécirait à sa largeur.
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Réseaux sociaux</CardTitle>
-          <CardDescription>
-            Les liens repris dans le pied de page du site. {MAX_SOCIALS} au
-            maximum.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RepeatableItems
-            items={socials}
-            disabled={!canWrite || socials.length >= MAX_SOCIALS}
-            addLabel="Ajouter un lien"
-            emptyItem={{ label: "", url: "" }}
-            fields={[
-              { key: "label", label: "Libellé", max: MAX_SOCIAL_LABEL_LENGTH },
-              { key: "url", label: "URL", max: MAX_SOCIAL_URL_LENGTH },
-            ]}
-            onChange={setSocials}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>SEO par défaut</CardTitle>
-          <CardDescription>
-            Ce sur quoi une page retombe quand elle ne définit aucune valeur
-            SEO qui lui soit propre. Une page qui remplit son propre champ
-            l'emporte toujours sur celui-ci.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Field>
-            <FieldLabel htmlFor="default-seo-title">Titre SEO</FieldLabel>
-            <Input
-              id="default-seo-title"
-              value={seoTitle}
-              maxLength={MAX_SEO_TITLE_LENGTH}
-              disabled={!canWrite}
-              placeholder={trimmedSiteName || "Nom du site"}
-              onChange={(event) => setSeoTitle(event.target.value)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="default-seo-description">
-              Description
-            </FieldLabel>
-            <Textarea
-              id="default-seo-description"
-              value={seoDescription}
-              maxLength={MAX_SEO_DESCRIPTION_LENGTH}
-              disabled={!canWrite}
-              onChange={(event) => setSeoDescription(event.target.value)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="default-seo-canonical">
-              URL canonique
-            </FieldLabel>
-            <Input
-              id="default-seo-canonical"
-              value={seoCanonicalUrl}
-              maxLength={MAX_CANONICAL_URL_LENGTH}
-              disabled={!canWrite}
-              placeholder="https://…"
-              onChange={(event) => setSeoCanonicalUrl(event.target.value)}
-            />
-          </Field>
-          <Field orientation="horizontal">
-            <Switch
-              id="default-seo-noindex"
-              checked={seoNoindex}
-              disabled={!canWrite}
-              onCheckedChange={(checked) => setSeoNoindex(checked === true)}
-            />
-            <FieldLabel htmlFor="default-seo-noindex">
-              Exclure des moteurs de recherche (noindex)
-            </FieldLabel>
-          </Field>
-          <FieldDescription>
-            Activé ici, c'est le site entier qui sort de l'index — à réserver
-            à une mise en ligne qui n'est pas encore publique.
-          </FieldDescription>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Webhook des leads</CardTitle>
-          <CardDescription>
-            Chaque message reçu déclenche un appel vers cette adresse — un
-            scénario n8n, Make, ou tout service qui écoute une URL.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Field>
-            <FieldLabel htmlFor="webhook-url">Adresse du webhook</FieldLabel>
-            <Input
-              id="webhook-url"
-              type="url"
-              placeholder="https://hook.eu2.make.com/…"
-              value={webhookUrl}
-              disabled={!canWrite}
-              onChange={(event) => setWebhookUrl(event.target.value)}
-            />
-            <FieldDescription>
-              En `https` uniquement, et jamais une adresse interne : un champ
-              d'URL qui déclenche un appel sortant est refusé sur
-              `localhost`, les plages privées et l'adresse de métadonnées de
-              l'hébergeur. Vider le champ débranche le webhook.
-            </FieldDescription>
-          </Field>
-
-          <Field>
-            <FieldLabel htmlFor="webhook-secret">Secret de signature</FieldLabel>
-            <Input
-              id="webhook-secret"
-              type="text"
-              placeholder="une longue chaîne aléatoire"
-              value={webhookSecret}
-              disabled={!canWrite}
-              onChange={(event) => setWebhookSecret(event.target.value)}
-            />
-            <FieldDescription>
-              Chaque envoi porte un en-tête `x-astrotan-signature`,
-              HMAC-SHA256 du corps avec ce secret. Il permet à votre scénario
-              de vérifier que l'appel vient bien de vous — une URL de webhook
-              traverse des journaux et des captures d'écran, elle n'est pas
-              un secret.
-            </FieldDescription>
-          </Field>
-
-          {settings?.leadWebhookLastStatus && (
-            <p className="text-sm text-muted-foreground">
-              {/* L'état du dernier envoi, visible ici plutôt que dans des
-                  journaux : un webhook muet depuis trois semaines est le
-                  défaut le plus courant de ce genre d'intégration. */}
-              Dernier envoi : {settings.leadWebhookLastStatus}
-              {settings.leadWebhookLastAt &&
-                ` — ${new Intl.DateTimeFormat("fr-FR", {
-                  dateStyle: "short",
-                  timeStyle: "short",
-                }).format(new Date(settings.leadWebhookLastAt))}`}
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Ni barre ni sauvegarde automatique pour un editor : la mutation
+          Ni barre ni sauvegarde automatique pour un editor : la mutation
           refuse de toute façon (`requireRole(["owner","admin"])`). */}
       {canWrite && (
         <SaveBar

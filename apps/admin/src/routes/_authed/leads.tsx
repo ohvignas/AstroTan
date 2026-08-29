@@ -28,9 +28,10 @@ import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Doc, Id } from "@astrotan/backend/convex/_generated/dataModel"
 import {
   LEAD_STATUSES,
-  LEAD_STATUS_LABELS,
-  type LeadStatus,
+  LEAD_STATUS_LABELS
+  
 } from "@astrotan/backend/convex/content"
+import type {LeadStatus} from "@astrotan/backend/convex/content";
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -599,7 +600,7 @@ function LeadMessages({
   // s'abonnerait en permanence pour un panneau que personne ne regarde.
   const timeline = useQuery(
     api.leads.timeline,
-    lead === null ? "skip" : { id: lead._id as Id<"leads"> },
+    lead === null ? "skip" : { id: lead._id },
   )
 
   return (
