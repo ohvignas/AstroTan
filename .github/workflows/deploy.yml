@@ -69,8 +69,23 @@ jobs:
       # Seules des valeurs PUBLIQUES passent en build-arg (contrainte
       # globale du lot) : Vite et Astro les figent dans le bundle, donc un
       # secret qui passerait ici serait lisible dans l'image. Les vrais
-      # secrets du site — `PREVIEW_SECRET`, `REVALIDATE_SECRET` — ne sont
-      # fournis qu'à l'exécution, par le `.env` du VPS.
+      # secrets du site sont fournis à l'exécution, par le `.env` du VPS —
+      # ce sont les `environment:` du service `web` de
+      # `docker/docker-compose.yml`, qui font autorité sur cette liste.
+      #
+      # La règle inverse est celle qui a coûté le plus cher ici : TOUTE
+      # variable `PUBLIC_*` lue par `apps/web` doit apparaître à la fois en
+      # `ARG` dans `docker/web.Dockerfile` et en `build-args` ci-dessous.
+      # Manquante, elle vaut la chaîne vide dans le bundle, et la
+      # fonctionnalité qu'elle commande disparaît sans erreur — c'est ce qui
+      # est arrivé aux `PUBLIC_UMAMI_*` (25b0b43), puis à
+      # `PUBLIC_META_PIXEL_ID` / `PUBLIC_GOOGLE_TAG_ID`. Depuis, l'écart est
+      # vérifié en CI par `node scripts/check-env-wiring.mjs`.
+      #
+      # Un secret GitHub absent n'est PAS une erreur ici : il rend la chaîne
+      # vide, et le build reste vert. C'est ce qui rend ces quatre dernières
+      # variables réellement facultatives pour un adoptant qui ne veut ni
+      # mesure d'audience ni traceur publicitaire.
       - name: Build and push the web image
         uses: docker/build-push-action@v6
         with:
@@ -82,6 +97,8 @@ jobs:
             PUBLIC_UMAMI_URL=${{ secrets.PUBLIC_UMAMI_URL }}
             PUBLIC_UMAMI_WEBSITE_ID=${{ secrets.PUBLIC_UMAMI_WEBSITE_ID }}
             PUBLIC_UMAMI_RECORDER=${{ secrets.PUBLIC_UMAMI_RECORDER }}
+            PUBLIC_META_PIXEL_ID=${{ secrets.PUBLIC_META_PIXEL_ID }}
+            PUBLIC_GOOGLE_TAG_ID=${{ secrets.PUBLIC_GOOGLE_TAG_ID }}
           tags: |
             ${{ steps.img.outputs.prefix }}/astrotan-web:${{ github.sha }}
             ${{ steps.img.outputs.prefix }}/astrotan-web:latest
@@ -131,11 +148,11 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
 
       # `--exclude '.env'` avec `--delete` : le `.env` du VPS n'est ni
-      # écrasé ni supprimé. Il porte les variables que la commande
-      # ci-dessous ne passe pas — `ACME_EMAIL`, `WEB_DOMAIN`,
-      # `ADMIN_DOMAIN`, `PREVIEW_SECRET`, `REVALIDATE_SECRET`,
-      # `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL` — et que
-      # `docker/docker-compose.yml` exige par la syntaxe `${VAR:?message}`.
+      # écrasé ni supprimé. Il porte toutes les variables que la commande
+      # ci-dessous ne passe pas et que `docker/docker-compose.yml` exige par
+      # la syntaxe `${VAR:?message}`. Leur liste n'est pas recopiée ici —
+      # elle a déjà divergé une fois — elle se lit du compose lui-même :
+      #     node scripts/check-env-wiring.mjs --compose-required
       # Un VPS amorcé avant que la configuration statique de Traefik ne
       # passe en variables d'environnement n'a pas `ACME_EMAIL` : le
       # premier déploiement après cette bascule échoue en la nommant, et

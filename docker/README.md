@@ -145,9 +145,10 @@ sur « Full (strict) ».
 ## 4. Amorçage du `.env` sur le VPS
 
 **`pnpm bootstrap` (à la racine du dépôt) produit ce fichier déjà rempli,**
-sous le nom `.env.vps` : les huit variables ci-dessous, les deux secrets HMAC
-identiques à ceux qu'il pose sur Convex, et la ligne `ACME_CA_SERVER` laissée
-commentée pour la section 5. Il affiche ensuite les commandes de copie et le
+sous le nom `.env.vps` : toutes les variables ci-dessous, les clés HMAC
+identiques à celles qu'il pose sur Convex, les secrets d'Umami, et la ligne
+`ACME_CA_SERVER` laissée commentée pour la section 5. Il affiche ensuite les
+commandes de copie et le
 `chmod 600`. Il ne se connecte **pas** au VPS pour écrire à votre place : ce
 fichier est le seul que le déploiement n'écrase jamais (`rsync --exclude`),
 donc le seul point de vérité de la machine — le remplir depuis l'extérieur en
@@ -167,15 +168,26 @@ scp docker/.env.example <user>@<host>:~/astrotan/.env
 ssh <user>@<host> 'chmod 600 ~/astrotan/.env'
 ```
 
-Puis éditer `~/astrotan/.env` et remplir les **sept** variables que le
-déploiement ne passe pas lui-même : `WEB_DOMAIN`, `ADMIN_DOMAIN`,
-`ACME_EMAIL`, `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `PREVIEW_SECRET`,
-`REVALIDATE_SECRET`. Chacune est commentée dans `.env.example` — **c'est ce
-fichier qui fait autorité** sur ce que chaque valeur signifie, où la trouver
-et ce qu'elle casse. Ce sont exactement celles que `docker-compose.yml`
-exige par la syntaxe `${VAR:?message}`, qui fait échouer le `compose up` avec
-le nom de la variable manquante plutôt que de démarrer un conteneur à moitié
-configuré.
+Puis éditer `~/astrotan/.env` et remplir toutes les variables que le
+déploiement ne passe pas lui-même. **La liste n'est pas recopiée ici** — elle
+l'a été, elle a divergé du compose deux fois, et une liste en prose ne se
+relit jamais au bon moment. Elle se demande au fichier qui fait foi :
+
+```bash
+node scripts/check-env-wiring.mjs --compose-required
+```
+
+Ce sont exactement les variables que `docker-compose.yml` exige par la
+syntaxe `${VAR:?message}`, qui fait échouer le `compose up` avec le nom de la
+variable manquante plutôt que de démarrer un conteneur à moitié configuré.
+Chacune est commentée dans `.env.example` — **c'est ce fichier qui fait
+autorité** sur ce que chaque valeur signifie, où la trouver et ce qu'elle
+casse.
+
+Certaines sont des clés HMAC, qui n'ont de sens qu'identiques des deux côtés
+d'une frontière (section 6) ; d'autres appartiennent à Umami (section 13).
+`pnpm bootstrap` les génère et les écrit toutes : il n'y a aucun secret à
+inventer à la main.
 
 `GHCR_OWNER` et `IMAGE_TAG` figurent aussi dans `.env.example`, mais **ne
 sont pas lus depuis ce fichier en déploiement** : le workflow les passe en
@@ -185,9 +197,9 @@ l'emporte sur le `.env`. Leur présence dans le fichier ne sert qu'à un
 `IMAGE_TAG` est ce que le déploiement décide (le sha du commit), pas ce que
 la machine sait.
 
-`ACME_CA_SERVER` est la huitième variable du fichier, et la seule qui soit
-optionnelle : elle a un défaut (le CA de production). Ne la laissez pas au
-défaut pour votre premier essai — lisez la section suivante d'abord.
+`ACME_CA_SERVER` est la seule variable optionnelle du fichier : elle a un
+défaut (le CA de production), donc son absence ne bloque rien. Ne la laissez
+pas au défaut pour votre premier essai — lisez la section suivante d'abord.
 
 ## 5. Certificats : le CA de staging au premier essai
 
@@ -254,9 +266,10 @@ tour et brûle les 5 certificats/7 jours en quelques minutes.
 
 ## 6. Secrets partagés avec Convex
 
-`PREVIEW_SECRET` et `REVALIDATE_SECRET` ne sont pas des mots de passe : ce
-sont des clés HMAC, vérifiées des deux côtés d'une frontière. Elles n'ont de
-sens qu'**identiques** sur le déploiement Convex et dans le conteneur `web`.
+`PREVIEW_SECRET`, `REVALIDATE_SECRET`, `LEAD_SUBMIT_SECRET` et
+`CONSENT_LOG_SECRET` ne sont pas des mots de passe : ce sont des clés HMAC,
+vérifiées des deux côtés d'une frontière. Elles n'ont de sens
+qu'**identiques** sur le déploiement Convex et dans le conteneur `web`.
 
 **`pnpm bootstrap` est fait pour cette contrainte précise.** Il génère chaque
 clé une fois par `openssl rand -hex 32`, la réécrit dans `.env.deploy` pour ne
@@ -279,8 +292,10 @@ puis poser la même valeur des deux côtés :
 # côté Convex (déploiement de production)
 pnpm --filter @astrotan/backend exec convex env set PREVIEW_SECRET <valeur>
 pnpm --filter @astrotan/backend exec convex env set REVALIDATE_SECRET <valeur>
-# côté VPS
-$EDITOR ~/astrotan/.env      # PREVIEW_SECRET=…  REVALIDATE_SECRET=…
+pnpm --filter @astrotan/backend exec convex env set LEAD_SUBMIT_SECRET <valeur>
+pnpm --filter @astrotan/backend exec convex env set CONSENT_LOG_SECRET <valeur>
+# côté VPS — les quatre mêmes valeurs
+$EDITOR ~/astrotan/.env
 ```
 
 Ce qu'une divergence produit, précisément :
@@ -298,6 +313,20 @@ Ce qu'une divergence produit, précisément :
   backoff, puis marque la ligne `failed` **après 6 tentatives**. Rien ne
   tombe : les pages publiées restent simplement périmées jusqu'à l'expiration
   du cache, ce qui est la panne la plus discrète du système.
+- **`LEAD_SUBMIT_SECRET` divergent ou absent** — le formulaire de contact
+  refuse **chaque** envoi. `apps/web/src/pages/api/contact.ts` redirige vers
+  `/contact?erreur=indisponible` dès que la clé manque, et `convex/leads.ts`
+  la recompare en temps constant si elle est présente mais fausse. Le
+  formulaire s'affiche, accepte la saisie, et ne transmet jamais rien —
+  aucune ligne dans `leads`, aucune erreur dans les logs du conteneur.
+- **`CONSENT_LOG_SECRET` divergent ou absent** — le journal de traçabilité du
+  consentement n'enregistre rien. `apps/web/src/pages/api/consent.ts` répond
+  204 sans corps quelle que soit l'issue, y compris en cas de refus : c'est
+  délibéré du point de vue du visiteur (son choix est déjà appliqué dans son
+  navigateur), et c'est ce qui rend la panne invisible côté exploitation. Le
+  navigateur POSTe pourtant à chaque choix — `apps/web/src/config/consent.ts`
+  pose `traceability.enabled: true`. La preuve qu'on croit conserver n'existe
+  alors nulle part.
 
 Le déploiement Convex a par ailleurs ses propres variables, qui ne
 transitent jamais par le VPS (`SITE_URL`, `WEB_SITE_URL`,
@@ -306,14 +335,24 @@ transitent jamais par le VPS (`SITE_URL`, `WEB_SITE_URL`,
 
 ## 7. Secrets GitHub
 
-Neuf secrets à poser dans *Settings → Secrets and variables → Actions*. Ce
-sont exactement ceux que `deploy.yml` et `rollback.yml` référencent, ni plus
-ni moins — la liste est vérifiable par
-`grep -oh 'secrets\.[A-Z_]*' .github/workflows/*.yml | sort -u`.
+À poser dans *Settings → Secrets and variables → Actions*. Le tableau
+ci-dessous fait autorité sur leur provenance et sur la marche à suivre pour
+les poser à la main — mais **aucun nombre n'est écrit ici**, parce qu'il a
+déjà menti : la liste qui compte est celle que les workflows référencent,
 
-`pnpm bootstrap` les pose tous les neuf par `gh secret set`, valeur sur
-l'entrée standard. Le tableau ci-dessous reste ce qui fait autorité sur leur
-provenance — et la marche à suivre pour les poser à la main.
+```bash
+grep -oh 'secrets\.[A-Z_]*' .github/workflows/*.yml | sort -u
+```
+
+`GITHUB_TOKEN` mis à part (voir plus bas), tout ce que rend cette commande
+doit exister dans les réglages du dépôt.
+
+`pnpm bootstrap` en pose la plus grande partie par `gh secret set`, valeur
+sur l'entrée standard. Il ne pose **pas** `PUBLIC_UMAMI_WEBSITE_ID`,
+`PUBLIC_META_PIXEL_ID` ni `PUBLIC_GOOGLE_TAG_ID` : aucune de ces trois
+valeurs n'existe avant qu'un humain ait ouvert Umami (13.1) ou la console de
+l'annonceur. Elles se posent à la main, et les laisser vides est un choix
+valide — le site ne mesure alors rien et n'appelle aucun tiers.
 
 | Secret | Ce que c'est, et comment l'obtenir |
 |---|---|
@@ -325,6 +364,8 @@ provenance — et la marche à suivre pour les poser à la main.
 | `PUBLIC_UMAMI_URL` | `https://<UMAMI_DOMAIN>` — l'adresse du script de mesure. **Pas un secret** : elle est dans le source de chaque page. Elle est ici parce qu'Astro la fige dans le bundle au build, donc elle doit exister au moment du `docker build`, pas au démarrage du conteneur. **Facultative** : sans elle, le site ne mesure rien et n'émet aucune requête vers un tiers. |
 | `PUBLIC_UMAMI_WEBSITE_ID` | L'identifiant rendu par Umami après *Add website* (13.1). Non secret, même raison, et facultatif de la même façon : il faut les deux ou aucune. |
 | `PUBLIC_UMAMI_RECORDER` | `true` pour charger `recorder.js` en plus — Replays et Heatmaps. Non secrète, facultative, **éteinte par défaut**. Lire 13.6 avant de la poser : ce n'est pas la même promesse que le comptage. |
+| `PUBLIC_META_PIXEL_ID` | L'identifiant du pixel Meta, si vous en posez un. **Pas un secret** : il est dans le source de chaque page. Figé au build comme les précédents. **Facultatif**, et son absence est indétectable à l'œil : sans lui ni `PUBLIC_GOOGLE_TAG_ID`, `shouldAskConsent()` rend `false`, le bandeau de consentement ne s'affiche jamais et `/cookies` affiche « Aucun » — ce qui est exactement le comportement légitime d'un site sans traceur. Lire 13.6 : ce n'est pas la même promesse que le comptage d'audience. |
+| `PUBLIC_GOOGLE_TAG_ID` | L'identifiant Google Tag (`G-…` / `GT-…`), si vous en posez un. Non secret, figé au build, facultatif, mêmes conséquences que la ligne ci-dessus. C'est lui qui active Google Consent Mode v2 (`src/components/consent/GoogleConsentMode.astro`). |
 | `VPS_HOST` | Nom d'hôte ou IP du VPS. |
 | `VPS_USER` | L'utilisateur non-root de la section 1. |
 | `VPS_SSH_KEY` | Clé **privée** de déploiement, au format OpenSSH, en entier (`-----BEGIN…` à `-----END…` compris). La générer dédiée à cet usage — `ssh-keygen -t ed25519 -C deploy@astrotan -f ~/.ssh/astrotan_deploy` — et poser la publique dans `~/.ssh/authorized_keys` du VPS. Jamais une clé personnelle : elle n'est ni révocable ni traçable séparément. |
@@ -333,6 +374,16 @@ provenance — et la marche à suivre pour les poser à la main.
 `GITHUB_TOKEN` apparaît aussi dans les workflows : il est fourni
 automatiquement par GitHub à chaque exécution et sert uniquement au `docker
 login ghcr.io`. Il n'y a rien à créer.
+
+**Toute variable `PUBLIC_*` ou `VITE_*` de ce tableau a trois moitiés, pas
+deux** : un `ARG` dans le Dockerfile de l'image, une ligne `build-args` dans
+`deploy.yml`, et le secret lui-même. Il en manque une et la valeur arrive
+vide dans le bundle, sans la moindre erreur au build. C'est arrivé aux
+`PUBLIC_UMAMI_*` (25b0b43), puis aux deux identifiants de pixels. Les deux
+premières moitiés sont désormais vérifiées à chaque CI par
+`node scripts/check-env-wiring.mjs` ; la troisième, non — un secret GitHub
+absent reste indiscernable d'un secret volontairement vide, et c'est ce qui
+rend ces variables réellement facultatives.
 
 **Pourquoi `VPS_SSH_KNOWN_HOSTS` plutôt que `StrictHostKeyChecking=no`.**
 Sans clé d'hôte connue, la seule façon de faire aboutir un SSH non

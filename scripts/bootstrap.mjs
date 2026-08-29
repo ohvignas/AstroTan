@@ -103,9 +103,11 @@ function writeBackGenerated(path, generated) {
     if (lines.at(-1) !== "") lines.push("");
     lines.push(
       "# ── Généré par `pnpm bootstrap` — ne pas modifier à la main ─────────────────",
-      "# Clés HMAC et secret de session, générés une seule fois puis relus tels",
-      "# quels. Les régénérer casse la prévisualisation, l'invalidation de cache et",
-      "# toutes les sessions ouvertes (docker/README.md §6). Pour une rotation",
+      "# Clés HMAC, secret de session et secrets Umami, générés une seule fois puis",
+      "# relus tels quels. Les régénérer casse, selon la clé : la prévisualisation,",
+      "# l'invalidation de cache, le formulaire de contact, le journal de",
+      "# consentement, toutes les sessions ouvertes du dashboard, ou la connexion",
+      "# d'Umami à sa base (docker/README.md §6 et §13). Pour une rotation",
       "# volontaire : vider la ligne, relancer, et redéployer les trois côtés.",
       ...appended,
       "",
@@ -177,6 +179,21 @@ const INPUT = [
   { key: "VPS_USER", check: (v) => (v === "root" ? "le pipeline exige un utilisateur NON-root du groupe docker (docker/README.md §1)" : null) },
   { key: "VPS_SSH_KEY_PATH", check: checkSshKeyPath },
   // Optionnelles : une valeur vide est un choix documenté, pas un oubli.
+  {
+    // Le sous-domaine du tableau de bord Umami. Absente, elle est dérivée
+    // en `stats.<WEB_DOMAIN>` plus bas — le compose l'exige en
+    // `${UMAMI_DOMAIN:?}`, donc ne rien écrire ferait échouer le premier
+    // `compose up` de l'adoptant sur une variable qu'aucun fichier ne lui
+    // avait demandée. Un défaut dérivé vaut mieux qu'un trou.
+    key: "UMAMI_DOMAIN",
+    optional: true,
+    check: (v) =>
+      /^https?:\/\//i.test(v)
+        ? "attendu un hôte nu, sans schéma — le compose l'injecte dans une règle Traefik Host(`…`)"
+        : v.includes("/")
+          ? "attendu un hôte nu, sans chemin ni slash final"
+          : null,
+  },
   { key: "RESEND_API_KEY", secret: true, optional: true },
   {
     key: "RESEND_TEST_MODE",
@@ -213,10 +230,33 @@ function checkSshKeyPath(v) {
 const expandHome = (p) => (p.startsWith("~/") || p === "~" ? join(homedir(), p.slice(1)) : resolve(ROOT, p));
 
 // Les secrets générés, avec la garde que le code applique de son côté.
+//
+// Tout ce qui est ici est produit une fois puis relu : la valeur est
+// réécrite dans `.env.deploy`, et une exécution suivante la retrouve telle
+// quelle. Ce sont donc des secrets qu'on n'a jamais à saisir ni à voir.
 const GENERATED = [
   { key: "BETTER_AUTH_SECRET", gen: ["rand", "-base64", "32"], minLength: 32 },
   { key: "PREVIEW_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
   { key: "REVALIDATE_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
+  // Les deux clés HMAC du site public. Même nature que les précédentes —
+  // vérifiées des deux côtés d'une frontière, donc n'ayant de sens
+  // qu'identiques sur Convex et dans le conteneur `web`.
+  { key: "LEAD_SUBMIT_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
+  { key: "CONSENT_LOG_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
+  // Umami. Ces trois-là ne partent PAS sur Convex : elles ne servent qu'aux
+  // conteneurs `umami` et `umami-db`, et le compose les exige en
+  // `${VAR:?}`. Les générer ici est ce qui évite qu'un adoptant découvre
+  // leur existence à l'échec de son premier `compose up`.
+  //
+  // Hexadécimal pour le mot de passe Postgres, et ce n'est pas cosmétique :
+  // il est inséré tel quel dans `postgresql://umami:<mdp>@umami-db:5432` —
+  // un `@` ou un `/` non encodé couperait l'URL en silence.
+  { key: "UMAMI_DB_PASSWORD", gen: ["rand", "-hex", "32"], minLength: 32 },
+  { key: "UMAMI_APP_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
+  // Umami exige EXACTEMENT 64 caractères hexadécimaux ici (`rand -hex 32`
+  // en produit 64). Trop courte, la 2FA refuse de s'activer — et la panne
+  // n'apparaît que le jour où quelqu'un essaie, c'est-à-dire trop tard.
+  { key: "UMAMI_TWO_FACTOR_ENCRYPTION_KEY", gen: ["rand", "-hex", "32"], minLength: 64 },
 ];
 
 // ─── Exécution de commandes ─────────────────────────────────────────────────
@@ -299,9 +339,12 @@ Remplissez-le, puis relancez. Ce qu'il attend :
   ${C.cyn}VPS_HOST / VPS_USER${C.r}         l'accès SSH, utilisateur non-root
   ${C.cyn}VPS_SSH_KEY_PATH${C.r}            chemin de la clé privée de déploiement
   ${C.cyn}RESEND_API_KEY${C.r}              facultative — vide = invitations sans email
+  ${C.cyn}UMAMI_DOMAIN${C.r}                facultative — défaut \`stats.<WEB_DOMAIN>\`
 
-Les trois secrets HMAC/session sont générés au prochain passage : ne les
-saisissez pas. Premier passage conseillé : ${C.b}pnpm bootstrap --dry-run${C.r}.
+Les secrets — clés HMAC, secret de session, secrets Umami — sont générés au
+prochain passage : ne les saisissez pas, et n'ajoutez pas leurs lignes. Le
+script les écrira lui-même dans .env.deploy et les relira ensuite tels quels.
+Premier passage conseillé : ${C.b}pnpm bootstrap --dry-run${C.r}.
 `);
   process.exit(1);
 }
@@ -357,7 +400,11 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-ok(`${INPUT.length} variables saisies, conformes`);
+// Ce qui est réellement renseigné, pas la taille de `INPUT` : depuis que des
+// champs facultatifs existent, annoncer `INPUT.length` reviendrait à déclarer
+// « conformes » des lignes que personne n'a écrites.
+const filled = INPUT.filter((s) => (env.get(s.key) ?? "") !== "").length;
+ok(`${filled}/${INPUT.length} variables saisies, conformes${filled < INPUT.length ? ` — les ${INPUT.length - filled} autres sont facultatives et resteront à leur défaut` : ""}`);
 for (const [key, msg] of warnings) out(`  ${C.ylw}!${C.r} ${key} : ${msg}`);
 if (!env.get("RESEND_API_KEY")) info("RESEND_API_KEY vide — traitée plus bas, ce n'est pas une erreur");
 
@@ -401,19 +448,34 @@ if (!DRY && generated.size > 0) {
 const g = (k) => env.get(k) ?? "";
 const WEB_ORIGIN = `https://${g("WEB_DOMAIN")}`;
 const ADMIN_ORIGIN = `https://${g("ADMIN_DOMAIN")}`;
+// Le compose exige `UMAMI_DOMAIN`, et l'adoptant n'a aucune raison d'y avoir
+// pensé : `stats.<domaine du site>` est la convention du README §13. Un
+// sous-domaine n'engage rien tant que son DNS ne pointe pas sur le VPS.
+const UMAMI_DOMAIN = g("UMAMI_DOMAIN") || `stats.${g("WEB_DOMAIN")}`;
 
-// Les 7 variables de packages/backend/.env.example, dans son ordre.
+// Les variables de packages/backend/.env.example, dans son ordre.
 const CONVEX_VARS = [
   { name: "BETTER_AUTH_SECRET", value: g("BETTER_AUTH_SECRET"), secret: true },
   { name: "SITE_URL", value: ADMIN_ORIGIN }, // le dashboard : c'est lui qui porte la session Better Auth
   { name: "PREVIEW_SECRET", value: g("PREVIEW_SECRET"), secret: true },
   { name: "REVALIDATE_SECRET", value: g("REVALIDATE_SECRET"), secret: true },
   { name: "WEB_SITE_URL", value: WEB_ORIGIN }, // le site public : cible des POST /api/revalidate
+  // Les deux clés que `apps/web` présente à Convex depuis ses routes
+  // d'API. Convex les compare en temps constant (`convex/leads.ts`,
+  // `convex/consent.ts`) : une valeur posée d'un seul côté vaut une valeur
+  // absente, et la route se contente de refuser.
+  { name: "LEAD_SUBMIT_SECRET", value: g("LEAD_SUBMIT_SECRET"), secret: true },
+  { name: "CONSENT_LOG_SECRET", value: g("CONSENT_LOG_SECRET"), secret: true },
   { name: "RESEND_API_KEY", value: g("RESEND_API_KEY"), secret: true, optional: true },
   { name: "RESEND_TEST_MODE", value: g("RESEND_TEST_MODE") || "true" },
 ];
 
-// Les 9 secrets de docker/README.md §7, dans son ordre.
+// Les secrets de docker/README.md §7, dans son ordre. La liste ne couvre pas
+// `PUBLIC_UMAMI_WEBSITE_ID` ni les deux identifiants de pixels : aucune de
+// ces valeurs n'existe avant qu'un humain ait ouvert Umami ou la console de
+// l'annonceur, donc ce script n'a rien à en dire. Elles se posent à la main
+// (README §7 et §13), et leur absence est sans conséquence — le site ne
+// mesure alors rien et n'appelle aucun tiers.
 const GITHUB_SECRETS = [
   { name: "CONVEX_DEPLOY_KEY", value: g("CONVEX_DEPLOY_KEY"), secret: true },
   { name: "PUBLIC_CONVEX_URL", value: g("CONVEX_CLOUD_URL") },
@@ -486,7 +548,7 @@ if (SKIP_GITHUB) {
   skip("sauté (--skip-github)");
   summary.push(["GitHub", "sauté"]);
 } else if (!have("gh")) {
-  skip("`gh` introuvable — installer GitHub CLI, ou poser les 9 secrets à la main (docker/README.md §7)");
+  skip(`\`gh\` introuvable — installer GitHub CLI, ou poser les ${GITHUB_SECRETS.length} secrets à la main (docker/README.md §7)`);
   summary.push(["GitHub", "sauté — gh absent"]);
 } else if (run("gh", ["auth", "status"]).failed) {
   skip("`gh` non authentifié — lancer `gh auth login`");
@@ -501,7 +563,7 @@ if (SKIP_GITHUB) {
     info(`aucun remote git configuré ici — d'où \`--repo ${repo}\`, lu dans .env.deploy (GITHUB_REPOSITORY)`);
   }
 
-  // Deux des neuf secrets ne sont pas des valeurs saisies mais des fichiers.
+  // Deux de ces secrets ne sont pas des valeurs saisies mais des fichiers.
   const keyPath = expandHome(g("VPS_SSH_KEY_PATH"));
   const byName = new Map(GITHUB_SECRETS.map((s) => [s.name, s]));
   byName.get("VPS_SSH_KEY").value = readFileSync(keyPath, "utf8");
@@ -553,7 +615,7 @@ if (SKIP_GITHUB) {
     ok(`${s.name.padEnd(22)} ${alreadySet.has(s.name) ? "remplacé" : "posé    "} · ${describe(s.value, s.secret)}`);
     posed += 1;
   }
-  summary.push(["GitHub", DRY ? `${GITHUB_SECRETS.length} secrets vers ${repo} (dry-run)` : `${posed}/9 secrets posés sur ${repo}`]);
+  summary.push(["GitHub", DRY ? `${GITHUB_SECRETS.length} secrets vers ${repo} (dry-run)` : `${posed}/${GITHUB_SECRETS.length} secrets posés sur ${repo}`]);
 }
 
 // ── 5. `.env` de développement local ────────────────────────────────────────
@@ -664,13 +726,32 @@ VITE_CONVEX_URL=${g("CONVEX_CLOUD_URL")}
 VITE_CONVEX_SITE_URL=${g("CONVEX_SITE_URL")}
 
 # Clés HMAC, identiques à celles du déploiement Convex — c'est leur égalité
-# qui fait fonctionner la prévisualisation et l'invalidation de cache.
+# qui fait fonctionner la prévisualisation, l'invalidation de cache, le
+# formulaire de contact et le journal de consentement. Chacune est vérifiée
+# des deux côtés d'une frontière : divergente, elle ne dégrade pas, elle
+# refuse — en silence, du point de vue du visiteur.
 PREVIEW_SECRET=${g("PREVIEW_SECRET")}
 REVALIDATE_SECRET=${g("REVALIDATE_SECRET")}
+LEAD_SUBMIT_SECRET=${g("LEAD_SUBMIT_SECRET")}
+CONSENT_LOG_SECRET=${g("CONSENT_LOG_SECRET")}
+
+# ── Umami ───────────────────────────────────────────────────────────────────
+# Le sous-domaine du tableau de bord. Son DNS doit pointer sur ce VPS avant
+# le premier démarrage, comme les deux autres (quota Let's Encrypt).
+UMAMI_DOMAIN=${UMAMI_DOMAIN}
+
+# Secrets d'Umami : ils ne quittent jamais ce fichier — ni image, ni
+# build-arg, ni déploiement Convex. Changer UMAMI_DB_PASSWORD APRÈS le
+# premier démarrage ne change pas le mot de passe déjà écrit dans le volume
+# (Postgres ne l'applique qu'à l'initialisation) : il faut alors un
+# \`ALTER USER\` dans la base.
+UMAMI_DB_PASSWORD=${g("UMAMI_DB_PASSWORD")}
+UMAMI_APP_SECRET=${g("UMAMI_APP_SECRET")}
+UMAMI_TWO_FACTOR_ENCRYPTION_KEY=${g("UMAMI_TWO_FACTOR_ENCRYPTION_KEY")}
 `;
 
 if (DRY) {
-  skip(`.env.vps serait écrit (10 variables, dont 2 secrets) — ACME_CA_SERVER laissée commentée`);
+  skip(`.env.vps serait écrit — ACME_CA_SERVER laissée commentée`);
 } else {
   const unchanged = existsSync(VPS_FILE) && readFileSync(VPS_FILE, "utf8") === vpsContent;
   writeFileSync(VPS_FILE, vpsContent, { mode: 0o600 });

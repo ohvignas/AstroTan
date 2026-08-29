@@ -28,6 +28,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Les deux moitiés d'une variable d'environnement — celle qui la lit
+      # dans `apps/`, celle qui la pose dans le compose, un Dockerfile ou
+      # `deploy.yml` — sont le motif qui a produit presque tous les défauts
+      # de configuration de ce dépôt : la moitié manquante ne casse rien en
+      # développement et donne en production une panne muette. Ce contrôle
+      # les met face à face. Il ne dépend d'aucun paquet installé, d'où sa
+      # place avant tout le reste : il coûte une seconde et il échoue avec
+      # le nom de la variable et le fichier qui la lit.
+      - name: Check environment-variable wiring
+        run: node scripts/check-env-wiring.mjs
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -59,6 +70,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pour `scripts/check-env-wiring.mjs` plus bas. Le runner a déjà un
+      # Node, mais lequel dépend de l'image du runner : l'épingler ici évite
+      # qu'une montée de version d'`ubuntu-latest` change le comportement
+      # d'une étape qui n'a rien demandé. Aucune installation de dépendances
+      # n'est nécessaire — le script n'en a aucune.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - uses: docker/setup-buildx-action@v3
 
       # Seule l'image `admin` est construite ici. Celle du site exige un
@@ -88,19 +108,18 @@ jobs:
           cache-from: type=gha,scope=ci-admin
           cache-to: type=gha,mode=max,scope=ci-admin
 
-      # Ces variables sont exactement celles que `docker-compose.yml` exige
-      # par `${VAR:?message}` — ni plus, ni moins. `ACME_CA_SERVER` n'y est
-      # pas : elle a un défaut (`${VAR:-...}`), donc son absence est le cas
-      # normal et c'est bien celui qu'on veut valider ici.
+      # Les variables de cette validation étaient recopiées à la main ici, et
+      # elles avaient déjà divergé : l'arrivée d'Umami a ajouté quatre
+      # `${VAR:?}` au compose sans que cette liste bouge, et cette étape
+      # échouait donc pour de bon sur `UMAMI_DB_PASSWORD is missing a value`.
+      # Elles sont maintenant DÉRIVÉES du compose lui-même — la liste ne peut
+      # plus prendre de retard sur le fichier qu'elle est censée valider.
+      #
+      # Toutes les valeurs produites sont bidon et le restent : ce fichier ne
+      # sert qu'à prouver que l'interpolation aboutit. `ACME_CA_SERVER` n'y
+      # figure pas — elle a un défaut (`${VAR:-...}`), donc son absence est
+      # le cas normal, et c'est bien celui qu'on veut valider.
       - name: Validate the compose file
-        env:
-          GHCR_OWNER: ci
-          IMAGE_TAG: ci
-          WEB_DOMAIN: example.test
-          ADMIN_DOMAIN: admin.example.test
-          ACME_EMAIL: ci@example.test
-          VITE_CONVEX_URL: http://ci.invalid
-          VITE_CONVEX_SITE_URL: http://ci.invalid
-          PREVIEW_SECRET: ci-secret-at-least-32-characters-long
-          REVALIDATE_SECRET: ci-secret-at-least-32-characters-long
-        run: docker compose -f docker/docker-compose.yml config >/dev/null
+        run: |
+          node scripts/check-env-wiring.mjs --compose-env > compose-ci.env
+          docker compose --env-file compose-ci.env -f docker/docker-compose.yml config >/dev/null

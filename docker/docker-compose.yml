@@ -82,10 +82,35 @@ services:
     environment:
       # Secrets d'exécution, jamais dans l'image (contrainte globale) :
       # `.env` du VPS, jamais commité.
+      #
+      # Ces quatre-là sont exactement les `process.env.*` que le code servi
+      # lit au runtime — `src/lib/previewToken.ts`, `pages/api/revalidate.ts`,
+      # `pages/api/contact.ts`, `pages/api/consent.ts`. La liste est vérifiée
+      # à chaque CI par `node scripts/check-env-wiring.mjs` : en ajouter une
+      # dans le code sans l'ajouter ici fait échouer le job, parce que
+      # l'oubli inverse a déjà été payé (voir plus bas).
       PREVIEW_SECRET: ${PREVIEW_SECRET:?PREVIEW_SECRET is required}
       REVALIDATE_SECRET: ${REVALIDATE_SECRET:?REVALIDATE_SECRET is required}
+      # Clé HMAC du formulaire de contact, identique à celle posée sur
+      # Convex. ABSENTE, `pages/api/contact.ts` refuse CHAQUE envoi et
+      # redirige vers `/contact?erreur=indisponible` — le bon comportement de
+      # sécurité, et le pire symptôme à diagnostiquer : le formulaire est
+      # visible, il accepte la saisie, et il ne marche jamais. D'où le `:?`
+      # plutôt qu'un défaut vide : mieux vaut un `compose up` qui refuse de
+      # démarrer en nommant la variable qu'un site debout et muet.
+      LEAD_SUBMIT_SECRET: ${LEAD_SUBMIT_SECRET:?LEAD_SUBMIT_SECRET is required}
+      # Clé HMAC du journal de consentement, elle aussi identique côté
+      # Convex. Absente, `pages/api/consent.ts` répond 204 et n'écrit rien —
+      # alors que `src/config/consent.ts` pose `traceability.enabled: true`,
+      # donc que le navigateur POSTe bel et bien à chaque choix. La trace
+      # qu'on croit conserver n'existe alors nulle part, et aucune erreur ne
+      # le signale. Même raison pour le `:?` : la panne est silencieuse des
+      # deux côtés.
+      CONSENT_LOG_SECRET: ${CONSENT_LOG_SECRET:?CONSENT_LOG_SECRET is required}
       # `PUBLIC_CONVEX_URL` n'apparaît pas ici : Astro l'a figée dans le
-      # bundle au build (build-arg). La changer impose de reconstruire.
+      # bundle au build (build-arg). La changer impose de reconstruire. Idem
+      # pour `PUBLIC_UMAMI_*`, `PUBLIC_META_PIXEL_ID` et
+      # `PUBLIC_GOOGLE_TAG_ID` — voir docker/web.Dockerfile.
     networks: [edge]
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4321/api/health"]

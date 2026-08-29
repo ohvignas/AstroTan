@@ -49,6 +49,24 @@ ENV PUBLIC_UMAMI_WEBSITE_ID=$PUBLIC_UMAMI_WEBSITE_ID
 # fait sur la page. Voir README §13.10.
 ARG PUBLIC_UMAMI_RECORDER
 ENV PUBLIC_UMAMI_RECORDER=$PUBLIC_UMAMI_RECORDER
+
+# Les identifiants de traceurs soumis à consentement, lus par
+# `src/components/consent/ConsentBanner.astro` et
+# `src/components/consent/GoogleConsentMode.astro`. Mêmes propriétés que les
+# trois variables Umami ci-dessus, et pour les mêmes raisons : publiques par
+# construction, figées AU BUILD, facultatives.
+#
+# « Facultatives » ne veut pas dire « sans conséquence ». Tant qu'aucune des
+# deux n'est posée, `shouldAskConsent()` rend `false` : le bandeau ne
+# s'affiche jamais et `/cookies` affiche « Aucun ». C'est le comportement
+# légitime d'un site sans traceur — et c'est exactement ce qui rend leur
+# absence indétectable à l'œil. Avant cette version, elles n'étaient ni ici
+# ni dans `deploy.yml` : le parcours de consentement entier était
+# inatteignable dans l'image livrée, sans qu'aucun symptôme ne le dise.
+ARG PUBLIC_META_PIXEL_ID
+ENV PUBLIC_META_PIXEL_ID=$PUBLIC_META_PIXEL_ID
+ARG PUBLIC_GOOGLE_TAG_ID
+ENV PUBLIC_GOOGLE_TAG_ID=$PUBLIC_GOOGLE_TAG_ID
 RUN test -n "$PUBLIC_CONVEX_URL" || (echo "PUBLIC_CONVEX_URL build-arg is required" && exit 1)
 RUN pnpm --filter @astrotan/web build
 
