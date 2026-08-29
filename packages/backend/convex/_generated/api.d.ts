@@ -28,6 +28,7 @@ import type * as lib_consentRateLimit from "../lib/consentRateLimit.js";
 import type * as lib_expediteur from "../lib/expediteur.js";
 import type * as lib_leadCascade from "../lib/leadCascade.js";
 import type * as lib_leadRateLimit from "../lib/leadRateLimit.js";
+import type * as lib_originFingerprint from "../lib/originFingerprint.js";
 import type * as lib_ownerGuard from "../lib/ownerGuard.js";
 import type * as lib_passwordStrength from "../lib/passwordStrength.js";
 import type * as lib_previewToken from "../lib/previewToken.js";
@@ -85,6 +86,7 @@ declare const fullApi: ApiFromModules<{
   "lib/expediteur": typeof lib_expediteur;
   "lib/leadCascade": typeof lib_leadCascade;
   "lib/leadRateLimit": typeof lib_leadRateLimit;
+  "lib/originFingerprint": typeof lib_originFingerprint;
   "lib/ownerGuard": typeof lib_ownerGuard;
   "lib/passwordStrength": typeof lib_passwordStrength;
   "lib/previewToken": typeof lib_previewToken;

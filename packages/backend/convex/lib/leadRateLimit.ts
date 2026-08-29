@@ -26,16 +26,9 @@ import { HOUR, type RateLimitConfig } from "@convex-dev/rate-limiter"
 // quelqu'un d'autre. C'est le raisonnement de `signInRateLimit.ts`, et il
 // vaut ici pour les mêmes raisons.
 //
-// ## L'origine n'est jamais une adresse IP en clair
-//
-// La route Astro hache l'adresse avec le secret partagé avant de l'envoyer.
-// Convex ne reçoit donc jamais l'IP, seulement une empreinte stable qui ne
-// se remonte pas sans le secret. La politique de confidentialité annonce
-// que le formulaire ne conserve pas l'adresse IP : cette empreinte est ce
-// qui permet de tenir cette phrase tout en comptant les envois.
-
-/** L'origine quand la plateforme ne sait pas la résoudre. */
-export const ORIGINE_INCONNUE = "origine-inconnue"
+// La normalisation de l'origine elle-même (`origineDeComptage`) vit dans
+// `lib/originFingerprint.ts`, partagée avec `lib/consentRateLimit.ts` :
+// c'est une seule décision de sécurité, pas une par limiteur.
 
 export const LEAD_ORIGIN_LIMIT_NAME = "leadSubmitByOrigin"
 
@@ -72,18 +65,4 @@ export const LEAD_EMAIL_LIMIT_CONFIG: RateLimitConfig = {
   rate: 3,
   period: HOUR,
   capacity: 3,
-}
-
-/**
- * L'origine à compter, normalisée.
- *
- * Une chaîne vide, absente ou démesurée devient une constante partagée
- * plutôt qu'une clé unique : sans cela, il suffirait d'envoyer une origine
- * différente à chaque requête pour obtenir un budget neuf à chaque fois, et
- * le compteur ne compterait plus rien.
- */
-export function origineDeComptage(brute: string | undefined): string {
-  const valeur = brute?.trim() ?? ""
-  if (valeur.length === 0 || valeur.length > 128) return ORIGINE_INCONNUE
-  return valeur
 }

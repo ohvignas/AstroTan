@@ -23,8 +23,8 @@ import {
   LEAD_EMAIL_LIMIT_NAME,
   LEAD_ORIGIN_LIMIT_CONFIG,
   LEAD_ORIGIN_LIMIT_NAME,
-  origineDeComptage,
 } from "./lib/leadRateLimit"
+import { origineDeComptage } from "./lib/originFingerprint"
 import {
   LEAD_STATUSES,
   MAX_LEAD_BODY_LENGTH,

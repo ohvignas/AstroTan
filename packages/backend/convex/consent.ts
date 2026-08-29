@@ -28,8 +28,8 @@ import { RateLimiter } from "@convex-dev/rate-limiter"
 import {
   CONSENT_ORIGIN_LIMIT_CONFIG,
   CONSENT_ORIGIN_LIMIT_NAME,
-  origineDeComptage,
 } from "./lib/consentRateLimit"
+import { origineDeComptage } from "./lib/originFingerprint"
 
 /** Bornes de longueur : ces valeurs viennent d'un client, jamais de nous. */
 const MAX_ID_LENGTH = 64

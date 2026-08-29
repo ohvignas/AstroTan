@@ -1,31 +1,9 @@
 import { describe, expect, test } from "vitest"
-import {
-  LEAD_EMAIL_LIMIT_CONFIG,
-  LEAD_ORIGIN_LIMIT_CONFIG,
-  ORIGINE_INCONNUE,
-  origineDeComptage,
-} from "./leadRateLimit"
+import { LEAD_EMAIL_LIMIT_CONFIG, LEAD_ORIGIN_LIMIT_CONFIG } from "./leadRateLimit"
 
-describe("origineDeComptage", () => {
-  test("une origine absente ou vide tombe dans un seau commun", () => {
-    // Et surtout PAS dans une clé unique : une origine différente à chaque
-    // requête donnerait un budget neuf à chaque fois, et le compteur ne
-    // compterait plus rien.
-    expect(origineDeComptage(undefined)).toBe(ORIGINE_INCONNUE)
-    expect(origineDeComptage("")).toBe(ORIGINE_INCONNUE)
-    expect(origineDeComptage("   ")).toBe(ORIGINE_INCONNUE)
-  })
-
-  test("une origine démesurée aussi", () => {
-    // Même raison : une clé de longueur libre est une clé qu'on choisit.
-    expect(origineDeComptage("x".repeat(129))).toBe(ORIGINE_INCONNUE)
-  })
-
-  test("une empreinte normale est gardée telle quelle", () => {
-    const empreinte = "a".repeat(64)
-    expect(origineDeComptage(empreinte)).toBe(empreinte)
-  })
-})
+// `origineDeComptage`/`ORIGINE_INCONNUE` ont déménagé dans
+// `originFingerprint.ts`, partagées avec `consentRateLimit.ts` — leurs
+// tests avec elles, voir `originFingerprint.test.ts`.
 
 describe("les budgets", () => {
   test("aucune réserve ne s'accumule", () => {
