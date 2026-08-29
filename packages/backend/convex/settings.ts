@@ -255,6 +255,39 @@ function assertLength(value: string, max: number, field: string): void {
   }
 }
 
+/**
+ * Deux valeurs de réglage sont-elles la même ?
+ *
+ * `===` ne suffit pas : `defaultSeo` est un objet et `socials` un tableau,
+ * que le formulaire reconstruit à chaque envoi — deux références
+ * différentes pour un contenu identique. Et `JSON.stringify` ne suffit pas
+ * non plus, parce qu'il rend le résultat dépendant de l'ORDRE DES CLÉS, que
+ * ni le formulaire ni la base ne garantissent : le jour où il change, tous
+ * les envois se mettraient à déclarer un changement de SEO qui n'a pas eu
+ * lieu — exactement le défaut que cette comparaison existe pour supprimer.
+ *
+ * `undefined === undefined` est vrai, et c'est voulu : effacer un champ
+ * déjà absent ne change rien.
+ */
+function memeValeur(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a === null || b === null || a === undefined || b === undefined) return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((item, index) => memeValeur(item, b[index]))
+  }
+  if (typeof a === "object" && typeof b === "object") {
+    const clesA = Object.keys(a).sort()
+    const clesB = Object.keys(b).sort()
+    if (clesA.length !== clesB.length) return false
+    if (clesA.some((cle, index) => cle !== clesB[index])) return false
+    return clesA.every((cle) =>
+      memeValeur((a as Record<string, unknown>)[cle], (b as Record<string, unknown>)[cle]),
+    )
+  }
+  return false
+}
+
 export const update = mutation({
   args: {
     siteName: v.optional(v.string()),
@@ -280,15 +313,6 @@ export const update = mutation({
     // Site-wide settings are not an editor's call: the name, the logo and
     // the SEO defaults apply to every page at once.
     const acteur = await requireRole(ctx, ["owner", "admin"])
-
-    // Les NOMS des champs touchés, relevés avant toute normalisation :
-    // `args` est réassigné plus bas, et le journal doit dire ce que
-    // l'appel a demandé. Jamais les VALEURS — `leadWebhookSecret` est le
-    // secret qui signe chaque envoi de webhook, et un journal se relit
-    // longtemps après, souvent par plus de monde que cet écran. Le client
-    // Convex supprime les champs `undefined` avant l'envoi, donc ces clés
-    // sont exactement les champs soumis.
-    const champsTouches = Object.keys(args).sort().join(", ")
 
     if (args.siteName !== undefined) {
       const siteName = args.siteName.trim()
@@ -360,12 +384,36 @@ export const update = mutation({
     }
 
     const existing = await ctx.db.query("settings").first()
-    // Dans la même mutation que l'écriture — voir `lib/auditEvent.ts`.
-    await journaliser(ctx, {
-      acteur,
-      action: "settings.update",
-      detail: champsTouches || undefined,
-    })
+
+    // Ce qui a RÉELLEMENT changé, et non ce qui a été soumis.
+    //
+    // Les écrans envoient toujours le formulaire entier : `identite.tsx`
+    // renvoie `{ siteName, logoId, iconId }` à chaque pause de frappe
+    // (sauvegarde automatique, 1,5 s), et `webhook.tsx` renvoie toujours
+    // l'URL ET le secret. Nommer les champs soumis faisait donc dire au
+    // journal, à chaque renommage du site, que le logo avait changé — et à
+    // chaque correction d'URL, que le secret de signature avait été
+    // remplacé. Une ligne qui affirme un geste qui n'a pas eu lieu rend le
+    // journal FAUX, ce qui est pire qu'incomplet, et le champ accusé à tort
+    // était le plus sensible de la table.
+    //
+    // Les noms, jamais les valeurs : le journal dit que le secret a changé,
+    // il ne dit pas ce qu'il vaut.
+    const avant = existing as Record<string, unknown> | null
+    const champsModifies = Object.keys(patch)
+      .filter((champ) => !memeValeur(avant?.[champ], (patch as Record<string, unknown>)[champ]))
+      .sort()
+
+    // Dans la même mutation que l'écriture — voir `lib/auditEvent.ts`. Rien
+    // n'est écrit quand rien n'a changé : une sauvegarde automatique qui
+    // repasse les mêmes valeurs n'est pas un geste.
+    if (champsModifies.length > 0) {
+      await journaliser(ctx, {
+        acteur,
+        action: "settings.update",
+        detail: champsModifies.join(", "),
+      })
+    }
     if (existing) {
       await ctx.db.patch(existing._id, patch)
       return existing._id

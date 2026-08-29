@@ -333,3 +333,88 @@ test("sans session, le journal est inatteignable", async () => {
   const t = makeTestConvex()
   await expect(t.query(api.auditLog.list, {})).rejects.toThrow()
 })
+
+// --- Les formes que les écrans envoient VRAIMENT -------------------------
+//
+// `settings.update` reçoit toujours un formulaire entier, jamais un champ
+// isolé : `identite.tsx` envoie `{ siteName, logoId, iconId }` à chaque
+// pause de frappe (sauvegarde automatique, 1,5 s), et `webhook.tsx` envoie
+// toujours l'URL ET le secret. Un journal qui nomme les champs SOUMIS
+// affirme donc à chaque ligne que le logo et le secret de signature ont
+// changé. C'est le défaut que ce fichier refuse partout ailleurs, avec sa
+// propre formule : une ligne qui affirme un geste qui n'a pas eu lieu rend
+// le journal faux, ce qui est pire qu'incomplet.
+
+test("renommer le site ne fait pas dire au journal que le logo a changé", async () => {
+  const t = makeTestConvex()
+  const { identity } = await seedActor(t)
+
+  // La forme exacte d'`identite.tsx`, `null` compris — pas `{ siteName }`,
+  // que cet écran n'envoie jamais.
+  await identity.mutation(api.settings.update, {
+    siteName: "Premier nom",
+    logoId: null,
+    iconId: null,
+  })
+  await identity.mutation(api.settings.update, {
+    siteName: "Second nom",
+    logoId: null,
+    iconId: null,
+  })
+
+  const toutes = await lignes(t)
+  expect(toutes.map((l) => l.detail)).toEqual(["siteName", "siteName"])
+})
+
+test("changer la seule URL du webhook n'affirme pas que le secret de signature a changé", async () => {
+  const t = makeTestConvex()
+  const { identity } = await seedActor(t)
+
+  // La forme exacte de `webhook.tsx` : les deux champs, toujours.
+  await identity.mutation(api.settings.update, {
+    leadWebhookUrl: "https://exemple.fr/hook",
+    leadWebhookSecret: SECRET_WEBHOOK,
+  })
+  await identity.mutation(api.settings.update, {
+    leadWebhookUrl: "https://exemple.fr/autre-hook",
+    leadWebhookSecret: SECRET_WEBHOOK,
+  })
+
+  const toutes = await lignes(t)
+  expect(toutes).toHaveLength(2)
+  // Le secret n'a pas bougé : le journal ne doit pas le nommer, parce que
+  // c'est le champ le plus sensible de la table et qu'une ligne qui
+  // l'accuse à tort envoie chercher une compromission qui n'a pas eu lieu.
+  expect(toutes[1]!.detail).toBe("leadWebhookUrl")
+})
+
+test("une sauvegarde automatique qui ne change rien n'écrit aucune ligne", async () => {
+  const t = makeTestConvex()
+  const { identity } = await seedActor(t)
+
+  const formulaire = { siteName: "Mon site", logoId: null, iconId: null } as const
+  await identity.mutation(api.settings.update, formulaire)
+  await identity.mutation(api.settings.update, formulaire)
+  await identity.mutation(api.settings.update, formulaire)
+
+  // Une seule ligne pour trois envois : la première écriture a changé
+  // quelque chose, les deux suivantes non.
+  expect(await lignes(t)).toHaveLength(1)
+})
+
+test("un champ de structure ne compte comme changé que si son contenu diffère", async () => {
+  const t = makeTestConvex()
+  const { identity } = await seedActor(t)
+
+  // `defaultSeo` et `socials` sont un objet et un tableau. Les comparer par
+  // `JSON.stringify` ferait dépendre le résultat de l'ordre des clés, que
+  // ni le formulaire ni la base ne garantissent.
+  const seo = { title: "Titre", description: "Description" }
+  await identity.mutation(api.settings.update, { defaultSeo: seo, socials: [] })
+  await identity.mutation(api.settings.update, {
+    defaultSeo: { description: "Description", title: "Titre" },
+    socials: [],
+  })
+
+  expect(await lignes(t)).toHaveLength(1)
+})
