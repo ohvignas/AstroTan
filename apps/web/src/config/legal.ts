@@ -151,7 +151,10 @@ export const processings: Processing[] = [
     purpose: "Enregistrer le choix exprimé sur les cookies",
     data:
       "Le choix lui-même, sa date, la version de la politique acceptée, et un " +
-      "identifiant d'appareil aléatoire",
+      "identifiant d'appareil aléatoire. S'ajoute une empreinte de votre " +
+      "adresse IP — le condensé de cette adresse et d'un secret, jamais " +
+      "l'adresse elle-même — qui sert uniquement à limiter le nombre " +
+      "d'enregistrements et à arrêter les rafales automatisées",
     basis: "Obligation légale — pouvoir prouver le consentement",
     // La durée est LUE dans la configuration du bandeau plutôt que recopiée :
     // un adoptant qui passe `expirationDays` à 182 (la recommandation de la

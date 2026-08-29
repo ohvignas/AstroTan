@@ -24,11 +24,33 @@ const MAX_BODY_BYTES = 2_048
 
 const ACTIONS = new Set(["accept_all", "reject_all", "custom", "update"])
 
+/**
+ * L'empreinte de l'adresse du visiteur, pour compter les enregistrements.
+ *
+ * Même construction qu'à `/api/contact` (`empreinteOrigine`, dans
+ * `api/contact.ts`) : une EMPREINTE part, jamais l'adresse. La politique de
+ * confidentialité annonce que le site n'en conserve pas, et le secret
+ * partagé entre dans le condensé pour que l'empreinte ne soit pas
+ * reversible sans lui.
+ *
+ * Dupliquée plutôt que partagée avec `/api/contact` : huit lignes de
+ * `crypto.subtle`, sans état, sans dépendance propre à l'une ou l'autre
+ * route — extraire un module commun pour ça ajouterait un couplage entre
+ * deux routes indépendantes sans rien retirer de réel.
+ */
+async function empreinteOrigine(adresse: string, secret: string): Promise<string> {
+  const octets = new TextEncoder().encode(`${adresse}|${secret}`)
+  const digest = await crypto.subtle.digest("SHA-256", octets)
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+}
+
 function accepted(): Response {
   return new Response(null, { status: 204 })
 }
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, clientAddress }) => {
   const secret = process.env.CONSENT_LOG_SECRET
   if (!secret) return accepted()
 
@@ -63,6 +85,9 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   try {
+    // L'adresse ne quitte jamais ce processus : seule son empreinte part.
+    // C'est elle qui sert de clé au compteur d'enregistrements, côté Convex.
+    const origin = await empreinteOrigine(clientAddress, secret)
     await getConvexClient().mutation(api.consent.record, {
       secret,
       consentVersion: body.consentVersion,
@@ -73,6 +98,7 @@ export const POST: APIRoute = async ({ request }) => {
       analytics: body.analytics,
       marketing: body.marketing,
       preferences: body.preferences,
+      origin,
     })
   } catch {
     // Un journal indisponible ne doit pas empêcher quelqu'un d'exprimer un

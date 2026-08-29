@@ -17,19 +17,30 @@
 // navigateur ne parle jamais ici. Il poste sur `/api/consent`, qui détient
 // le secret partagé et l'ajoute côté serveur.
 import { v } from "convex/values"
+import { ConvexError } from "convex/values"
 import { mutation, query } from "./_generated/server"
-import { api } from "./_generated/api"
+import { api, components } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
 import { requireRole } from "./lib/authz"
 import { consentActionValidator } from "./validators"
 import { assertSharedSecret } from "./lib/sharedSecret"
-
-
+import { RateLimiter } from "@convex-dev/rate-limiter"
+import {
+  CONSENT_ORIGIN_LIMIT_CONFIG,
+  CONSENT_ORIGIN_LIMIT_NAME,
+  origineDeComptage,
+} from "./lib/consentRateLimit"
 
 /** Bornes de longueur : ces valeurs viennent d'un client, jamais de nous. */
 const MAX_ID_LENGTH = 64
 const MAX_VERSION_LENGTH = 32
 const MAX_TIMESTAMP_LENGTH = 32
+
+// Même montage que dans `leads.ts` : la configuration est statique ici, le
+// contexte Convex n'arrive qu'à l'appel.
+const limiteur = new RateLimiter(components.rateLimiter, {
+  [CONSENT_ORIGIN_LIMIT_NAME]: CONSENT_ORIGIN_LIMIT_CONFIG,
+})
 
 export const record = mutation({
   args: {
@@ -42,6 +53,13 @@ export const record = mutation({
     analytics: v.boolean(),
     marketing: v.boolean(),
     preferences: v.boolean(),
+    /**
+     * Une EMPREINTE de l'adresse du visiteur, jamais l'adresse elle-même —
+     * même construction qu'à `leads.submit`. Optionnel : un appelant qui ne
+     * la fournit pas tombe dans un seau commun, il n'obtient pas un budget
+     * neuf.
+     */
+    origin: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Haché des deux côtés avant comparaison, comme `leads.submit` et
@@ -68,13 +86,27 @@ export const record = mutation({
     // où quelqu'un quitte la page ; un navigateur peut la rejouer, et deux
     // lignes pour un seul clic feraient mentir le journal sur ce qui s'est
     // passé.
+    //
+    // La vérification passe AVANT la limite de débit, volontairement : un
+    // rejeu ne crée pas de ligne, il ne doit pas non plus consommer le
+    // budget d'une personne qui n'a rien reposté elle-même.
     const existing = await ctx.db
       .query("consentRecords")
       .withIndex("by_consent", (q) => q.eq("consentId", args.consentId))
       .first()
     if (existing !== null) return existing._id
 
-    const { secret: _ignore, ...row } = args
+    // Second chemin d'écriture public du backend, avec `leads.submit` : sans
+    // cette limite, poster N `consentId` distincts insère N lignes. Une
+    // seule clé ici, l'origine — voir `lib/consentRateLimit.ts` pour
+    // pourquoi une seconde clé (sur `visitorId`) n'apporterait rien.
+    const origine = origineDeComptage(args.origin)
+    const verdict = await limiteur.limit(ctx, CONSENT_ORIGIN_LIMIT_NAME, { key: origine })
+    if (!verdict.ok) {
+      throw new ConvexError({ code: "RATE_LIMITED", retryAfter: verdict.retryAfter })
+    }
+
+    const { secret: _ignore, origin: _origin, ...row } = args
     return ctx.db.insert("consentRecords", row)
   },
 })

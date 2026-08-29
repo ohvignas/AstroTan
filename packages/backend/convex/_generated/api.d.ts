@@ -24,6 +24,7 @@ import type * as invitations from "../invitations.js";
 import type * as leads from "../leads.js";
 import type * as lib_auditEvent from "../lib/auditEvent.js";
 import type * as lib_authz from "../lib/authz.js";
+import type * as lib_consentRateLimit from "../lib/consentRateLimit.js";
 import type * as lib_expediteur from "../lib/expediteur.js";
 import type * as lib_leadCascade from "../lib/leadCascade.js";
 import type * as lib_leadRateLimit from "../lib/leadRateLimit.js";
@@ -80,6 +81,7 @@ declare const fullApi: ApiFromModules<{
   leads: typeof leads;
   "lib/auditEvent": typeof lib_auditEvent;
   "lib/authz": typeof lib_authz;
+  "lib/consentRateLimit": typeof lib_consentRateLimit;
   "lib/expediteur": typeof lib_expediteur;
   "lib/leadCascade": typeof lib_leadCascade;
   "lib/leadRateLimit": typeof lib_leadRateLimit;
