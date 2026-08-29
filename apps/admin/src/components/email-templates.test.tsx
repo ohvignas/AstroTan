@@ -1,27 +1,29 @@
 // L'écran « Envoi des emails » : la clé, l'adresse d'expédition, et
 // l'accordéon de ce qui part.
 //
-// Quatre de ces tests gardent des décisions qui ne se voient pas dans le
+// Trois de ces tests gardent des décisions qui ne se voient pas dans le
 // code — elles se voient à l'écran, ou nulle part :
 //
 //   1. l'interrupteur d'un email non désactivable est inerte, et cette
 //      inertie se VOIT — cadenas, mention « Toujours actif ». Le serveur
 //      refuse déjà (`emails.setActif` lève `EMAIL_NON_DESACTIVABLE`) ;
 //      l'écran ne doit ni proposer le geste, ni plaider la décision ;
-//   2. le mode d'essai est visible sans rien déplier — c'est la panne la
-//      plus silencieuse de ce déploiement : Resend accepte tout et ne
-//      délivre rien, et c'est la valeur par défaut ;
-//   3. le refus d'un gabarit s'affiche AVANT l'enregistrement. Le serveur
+//   2. le refus d'un gabarit s'affiche AVANT l'enregistrement. Le serveur
 //      refuse de toute façon, mais découvrir le refus après le clic fait
 //      perdre le texte qu'on vient d'écrire ;
-//   4. replier une ligne modifiée passe par une question. C'est la seconde
+//   3. replier une ligne modifiée passe par une question. C'est la seconde
 //      porte par laquelle un texte se perdait, et elle ne traverse aucun
 //      routeur — `useUnsavedChangesGuard` ne la voit pas.
 //
-// Un cinquième garde la refonte elle-même : cet écran ne montre que des
+// Un quatrième garde la refonte elle-même : cet écran ne montre que des
 // ÉTATS, des ÉTIQUETTES et des ACTIONS. Aucune commande shell, aucune
 // leçon d'architecture. C'est ce qui se réintroduit le plus facilement, une
 // phrase à la fois, et un test est la seule chose qui le remarque.
+//
+// « Mode d'essai — aucun email n'est délivré. » et « Aucune clé Resend —
+// rien ne part. » ne sont plus de ceux-là : la bannière qui les portait
+// (`EtatEnvoi`) a été retirée sur décision explicite. Voir le rapport de
+// retrait plutôt qu'un test disparu sans explication.
 //
 // Comme le reste d'`apps/admin`, on rend en `renderToStaticMarkup` et on
 // lit le HTML : `vitest.config.ts` est en `environment: "node"`, il n'y a
@@ -36,7 +38,6 @@ import type { CleEmail } from "@astrotan/backend/convex/lib/catalogueEmails"
 import {
   ChampAdresseExpedition,
   EditeurGabarit,
-  EtatEnvoi,
   ListeEmails,
   SectionCleResend,
   actionSurLigne,
@@ -105,47 +106,11 @@ function bloc(patch: Partial<SecretsBloc> = {}): SecretsBloc {
 }
 
 // ---------------------------------------------------------------------
-// L'état de l'envoi — la première question de l'écran
-// ---------------------------------------------------------------------
-
-describe("EtatEnvoi", () => {
-  test("le mode d'essai dit la conséquence, sans rien expliquer", () => {
-    // Ce qui compte est qu'aucun email n'arrive. Le nom de la variable, le
-    // fait que Resend réponde « envoyé » et la commande qui en sort sont
-    // vrais et sans effet sur un geste possible depuis ce dashboard : ils
-    // vivent en commentaire dans `email-templates.tsx`.
-    const html = renderToStaticMarkup(<EtatEnvoi testMode />)
-    expect(html).toMatch(/mode d(&#x27;|')essai/i)
-    expect(html).toMatch(/aucun email n(&#x27;|')est délivré/i)
-  })
-
-  test("une clé absente est un état, au même endroit", () => {
-    const html = renderToStaticMarkup(<EtatEnvoi testMode={false} cleAbsente />)
-    expect(html).toMatch(/aucune clé resend/i)
-  })
-
-  test("les deux pannes tiennent ensemble : en corriger une ne suffit pas", () => {
-    // Le piège, sinon : on pose la clé, la ligne rouge disparaît, et rien
-    // n'est délivré pour autant.
-    const html = renderToStaticMarkup(<EtatEnvoi testMode cleAbsente />)
-    expect(html).toMatch(/mode d(&#x27;|')essai/i)
-    expect(html).toMatch(/aucune clé resend/i)
-  })
-
-  test("tout va bien : une ligne calme, et pas de silence", () => {
-    const html = renderToStaticMarkup(<EtatEnvoi testMode={false} />)
-    expect(html).toMatch(/envois réels/i)
-    expect(html).not.toMatch(/mode d(&#x27;|')essai/i)
-  })
-})
-
-// ---------------------------------------------------------------------
 // La refonte, gardée : des états, des étiquettes, des actions
 // ---------------------------------------------------------------------
 
 describe("l'écran n'explique rien", () => {
   const morceaux = (): [string, string][] => [
-    ["EtatEnvoi", renderToStaticMarkup(<EtatEnvoi testMode cleAbsente />)],
     [
       "SectionCleResend",
       renderToStaticMarkup(<SectionCleResend secrets={bloc()} />),

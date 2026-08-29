@@ -36,7 +36,7 @@ import type { SecretsBloc } from "@/components/settings-environment"
 // de ce qu'elle y lirait. Trois formes sont donc admises à l'écran, et
 // rien d'autre :
 //
-//   • un ÉTAT — « Absent », « Mode d'essai », « Personnalisé » ;
+//   • un ÉTAT — « Absent », « Personnalisé » ;
 //   • une ÉTIQUETTE — « Clé Resend », « Adresse d'expédition » ;
 //   • une ACTION — « Enregistrer », « Modifier le texte ».
 //
@@ -60,8 +60,11 @@ import type { SecretsBloc } from "@/components/settings-environment"
 //     la panne atteint chaque adoptant, une fois, au pire moment. Elle est
 //     lue dans le constructeur du client Resend : elle ne se règle que dans
 //     l'environnement Convex, jamais depuis un champ. L'écran n'en dit plus
-//     que la conséquence — « aucun email n'est délivré » — parce que c'est
-//     la seule moitié dont on puisse faire quelque chose ;
+//     rien du tout — ni la variable, ni sa conséquence : retrait demandé
+//     après explication du risque (le mode d'essai est le défaut de tout
+//     déploiement neuf, et rien à l'écran ne le signale plus). `EtatEnvoi`,
+//     qui portait cette ligne et celle de la clé Resend absente, a disparu
+//     avec elle ;
 //   • la PRÉCÉDENCE environnement / base — `convex/lib/resend.ts` construit
 //     son client via le lecteur unique `secrets.lireSecret`, qui préfère la
 //     variable d'environnement quand elle existe et retombe sinon sur la
@@ -216,75 +219,23 @@ export function actionSurLigne({
 }
 
 // ---------------------------------------------------------------------
-// L'état de l'envoi — la première question de l'écran
-// ---------------------------------------------------------------------
-
-/**
- * « Est-ce que ça peut partir ? », en une ligne.
- *
- * Deux états suffisent à répondre non, et ils sont indépendants : le mode
- * d'essai (Resend accepte et ne délivre pas) et l'absence de clé (rien
- * n'est même tenté). Ils s'affichent ensemble quand les deux tiennent —
- * en corriger un ne suffirait pas, et n'annoncer que le premier ferait
- * croire le contraire.
- */
-export function EtatEnvoi({
-  testMode,
-  cleAbsente = false,
-}: {
-  testMode: boolean
-  /** `false` aussi quand on ne peut pas savoir (editor) : on n'affirme rien. */
-  cleAbsente?: boolean
-}) {
-  if (!testMode && !cleAbsente) {
-    return (
-      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span
-          aria-hidden="true"
-          className="size-1.5 shrink-0 rounded-full bg-muted-foreground/60"
-        />
-        Envois réels.
-      </p>
-    )
-  }
-  return (
-    // `role="alert"` : ce sont des états du déploiement qui invalident tout
-    // ce que la page permet de régler en dessous, et ils doivent s'annoncer
-    // à qui n'a pas le rendu visuel.
-    <div role="alert" className="flex flex-col gap-1">
-      {testMode ? (
-        <p className="flex items-center gap-2 text-sm text-destructive">
-          <span
-            aria-hidden="true"
-            className="size-1.5 shrink-0 rounded-full bg-destructive"
-          />
-          Mode d&apos;essai — aucun email n&apos;est délivré.
-        </p>
-      ) : null}
-      {cleAbsente ? (
-        <p className="flex items-center gap-2 text-sm text-destructive">
-          <span
-            aria-hidden="true"
-            className="size-1.5 shrink-0 rounded-full bg-destructive"
-          />
-          Aucune clé Resend — rien ne part.
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------
 // La clé, et l'adresse d'expédition
+//
+// `EtatEnvoi` vivait juste au-dessus : « Mode d'essai — aucun email n'est
+// délivré. » et « Aucune clé Resend — rien ne part. », retirées sur
+// décision explicite — prise après avoir dit que plus rien, ensuite, ne
+// signalerait le mode d'essai, qui est pourtant le défaut de tout
+// déploiement neuf. Voir le rapport de retrait. `cleResendAbsente` (calcul
+// de la seconde ligne) est parti avec elle, dans
+// `routes/_authed/settings/emails.tsx`.
 // ---------------------------------------------------------------------
 
 /**
  * `RESEND_API_KEY` — la seule interface de saisie de cette clé du dépôt.
  *
  * Aucune PHRASE sous le champ : le titre du groupe traduit le nom
- * technique, la pastille de `SecretField` donne l'état, et `EtatEnvoi` dit
- * en haut de page ce qu'on perd quand elle manque. Une explication de plus
- * ici ne dirait qu'une quatrième fois la même chose.
+ * technique, et la pastille de `SecretField` donne l'état. Une explication
+ * de plus ici ne dirait qu'une seconde fois la même chose.
  *
  * Un LIEN, en revanche, fait quelque chose qu'aucune de ces trois ne fait :
  * il mène à l'endroit où la clé se fabrique. Sans lui, la personne qui

@@ -8,7 +8,6 @@ import { describeSettingsError } from "@/lib/settingsErrors"
 import {
   ChampAdresseExpedition,
   EditeurGabarit,
-  EtatEnvoi,
   ListeEmails,
   SectionCleResend,
   actionSurLigne,
@@ -42,17 +41,21 @@ export const Route = createFileRoute("/_authed/settings/emails")({
 type Settings = FunctionReturnType<typeof api.settings.getPrivate>
 
 // ---------------------------------------------------------------------
-// L'écran qui répond à trois questions, dans cet ordre, et à rien d'autre :
+// L'écran qui répond à deux questions, dans cet ordre, et à rien d'autre :
 //
-//   1. est-ce que ça peut partir ?    → `EtatEnvoi` + la clé Resend
-//   2. de la part de qui ?            → l'adresse d'expédition
-//   3. qu'est-ce qui part ?           → l'accordéon des emails
+//   1. de la part de qui ?            → la clé Resend, l'adresse d'expédition
+//   2. qu'est-ce qui part ?           → l'accordéon des emails
 //
-// TROIS SOURCES, et aucune ne dit ce que disent les autres :
+// Une bannière répondait autrefois à une troisième question — « est-ce que
+// ça peut partir ? », via `settings.environment` (le mode d'essai) combiné
+// à l'état de la clé. Retirée sur décision explicite : voir le rapport de
+// retrait. `settings.environment` n'est donc plus lu par cet écran — la
+// query existe toujours côté Convex, pour `/settings/domaine` et
+// `/settings/mesure`, qui la lisent chacun pour leur propre raison.
+//
+// DEUX SOURCES restantes, et aucune ne dit ce que dit l'autre :
 //
 //   • `secrets.status` — ce qui est rangé EN BASE, chiffré ;
-//   • `settings.environment` — ce que porte l'ENVIRONNEMENT du déploiement,
-//     en booléens (dont le mode d'essai, que rien d'autre ne sait) ;
 //   • `emails.list` — le catalogue des envois, enrichi de ce que l'adoptant
 //     en a changé.
 //
@@ -71,10 +74,9 @@ type Settings = FunctionReturnType<typeof api.settings.getPrivate>
 function EmailsRoute() {
   const { loading, canWrite, secrets } = useSecretsAccess()
   const settings = useQuery(api.settings.getPrivate)
-  const environment = useQuery(api.settings.environment)
   const emails = useQuery(api.emails.list, canWrite ? {} : "skip")
 
-  if (loading || settings === undefined || environment === undefined) {
+  if (loading || settings === undefined) {
     return <SettingsLoading />
   }
   if (canWrite && (secrets === undefined || emails === undefined)) {
@@ -84,8 +86,6 @@ function EmailsRoute() {
   return (
     <EmailsForm
       settings={settings}
-      testMode={environment.resend.testMode}
-      resendConfigure={environment.resend.configured}
       secrets={secrets}
       emails={emails ?? []}
       canWrite={canWrite}
@@ -93,40 +93,13 @@ function EmailsRoute() {
   )
 }
 
-/**
- * « Aucune clé Resend », affirmé seulement quand on le SAIT.
- *
- * Deux logements possibles et indépendants : l'environnement du
- * déploiement, et la table chiffrée (`convex/secrets.ts`). Une ligne en
- * base devenue illisible — la clé maîtresse a changé — ne compte pas :
- * `lireSecret` ne la déchiffre plus, donc rien ne partira.
- *
- * Un editor n'a pas accès à `secrets.status` : `cleMaitresse` est alors
- * `null`, on ne sait rien, et on n'annonce donc pas une panne qui
- * n'existe peut-être pas.
- */
-function cleResendAbsente(
-  secrets: ReturnType<typeof useSecretsAccess>["secrets"],
-  resendConfigure: boolean
-): boolean {
-  if (secrets === undefined || secrets.cleMaitresse === null) return false
-  if (resendConfigure) return false
-  const etat = secrets.etats["RESEND_API_KEY"]
-  if (etat === undefined) return true
-  return !etat.environnement && !(etat.base && !etat.illisible)
-}
-
 function EmailsForm({
   settings,
-  testMode,
-  resendConfigure,
   secrets,
   emails,
   canWrite,
 }: {
   settings: Settings
-  testMode: boolean
-  resendConfigure: boolean
   secrets: ReturnType<typeof useSecretsAccess>["secrets"]
   emails: readonly EmailAffiche[]
   canWrite: boolean
@@ -168,19 +141,13 @@ function EmailsForm({
       autoSave={autoSave}
       unsavedLabel="L'adresse d'expédition"
     >
-      {/* Question 1, en tête et en une ligne : tant que le mode d'essai
-          tient, rien de ce qui se règle en dessous ne produit un email
-          reçu. */}
-      <EtatEnvoi
-        testMode={testMode}
-        cleAbsente={cleResendAbsente(secrets, resendConfigure)}
-      />
-
+      {/* Question 1 : de la part de qui. La clé d'abord, l'adresse
+          ensuite — l'ordre dans lequel un envoi les utilise. */}
       {secrets === undefined ? null : <SectionCleResend secrets={secrets} />}
 
-      {/* Question 2. Sans titre de groupe : le libellé du champ le porte
-          déjà, et l'écrire deux fois à trois lignes d'intervalle est
-          exactement le doublon que `SettingsGroup` évite ailleurs. */}
+      {/* Sans titre de groupe : le libellé du champ le porte déjà, et
+          l'écrire deux fois à trois lignes d'intervalle est exactement le
+          doublon que `SettingsGroup` évite ailleurs. */}
       <SettingsGroup>
         <ChampAdresseExpedition
           valeur={emailFrom}
@@ -197,7 +164,7 @@ function EmailsForm({
         />
       </SettingsGroup>
 
-      {/* Question 3. */}
+      {/* Question 2. */}
       <SettingsGroup title="Ce que ce site envoie">
         {canWrite ? (
           <ListeEmailsConnectee emails={emails} />
