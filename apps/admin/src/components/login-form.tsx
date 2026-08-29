@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useNavigate } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,11 +15,16 @@ import { authClient } from "@/lib/auth-client"
 
 // Adapted from shadcn's `login-03` block: dropped the OAuth buttons (the
 // backend only enables `emailAndPassword` — packages/backend/convex/auth.ts
-// — so those buttons would go nowhere), the "Forgot your password?" link
-// (no reset flow exists yet — a link nobody can complete is worse than no
-// link), and "Don't have an account? Sign up" (`disableSignUp: true` on the
-// server; accounts only ever come from an invitation). What's left is the
-// one thing this screen actually does.
+// — so those buttons would go nowhere) and "Don't have an account? Sign up"
+// (`disableSignUp: true` on the server; accounts only ever come from an
+// invitation). What's left is the one thing this screen actually does.
+//
+// The "Forgot your password?" link was dropped too, for as long as no reset
+// flow existed — a link nobody can complete is worse than no link. It is
+// back now that `/forgot-password` is a real screen, and it is the ONLY way
+// anyone finds that screen: nothing else in this application links to it,
+// and someone locked out is by definition someone who cannot look for it
+// from the inside.
 export function LoginForm({ className, ...props }: React.ComponentProps<"div">) {
   const navigate = useNavigate()
   const [email, setEmail] = useState("")
@@ -62,7 +67,15 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"div">) 
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="password">Mot de passe</FieldLabel>
+                <div className="flex items-center justify-between gap-2">
+                  <FieldLabel htmlFor="password">Mot de passe</FieldLabel>
+                  <Link
+                    to="/forgot-password"
+                    className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+                  >
+                    Mot de passe oublié ?
+                  </Link>
+                </div>
                 <Input
                   id="password"
                   type="password"
