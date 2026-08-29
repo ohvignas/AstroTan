@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/dialog"
 import { GripVerticalIcon, Trash2Icon } from "lucide-react"
 import { evenementAnnulationDnd } from "@/lib/dragRescue"
+import { describeLeadError } from "@/lib/leadErrors"
 
 export const Route = createFileRoute("/_authed/leads")({
   component: LeadsPage,
@@ -192,6 +193,9 @@ function LeadsPage() {
   // alors sur `<body>`, et déplacer la fiche suivante demande de
   // retraverser toute la page. Personne ne déplace une seule fiche.
   const [aRefocaliser, setARefocaliser] = useState<Id<"leads"> | null>(null)
+  // Le refus du serveur, montré à l'écran. Sans lui, un déplacement rejeté
+  // est indiscernable d'un geste raté.
+  const [erreur, setErreur] = useState<string | null>(null)
 
   const sensors = useSensors(
     // Huit pixels avant qu'un appui devienne un glissement : sans cette
@@ -334,11 +338,28 @@ function LeadsPage() {
     setSurvolee(null)
     const lead = litCarte(event.active.data.current)
     const status = event.over?.id as LeadStatus | undefined
+
+    // Trace temporaire, lue depuis le journal du serveur de développement
+    // (`[Client]`). Elle répond à la seule question qu'on ne peut pas
+    // trancher en lisant le code : le dépôt a-t-il désigné une colonne, ou
+    // `over` est-il nul ?
+    console.warn(
+      `[drag] fiche=${lead?.name ?? "?"} depuis=${lead?.status ?? "?"} vers=${status ?? "AUCUNE"}`,
+    )
+
     // Lâcher une carte dans sa propre colonne ne doit pas écrire : ce
     // serait une mutation pour rien, et une ligne d'historique qui ne
     // raconte rien.
     if (lead && status && status !== lead.status) {
-      void move({ id: lead._id, status })
+      // Un `void` sur cette promesse renvoyait l'échec au néant : la carte
+      // revenait à sa place sans un mot, et rien à l'écran ne distinguait
+      // « refusé par le serveur » de « je n'ai pas visé la bonne colonne ».
+      // C'est la classe de défaut que tout ce chantier corrige : une
+      // moitié qui échoue en silence.
+      move({ id: lead._id, status }).catch((err: unknown) => {
+        console.warn("[drag] la mutation a échoué", err)
+        setErreur(describeLeadError(err))
+      })
       // Seulement au clavier : à la souris, le focus n'a pas bougé et le
       // déplacer d'autorité ferait sauter l'écran sous le curseur.
       if (event.activatorEvent instanceof KeyboardEvent) setARefocaliser(lead._id)
@@ -351,13 +372,22 @@ function LeadsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4">
       <div className="flex items-baseline justify-between">
         <h1 className="text-xl font-semibold">Leads</h1>
         <p className="text-sm text-muted-foreground">
           {total} {total > 1 ? "personnes" : "personne"}
         </p>
       </div>
+
+      {erreur !== null && (
+        <p
+          role="alert"
+          className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          {erreur}
+        </p>
+      )}
 
       <DndContext
         sensors={sensors}
@@ -384,7 +414,9 @@ function LeadsPage() {
               canDelete={canDelete}
               aRefocaliser={aRefocaliser}
               onOpen={setOpenLead}
-              onRemove={(id) => void remove({ id })}
+              onRemove={(id) =>
+                remove({ id }).catch((err: unknown) => setErreur(describeLeadError(err)))
+              }
             />
           ))}
         </div>

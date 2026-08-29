@@ -27,13 +27,25 @@ function AppShellContent({ children }: { children: ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar profile={profile} />
-      <SidebarInset>
+      {/* `min-w-0` sur les deux conteneurs, et ce n'est pas cosmétique.
+          Un élément flex a `min-width: auto` par défaut : il refuse de
+          devenir plus étroit que son contenu. Le tableau des leads a cinq
+          colonnes et son propre `overflow-x-auto` — sans cette contrainte,
+          il n'était jamais clippé : il élargissait l'inset, qui élargissait
+          la page, et le navigateur ajoutait SA barre de défilement par
+          dessus celle du tableau. D'où les deux barres, dont une qui
+          emporte toute la page.
+
+          Posé ici plutôt que sur l'écran des leads : n'importe quel écran
+          avec un tableau large rouvrirait le même défaut, et personne ne
+          ferait le lien. */}
+      <SidebarInset className="min-w-0">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 h-4" />
           <span className="text-sm font-medium">Administration</span>
         </header>
-        <div className="flex flex-1 flex-col gap-4 p-4">{children}</div>
+        <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   )
