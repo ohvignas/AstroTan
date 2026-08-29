@@ -292,8 +292,11 @@ les secrets GitHub, les \`.env\` locaux, et produit \`.env.vps\`.
 
   --dry-run        montre tout ce qui serait fait, n'écrit rien, n'appelle
                    ni gh ni convex. Recommandé au premier passage.
-  --skip-convex    saute l'étape Convex
+  --skip-convex    saute l'étape Convex (variables ET contenu initial)
   --skip-github    saute l'étape des secrets GitHub
+  --skip-seed      saute la création du contenu initial. À n'utiliser que
+                   sur un déploiement dont les lignes \`pages\` existent
+                   déjà : sans elles, TOUTES les URL du site répondent 404.
   --help
 
 Le fichier d'autorité sur l'exploitation reste \`docker/README.md\`.
@@ -303,8 +306,9 @@ Le fichier d'autorité sur l'exploitation reste \`docker/README.md\`.
 const DRY = argv.includes("--dry-run");
 const SKIP_CONVEX = argv.includes("--skip-convex");
 const SKIP_GITHUB = argv.includes("--skip-github");
+const SKIP_SEED = argv.includes("--skip-seed");
 for (const a of argv) {
-  if (!["--dry-run", "--skip-convex", "--skip-github"].includes(a)) {
+  if (!["--dry-run", "--skip-convex", "--skip-github", "--skip-seed"].includes(a)) {
     bad(`option inconnue : ${a} — voir \`pnpm bootstrap --help\``);
     process.exit(2);
   }
@@ -495,6 +499,37 @@ const GITHUB_SECRETS = [
   { name: "VPS_SSH_KNOWN_HOSTS", source: "ssh-keyscan", secret: true },
 ];
 
+// La clé de déploiement suffit à désigner le déploiement visé : c'est
+// exactement ce que fait `deploy.yml`. Aucun CONVEX_DEPLOYMENT local n'est
+// requis, et aucune valeur ne passe par argv — `convex env set NAME` sans
+// valeur lit son entrée sur stdin. Partagée par les étapes 3 et 7, qui
+// visent le même déploiement avec les mêmes identifiants.
+const convexEnv = { CONVEX_DEPLOY_KEY: g("CONVEX_DEPLOY_KEY") };
+
+/**
+ * Appelle une function Convex par la CLI, avec la clé de déploiement.
+ *
+ * Les arguments passent par argv, à la différence de `convex env set` juste
+ * au-dessus : ce ne sont pas des secrets (un slug, une adresse email), et
+ * `convex run` ne sait de toute façon pas les lire ailleurs.
+ */
+function convexRun(name, args) {
+  return run(CONVEX_BIN, args === undefined ? ["run", name] : ["run", name, JSON.stringify(args)], {
+    cwd: BACKEND_DIR,
+    env: convexEnv,
+  });
+}
+
+/**
+ * Vrai quand l'échec dit « cette function n'existe pas sur le déploiement ».
+ *
+ * C'est le cas NORMAL d'une première exécution : `convex deploy` est la
+ * première étape du workflow `Deploy`, et il n'a pas encore tourné. La
+ * distinguer d'une vraie panne est ce qui permet à l'étape 7 de dire quoi
+ * faire au lieu d'afficher une erreur qui ressemble à une casse.
+ */
+const functionsNotDeployed = (res) => /Could not find (public )?function/i.test(`${res.stderr}\n${res.stdout}`);
+
 const summary = [];
 
 // ── 3. Déploiement Convex ───────────────────────────────────────────────────
@@ -508,11 +543,6 @@ if (SKIP_CONVEX) {
   skip(`binaire convex absent (${CONVEX_BIN}) — lancer \`pnpm install\` d'abord`);
   summary.push(["Convex", "sauté — dépendances non installées"]);
 } else {
-  // La clé de déploiement suffit à désigner le déploiement visé : c'est
-  // exactement ce que fait `deploy.yml`. Aucun CONVEX_DEPLOYMENT local n'est
-  // requis, et aucune valeur ne passe par argv — `convex env set NAME` sans
-  // valeur lit son entrée sur stdin.
-  const convexEnv = { CONVEX_DEPLOY_KEY: g("CONVEX_DEPLOY_KEY") };
   let posed = 0;
   for (const v of CONVEX_VARS) {
     if (v.optional && !v.value) {
@@ -776,6 +806,69 @@ out(`
     ${C.cyn}ssh ${g("VPS_USER")}@${g("VPS_HOST")} 'chmod 600 ~/astrotan/.env'${C.r}
 `);
 
+// ── 7. Contenu initial ──────────────────────────────────────────────────────
+
+title("7 · Contenu initial — `convex run seed:demoContent`");
+
+// Malgré son nom, `seed:demoContent` n'est pas de la décoration. C'est le
+// SEUL code du dépôt qui crée des lignes `pages` — les sept slugs du
+// template, dont les trois pages réglementaires — et la ligne `settings`
+// qui porte `homePageSlug`.
+//
+// Une page est un couple : son fichier `.astro` ET sa ligne (invariant 5 de
+// CLAUDE.md — l'administration décide qui doit trouver la page, jamais ce
+// qu'elle contient). Sans les lignes, un déploiement dont le pipeline est
+// vert et dont les conteneurs sont `healthy` sert `/` en corps 404 et
+// répond 404 sur les sept autres URL. Rien, nulle part, ne dit que c'est
+// un amorçage manquant plutôt qu'une panne : c'est précisément pour ça que
+// cette étape est ici et non dans une ligne de README.
+//
+// Idempotent par slug : le relancer ne change rien et saute toute ligne
+// existante, ce qui est ce qui rend ce script rejouable sans condition.
+
+if (SKIP_CONVEX || SKIP_SEED) {
+  skip(`sauté (${SKIP_CONVEX ? "--skip-convex" : "--skip-seed"}) — sans les lignes \`pages\`, toutes les URL du site répondent 404`);
+  summary.push(["Contenu", "sauté"]);
+} else if (!existsSync(CONVEX_BIN)) {
+  skip(`binaire convex absent — lancer \`pnpm install\` d'abord`);
+  summary.push(["Contenu", "sauté — dépendances non installées"]);
+} else if (DRY) {
+  skip(`seed:demoContent   ${CONVEX_BIN} run seed:demoContent   ${C.dim}(idempotent par slug)${C.r}`);
+  summary.push(["Contenu", "seed:demoContent (dry-run)"]);
+} else {
+  const res = convexRun("seed:demoContent");
+  if (res.failed && functionsNotDeployed(res)) {
+    // Le seul ordre possible sur une installation neuve : ce script tourne
+    // AVANT le premier déploiement, et `convex deploy` (première étape du
+    // workflow `Deploy`) est ce qui met les functions sur le déploiement.
+    // D'où le rappel n° 6 de l'épilogue, et d'où l'exigence que ce script
+    // soit rejouable.
+    skip("seed:demoContent n'est pas encore sur le déploiement — normal avant le premier `convex deploy`");
+    info("relancez `pnpm bootstrap` après le premier déploiement : cette étape sera alors la seule qui reste");
+    summary.push(["Contenu", "à refaire après le premier déploiement"]);
+  } else if (res.failed) {
+    bad(`seed:demoContent a échoué — ${res.stderr.split("\n").at(-1) || `code ${res.code}`}`);
+    summary.push(["Contenu", "échec"]);
+  } else {
+    // La function rend `{tags, pages, posts, author}` : ce qu'elle a
+    // RÉELLEMENT créé, zéro compris. Un « 0 page créée » sur un
+    // déploiement déjà amorcé est la bonne nouvelle, pas un échec, et
+    // l'afficher évite d'avoir à le deviner.
+    let compte = null;
+    try {
+      compte = JSON.parse(res.stdout);
+    } catch {
+      /* La CLI a changé sa sortie : on garde le succès, on perd le détail. */
+    }
+    ok(
+      compte
+        ? `seed:demoContent  ${compte.pages} page(s), ${compte.posts} article(s), ${compte.tags} tag(s) créé(s)${compte.pages === 0 ? `  ${C.dim}— déjà amorcé, rien à faire${C.r}` : ""}`
+        : "seed:demoContent  exécuté",
+    );
+    summary.push(["Contenu", compte ? `${compte.pages} page(s) créée(s)` : "exécuté"]);
+  }
+}
+
 // ── Récapitulatif ───────────────────────────────────────────────────────────
 
 title(DRY ? "Récapitulatif — RIEN N'A ÉTÉ FAIT (--dry-run)" : "Récapitulatif");
@@ -797,4 +890,10 @@ ${C.b}Ce qui reste à votre charge${C.r} — le script ne peut pas le faire pour
      volume astrotan_acme.                           ${C.dim}docker/README.md §5${C.r}
   5. ${C.cyn}Premier déploiement${C.r} — pousser sur main et regarder le workflow
      Deploy.                                         ${C.dim}docker/README.md §8${C.r}
+  6. ${C.cyn}Relancer \`pnpm bootstrap\`${C.r} — une fois, après ce premier
+     déploiement. C'est \`convex deploy\` qui met les functions sur le
+     déploiement ; avant lui, l'étape 7 ci-dessus n'a rien à appeler. Ce
+     second passage ne repose aucun secret : il crée les lignes \`pages\`
+     sans lesquelles TOUTES les URL du site répondent 404.
+                                                     ${C.dim}docker/README.md §8${C.r}
 ${DRY ? `\n${C.ylw}Relancez sans --dry-run pour appliquer.${C.r}` : ""}`);
