@@ -170,7 +170,11 @@ export async function nomDeLAuteur(
  *   • aucune valeur de jeton, même tronquée ;
  *   • aucune donnée personnelle d'une personne qu'on vient précisément
  *     d'effacer (`leads.remove`) — l'inscrire ici défairait l'effacement
- *     que `dataSubject.ts` promet.
+ *     que `/confidentialite` promet. (Correctif 4 : cette ligne citait
+ *     `dataSubject.ts`, qui n'efface rien — il n'exporte que
+ *     `exportByEmail`/`exportByVisitor`, en lecture seule. L'effacement
+ *     lui-même vit dans `leads.remove`, la mutation qui écrit cette
+ *     ligne de journal.)
  */
 export async function journaliser(
   ctx: MutationCtx,

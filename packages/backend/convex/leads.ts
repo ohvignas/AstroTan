@@ -426,9 +426,11 @@ export const remove = mutation({
 
     await ctx.db.delete(args.id)
     // L'IDENTIFIANT de la fiche, et rien d'autre : ni l'adresse, ni le nom.
-    // `/confidentialite` promet l'effacement et `dataSubject.ts` le rend
-    // exécutable ; recopier ici l'adresse d'une personne qu'on vient
-    // d'effacer le défairait, dans une table qui, elle, ne s'efface pas.
+    // `/confidentialite` promet l'effacement et CETTE MUTATION (`leads.remove`,
+    // ci-dessus) le rend exécutable — pas `dataSubject.ts`, qui n'exporte
+    // que `exportByEmail`/`exportByVisitor`, en lecture seule, et n'efface
+    // rien. Recopier ici l'adresse d'une personne qu'on vient d'effacer
+    // défairait cet effacement, dans une table qui, elle, ne s'efface pas.
     // Le journal répond à « qui a supprimé une fiche, et quand » — la
     // question qu'on ne peut pas reconstituer autrement — sans avoir
     // besoin de répondre à « laquelle ».
