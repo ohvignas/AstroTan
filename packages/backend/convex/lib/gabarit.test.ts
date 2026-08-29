@@ -110,16 +110,24 @@ describe("rendreTexte", () => {
 })
 
 describe("rendreHtml", () => {
-  test("échappe les valeurs, jamais le gabarit", () => {
+  test("échappe les valeurs ET le gabarit", () => {
+    // Le `<p>` vient du gabarit et le `<script>` de la valeur : les deux
+    // sont du texte saisi, aucun des deux n'est du balisage. Le gabarit
+    // sortait autrefois intact d'ici — c'est ce qui faisait disparaître
+    // l'adresse du visiteur de la notification de lead.
     expect(rendreHtml("<p>{{nom}}</p>", { nom: "<script>x</script>" }, "leadNotification")).toBe(
-      "<p>&lt;script&gt;x&lt;/script&gt;</p>",
+      "&lt;p&gt;&lt;script&gt;x&lt;/script&gt;&lt;/p&gt;",
     )
   })
 
   test("une valeur ne peut pas fermer un attribut", () => {
-    expect(
-      rendreHtml('<a href="{{lien}}">x</a>', { lien: '"><script>' }, "invitation"),
-    ).not.toContain("<script>")
+    // Le gabarit n'ouvre plus d'attribut : son `href="` est du texte
+    // désormais, et la valeur n'a donc plus rien à fermer. Les deux
+    // protections tiennent quand même, et le rendu ne contient aucun `<` —
+    // pas une seule balise, ni du gabarit ni de la valeur.
+    const html = rendreHtml('<a href="{{lien}}">x</a>', { lien: '"><script>' }, "invitation")
+    expect(html).not.toContain("<")
+    expect(html).toBe("&lt;a href=&quot;&quot;&gt;&lt;script&gt;&quot;&gt;x&lt;/a&gt;")
   })
 
   test("une valeur ne peut pas introduire une variable", () => {
@@ -270,11 +278,14 @@ describe("rendreHtml — mise en lien", () => {
     expect(html).toBe('Notre site : <a href="https://exemple.fr">https://exemple.fr</a>')
   })
 
-  test("une URL déjà dans un attribut du gabarit n'est pas re-liée", () => {
-    // Un adoptant qui écrit son ancre à la main obtiendrait sinon une ancre
-    // dans une ancre — du HTML cassé là où sa version marchait.
+  test("une URL écrite comme un attribut du gabarit n'est pas mise en lien", () => {
+    // L'adoptant qui tape une ancre à la main la voit maintenant en toutes
+    // lettres : son gabarit est du texte, il est échappé. La garde reste
+    // utile pour autant — sans elle, l'URL au milieu de ce texte-là
+    // deviendrait cliquable, un lien vivant au milieu de ce que le lecteur
+    // voit comme du code.
     const html = rendreHtml('<a href="https://exemple.fr">clic</a>', {}, "invitation")
-    expect(html).toBe('<a href="https://exemple.fr">clic</a>')
+    expect(html).toBe("&lt;a href=&quot;https://exemple.fr&quot;&gt;clic&lt;/a&gt;")
   })
 })
 
@@ -283,5 +294,83 @@ describe("rendreTexte — inchangé", () => {
     const texte = rendreTexte(RESET.corpsParDefaut, { lien: "https://x.fr/y" })
     expect(texte).toContain("https://x.fr/y")
     expect(texte).not.toContain("<a")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Le gabarit est du TEXTE. Ce qu'il contient s'affiche ; il ne se rend pas.
+// ---------------------------------------------------------------------------
+
+/**
+ * Ce qu'un navigateur AFFICHE d'un fragment HTML : balises retirées, entités
+ * décodées.
+ *
+ * Sans ce dépouillement, ces tests ne prouveraient rien. Le bug qu'ils
+ * gardent — l'adresse du visiteur absente de la notification HTML — laisse
+ * `ada@exemple.fr` PRÉSENT dans la chaîne : c'est `<ada@exemple.fr>` que le
+ * navigateur lit comme une balise inconnue et n'affiche pas. Un `toContain`
+ * sur le HTML brut passerait au vert sur l'email cassé.
+ *
+ * Modeste et suffisant : le HTML de ces trois emails n'a que des `<p>` et des
+ * `<a>`, tous produits par le code. `&amp;` en dernier, sinon `&amp;lt;`
+ * redeviendrait `<`.
+ */
+function texteAffiche(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+}
+
+describe("rendreHtml — le gabarit est échappé comme les valeurs", () => {
+  test("le corps par défaut de la notification affiche l'adresse du visiteur", () => {
+    // Le bug, observé dans un navigateur et non déduit : `{{nom}}
+    // <{{email}}>` vient du TEXTE du gabarit, chevrons compris. Le gabarit
+    // partant en HTML sans échappement, le navigateur lisait
+    // `<ada@exemple.fr>` comme une balise inconnue et n'affichait rien —
+    // un administrateur recevait la notification sans savoir à qui répondre.
+    const html = rendreHtml(
+      LEAD.corpsParDefaut,
+      {
+        nom: "Ada Lovelace",
+        email: "ada@exemple.fr",
+        sujet: "Bonjour",
+        message: "Un message.",
+        lien: "https://admin.exemple.fr/leads",
+      },
+      "leadNotification",
+    )
+    expect(texteAffiche(html)).toContain("Ada Lovelace <ada@exemple.fr>")
+  })
+
+  test("un gabarit contenant `<script>` ne produit aucune balise", () => {
+    // L'adoptant a un compte, mais un gabarit est du texte STOCKÉ qui finit
+    // dans un email : le laisser injecter du HTML rouvre une classe entière.
+    // Il écrit du texte, il doit obtenir du texte — `<b>` affiche `<b>`, il
+    // ne met rien en gras.
+    const html = rendreHtml("<script>alert(1)</script> et <b>gras</b>", {}, "invitation")
+    expect(html).not.toContain("<script")
+    expect(html).not.toContain("<b>")
+    expect(texteAffiche(html)).toBe("<script>alert(1)</script> et <b>gras</b>")
+  })
+
+  test("un adoptant qui tape des chevrons dans son propre texte les voit", () => {
+    // La moitié de la réponse serait de retirer les chevrons du corps par
+    // défaut. Elle ne suffit pas : celui qui les tape dans son texte
+    // rencontrerait le même bug, et lui n'aurait personne pour le lui
+    // expliquer.
+    const html = rendreHtml("Écrivez à <contact@exemple.fr>", {}, "invitation")
+    expect(texteAffiche(html)).toBe("Écrivez à <contact@exemple.fr>")
+  })
+
+  test("échapper n'empêche pas de mettre en lien, dans le même segment", () => {
+    // L'échappement s'insère dans l'ordre existant, il ne le remplace pas :
+    // l'URL est toujours repérée sur le texte BRUT, et seuls les morceaux
+    // qui l'entourent sont échappés.
+    const html = rendreHtml("Voir <https://exemple.fr/x>", {}, "invitation")
+    expect(html).toBe('Voir &lt;<a href="https://exemple.fr/x">https://exemple.fr/x</a>&gt;')
+    expect(texteAffiche(html)).toBe("Voir <https://exemple.fr/x>")
   })
 })

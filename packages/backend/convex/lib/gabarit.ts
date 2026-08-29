@@ -40,6 +40,22 @@
 // (`VARIABLES_DE_CONFIANCE`, `lib/catalogueEmails.ts`) deviennent des ancres
 // `<a href>` ; toute autre valeur reste du texte échappé, parce qu'elle vient
 // d'Internet. Le raisonnement complet est sur `rendreHtml`.
+//
+// **Le gabarit est du TEXTE, pas du HTML — et il est échappé comme les
+// valeurs.** L'adoptant écrit un email en clair dans un champ de
+// l'administration ; il n'écrit pas de balises, et il ne doit pas pouvoir en
+// écrire. Un gabarit contenant `<b>` affiche les caractères `<b>`, il ne met
+// rien en gras. Ce n'est pas une règle nouvelle : c'est celle des valeurs,
+// appliquée à la seule partie qui y avait échappé.
+//
+// Ce point-là est une correction, pas une décision d'origine. Le gabarit
+// partait d'abord en HTML intact, et le corps par défaut de
+// `leadNotification` — `{{nom}} <{{email}}>`, chevrons venus du texte du
+// gabarit — faisait lire `<ada@exemple.fr>` au navigateur comme une balise
+// inconnue : **l'adresse du visiteur disparaissait de la partie HTML**, et
+// l'administrateur recevait une notification sans savoir à qui répondre.
+// Retirer les chevrons du corps livré aurait masqué ce cas-là sans corriger
+// celui de l'adoptant qui en tape dans son propre texte.
 
 import { VARIABLES_DE_CONFIANCE, type CleEmail, type DescriptionEmail } from "./catalogueEmails"
 import { isSafeHref } from "./safeHref"
@@ -138,12 +154,13 @@ export function rendreTexte(gabarit: string, valeurs: Record<string, string>): s
 }
 
 /**
- * La même substitution, mais chaque valeur échappée — et les URL mises en
- * lien, segment par segment.
+ * La même substitution, mais tout échappé — et les URL mises en lien,
+ * segment par segment.
  *
- * Le gabarit, lui, n'est pas échappé : ce n'est pas du HTML saisi.
- * L'objet et le corps sont du texte brut, et c'est le code qui compose le
- * HTML autour.
+ * **Tout** : les valeurs, et le texte du gabarit avec elles. L'objet et le
+ * corps sont saisis en clair dans un champ de l'administration ; c'est le
+ * code qui compose le HTML autour, et personne d'autre. Un gabarit qui
+ * contient `<b>` produit les caractères `<b>`.
  *
  * **Pourquoi la mise en lien se fait ICI et pas sur la chaîne finale.**
  * L'email d'invitation et celui de réinitialisation n'existent que pour leur
@@ -157,14 +174,18 @@ export function rendreTexte(gabarit: string, valeurs: Record<string, string>): s
  * ne peut plus distinguer les deux : d'où la mise en lien pendant la
  * substitution, où l'on sait encore d'où vient chaque caractère.
  *
- * Trois provenances, trois traitements :
+ * Trois provenances. Toutes échappées ; deux mises en lien, une jamais :
  *
  * - **le texte du gabarit** — écrit depuis l'administration, par quelqu'un
- *   qui a un compte : mis en lien ;
+ *   qui a un compte : échappé, puis mis en lien ;
  * - **une valeur de confiance** — `VARIABLES_DE_CONFIANCE[cle]`, celles que
- *   le serveur construit : échappée puis mise en lien ;
+ *   le serveur construit : échappée, puis mise en lien ;
  * - **toute autre valeur** — elle vient d'Internet : échappée, jamais mise
  *   en lien.
+ *
+ * L'échappement ne remplace pas la mise en lien, il s'insère dedans :
+ * `lier` repère l'URL sur le texte **brut**, puis n'échappe que ce qui
+ * l'entoure. Une URL du serveur reste donc cliquable, chevrons ou pas.
  *
  * `cle` est un paramètre **obligatoire**, et c'est délibéré : une valeur par
  * défaut ferait d'un appel oublié un email au lien mort, découvert par la
@@ -192,16 +213,13 @@ export function rendreHtml(
   for (const correspondance of gabarit.matchAll(MOTIF_VARIABLE)) {
     const nom = correspondance[1] ?? ""
     const debut = correspondance.index
-    sortie += lier(gabarit.slice(curseur, debut), telQuel)
+    sortie += lier(gabarit.slice(curseur, debut))
     const rendue = valeur(valeurs, nom)
-    sortie += deConfiance.includes(nom) ? lier(rendue, escapeHtml) : escapeHtml(rendue)
+    sortie += deConfiance.includes(nom) ? lier(rendue) : escapeHtml(rendue)
     curseur = debut + correspondance[0].length
   }
-  return sortie + lier(gabarit.slice(curseur), telQuel)
+  return sortie + lier(gabarit.slice(curseur))
 }
-
-/** Le gabarit part en HTML sans être échappé — voir `rendreHtml`. */
-const telQuel = (texte: string): string => texte
 
 // Un seul schéma, et pas par prudence excessive : `javascript:` traverse
 // `escapeHtml` sans une égratignure (il n'y a ni `<`, ni `>`, ni guillemet à
@@ -214,25 +232,29 @@ const MOTIF_URL = /https:\/\/[^\s<>"'`]+/g
 // souvent une parenthèse ouverte DANS l'URL.
 const PONCTUATION_FINALE = ".,;:!?»…"
 
-// Une URL précédée d'un `=` ou d'un guillemet est déjà dans un attribut :
-// c'est l'adoptant qui a écrit son ancre à la main. La mettre en lien
-// produirait une ancre dans une ancre — du HTML cassé là où sa version
-// marchait.
+// Une URL précédée d'un `=` ou d'un guillemet est écrite comme un attribut :
+// l'adoptant a tapé son ancre à la main, ou cité l'URL entre guillemets.
+// Depuis que le gabarit est échappé, son `<a href="…">` s'affiche tel quel,
+// en texte — et c'est justement pourquoi la garde reste : mettre en lien
+// l'URL qui est DANS ce texte donnerait un lien cliquable au milieu de ce
+// que le lecteur voit comme du code. Ce qu'il a tapé reste ce qu'il lit.
 const AVANT_UN_ATTRIBUT = /["'=]/
 
 /**
- * Les URL d'un segment transformées en ancres, le reste passé à `echapper`.
+ * Les URL d'un segment transformées en ancres, le reste échappé.
  *
- * `echapper` distingue les deux provenances qui ont droit au lien : le texte
- * du gabarit sort tel quel (c'est déjà ce que faisait `rendreHtml`), une
- * valeur de confiance sort échappée.
+ * Un seul échappement pour les deux provenances qui ont droit au lien — le
+ * texte du gabarit et une valeur de confiance : depuis que le gabarit est
+ * échappé lui aussi, il n'y a plus rien à distinguer ici. La distinction de
+ * confiance vit entièrement dans `rendreHtml`, qui décide seul QUI passe par
+ * cette fonction ; une valeur venue d'Internet n'y entre jamais.
  *
  * L'URL est repérée sur le texte **brut**, puis échappée pour le `href` ET
  * pour le texte de l'ancre. C'est le bon ordre : `?a=1&b=2` devient
  * `?a=1&amp;b=2`, qui est la forme correcte d'un `&` dans un attribut — le
  * navigateur la redécode avant de suivre le lien.
  */
-function lier(texte: string, echapper: (v: string) => string): string {
+function lier(texte: string): string {
   let sortie = ""
   let curseur = 0
   for (const correspondance of texte.matchAll(MOTIF_URL)) {
@@ -243,12 +265,12 @@ function lier(texte: string, echapper: (v: string) => string): string {
     // plus les caractères de contrôle et les URL que `new URL` rejette.
     if (url.length === 0 || !isSafeHref(url)) continue
     if (AVANT_UN_ATTRIBUT.test(texte.slice(debut - 1, debut))) continue
-    sortie += echapper(texte.slice(curseur, debut))
+    sortie += escapeHtml(texte.slice(curseur, debut))
     const href = escapeHtml(url)
     sortie += `<a href="${href}">${href}</a>`
     curseur = debut + url.length
   }
-  return sortie + echapper(texte.slice(curseur))
+  return sortie + escapeHtml(texte.slice(curseur))
 }
 
 /**
@@ -283,7 +305,9 @@ function valeur(valeurs: Record<string, string>, nom: string): string {
 }
 
 /**
- * `&`, `<`, `>` et `"` échappés : le corps du message vient d'Internet.
+ * `&`, `<`, `>` et `"` échappés : rien de ce qui entre dans le rendu HTML
+ * n'est du balisage — ni la valeur, qui vient d'Internet, ni le gabarit, que
+ * l'adoptant a tapé en clair dans un champ.
  *
  * Ces quatre-là suffisent à l'usage exact qu'en fait ce dépôt — du texte
  * entre balises, et des attributs à **guillemets doubles**. L'apostrophe
