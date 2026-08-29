@@ -3,11 +3,21 @@ import { CATALOGUE } from "./catalogueEmails"
 
 describe("CATALOGUE", () => {
   test("décrit exactement les emails que ce dépôt envoie", () => {
-    // Deux, et deux seulement. Better Auth n'envoie rien : ni
-    // réinitialisation, ni vérification d'adresse, ni changement d'email —
-    // aucun n'est monté dans `auth.ts`. Si l'un l'est un jour, ce test
-    // échoue, et c'est le rappel qu'il faut l'ajouter ici aussi.
-    expect(CATALOGUE.map((e) => e.cle)).toEqual(["invitation", "leadNotification"])
+    // Trois, et trois seulement. Better Auth n'en envoie aucun lui-même : ni
+    // vérification d'adresse, ni changement d'email — rien de tout ça n'est
+    // monté dans `auth.ts`. Si un quatrième l'est un jour, ce test échoue,
+    // et c'est le rappel qu'il faut l'ajouter ici aussi.
+    expect(CATALOGUE.map((e) => e.cle)).toEqual(["invitation", "leadNotification", "passwordReset"])
+  })
+
+  test("la réinitialisation est au catalogue, et n'est pas désactivable", () => {
+    // Même raisonnement que l'invitation : couper cet email retire le
+    // dernier chemin de récupération d'un déploiement où l'inscription est
+    // fermée. Un interrupteur ici est un verrouillage à retardement.
+    const reset = CATALOGUE.find((e) => e.cle === "passwordReset")!
+    expect(reset).toBeDefined()
+    expect(reset.desactivable).toBe(false)
+    expect(reset.variablesObligatoires).toContain("lien")
   })
 
   test("l'invitation n'est pas désactivable, et dit pourquoi", () => {

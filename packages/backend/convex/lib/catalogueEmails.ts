@@ -1,19 +1,22 @@
 // Le catalogue des emails que ce dépôt envoie, décrit à un seul endroit.
 //
-// Deux envois aujourd'hui : `invitations.sendInvitationEmail` et
-// `leads.notifyStaff`. Better Auth n'en envoie aucun — `auth.ts` ne monte ni
-// `sendResetPassword`, ni `emailVerification.sendVerificationEmail`, ni les
-// plugins `magicLink`/`emailOTP` ; son propre commentaire (ligne ~655) le dit
-// déjà. Un troisième envoi qui apparaîtrait un jour dans le code sans être
-// ajouté ici ferait échouer le premier test de `catalogueEmails.test.ts` —
-// c'est voulu, c'est le rappel.
+// Trois envois aujourd'hui : `invitations.sendInvitationEmail`,
+// `leads.notifyStaff`, et la réinitialisation de mot de passe
+// (`passwordReset`) — le seul chemin de récupération d'un déploiement où
+// l'inscription est fermée. Better Auth n'envoie aucun de ces trois
+// lui-même — `auth.ts` ne monte ni `sendResetPassword`, ni
+// `emailVerification.sendVerificationEmail`, ni les plugins
+// `magicLink`/`emailOTP` ; son propre commentaire (ligne ~655) le dit déjà.
+// Un quatrième envoi qui apparaîtrait un jour dans le code sans être ajouté
+// ici ferait échouer le premier test de `catalogueEmails.test.ts` — c'est
+// voulu, c'est le rappel.
 //
 // L'écran d'administration, sa validation et le rendu des gabarits lisent
-// tous `CATALOGUE` : ajouter un troisième email un jour est UN endroit à
-// modifier, pas trois.
+// tous `CATALOGUE` : ajouter un email un jour est UN endroit à modifier,
+// pas trois.
 
-/** Les deux emails que ce dépôt envoie, et rien d'autre. */
-export type CleEmail = "invitation" | "leadNotification"
+/** Les trois emails que ce dépôt envoie, et rien d'autre. */
+export type CleEmail = "invitation" | "leadNotification" | "passwordReset"
 
 export interface DescriptionEmail {
   cle: CleEmail
@@ -107,5 +110,31 @@ export const CATALOGUE: readonly DescriptionEmail[] = [
       "",
       "Répondre depuis le dashboard : {{lien}}",
     ].join("\n"),
+  },
+  {
+    cle: "passwordReset",
+    titre: "Réinitialisation de mot de passe",
+    quand: "Quand quelqu'un demande à réinitialiser son mot de passe depuis l'écran de connexion.",
+    destinataire: "La personne qui a demandé la réinitialisation, à l'adresse de son compte.",
+    // Non désactivable, même raisonnement que l'invitation et la même
+    // conséquence : couper cet email retire le DERNIER chemin de
+    // récupération d'un déploiement où l'inscription est fermée
+    // (`disableSignUp: true` dans `auth.ts`). Une personne qui perd son
+    // mot de passe sur un tel déploiement n'a aucune autre porte — pas
+    // d'auto-inscription, pas d'OAuth pour redemander un accès. Un
+    // interrupteur ici ne serait pas une préférence d'affichage, ce
+    // serait un verrouillage à retardement, découvert le jour où
+    // quelqu'un en a besoin.
+    desactivable: false,
+    raisonNonDesactivable:
+      "Sur un déploiement où l'inscription est fermée (aucune inscription libre, aucun OAuth), " +
+      "cet email est le dernier chemin de récupération d'un compte : le désactiver enfermerait " +
+      "définitivement quiconque perd son mot de passe.",
+    variables: ["lien"],
+    variablesObligatoires: ["lien"],
+    objetParDefaut: "Réinitialisez votre mot de passe",
+    corpsParDefaut:
+      "Vous avez demandé la réinitialisation de votre mot de passe. " +
+      "Cliquez sur ce lien pour en choisir un nouveau : {{lien}}",
   },
 ]
