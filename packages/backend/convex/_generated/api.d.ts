@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as _dataRegistry from "../_dataRegistry.js";
 import type * as _registry from "../_registry.js";
 import type * as analytics from "../analytics.js";
 import type * as auditLog from "../auditLog.js";
@@ -63,6 +64,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  _dataRegistry: typeof _dataRegistry;
   _registry: typeof _registry;
   analytics: typeof analytics;
   auditLog: typeof auditLog;

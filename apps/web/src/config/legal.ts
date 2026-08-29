@@ -12,6 +12,13 @@
 
 import { consentConfig } from "./consent"
 
+// Le classement des tables du schéma vit dans `packages/backend`, à côté
+// des schémas qu'il classe, et non ici : `apps/web` n'a pas le droit
+// d'importer le schéma Better Auth (invariant #1, et une règle ESLint le
+// tient). Réexporté pour que ce fichier reste le point d'entrée lisible du
+// sujet « ce que le site déclare traiter ».
+export { TABLE_COVERAGE, type TableCoverage } from "@astrotan/backend/convex/_dataRegistry"
+
 export interface LegalEntity {
   /** Raison sociale, ou nom et prénom pour une personne physique. */
   name: string
@@ -173,7 +180,11 @@ export const processings: Processing[] = [
     basis:
       "Intérêt légitime — permettre aux personnes autorisées d'administrer le " +
       "site, et à personne d'autre",
-    retention: "Jusqu'à la suppression du compte",
+    retention:
+      "Jusqu'à la suppression du compte — pour ces trois tables. Le journal " +
+      "d'administration, décrit plus bas, conserve toutefois sans limite " +
+      "l'adresse électronique d'un compte dont le rôle a changé ou qui a été " +
+      "supprimé : supprimer un compte ne l'efface donc pas de ce journal.",
     recipients: "Convex, Inc. (hébergement de la base, États-Unis)",
   },
   // Table `session` (Better Auth), plus les compteurs du composant
@@ -216,19 +227,46 @@ export const processings: Processing[] = [
       "(acheminement de l'e-mail d'invitation) lorsqu'une clé d'envoi est " +
       "configurée",
   },
-  // Champs `createdBy`/`updatedBy` de `pages`, `posts`, `redirects`, et la
-  // table `media`. Rien de tout cela n'est une table « de personnes », mais
-  // chacun de ces champs désigne quelqu'un — ce qui suffit.
+  // Champs `createdBy`/`updatedBy` de `pages`, `posts`, `redirects`, la table
+  // `media`, et le champ `majPar` de `secrets`. Rien de tout cela n'est une
+  // table « de personnes », mais chacun de ces champs désigne quelqu'un — ce
+  // qui suffit. `secrets.majPar` a été ajouté ici parce que le garde-fou de
+  // `legal.test.ts` a refusé de le laisser non classé : la table existait
+  // depuis le lot des réglages sans qu'aucune ligne ne la couvre.
   {
     purpose: "Savoir qui a publié, modifié ou téléversé quoi",
     data:
       "Identifiant de l'administrateur qui a créé ou modifié une page, un " +
-      "article, une redirection ou un fichier de la médiathèque, et le nom du " +
-      "fichier téléversé",
+      "article, une redirection ou un fichier de la médiathèque, ou qui a " +
+      "enregistré un jeton d'accès à un service tiers, et le nom du fichier " +
+      "téléversé",
     basis:
       "Intérêt légitime — rattacher une modification à son auteur, ce sans " +
       "quoi un site à plusieurs mains n'est pas relisible",
     retention: "Tant que le contenu concerné existe",
+    recipients: "Convex, Inc. (hébergement de la base, États-Unis)",
+  },
+  // Table : `auditLog`. Écrite par `lib/auditEvent.ts`, dans la mutation même
+  // qui accomplit le geste.
+  {
+    purpose: "Savoir qui a changé un rôle, un accès ou un réglage",
+    data:
+      "Le nom d'affichage et l'identifiant de l'administrateur auteur du " +
+      "geste, recopiés au moment où il est fait ; la nature du geste ; et ce " +
+      "qu'il visait — l'adresse électronique du compte concerné pour un " +
+      "changement de rôle ou une suppression de compte, le nom d'un jeton " +
+      "d'accès (jamais sa valeur, pas même tronquée), l'adresse d'une page " +
+      "publiée ou dépubliée, ou l'identifiant interne d'une fiche de contact " +
+      "supprimée — jamais l'adresse ni le nom de la personne qui l'avait " +
+      "écrite, pour que ce journal ne défasse pas l'effacement de la fiche",
+    basis:
+      "Intérêt légitime — sécurité : pouvoir dire qui a changé un rôle, écrit " +
+      "un jeton d'accès ou retiré une page du site, ce qu'aucune autre donnée " +
+      "conservée ne permet de reconstituer après coup",
+    retention:
+      "Conservé sans limite. Rien ne purge ce journal, et c'est délibéré : un " +
+      "journal qu'on efface à volonté ne prouve plus rien. La suppression d'un " +
+      "compte d'administration ne retire donc pas les lignes qui le nomment.",
     recipients: "Convex, Inc. (hébergement de la base, États-Unis)",
   },
 ]
