@@ -58,7 +58,15 @@ pnpm workspaces + Turborepo. Les types viennent de la codegen Convex : lancer
    L'admin décide **qui doit trouver la page**, jamais ce qu'elle contient.
 6. **Aucun changement de schéma destructif dans un seul déploiement.** Discipline
    expand / migrate / contract (spec §7) — c'est ce qui rend le rollback sûr.
-7. **Le rollback rejoue le pipeline entier sur un sha.** Jamais les images seules :
+7. **Un secret ne vit qu'à trois endroits, et jamais ailleurs** : une
+   `PUBLIC_*` figée AU BUILD (donc visible de tous), un `process.env` du
+   conteneur lu au runtime, ou l'environnement Convex. Un jeton saisi depuis
+   l'administration est chiffré avec une clé maîtresse qui, elle, vit dans
+   l'environnement Convex — jamais en clair en base, et jamais dans la table
+   `settings`, dont la query `get` est publique. Le raisonnement, ses
+   sources et ce qu'on a refusé :
+   [`docs/superpowers/specs/2026-08-29-secrets-et-chiffrement.md`](docs/superpowers/specs/2026-08-29-secrets-et-chiffrement.md).
+8. **Le rollback rejoue le pipeline entier sur un sha.** Jamais les images seules :
    `convex deploy` a déjà remplacé functions et schéma (spec §7). Procédure :
    [`docker/README.md`](docker/README.md).
 
@@ -112,6 +120,7 @@ dans ce dépôt, pas des bonnes pratiques générales. Les lire avant d'écrire 
 | Intégrer une maquette HTML, performance, images, polices | `mockup-to-astro` (local) |
 | Better Auth × Convex | `better-auth` (local) |
 | **Consentement, cookies, RGPD, pixels** | `consent-rgpd` (local) |
+| **Déploiement, rollback, secrets du VPS** | `deploy-vps` (local) |
 | Convex | `convex`, `convex-setup-auth`, `convex-migration-helper` |
 | shadcn/ui et blocs UI | `shadcnblocks` |
 | SEO / GEO | `anthropic-skills:seo-geo`, `schema-markup`, `seo-audit` |

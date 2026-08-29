@@ -141,7 +141,14 @@ One line each; the reasoning is in [`CLAUDE.md`](CLAUDE.md).
 6. No destructive schema change in a single deployment — expand / migrate /
    contract.
 7. A rollback replays the whole pipeline at a sha, never the images alone.
-8. No third-party tag is ever written into the HTML. A tag that stores
+8. A secret lives in exactly one of three places, never anywhere else: a
+   `PUBLIC_*` frozen AT BUILD time (so visible to everyone), a container
+   `process.env` read at runtime, or the Convex environment. A token entered
+   from the dashboard is encrypted with a master key that itself lives in the
+   Convex environment — never in plaintext, and never in the `settings`
+   table, whose `get` query is public. Reasoning and sources:
+   `docs/superpowers/specs/2026-08-29-secrets-et-chiffrement.md`.
+9. No third-party tag is ever written into the HTML. A tag that stores
    something on the visitor's device, or identifies them, is declared in
    `apps/web/src/lib/consent.ts` and injected only after an answer. Adding
    one means bumping `consentVersion` in `apps/web/src/config/consent.ts`,
