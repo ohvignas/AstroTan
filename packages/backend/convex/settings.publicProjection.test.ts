@@ -31,6 +31,7 @@ const AUTORISES_PRIVE = [
   "leadWebhookLastStatus",
   "leadWebhookLastAt",
   "emailFrom",
+  "declaredDomain",
 ]
 
 // Toute la table, LUE DU SCHÉMA et non recopiée à la main — même motif que
@@ -68,6 +69,7 @@ async function semerLaLigneEntiere(t: TestConvex<typeof appSchema>) {
       leadWebhookLastStatus: "sentinelle-dernier-statut",
       leadWebhookLastAt: 1_700_000_000_000,
       emailFrom: "AstroTan <bonjour@astrotan.exemple>",
+      declaredDomain: "sentinelle.exemple.fr",
     }
     await ctx.db.insert("settings", ligne)
     return ligne
@@ -345,6 +347,7 @@ test("aucun champ de la table n'entre dans la projection publique sans être aut
   expect(rendu).not.toContain("sentinelle-dernier-statut")
   expect(rendu).not.toContain("hook.exemple.fr")
   expect(rendu).not.toContain("astrotan.exemple")
+  expect(rendu).not.toContain("sentinelle.exemple.fr")
 })
 
 // La même totalité côté dashboard. Le rôle y limite déjà les dégâts —

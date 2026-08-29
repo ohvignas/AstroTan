@@ -95,6 +95,23 @@ test("update refuse un nom vide ou trop long, et n'est pas ouvert aux editors", 
   ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } })
 })
 
+test("declaredDomain n'accepte qu'un hôte nu, et une chaîne vide l'efface", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+
+  await owner.identity.mutation(api.settings.update, { declaredDomain: "  Exemple.FR.  " })
+  expect((await owner.identity.query(api.settings.getPrivate, {}))?.declaredDomain).toBe(
+    "exemple.fr",
+  )
+
+  await expect(
+    owner.identity.mutation(api.settings.update, { declaredDomain: "https://exemple.fr" }),
+  ).rejects.toThrow()
+
+  await owner.identity.mutation(api.settings.update, { declaredDomain: null })
+  expect((await owner.identity.query(api.settings.getPrivate, {}))?.declaredDomain).toBeNull()
+})
+
 test("setHomePage refuse une page qui n'existe pas", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")

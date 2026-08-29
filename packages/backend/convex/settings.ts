@@ -13,6 +13,7 @@ import { journaliser } from "./lib/auditEvent"
 import { readUmamiConfig } from "./lib/umamiToken"
 import { refuseWebhookUrl } from "./lib/webhookUrl"
 import { estAdresseValide } from "./lib/expediteur"
+import { normaliserHote } from "./lib/hoteNu"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // Site-wide settings: one row, or none.
@@ -159,6 +160,11 @@ export const getPrivate = query({
       // pas une correction ; en attendant, ce champ ne se pose que par
       // `npx convex run settings:update '{"emailFrom":"…"}'`.
       emailFrom: settings.emailFrom ?? null,
+      // Même raisonnement qu'`emailFrom` juste au-dessus : ne pilote rien
+      // côté site public, n'a donc rien à faire dans `get`. `null` et non
+      // `undefined` — l'écran de vérification DNS doit pouvoir distinguer
+      // « pas encore déclaré » de « la requête a échoué ».
+      declaredDomain: settings.declaredDomain ?? null,
     }
   },
 })
@@ -328,6 +334,11 @@ export const update = mutation({
     // d'écran qui envoie « efface ce champ ». Elle reste donc dans
     // `...rest` sans piéger `db.patch`.
     emailFrom: v.optional(v.string()),
+    // `| null` explicite, comme `leadWebhookUrl` : absent veut dire « laisse
+    // tel quel », `null` veut dire « efface ». Une chaîne vide serait la
+    // troisième façon de dire l'une des deux, donc la source du prochain
+    // malentendu.
+    declaredDomain: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     // Site-wide settings are not an editor's call: the name, the logo and
@@ -367,6 +378,18 @@ export const update = mutation({
       args = { ...args, emailFrom }
     }
 
+    // Validé et normalisé AVANT l'extraction ci-dessous : un hôte refusé
+    // doit faire échouer la mutation entière, pas seulement se voir écarté
+    // en silence. `null` traverse tel quel — c'est « efface », pas une
+    // valeur à normaliser.
+    if (args.declaredDomain !== undefined && args.declaredDomain !== null) {
+      const hote = normaliserHote(args.declaredDomain)
+      if (hote === null) {
+        throw new ConvexError({ code: "INVALID_DOMAIN", field: "declaredDomain" })
+      }
+      args = { ...args, declaredDomain: hote }
+    }
+
     // `logoId` est extrait de l'étalement plutôt que réécrit par-dessus :
     // sinon le type du champ garde son `| null`, que `db.patch` refuse.
     // L'URL est vérifiée AVANT d'être écrite : une adresse interne posée
@@ -380,7 +403,14 @@ export const update = mutation({
     // `leadWebhookSecret` est extrait ici aussi, sinon il reste dans
     // `...rest` avec son `| null` et `db.patch` le refuse — l'erreur pointe
     // alors le patch entier, pas le champ fautif.
-    const { logoId, iconId, leadWebhookUrl, leadWebhookSecret: _ignore, ...rest } = args
+    const {
+      logoId,
+      iconId,
+      leadWebhookUrl,
+      leadWebhookSecret: _ignore,
+      declaredDomain,
+      ...rest
+    } = args
     void _ignore
     // `let` d'un type large : la valeur finale est calculée juste en
     // dessous, puis rétrécie explicitement avant d'entrer dans le patch —
@@ -415,6 +445,9 @@ export const update = mutation({
       ...(iconId !== undefined ? { iconId: iconId ?? undefined } : {}),
       ...(leadWebhookUrl !== undefined
         ? { leadWebhookUrl: leadWebhookUrl ?? undefined }
+        : {}),
+      ...(declaredDomain !== undefined
+        ? { declaredDomain: declaredDomain ?? undefined }
         : {}),
       ...secretPatch,
     }

@@ -334,6 +334,17 @@ export default defineSchema({
     // l'en-tête de chaque message envoyé. Elle peut donc rester dans
     // `settings`, contrairement aux jetons.
     emailFrom: v.optional(v.string()),
+
+    /**
+     * Le domaine que l'opérateur DIT avoir déployé.
+     *
+     * Ne pilote rien : le domaine réel est figé au build
+     * (`security.allowedDomains`) et posé au runtime par Traefik. Cette
+     * valeur sert à deux choses, et à deux choses seulement — vérifier le
+     * DNS, et détecter que l'opérateur croit avoir déployé autre chose que
+     * ce que l'image contient.
+     */
+    declaredDomain: v.optional(v.string()),
   }),
 
   // Les jetons saisis depuis l'écran des réglages — CHIFFRÉS, jamais en
