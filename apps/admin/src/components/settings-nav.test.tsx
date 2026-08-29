@@ -23,13 +23,14 @@ import {
 } from "./settings-nav"
 
 describe("SETTINGS_PAGES", () => {
-  test("porte les sept pages attendues, dans l'ordre du menu", () => {
+  test("porte les huit pages attendues, dans l'ordre du menu", () => {
     expect(SETTINGS_PAGES.map((page) => page.to)).toEqual([
       "/settings/identite",
       "/settings/referencement",
       "/settings/reseaux",
       "/settings/webhook",
       "/settings/domaine",
+      "/settings/emails",
       "/settings/mesure",
       "/settings/ia",
     ])

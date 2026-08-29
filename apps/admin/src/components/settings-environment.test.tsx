@@ -1,5 +1,12 @@
 // Les trois pages qui portent les JETONS et les variables de déploiement —
-// Domaine & emails, Mesure & pixels, IA.
+// Mesure & pixels, IA, et Envoi des emails.
+//
+// La troisième vit dans `email-templates.tsx` et est importée ici quand
+// même, parce que les invariants gardés plus bas — jamais un jeton en
+// clair, jamais un champ pré-rempli, la précédence écrite à l'écran —
+// appartiennent aux PAGES qui portent des jetons, pas au fichier où elles
+// sont écrites. Les laisser derrière en déménageant la page aurait été la
+// façon la plus discrète de les perdre.
 //
 // Ces tests gardaient une idée : « une page qui ne peut rien enregistrer ne
 // doit afficher aucun champ ». Elle avait raison, et la moitié qui reste
@@ -15,11 +22,8 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import type { ReactElement } from "react"
 import { describe, expect, test } from "vitest"
-import {
-  AiPage,
-  DomainAndEmailsPage,
-  MeasurementPage,
-} from "./settings-environment"
+import { AiPage, MeasurementPage } from "./settings-environment"
+import { OrigineDesLiens, SectionCleResend } from "./email-templates"
 import type { SecretsBloc } from "./settings-environment"
 import type { SecretEtat } from "./settings-secrets"
 
@@ -62,13 +66,8 @@ function pages(secrets: SecretsBloc): [string, ReactElement][] {
   return [
     ["IA", <AiPage secrets={secrets} />],
     [
-      "Domaine & emails",
-      <DomainAndEmailsPage
-        resend={{ configured: true, testMode: false }}
-        adminUrl="https://admin.exemple.fr"
-        webUrl="https://exemple.fr"
-        secrets={secrets}
-      />,
+      "Envoi des emails",
+      <SectionCleResend secrets={secrets} resend={{ configured: true }} />,
     ],
     [
       "Mesure & pixels",
@@ -134,23 +133,14 @@ describe("les variables hors de portée", () => {
     expect(html).toMatch(/ne peut pas.*savoir|Ne se règle pas ici/i)
   })
 
-  test("SITE_URL, WEB_SITE_URL et RESEND_TEST_MODE se lisent, ne se saisissent pas", () => {
-    // Les deux origines sont lues au chargement des modules Convex, et le
-    // mode d'essai dans le constructeur du client Resend : une valeur en
-    // base arriverait toujours trop tard.
-    const html = render(
-      <DomainAndEmailsPage
-        resend={{ configured: true, testMode: true }}
-        adminUrl="https://admin.exemple.fr"
-        webUrl="https://exemple.fr"
-        secrets={bloc()}
-      />
-    )
-    for (const nom of ["SITE_URL", "WEB_SITE_URL", "RESEND_TEST_MODE"]) {
-      expect(html).not.toContain(`secret-${nom}`)
-    }
+  test("SITE_URL se lit, ne se saisit pas", () => {
+    // Lue au chargement des modules Convex (`baseURL` de Better Auth) :
+    // une valeur en base arriverait toujours trop tard. Elle a suivi la
+    // page « Envoi des emails », parce que c'est elle qui compose les
+    // liens contenus DANS les emails.
+    const html = render(<OrigineDesLiens adminUrl="https://admin.exemple.fr" />)
+    expect(html).not.toContain("secret-SITE_URL")
     expect(html).toContain("https://admin.exemple.fr")
-    expect(html).toContain("https://exemple.fr")
   })
 })
 
@@ -242,75 +232,17 @@ describe("AiPage", () => {
   })
 })
 
-describe("DomainAndEmailsPage", () => {
-  function html(
-    overrides: {
-      testMode?: boolean
-      adminUrl?: string | null
-      webUrl?: string | null
-      secrets?: SecretsBloc
-    } = {}
-  ) {
-    return render(
-      <DomainAndEmailsPage
-        resend={{ configured: true, testMode: overrides.testMode ?? false }}
-        adminUrl={
-          "adminUrl" in overrides ? overrides.adminUrl! : "https://admin.exemple.fr"
-        }
-        webUrl={"webUrl" in overrides ? overrides.webUrl! : "https://exemple.fr"}
-        secrets={overrides.secrets ?? bloc()}
-      />
-    )
-  }
-
-  test("montre les deux origines une seule fois chacune", () => {
-    // La raison de la fusion : séparées, les pages « Domaine » et
-    // « Emails » affichaient toutes deux `SITE_URL`, sans que rien ne dise
-    // que c'était le même réglage.
-    const rendu = html()
-    // `>SITE_URL<` et non `SITE_URL` : `WEB_SITE_URL` le contient, et un
-    // comptage naïf trouverait deux occurrences de la première variable
-    // alors qu'il n'y en a qu'une.
-    expect(rendu.match(/>SITE_URL</g) ?? []).toHaveLength(1)
-    expect(rendu.match(/>WEB_SITE_URL</g) ?? []).toHaveLength(1)
-  })
-
-  test("signale une origine manquante", () => {
-    expect(html({ webUrl: null })).toContain("Absente")
-  })
-
-  test("dit que le mode d'essai n'envoie rien — la panne la plus silencieuse", () => {
-    const essai = html({ testMode: true })
-    expect(essai).toContain("RESEND_TEST_MODE")
-    expect(essai).toMatch(/mode d(&#x27;|')essai/i)
-    expect(html({ testMode: false })).toMatch(/envois r[ée]els/i)
-  })
-
-  test("la clé Resend se saisit, et l'écran dit qu'elle est bien lue depuis la base, derrière l'environnement", () => {
-    const rendu = html()
-    expect(rendu).toContain("secret-RESEND_API_KEY")
-    expect(rendu).toMatch(/la base est lue/i)
-    expect(rendu).toContain("secrets.lireSecret")
-  })
-
-  test("nomme le repli d'expédition, et dit qu'emailFrom le remplace", () => {
-    // Le repli vit dans `convex/lib/expediteur.ts`
-    // (`EXPEDITEUR_BAC_A_SABLE`), pas écrit en dur dans `leads.ts` ni
-    // `invitations.ts` : `settings.emailFrom` le remplace dès qu'il
-    // contient une adresse valide. Montrer le repli reste le seul moyen
-    // qu'un opérateur découvre qu'il envoie depuis le bac à sable de
-    // Resend avant que ses clients le lui apprennent.
-    const rendu = html()
-    expect(rendu).toContain("onboarding@resend.dev")
-    expect(rendu).toContain("expediteur.ts")
-    expect(rendu).toMatch(/emailFrom/)
-  })
-
-  test("dit que les destinataires se règlent par les rôles, pas par une liste", () => {
-    expect(html()).toMatch(/propriétaire/)
-    expect(html()).toMatch(/Utilisateurs/)
-  })
-})
+// `describe("DomainAndEmailsPage")` était ici. Il est parti avec la page :
+// `/settings/domaine` a été réécrit sans elle, et ses six tests gardaient
+// donc un composant que plus personne ne rendait — des tests verts sur du
+// code injoignable, ce qui est la pire des deux moitiés.
+//
+// Rien de ce qu'ils gardaient n'a été perdu : la clé Resend, le mode
+// d'essai, l'adresse d'expédition et `SITE_URL` sont maintenant testés
+// dans `email-templates.test.tsx`, sur les composants que
+// `/settings/emails` rend réellement. La seule assertion sans héritière
+// est celle de `WEB_SITE_URL` — voir le bloc « Domaine & emails —
+// RETIRÉE » de `settings-environment.tsx`.
 
 describe("MeasurementPage", () => {
   test("sépare le script qui compte des identifiants qui lisent les chiffres", () => {

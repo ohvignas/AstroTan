@@ -32,6 +32,7 @@ export type SettingsPath =
   | "/settings/reseaux"
   | "/settings/webhook"
   | "/settings/domaine"
+  | "/settings/emails"
   | "/settings/mesure"
   | "/settings/ia"
 
@@ -83,6 +84,16 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
     title: "Domaine et emails",
     description:
       "Le nom de domaine sur lequel ce déploiement doit répondre, et les enregistrements DNS que votre hébergeur attend — pour le site comme pour les emails.",
+  },
+  {
+    to: "/settings/emails",
+    label: "Envoi des emails",
+    title: "Envoi des emails",
+    // Voisine de « Domaine & emails », et la frontière tient en un mot :
+    // là-bas les enregistrements DNS qui autorisent le domaine à écrire,
+    // ici la clé, l'adresse et le TEXTE de chaque message.
+    description:
+      "La clé Resend, l'adresse d'expédition, et chacun des emails que ce site envoie — quand il part, à qui, et avec quel texte.",
   },
   {
     to: "/settings/mesure",

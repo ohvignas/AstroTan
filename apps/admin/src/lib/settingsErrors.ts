@@ -32,6 +32,34 @@ const SETTINGS_ERROR_MESSAGES: Record<string, string> = {
     "Ce n'est pas un nom de domaine : il s'écrit « exemple.fr », sans https://, sans barre oblique, sans port.",
   EMPTY_SECRET:
     "Un jeton vide ne veut rien dire. Pour retirer celui qui est en base, utilisez « Retirer de la base ».",
+  // `convex/settings.ts`, via `estAdresseValide` (`lib/expediteur.ts`) —
+  // la même fonction que l'écran appelle avant d'envoyer. Ce message ne
+  // sert donc qu'aux chemins qui contournent le champ : une seconde
+  // session, ou un `npx convex run`.
+  INVALID_EMAIL_FROM:
+    "Ce n'est pas une adresse d'expédition : écrivez « bonjour@exemple.fr » ou « Nom <bonjour@exemple.fr> ».",
+}
+
+// ---------------------------------------------------------------------
+// Les refus de `convex/emails.ts`.
+//
+// Ils portent leur propre phrase — celle de `validerGabarit` pour un
+// gabarit, celle du catalogue pour un email non désactivable — et la
+// recopier ici en ferait une seconde version à maintenir. On préfère
+// celle du serveur, qui NOMME la variable fautive.
+// ---------------------------------------------------------------------
+
+function decrireRefusEmail(payload: Record<string, unknown>): string | null {
+  if (payload.code === "GABARIT_INVALIDE") {
+    return typeof payload.message === "string"
+      ? payload.message
+      : "Ce texte a été refusé par le serveur."
+  }
+  if (payload.code === "EMAIL_NON_DESACTIVABLE") {
+    const raison = typeof payload.raison === "string" ? ` ${payload.raison}` : ""
+    return `Cet envoi ne peut pas être coupé.${raison}`
+  }
+  return null
 }
 
 export function describeSettingsError(error: unknown): string {
@@ -40,6 +68,8 @@ export function describeSettingsError(error: unknown): string {
     if (data && typeof data === "object" && "code" in data) {
       const payload = data as Record<string, unknown>
       const code = payload.code
+      const refusEmail = decrireRefusEmail(payload)
+      if (refusEmail !== null) return refusEmail
       // `FIELD_TOO_LONG`/`FIELD_TOO_MANY` portent le champ fautif et la
       // limite ; un « trop long » générique laisserait deviner lequel des
       // champs de l'écran est visé.

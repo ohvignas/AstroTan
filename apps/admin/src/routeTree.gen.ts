@@ -27,6 +27,7 @@ import { Route as AuthedPostsIndexRouteImport } from './routes/_authed/posts/ind
 import { Route as AuthedPostsPostIdRouteImport } from './routes/_authed/posts/$postId'
 import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
 import { Route as AuthedSettingsDomaineRouteImport } from './routes/_authed/settings/domaine'
+import { Route as AuthedSettingsEmailsRouteImport } from './routes/_authed/settings/emails'
 import { Route as AuthedSettingsIaRouteImport } from './routes/_authed/settings/ia'
 import { Route as AuthedSettingsIdentiteRouteImport } from './routes/_authed/settings/identite'
 import { Route as AuthedSettingsMesureRouteImport } from './routes/_authed/settings/mesure'
@@ -124,6 +125,11 @@ const AuthedSettingsDomaineRoute = AuthedSettingsDomaineRouteImport.update({
   path: '/domaine',
   getParentRoute: () => AuthedSettingsRoute,
 } as any)
+const AuthedSettingsEmailsRoute = AuthedSettingsEmailsRouteImport.update({
+  id: '/emails',
+  path: '/emails',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
 const AuthedSettingsIaRoute = AuthedSettingsIaRouteImport.update({
   id: '/ia',
   path: '/ia',
@@ -176,6 +182,7 @@ export interface FileRoutesByFullPath {
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/posts/$postId': typeof AuthedPostsPostIdRoute
   '/settings/domaine': typeof AuthedSettingsDomaineRoute
+  '/settings/emails': typeof AuthedSettingsEmailsRoute
   '/settings/ia': typeof AuthedSettingsIaRoute
   '/settings/identite': typeof AuthedSettingsIdentiteRoute
   '/settings/mesure': typeof AuthedSettingsMesureRoute
@@ -201,6 +208,7 @@ export interface FileRoutesByTo {
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/posts/$postId': typeof AuthedPostsPostIdRoute
   '/settings/domaine': typeof AuthedSettingsDomaineRoute
+  '/settings/emails': typeof AuthedSettingsEmailsRoute
   '/settings/ia': typeof AuthedSettingsIaRoute
   '/settings/identite': typeof AuthedSettingsIdentiteRoute
   '/settings/mesure': typeof AuthedSettingsMesureRoute
@@ -229,6 +237,7 @@ export interface FileRoutesById {
   '/_authed/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/_authed/posts/$postId': typeof AuthedPostsPostIdRoute
   '/_authed/settings/domaine': typeof AuthedSettingsDomaineRoute
+  '/_authed/settings/emails': typeof AuthedSettingsEmailsRoute
   '/_authed/settings/ia': typeof AuthedSettingsIaRoute
   '/_authed/settings/identite': typeof AuthedSettingsIdentiteRoute
   '/_authed/settings/mesure': typeof AuthedSettingsMesureRoute
@@ -257,6 +266,7 @@ export interface FileRouteTypes {
     | '/pages/$pageId'
     | '/posts/$postId'
     | '/settings/domaine'
+    | '/settings/emails'
     | '/settings/ia'
     | '/settings/identite'
     | '/settings/mesure'
@@ -282,6 +292,7 @@ export interface FileRouteTypes {
     | '/pages/$pageId'
     | '/posts/$postId'
     | '/settings/domaine'
+    | '/settings/emails'
     | '/settings/ia'
     | '/settings/identite'
     | '/settings/mesure'
@@ -309,6 +320,7 @@ export interface FileRouteTypes {
     | '/_authed/pages/$pageId'
     | '/_authed/posts/$postId'
     | '/_authed/settings/domaine'
+    | '/_authed/settings/emails'
     | '/_authed/settings/ia'
     | '/_authed/settings/identite'
     | '/_authed/settings/mesure'
@@ -457,6 +469,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsDomaineRouteImport
       parentRoute: typeof AuthedSettingsRoute
     }
+    '/_authed/settings/emails': {
+      id: '/_authed/settings/emails'
+      path: '/emails'
+      fullPath: '/settings/emails'
+      preLoaderRoute: typeof AuthedSettingsEmailsRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
     '/_authed/settings/ia': {
       id: '/_authed/settings/ia'
       path: '/ia'
@@ -511,6 +530,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthedSettingsRouteChildren {
   AuthedSettingsDomaineRoute: typeof AuthedSettingsDomaineRoute
+  AuthedSettingsEmailsRoute: typeof AuthedSettingsEmailsRoute
   AuthedSettingsIaRoute: typeof AuthedSettingsIaRoute
   AuthedSettingsIdentiteRoute: typeof AuthedSettingsIdentiteRoute
   AuthedSettingsMesureRoute: typeof AuthedSettingsMesureRoute
@@ -522,6 +542,7 @@ interface AuthedSettingsRouteChildren {
 
 const AuthedSettingsRouteChildren: AuthedSettingsRouteChildren = {
   AuthedSettingsDomaineRoute: AuthedSettingsDomaineRoute,
+  AuthedSettingsEmailsRoute: AuthedSettingsEmailsRoute,
   AuthedSettingsIaRoute: AuthedSettingsIaRoute,
   AuthedSettingsIdentiteRoute: AuthedSettingsIdentiteRoute,
   AuthedSettingsMesureRoute: AuthedSettingsMesureRoute,

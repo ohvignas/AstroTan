@@ -1,5 +1,4 @@
 import type { ReactNode } from "react"
-import { Badge } from "@/components/ui/badge"
 import { SettingsGroup } from "@/components/settings-nav"
 import {
   CleMaitresseBandeau,
@@ -11,8 +10,9 @@ import {
 import type { CleMaitresseEtat, SecretEtat } from "@/components/settings-secrets"
 
 // ---------------------------------------------------------------------
-// Les trois pages qui portent les JETONS et les variables de déploiement —
-// Domaine & emails, Mesure & pixels, IA.
+// Les pages qui portent les JETONS et les variables de déploiement —
+// Mesure & pixels et IA ici, Envoi des emails dans `email-templates.tsx`,
+// qui emprunte `ChampSecret` et `SecretsBloc` ci-dessous.
 //
 // Elles n'avaient aucun champ, et le fichier expliquait pourquoi : une clé
 // d'API n'entre pas dans la table `settings`, qui a une projection publique.
@@ -33,6 +33,9 @@ import type { CleMaitresseEtat, SecretEtat } from "@/components/settings-secrets
 //     raison ;
 //   • un domaine, qui se règle chez le registrar, dans le DNS et dans
 //     Traefik.
+//
+// Les trois dernières ont déménagé avec la page qui les portait ; voir le
+// bloc « Domaine & emails — RETIRÉE » plus bas.
 //
 // Un formulaire est une promesse. Ces lignes-là n'en font aucune : elles
 // disent l'état, nomment la variable, et donnent la commande.
@@ -70,7 +73,16 @@ function etatDe(bloc: SecretsBloc, nom: string): SecretEtat {
   )
 }
 
-function Champ({
+/**
+ * Un jeton, avec la règle « sans clé maîtresse, pas de champ » appliquée
+ * une seule fois.
+ *
+ * Exporté depuis que la page « Envoi des emails » vit dans son propre
+ * fichier (`email-templates.tsx`) : la recopier là-bas aurait fait deux
+ * endroits où décider quand un champ de jeton s'affiche, et le second
+ * aurait oublié la clé maîtresse.
+ */
+export function ChampSecret({
   bloc,
   nom,
   children,
@@ -103,14 +115,14 @@ export function AiPage({ secrets }: { secrets: SecretsBloc }) {
     // Un seul groupe : pas de `h2`, il ne ferait que répéter le `h1`.
     <SettingsGroup>
       <CleMaitresseBandeau etat={secrets.cleMaitresse} />
-      <Champ bloc={secrets} nom="OPENROUTER_API_KEY">
+      <ChampSecret bloc={secrets} nom="OPENROUTER_API_KEY">
         {/* Dire ce qui n'existe pas encore : une pastille verte sur une
             fonctionnalité absente est un mensonge que personne ne
             corrigera, parce que rien ne casse. */}
         <strong>Aucune fonction de ce dépôt ne lit encore cette clé</strong>,
         ni ici ni dans l'environnement. La poser prépare le terrain ; elle ne
         déclenche rien aujourd'hui.
-      </Champ>
+      </ChampSecret>
       <p className="text-sm text-muted-foreground">
         L'autre chemin, plus sûr, et celui qui l'emporte sur la saisie
         ci-dessus :
@@ -123,162 +135,30 @@ export function AiPage({ secrets }: { secrets: SecretsBloc }) {
 }
 
 // ---------------------------------------------------------------------
-// Domaine & emails
+// Domaine & emails — RETIRÉE.
 //
-// Une seule page pour les deux, et la raison est dans les données :
-// `SITE_URL` est à la fois l'origine du dashboard et celle qui compose
-// les liens contenus dans les emails. Séparées, les deux pages
-// l'affichaient chacune de son côté — le même réglage montré deux fois,
-// à deux endroits, sans que rien ne dise que c'était le même.
+// `DomainAndEmailsPage` vivait ici et n'était plus rendue par personne :
+// `/settings/domaine` a été réécrit (`routes/_authed/settings/domaine.tsx`)
+// autour du domaine déclaré et de la vérification DNS, sans la reprendre.
+// Elle est restée quelques heures en place, exportée, testée, et
+// injoignable — du code mort qui a l'exacte apparence d'un écran vivant,
+// ce qui est pire que pas de code du tout : on le lit en croyant lire ce
+// que l'opérateur voit.
+//
+// Où sont parties ses deux moitiés :
+//
+//   • **la clé Resend, le mode d'essai et l'adresse d'expédition** sont
+//     dans `email-templates.tsx` et `/settings/emails`. La saisie de
+//     `RESEND_API_KEY` avait disparu de toute l'administration avec cette
+//     réécriture — c'est la régression que ce nouvel écran referme ;
+//   • **`SITE_URL`** y est aussi (`OrigineDesLiens`), parce que c'est elle
+//     qui compose les liens contenus DANS les emails ;
+//   • **`WEB_SITE_URL`** n'est plus nommée nulle part. Elle ne concerne pas
+//     les emails (invalidation du cache du site public), et `domaine.tsx`
+//     la LIT déjà — `AvertissementDivergence` compare son hôte au domaine
+//     déclaré — sans la nommer ni donner sa commande. Manque assumé, et
+//     signalé : c'est à l'écran Domaine de la reprendre, pas à celui-ci.
 // ---------------------------------------------------------------------
-
-export function DomainAndEmailsPage({
-  resend,
-  adminUrl,
-  webUrl,
-  secrets,
-}: {
-  resend: { configured: boolean; testMode: boolean }
-  adminUrl: string | null
-  webUrl: string | null
-  secrets: SecretsBloc
-}) {
-  return (
-    <>
-      <SettingsGroup
-        title="Les deux origines"
-        description="Ce déploiement en connaît deux, et les confondre casse des choses différentes."
-      >
-        <SecretHorsPortee
-          nom="SITE_URL"
-          raison={
-            <>
-              L'origine du <strong>dashboard</strong> : elle sert de{" "}
-              <code className="text-xs">baseURL</code> à Better Auth et compose
-              les liens des emails d'invitation. Lue au chargement des modules
-              Convex, pas au moment de l'usage — une valeur saisie à l'écran
-              arriverait toujours trop tard.{" "}
-              {adminUrl ? (
-                <>
-                  Actuellement <code className="text-xs">{adminUrl}</code>.
-                </>
-              ) : (
-                <Badge variant="destructive">Absente</Badge>
-              )}
-            </>
-          }
-        />
-        <SecretHorsPortee
-          nom="WEB_SITE_URL"
-          raison={
-            <>
-              L'origine du <strong>site public</strong> : c'est elle qu'on
-              appelle pour invalider le cache à la publication. Fausse, le site
-              continue de servir l'ancienne version sans que rien ne le signale
-              ailleurs que dans la file d'invalidation.{" "}
-              {webUrl ? (
-                <>
-                  Actuellement <code className="text-xs">{webUrl}</code>.
-                </>
-              ) : (
-                <Badge variant="destructive">Absente</Badge>
-              )}
-            </>
-          }
-          commande="cd packages/backend && npx convex env set WEB_SITE_URL https://exemple.fr"
-        />
-        <p className="text-sm text-muted-foreground">
-          Changer de nom de domaine se fait en trois endroits, et aucun
-          n'est cet écran : les enregistrements DNS chez le registrar,{" "}
-          <code className="text-xs">WEB_DOMAIN</code> /{" "}
-          <code className="text-xs">ADMIN_DOMAIN</code> dans le{" "}
-          <code className="text-xs">docker/.env</code> du VPS — d'où Traefik
-          tire les certificats Let's Encrypt — puis ces deux variables ici.
-          Les trois doivent concorder, sinon les certificats sont émis pour
-          un domaine que personne ne visite.
-        </p>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title="Envoi des emails"
-        description="Les invitations et les notifications de leads partent par Resend."
-      >
-        {secrets.cleMaitresse === null ? (
-          <p className="text-sm text-muted-foreground">
-            La clé Resend est réservée au propriétaire et aux administrateurs
-            — y compris son état.
-          </p>
-        ) : (
-          <>
-            <CleMaitresseBandeau etat={secrets.cleMaitresse} />
-            <Champ bloc={secrets} nom="RESEND_API_KEY">
-              Sans elle, une invitation est bien créée mais son email ne part
-              pas, et une notification de lead non plus. Le lead, lui, est
-              enregistré quoi qu'il arrive.{" "}
-              <strong>La base est lue</strong>{" "}
-              : <code className="text-xs">convex/lib/resend.ts</code> construit
-              le client via le lecteur unique{" "}
-              <code className="text-xs">secrets.lireSecret</code>, qui préfère
-              la variable d'environnement quand elle existe et retombe sinon
-              sur la valeur saisie ici, une fois déchiffrée.
-            </Champ>
-            {resend.configured ? null : (
-              <p className="text-sm text-muted-foreground">
-                <Badge variant="destructive">Absente de l'environnement</Badge>
-              </p>
-            )}
-          </>
-        )}
-
-        <SecretHorsPortee
-          nom="RESEND_TEST_MODE"
-          raison={
-            resend.testMode
-              ? "Mode d'essai : Resend accepte les envois et ne les délivre pas. C'est la valeur par défaut, et la panne la plus silencieuse de ce déploiement — un email « envoyé » que personne ne reçoit. Lu dans le constructeur du client Resend, donc dans l'environnement seulement. Passer en envois réels demande aussi un domaine d'expédition vérifié chez Resend."
-              : "Envois réels : chaque invitation et chaque notification part vraiment. Le domaine d'expédition doit être vérifié chez Resend, sinon Resend refuse."
-          }
-          commande="cd packages/backend && npx convex env set RESEND_TEST_MODE false"
-        />
-
-        <div className="flex flex-col gap-1 border-l-2 border-border pl-3">
-          <p className="text-sm font-medium">Adresse d'expédition</p>
-          <p className="text-sm text-muted-foreground">
-            {/* Vit dans `convex/lib/expediteur.ts`
-                (`EXPEDITEUR_BAC_A_SABLE`), pas écrite en dur dans
-                `leads.ts` ni `invitations.ts` : c'est un repli, que
-                `settings.emailFrom` remplace dès qu'il contient une
-                adresse valide. La montrer reste utile tant qu'aucun champ
-                de cet écran ne règle `emailFrom` : un opérateur ne
-                découvre autrement le bac à sable que par ses
-                destinataires. */}
-            <code className="text-xs">AstroTan &lt;onboarding@resend.dev&gt;</code>{" "}
-            — l'adresse de bac à sable de Resend, le repli défini dans{" "}
-            <code className="text-xs">convex/lib/expediteur.ts</code> et
-            utilisé tant que{" "}
-            <code className="text-xs">settings.emailFrom</code> est absent
-            ou invalide. Elle fonctionne sans domaine vérifié et ne doit
-            pas rester en production.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-1 border-l-2 border-border pl-3">
-          <p className="text-sm font-medium">Destinataires des notifications</p>
-          <p className="text-sm text-muted-foreground">
-            {/* Pas un champ, et c'en aurait été un mauvais : une liste
-                d'adresses saisie à la main survit aux départs, aux
-                suspensions et aux changements de rôle — l'inverse de ce
-                qu'on veut d'une alerte interne. */}
-            Chaque message reçu par le formulaire de contact est notifié aux
-            comptes <strong>propriétaire</strong> et{" "}
-            <strong>administrateur</strong> non suspendus, un email par
-            personne. Ce n'est pas une liste à saisir : elle se règle depuis
-            l'écran Utilisateurs, en donnant ou en retirant un rôle.
-          </p>
-        </div>
-      </SettingsGroup>
-    </>
-  )
-}
 
 // ---------------------------------------------------------------------
 // Mesure & pixels
@@ -400,13 +280,13 @@ export function MeasurementPage({
                 "L'environnement est incomplet : si la base ne complète pas ce qui manque, les statistiques répondent « non configuré »."
               )}
             </p>
-            <Champ bloc={secrets} nom="UMAMI_API_URL">
+            <ChampSecret bloc={secrets} nom="UMAMI_API_URL">
               L'origine de votre Umami, sans barre finale.
-            </Champ>
-            <Champ bloc={secrets} nom="UMAMI_API_WEBSITE_ID">
+            </ChampSecret>
+            <ChampSecret bloc={secrets} nom="UMAMI_API_WEBSITE_ID">
               L'identifiant du site mesuré, tel qu'Umami l'a créé.
-            </Champ>
-            <Champ bloc={secrets} nom="UMAMI_API_USERNAME">
+            </ChampSecret>
+            <ChampSecret bloc={secrets} nom="UMAMI_API_USERNAME">
               Un compte Umami en lecture.{" "}
               <code className="text-xs">UMAMI_API_*</code> et non{" "}
               <code className="text-xs">UMAMI_*</code> : le{" "}
@@ -414,17 +294,17 @@ export function MeasurementPage({
               <code className="text-xs">UMAMI_DB_PASSWORD</code> et{" "}
               <code className="text-xs">UMAMI_APP_SECRET</code>, qui sont
               d'autres secrets pour un autre usage.
-            </Champ>
-            <Champ bloc={secrets} nom="UMAMI_API_PASSWORD">
+            </ChampSecret>
+            <ChampSecret bloc={secrets} nom="UMAMI_API_PASSWORD">
               Le mot de passe de ce compte. Envoyé à Umami une fois, contre un
               jeton de session que le serveur garde une demi-heure.
-            </Champ>
-            <Champ bloc={secrets} nom="UMAMI_API_SHARE_ID">
+            </ChampSecret>
+            <ChampSecret bloc={secrets} nom="UMAMI_API_SHARE_ID">
               Facultative, et elle doit le rester : un lien de partage Umami
               est un secret porteur — qui le détient voit les chiffres, sans
               compte.
               {umamiApi.shared ? " Une valeur est posée dans l'environnement." : ""}
-            </Champ>
+            </ChampSecret>
             <Command>
               cd packages/backend && npx convex env set UMAMI_API_PASSWORD …
             </Command>
