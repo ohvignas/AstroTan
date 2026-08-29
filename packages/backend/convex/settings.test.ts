@@ -57,7 +57,12 @@ test("update crée la ligne au premier enregistrement, puis la modifie", async (
   expect(rows[0]?.siteName).toBe("Illith École")
 })
 
-test("update accepte emailFrom, et get l'expose : ce n'est pas un secret", async () => {
+// Relecture finale, correctif 1 : `emailFrom` n'est plus dans `get`, la
+// projection publique non authentifiée — voir `settings.publicProjection
+// .test.ts`. Ce n'est pas un secret pour autant (elle apparaît dans
+// l'en-tête de chaque email envoyé), donc `getPrivate` — réservée à une
+// session owner/admin/editor — continue de la rendre.
+test("update accepte emailFrom ; getPrivate l'expose, get ne l'expose plus", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
 
@@ -65,9 +70,10 @@ test("update accepte emailFrom, et get l'expose : ce n'est pas un secret", async
     siteName: "Illith",
     emailFrom: "AstroTan <bonjour@exemple.fr>",
   })
-  expect((await t.query(api.settings.get, {}))?.emailFrom).toBe(
+  expect((await owner.identity.query(api.settings.getPrivate, {}))?.emailFrom).toBe(
     "AstroTan <bonjour@exemple.fr>"
   )
+  expect(await t.query(api.settings.get, {})).not.toHaveProperty("emailFrom")
 })
 
 test("update refuse un nom vide ou trop long, et n'est pas ouvert aux editors", async () => {

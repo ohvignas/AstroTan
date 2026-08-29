@@ -33,6 +33,11 @@ test("la projection publique ne rend aucun secret", async () => {
     siteName: "AstroTan",
     leadWebhookUrl: "https://hook.exemple.fr/leads",
     leadWebhookSecret: "le-secret-qui-signe-nos-appels",
+    // Relecture finale, correctif 1 : posée elle aussi, pour que le test
+    // ci-dessous exerce vraiment le cas où elle a une valeur — plutôt que
+    // de rester absent de la réponse pour la mauvaise raison (Convex
+    // retire déjà les champs `undefined`).
+    emailFrom: "AstroTan <bonjour@astrotan.exemple>",
   })
 
   // Sans session : exactement ce qu'un inconnu obtient.
@@ -55,13 +60,20 @@ test("la projection publique ne rend aucun secret", async () => {
     "homePageSlug",
     "defaultSeo",
     "socials",
-    // Pas un secret : elle apparaît dans l'en-tête de chaque email envoyé.
-    "emailFrom",
   ]
   const interdits = champs.filter((champ) => !AUTORISES.includes(champ))
   expect(interdits).toEqual([])
   expect(JSON.stringify(publique)).not.toContain("le-secret-qui-signe-nos-appels")
   expect(JSON.stringify(publique)).not.toContain("hook.exemple.fr")
+  // `emailFrom` N'EST PLUS ICI (relecture finale, correctif 1) : c'est
+  // l'adresse d'expédition du site, sans consommateur dans `apps/web`
+  // (`grep -rn "emailFrom" apps/` ne rend rien), posée dans la seule table
+  // dont la projection publique a déjà coûté une fuite. `interdits` ci-
+  // dessus l'attrape déjà si elle revient ; cette ligne l'affirme
+  // explicitement, en visant sa VALEUR — pas seulement son nom de clé —
+  // pour que ce test échoue même si `get` la renommait.
+  expect(champs).not.toContain("emailFrom")
+  expect(JSON.stringify(publique)).not.toContain("astrotan.exemple")
 })
 
 test("la ligne entière exige une session", async () => {
@@ -141,4 +153,57 @@ test("un editor lit les réglages sans jamais voir le secret du webhook", async 
   await expect(
     editorIdentity.query(api.settings.webhookSecret, {})
   ).rejects.toThrow(/FORBIDDEN/)
+})
+
+// Relecture finale, correctif 1 : `emailFrom` a quitté `get` (test du
+// haut de ce fichier) pour `getPrivate`, réservée à owner/admin/editor —
+// exactement comme `leadWebhookUrl` avant elle.
+test("getPrivate rend l'adresse d'expédition, réservée à une session", async () => {
+  const t = makeTestConvex()
+  const email = `settings-emailfrom-${Date.now()}@example.com`
+  const password = "correct horse battery staple emailfrom"
+  const user = await seedUser(t, { email, password, name: "Owner", role: "owner" })
+  await signIn(t, email, password)
+  const owner = await identityFor(t, user.id)
+
+  // Absente tant que personne ne l'a réglée : `null`, jamais `undefined`
+  // silencieusement disparu — un écran futur doit pouvoir distinguer
+  // « pas encore réglée » de « la requête a échoué ».
+  await owner.mutation(api.settings.update, { siteName: "AstroTan" })
+  expect((await owner.query(api.settings.getPrivate, {}))?.emailFrom).toBeNull()
+
+  await owner.mutation(api.settings.update, {
+    emailFrom: "AstroTan <bonjour@astrotan.exemple>",
+  })
+  const privee = await owner.query(api.settings.getPrivate, {})
+  expect(privee?.emailFrom).toBe("AstroTan <bonjour@astrotan.exemple>")
+})
+
+// Correctif 1 : `settings.update` n'appelait pas `estAdresseValide` — une
+// adresse malformée posée en CLI était acceptée en silence et ne se
+// révélait qu'à l'envoi, où `choisirExpediteur` l'aurait de toute façon
+// repliée sur le bac à sable sans que personne ne l'ait décidé.
+test("une adresse d'expédition malformée est refusée à l'écriture, pas à l'envoi", async () => {
+  const t = makeTestConvex()
+  const email = `settings-emailfrom-invalide-${Date.now()}@example.com`
+  const password = "correct horse battery staple emailfrom invalide"
+  const user = await seedUser(t, { email, password, name: "Owner", role: "owner" })
+  await signIn(t, email, password)
+  const owner = await identityFor(t, user.id)
+
+  await expect(
+    owner.mutation(api.settings.update, { emailFrom: "pas-une-adresse" })
+  ).rejects.toThrow(/INVALID_EMAIL_FROM/)
+
+  // Rien n'a été écrit : la mutation a levé avant le patch.
+  expect(await owner.query(api.settings.getPrivate, {})).toBeNull()
+
+  // Les deux formes que Resend accepte passent toujours.
+  await owner.mutation(api.settings.update, { emailFrom: "bonjour@astrotan.exemple" })
+  await owner.mutation(api.settings.update, {
+    emailFrom: "AstroTan <bonjour@astrotan.exemple>",
+  })
+  expect((await owner.query(api.settings.getPrivate, {}))?.emailFrom).toBe(
+    "AstroTan <bonjour@astrotan.exemple>"
+  )
 })

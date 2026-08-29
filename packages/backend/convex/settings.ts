@@ -12,6 +12,7 @@ import { requireRole } from "./lib/authz"
 import { journaliser } from "./lib/auditEvent"
 import { readUmamiConfig } from "./lib/umamiToken"
 import { refuseWebhookUrl } from "./lib/webhookUrl"
+import { estAdresseValide } from "./lib/expediteur"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // Site-wide settings: one row, or none.
@@ -90,10 +91,14 @@ export const get = query({
       homePageSlug: settings.homePageSlug,
       defaultSeo: settings.defaultSeo,
       socials: settings.socials,
-      // Pas un secret : elle apparaît dans l'en-tête de chaque email
-      // envoyé. Ajoutée à la projection explicite, pas en remplaçant la
-      // projection par la ligne entière — voir le commentaire au-dessus.
-      emailFrom: settings.emailFrom,
+      // `emailFrom` N'EST PAS ICI (relecture finale, correctif 1) : c'est
+      // l'adresse d'expédition du site, elle n'a aucune utilité pour
+      // `apps/web` — `grep -rn "emailFrom" apps/` n'y trouve aucun
+      // consommateur —, et cette query est publique et non authentifiée.
+      // La poser ici la rendrait moissonnable par quiconque connaît l'URL
+      // Convex, exactement la fuite que `leadWebhookSecret` a déjà coûtée
+      // à cette table une fois. Le dashboard la lit par `getPrivate`
+      // ci-dessous, réservée à owner/admin/editor.
     }
   },
 })
@@ -139,6 +144,21 @@ export const getPrivate = query({
       leadWebhookUrl: settings.leadWebhookUrl,
       leadWebhookLastStatus: settings.leadWebhookLastStatus,
       leadWebhookLastAt: settings.leadWebhookLastAt,
+      // Déplacée depuis `get` (relecture finale, correctif 1) : c'est
+      // l'adresse d'expédition du site, pas un secret, mais elle n'a rien
+      // à faire dans une projection publique non authentifiée pour autant
+      // — voir le commentaire de `get`. `null` plutôt qu'`undefined` :
+      // Convex retire les champs `undefined` avant l'envoi, et un écran
+      // qui teste `=== null` pour afficher un état « non réglé » a besoin
+      // que le champ soit toujours présent dans la réponse.
+      //
+      // Aucun écran ne le règle aujourd'hui : les onglets de
+      // `apps/admin/src/routes/_authed/settings/` sont domaine, ia,
+      // identite, index, mesure, referencement, reseaux et webhook —
+      // aucun n'écrit `emailFrom`. En ajouter un est une fonctionnalité,
+      // pas une correction ; en attendant, ce champ ne se pose que par
+      // `npx convex run settings:update '{"emailFrom":"…"}'`.
+      emailFrom: settings.emailFrom ?? null,
     }
   },
 })
@@ -329,6 +349,22 @@ export const update = mutation({
         assertLength(social.label, MAX_SOCIAL_LABEL_LENGTH, `socials[${index}].label`)
         assertLength(social.url, MAX_SOCIAL_URL_LENGTH, `socials[${index}].url`)
       }
+    }
+
+    // Relecture finale, correctif 1 : une adresse malformée posée en CLI
+    // (aucun écran ne règle ce champ aujourd'hui — voir `getPrivate`)
+    // était acceptée en silence et ne se révélait qu'à l'envoi, où
+    // `choisirExpediteur` (`lib/expediteur.ts`) l'aurait de toute façon
+    // rejetée en repliant sur le bac à sable Resend — mais alors sans que
+    // personne ne l'ait décidé. Même validateur que `resoudreExpediteur`
+    // utilise à l'envoi, pour qu'une adresse acceptée ici le reste là-bas.
+    // Une chaîne vide n'est pas malformée : c'est l'absence de réglage.
+    if (args.emailFrom !== undefined) {
+      const emailFrom = args.emailFrom.trim()
+      if (emailFrom.length > 0 && !estAdresseValide(emailFrom)) {
+        throw new ConvexError({ code: "INVALID_EMAIL_FROM", field: "emailFrom" })
+      }
+      args = { ...args, emailFrom }
     }
 
     // `logoId` est extrait de l'étalement plutôt que réécrit par-dessus :
