@@ -153,6 +153,37 @@ test("la durée de purge Umami écrite dans le SQL est celle publiée sur /confi
 // Comme pour le SQL d'Umami, `apps/web` ne dépend pas de `packages/backend`
 // pour ces valeurs : les importer ferait entrer le runtime serveur de
 // Convex dans le bundle du site. Le fichier est lu par son chemin.
+//
+// CE QUE CETTE MOITIÉ NE VÉRIFIE PAS — et il faut le lire avant de la
+// croire plus forte qu'elle n'est.
+//
+// Les deux moitiés de ce fichier ne sont PAS de la même force, et
+// l'asymétrie ne se voit pas à la lecture. Le test Umami plus haut exige
+// que chaque durée du SQL apparaisse DANS LA COMPARAISON attendue, sur la
+// colonne attendue : il lit donc le sens du `WHERE`, pas seulement le
+// nombre. Les tests Convex ci-dessous ne lisent que la VALEUR des
+// constantes, par expression régulière sur le texte de `retention.ts`.
+// Ils ne voient rien de ce que `purge` en fait : inverser un `lt` en
+// `gt` — donc supprimer les fiches RÉCENTES et garder les vieilles —
+// les laisse tous les trois au vert.
+//
+// Ce n'est pas un trou du SYSTÈME, et c'est pour ça qu'on le laisse tel
+// quel plutôt que de dupliquer ici une vérification qui existe déjà :
+//
+//   · `packages/backend/convex/retention.test.ts` couvre le SENS — « une
+//     fiche à un jour de la limite reste, entière », « une preuve plus
+//     vieille que la validité d'un consentement part ; une récente
+//     reste ». L'inversion ci-dessus y est rouge ;
+//   · `packages/backend/convex/crons.test.ts` verrouille le PLANNING —
+//     un cron mensuel `retention-purge` qui appelle
+//     `internal.retention.purge`, et rien d'autre au planning.
+//
+// La question à laquelle CE fichier répond est une autre, et c'est la
+// seule : le nombre publié sur `/confidentialite` est-il celui que le
+// code applique. Il n'a jamais prétendu répondre à « le code applique-t-il
+// sa durée dans le bon sens » — mais rien ne le disait, et quelqu'un
+// finirait par supprimer les tests d'en face en croyant ceux-ci
+// suffisants.
 function constantesDeRetention(): Record<string, number> {
   const ici = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(

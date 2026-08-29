@@ -49,6 +49,38 @@ export interface SecurityEnv {
  * `script-src` n'est délibérément pas élargi : `'strict-dynamic'` suffit sur
  * tout navigateur qui l'implémente, et c'est déjà par lui que ces balises
  * se chargent aujourd'hui.
+ *
+ * L'ASYMÉTRIE AVEC UMAMI, ASSUMÉE
+ *
+ * L'origine d'Umami, elle, EST écrite dans `script-src` — explicitement
+ * « pour les navigateurs restés en CSP niveau 2 » (voir la directive plus
+ * bas). Le même service n'est pas rendu aux traceurs consentis, et il faut
+ * dire pourquoi, sinon le prochain lecteur conclura à un oubli et
+ * « corrigera » l'asymétrie.
+ *
+ * La raison technique tient : les deux ne se chargent pas de la même
+ * façon. Umami arrive par un `<script src>` du DOCUMENT
+ * (`Analytics.astro`), que `'strict-dynamic'` ne couvre pas — sur un
+ * navigateur qui l'implémente, ce script passe par son nonce ; sur un
+ * navigateur de niveau 2, il ne passe QUE par la liste d'origines. Les
+ * pixels, eux, arrivent par `createElement` depuis un script déjà noncé :
+ * en niveau 3 c'est `'strict-dynamic'` qui les autorise, jamais la liste.
+ *
+ * Mais l'argument n'est pas symétrique pour autant, et c'est le point à
+ * assumer : en CSP niveau 2, `'strict-dynamic'` est ignoré, donc les
+ * pixels consentis NE SE CHARGENT PAS. On pourrait les ajouter ici. On ne
+ * le fait pas, et c'est un choix : élargir `script-src` à
+ * `connect.facebook.net` et `googletagmanager.com` rend ces origines
+ * exécutables sur toute page du site, y compris pour un navigateur de
+ * niveau 3 où `'strict-dynamic'` les couvrait déjà — on paierait une
+ * surface d'exécution permanente pour un parc résiduel.
+ *
+ * Le mode de défaite décide : « le pixel ne se charge pas sur un vieux
+ * navigateur » est un échec DANS LE SENS SÛR — on mesure moins, on ne fuit
+ * rien. « Une origine tierce devient exécutable partout » est un échec dans
+ * l'autre sens. Umami mérite la ligne parce que sans elle il ne se charge
+ * nulle part en niveau 2 ; les pixels ne la méritent pas parce que sans
+ * elle ils se chargent partout ailleurs.
  */
 interface OriginesTraceur {
   connect: string[]
@@ -188,6 +220,11 @@ export function enTetesSecurite(
       // compris ceux qu'Astro bundle lui-même — c'est ce que fait le
       // middleware. `'self'` et l'origine Umami restent écrits pour les
       // navigateurs restés en CSP niveau 2, où seule cette liste répond.
+      //
+      // Les origines des traceurs consentis, elles, ne sont PAS ajoutées
+      // ici — asymétrie délibérée, dont le raisonnement complet est sur
+      // `OriginesTraceur` plus haut : Umami se charge par un `<script src>`
+      // du document, les pixels par `createElement` depuis un script noncé.
       `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${umami ? ` ${umami}` : ""}`,
       "style-src 'self' 'unsafe-inline'",
       // Le point de la tâche : pas d'image distante — sauf notre propre
