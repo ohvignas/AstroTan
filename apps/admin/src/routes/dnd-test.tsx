@@ -91,8 +91,48 @@ function DndTest() {
   }, [saisie])
 
   function noter(ligne: string) {
-    setJournal((j) => [ligne, ...j].slice(0, 12))
+    setJournal((j) => [ligne, ...j].slice(0, 14))
   }
+
+  // Les événements BRUTS que le navigateur produit, avant dnd-kit.
+  //
+  // C'est la seule chose qui distingue encore ma machine de la sienne : le
+  // glissement marche ici avec des événements synthétiques et échoue là-bas
+  // avec une vraie main. Si dnd-kit ne démarre pas, la réponse est dans
+  // quels événements arrivent — et lesquels n'arrivent pas.
+  const [bruts, setBruts] = useState<Record<string, number>>({})
+  const [dernier, setDernier] = useState("")
+
+  useEffect(() => {
+    const compte: Record<string, number> = {}
+    function tracer(e: Event) {
+      const pe = e as PointerEvent
+      const type = e.type === "pointerdown" ? `pointerdown(${pe.pointerType})` : e.type
+      compte[type] = (compte[type] ?? 0) + 1
+      setBruts({ ...compte })
+      if (e.type !== "mousemove" && e.type !== "pointermove") {
+        setDernier(`${type} · bouton=${(pe as MouseEvent).button ?? "?"} · cible=${(e.target as HTMLElement)?.tagName ?? "?"}`)
+      }
+    }
+    const types = [
+      "pointerdown",
+      "mousedown",
+      "mousemove",
+      "pointermove",
+      "mouseup",
+      "pointerup",
+      "pointercancel",
+      "touchstart",
+      "touchmove",
+      "touchend",
+      "dragstart",
+      "selectstart",
+    ]
+    for (const t of types) document.addEventListener(t, tracer, true)
+    return () => {
+      for (const t of types) document.removeEventListener(t, tracer, true)
+    }
+  }, [])
 
   return (
     <div style={{ padding: 24, fontFamily: "system-ui" }}>
@@ -139,7 +179,15 @@ function DndTest() {
         </DragOverlay>
       </DndContext>
 
-      <h2 style={{ marginTop: 24, fontSize: 14 }}>Journal (plus récent en haut)</h2>
+      <h2 style={{ marginTop: 24, fontSize: 14 }}>Événements bruts du navigateur</h2>
+      <p style={{ fontFamily: "monospace", fontSize: 13 }}>
+        {Object.entries(bruts)
+          .map(([t, n]) => `${t}=${n}`)
+          .join("  ") || "aucun"}
+      </p>
+      <p style={{ fontFamily: "monospace", fontSize: 13 }}>dernier : {dernier || "—"}</p>
+
+      <h2 style={{ marginTop: 24, fontSize: 14 }}>Journal dnd-kit (plus récent en haut)</h2>
       <ol data-journal style={{ fontFamily: "monospace", fontSize: 12 }}>
         {journal.map((l, i) => (
           <li key={i}>{l}</li>
