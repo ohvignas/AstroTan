@@ -23,3 +23,27 @@ describe("EtatImage", () => {
     expect(html).not.toContain("text-destructive")
   })
 })
+
+describe("EtatImage — l'accord de genre", () => {
+  // Le texte que ce composant a remplacé accordait « Choisissez-en une
+  // autre » pour l'icône ; en devenant un composant, il a perdu l'accord et
+  // dit « un autre » à tout le monde. Visible sur Réglages → Identité dès
+  // qu'une référence d'icône est morte.
+  test("l'icône est féminine, le logo masculin — référence morte", () => {
+    expect(
+      renderToStaticMarkup(<EtatImage etat="introuvable" noun="icône" />),
+    ).toContain("une autre")
+    expect(
+      renderToStaticMarkup(<EtatImage etat="introuvable" noun="logo" />),
+    ).toContain("un autre")
+  })
+
+  test("l'icône est féminine, le logo masculin — aucun réglage", () => {
+    const icone = renderToStaticMarkup(<EtatImage etat="defaut" noun="icône" />)
+    expect(icone).toContain("Aucune icône choisie")
+    expect(icone).toContain("celle du dépôt")
+    const logo = renderToStaticMarkup(<EtatImage etat="defaut" noun="logo" />)
+    expect(logo).toContain("Aucun logo choisi")
+    expect(logo).toContain("celui du dépôt")
+  })
+})

@@ -331,12 +331,19 @@ export function EtatImage({
   noun,
 }: {
   etat: "defaut" | "introuvable"
+  /** « logo » ou « icône » — au singulier, sans article. */
   noun: string
 }) {
+  // Même dérivation que dans `ImageField` : « icône » est le seul nom
+  // féminin du lot. En devenant un composant, ce texte avait perdu l'accord
+  // que la version en ligne portait (« choisissez-en une autre ») et disait
+  // « un autre » y compris pour l'icône.
+  const feminin = noun === "icône"
   if (etat === "defaut") {
     return (
       <span className="text-sm text-muted-foreground">
-        Aucun {noun} choisi : le site sert celui du dépôt.
+        Aucun{feminin ? "e" : ""} {noun} choisi{feminin ? "e" : ""} : le site
+        sert {feminin ? "celle" : "celui"} du dépôt.
       </span>
     )
   }
@@ -344,7 +351,7 @@ export function EtatImage({
     <span className="text-sm text-muted-foreground">
       Le fichier choisi n’existe plus dans le stockage — supprimé ou remplacé
       depuis. Le site sert le {noun} du dépôt en attendant ; choisissez-en un
-      autre, ou retirez le réglage.
+      {feminin ? "e" : ""} autre, ou retirez le réglage.
     </span>
   )
 }
@@ -406,10 +413,12 @@ function ImageField({
             alt=""
             className="h-10 w-auto max-w-32 rounded border border-border bg-muted object-contain p-1"
           />
-          <p className="text-sm text-muted-foreground">
-            Aucun{feminin ? "e" : ""} {noun} téléversé{feminin ? "e" : ""} — le
-            fichier du dépôt est utilisé.
-          </p>
+          {/* Le même composant que la branche « référence morte » plus bas,
+              et non un texte en ligne de plus : `EtatImage` était exporté et
+              testé pour ses DEUX états, mais celui-ci n'était rendu nulle
+              part — deux formulations du même message, dont une seule sous
+              test. */}
+          <EtatImage etat="defaut" noun={noun} />
         </div>
       ) : introuvable ? (
         <div className="flex items-center gap-3">
