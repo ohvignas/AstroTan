@@ -181,8 +181,127 @@ export interface RankedItem {
   visits: number
 }
 
+// --- La granularité demandée ---------------------------------------------
+
+/**
+ * Les trois granularités offertes, et rien d'autre.
+ *
+ * Une liste fermée plutôt qu'une chaîne libre : « semaine » et
+ * « trimestre » ont l'air raisonnables et rendent tous les deux `400` chez
+ * Umami (`unit` n'admet que `minute` `hour` `day` `month` `year`, vérifié
+ * contre 3.3.1). Une chaîne libre les laisserait arriver jusqu'ici pour y
+ * devenir silencieusement le défaut — un graphique au mauvais pas, sans un
+ * mot.
+ */
+export const PERIODES = ["jour", "mois", "annee"] as const
+export type Periode = (typeof PERIODES)[number]
+export type Unit = "day" | "month" | "year"
+
+const periodeValidator = v.union(
+  ...(PERIODES.map((p) => v.literal(p)) as [
+    ReturnType<typeof v.literal<"jour">>,
+    ReturnType<typeof v.literal<"mois">>,
+    ReturnType<typeof v.literal<"annee">>,
+  ]),
+)
+
+const GRANULARITES: Record<Periode, { unit: Unit; count: number }> = {
+  jour: { unit: "day", count: 30 },
+  mois: { unit: "month", count: 12 },
+  annee: { unit: "year", count: 5 },
+}
+
+export interface Fenetre {
+  periode: Periode
+  unit: Unit
+  startAt: number
+  endAt: number
+  /**
+   * Toutes les clés de seau attendues, du plus ancien au plus récent.
+   *
+   * Elles sont ENGENDRÉES ici, pas lues dans la réponse : `/pageviews`
+   * omet les intervalles vides au lieu de les rendre à zéro (un mois avec
+   * trois jours de trafic rend trois points), et un graphique tracé sur ce
+   * qu'Umami a bien voulu rendre ment sur les dates.
+   */
+  buckets: string[]
+}
+
+/** Le début du seau contenant `ms`, en UTC. */
+function bucketStart(ms: number, unit: Unit): number {
+  const d = new Date(ms)
+  if (unit === "year") return Date.UTC(d.getUTCFullYear(), 0, 1)
+  if (unit === "month") return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+}
+
+/** Le début du seau situé `n` seaux avant celui de `ms`. */
+function stepBack(ms: number, unit: Unit, n: number): number {
+  const d = new Date(ms)
+  // `Date.UTC` normalise un mois négatif (`-3` devient septembre de
+  // l'année précédente) : c'est ce qui fait traverser le passage d'année
+  // sans arithmétique modulaire, laquelle se trompe toujours d'un an la
+  // première fois qu'on l'écrit.
+  if (unit === "year") return Date.UTC(d.getUTCFullYear() - n, 0, 1)
+  if (unit === "month") return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - n, 1)
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - n)
+}
+
+/** La forme exacte des `x` d'Umami en UTC : `2026-08-01T00:00:00Z`. */
+function bucketKey(ms: number): string {
+  return `${new Date(ms).toISOString().slice(0, 19)}Z`
+}
+
+/**
+ * La fenêtre à demander, et les seaux à en attendre.
+ *
+ * Alignée sur le début du seau : trente jours qui commenceraient au milieu
+ * d'une journée donneraient un premier point tronqué, que le graphique
+ * afficherait comme un creux. Le dernier seau, lui, est bien le seau
+ * COURANT et donc partiel — c'est « aujourd'hui », et le masquer serait
+ * plus déroutant que de le montrer.
+ *
+ * Pure, exportée, et testée seule : c'est toute l'arithmétique de dates de
+ * ce module, et la seule partie qu'aucun appel réseau ne peut vérifier.
+ */
+export function fenetreFor(periode: Periode, now: number): Fenetre {
+  const { unit, count } = GRANULARITES[periode]
+  const dernier = bucketStart(now, unit)
+  const buckets: string[] = []
+  for (let i = count - 1; i >= 0; i--) buckets.push(bucketKey(stepBack(dernier, unit, i)))
+  return { periode, unit, startAt: stepBack(dernier, unit, count - 1), endAt: now, buckets }
+}
+
+/**
+ * La clé de seau d'une ligne d'Umami, ramenée à la forme engendrée ici.
+ *
+ * Pas une comparaison de chaînes brutes : `x` change de forme selon le
+ * fuseau demandé (`2026-08-01T00:00:00Z` en UTC, `2026-08-01 00:00:00`
+ * avec un fuseau nommé — sans indicateur de fuseau, donc lu en heure
+ * locale par `new Date`). Reparser puis replancher fait que la jointure
+ * survit à ce changement de forme au lieu de rendre douze zéros.
+ */
+function keyOf(x: string | undefined, unit: Unit): string | null {
+  if (!x) return null
+  const iso = x.trim().replace(" ", "T")
+  const ms = Date.parse(/([zZ]|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`)
+  if (Number.isNaN(ms)) return null
+  return bucketKey(bucketStart(ms, unit))
+}
+
 export interface SiteSummary {
+  /** La granularité effectivement servie — le défaut compris. */
+  periode: Periode
+  /** L'unité de seau demandée à Umami. */
+  unit: Unit
+  /** Les bornes de la fenêtre, en millisecondes. */
+  startAt: number
+  endAt: number
   totals: { pageviews: Metric; visitors: Metric } | null
+  /**
+   * Un point par seau de la fenêtre, dans l'ordre, seaux vides compris —
+   * 30, 12 ou 5 selon la période. Jamais la liste creuse d'Umami.
+   */
   series: SeriesPoint[] | null
   /**
    * `null` quand ce palmarès précis a échoué alors que le reste a répondu :
@@ -269,11 +388,19 @@ function rank(rows: { x?: string; y?: number }[] | null): RankedItem[] | null {
 }
 
 export const siteSummary = action({
-  args: {},
-  handler: async (ctx): Promise<SiteSummary> => {
+  // Optionnel, et le défaut est `jour` : l'accueil de l'administration
+  // appelle sans argument et obtient exactement ce qu'il obtenait avant
+  // que la granularité existe.
+  args: { periode: v.optional(periodeValidator) },
+  handler: async (ctx, args): Promise<SiteSummary> => {
     await requireRole(ctx, ["owner", "admin", "editor"])
 
+    const fenetre = fenetreFor(args.periode ?? "jour", Date.now())
     const empty = {
+      periode: fenetre.periode,
+      unit: fenetre.unit,
+      startAt: fenetre.startAt,
+      endAt: fenetre.endAt,
       totals: null,
       series: null,
       topPages: null,
@@ -283,11 +410,16 @@ export const siteSummary = action({
     const cfg = readUmamiConfig(process.env)
     if (cfg === null) return { ...empty, status: "not-configured" }
 
-    const now = Date.now()
-    const startAt = String(now - 30 * DAY_MS)
-    const endAt = String(now)
+    const now = fenetre.endAt
     const base = `${cfg.url}/api/websites/${cfg.websiteId}`
-    const window = `startAt=${startAt}&endAt=${endAt}`
+    // La MÊME fenêtre pour les quatre appels, et c'est ce qui rend la
+    // comparaison honnête : Umami calcule sa période précédente comme la
+    // fenêtre de MÊME DURÉE immédiatement antérieure à `startAt` (mesuré
+    // contre 3.3.1 — une fenêtre de six heures rendait `comparison` à 278
+    // vues, exactement le total mesuré directement sur les six heures
+    // d'avant). Sur douze mois, la comparaison porte donc bien sur les
+    // douze mois précédents, sans qu'on ait à la calculer.
+    const window = `startAt=${fenetre.startAt}&endAt=${fenetre.endAt}`
 
     try {
       const token = await getUmamiToken(cfg, now)
@@ -306,7 +438,19 @@ export const siteSummary = action({
         getJson<{
           sessions?: { x?: string; y?: number }[]
           pageviews?: { x?: string; y?: number }[]
-        }>(`${base}/pageviews?${window}&unit=day`, token),
+        }>(
+          // `timezone=UTC` explicite, alors qu'il est facultatif et que
+          // l'instance fait déjà de l'UTC sans lui (vérifié : réponses
+          // identiques). Ce qui change avec un fuseau NOMMÉ, c'est la
+          // forme de `x` — `2026-08-01 00:00:00`, sans indicateur de
+          // fuseau, que `new Date` lit en heure locale du navigateur et
+          // qui décale le graphique d'un cran pour une partie des
+          // lecteurs, jamais pour celui qui l'a développé s'il est à
+          // Paris. Le figer ici fait qu'un changement de défaut chez
+          // Umami casse un test plutôt que des dates.
+          `${base}/pageviews?${window}&unit=${fenetre.unit}&timezone=UTC`,
+          token,
+        ),
         getJson<{ x?: string; y?: number }[]>(
           // `type=url` répond 400 en Umami 3 : le type s'appelle `path`.
           `${base}/metrics?${window}&type=path&limit=5`,
@@ -324,16 +468,25 @@ export const siteSummary = action({
       // zéro est une mesure, pas une panne.
       if (totals === null) return { ...empty, status: "unreachable" }
 
-      const points = series?.pageviews ?? null
       // Umami construit `pageviews` et `sessions` séparément : rien ne
       // garantit qu'ils portent les mêmes seaux ni le même nombre. Les
       // apparier par indice décalerait tout ce qui suit un seau manquant,
       // silencieusement et de façon plausible. La clé `x` est ce qui les
-      // relie réellement.
-      const visitorsByDate = new Map(
-        (series?.sessions ?? []).map((point) => [point.x ?? "", point.y ?? 0])
-      )
+      // relie réellement — et depuis que les seaux sont engendrés, c'est
+      // elle aussi qui raccroche les deux tableaux à l'axe.
+      const index = (rows: { x?: string; y?: number }[]) =>
+        new Map(
+          rows
+            .map((row) => [keyOf(row.x, fenetre.unit), row.y ?? 0] as const)
+            .filter((entry): entry is readonly [string, number] => entry[0] !== null),
+        )
+      const viewsByDate = index(series?.pageviews ?? [])
+      const visitorsByDate = index(series?.sessions ?? [])
       return {
+        periode: fenetre.periode,
+        unit: fenetre.unit,
+        startAt: fenetre.startAt,
+        endAt: fenetre.endAt,
         totals: {
           pageviews: {
             value: totals.pageviews ?? 0,
@@ -344,13 +497,15 @@ export const siteSummary = action({
             prev: totals.comparison?.visitors ?? 0,
           },
         },
+        // `null` seulement quand l'appel lui-même a échoué : un site sans
+        // trafic rend une série de zéros, qui est une mesure, pas une panne.
         series:
-          points === null
+          series === null
             ? null
-            : points.map((point) => ({
-                date: point.x ?? "",
-                visitors: visitorsByDate.get(point.x ?? "") ?? 0,
-                pageviews: point.y ?? 0,
+            : fenetre.buckets.map((date) => ({
+                date,
+                visitors: visitorsByDate.get(date) ?? 0,
+                pageviews: viewsByDate.get(date) ?? 0,
               })),
         topPages: rank(pages),
         topReferrers: rank(referrers),

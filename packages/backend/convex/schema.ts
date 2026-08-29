@@ -293,6 +293,32 @@ export default defineSchema({
     leadWebhookLastAt: v.optional(v.number()),
   }),
 
+  // Les jetons saisis depuis l'écran des réglages — CHIFFRÉS, jamais en
+  // clair.
+  //
+  // Une table à part, et jamais un champ de plus dans `settings` : celle-ci
+  // a une projection publique (`settings.get`), appelée par le site sans
+  // session, et le jour où le secret de signature du webhook y est entré il
+  // est devenu lisible par tout Internet. « En optionnel » n'aurait rien
+  // changé à cela. Ici, aucune query ne rend `iv` ni `chiffre`.
+  //
+  // Chiffrement d'enveloppe : la clé maîtresse est `SECRETS_KEY`, posée
+  // dans l'environnement Convex par la CLI. Une copie de la base ne suffit
+  // donc pas — un export de sauvegarde, un accès au tableau de bord, une
+  // query mal écrite : aucun des trois ne donne le jeton. Voir
+  // `lib/secretsCrypto.ts` pour ce que le dispositif n'achète pas.
+  secrets: defineTable({
+    /** Le nom de la variable correspondante : `OPENROUTER_API_KEY`, … */
+    nom: v.string(),
+    /** 12 octets, NEUFS à chaque écriture — un IV réutilisé casse AES-GCM. */
+    iv: v.bytes(),
+    chiffre: v.bytes(),
+    /** Les quatre derniers caractères, ou "" si le secret est trop court. */
+    quatreDerniers: v.string(),
+    majAt: v.number(),
+    majPar: v.string(),
+  }).index("by_nom", ["nom"]),
+
   // Deux chaînes pour une idée : le `name` qu'un humain a tapé, gardé tel
   // quel pour l'affichage, et le `slug` qui en est dérivé — c'est lui qui
   // décide de l'URL et de l'unicité. « Astro » et « astro » sont le même

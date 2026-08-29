@@ -4,9 +4,13 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import type { SiteSummary, UmamiLinks } from "@astrotan/backend/convex/analytics"
-import { SiteDashboard, Sparkline, trend } from "./site-dashboard"
+import { SiteDashboard, trend } from "./site-dashboard"
 
 const OK: SiteSummary = {
+  periode: "jour",
+  unit: "day",
+  startAt: 1_787_000_000_000,
+  endAt: 1_789_000_000_000,
   totals: {
     visitors: { value: 44, prev: 39 },
     pageviews: { value: 128, prev: 160 },
@@ -27,7 +31,9 @@ const SHARED: UmamiLinks = {
 }
 
 function render(summary: SiteSummary | undefined, umami: UmamiLinks | null = null) {
-  return renderToStaticMarkup(<SiteDashboard summary={summary} umami={umami} />)
+  return renderToStaticMarkup(
+    <SiteDashboard summary={summary} umami={umami} periode="jour" onPeriode={() => {}} />
+  )
 }
 
 describe("trend", () => {
@@ -43,30 +49,12 @@ describe("trend", () => {
   })
 })
 
-describe("Sparkline", () => {
-  test("dessine la courbe dans le bon sens", () => {
-    const svg = renderToStaticMarkup(
-      <Sparkline
-        points={[
-          { date: "a", visitors: 0, pageviews: 0 },
-          { date: "b", visitors: 10, pageviews: 0 },
-        ]}
-      />
-    )
-    // L'origine SVG est en haut : la valeur haute doit produire un y BAS.
-    // Sans la soustraction, la courbe s'affiche à l'envers — une erreur que
-    // l'œil ne rattrape pas sur des données réelles.
-    expect(svg).toContain("M0.0,80.0")
-    expect(svg).toContain("L600.0,0.0")
-  })
-
-  test("un seul point ne fait pas une courbe", () => {
-    const svg = renderToStaticMarkup(
-      <Sparkline points={[{ date: "a", visitors: 3, pageviews: 3 }]} />
-    )
-    expect(svg).toBe("")
-  })
-})
+// Les tests de la courbe ont disparu avec la sparkline écrite à la main.
+// Le graphique est désormais rendu par recharts, qui exige un DOM là où la
+// configuration vitest de cette application est en `environment: "node"`.
+// Ce qui restait vérifiable sans DOM — le format des étiquettes, la lecture
+// des seaux en UTC — a été déplacé dans `lib/dashboardFormat.test.ts`
+// plutôt que supprimé.
 
 describe("SiteDashboard", () => {
   test("affiche chiffres, tendances et palmarès", () => {
@@ -106,6 +94,10 @@ describe("SiteDashboard", () => {
     ["unauthorized", "refusés"],
   ] as const)("l'état %s explique au lieu d'afficher zéro", (status, expected) => {
     const html = render({
+      periode: "jour",
+      unit: "day",
+      startAt: 0,
+      endAt: 0,
       totals: null,
       series: null,
       topPages: null,

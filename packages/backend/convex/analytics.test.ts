@@ -2,6 +2,7 @@ import type { TestConvex } from "convex-test"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import schema from "./schema"
 import { clearUmamiToken } from "./lib/umamiToken"
+import { fenetreFor } from "./analytics"
 import { api } from "./_generated/api"
 import {
   ORIGIN,
@@ -191,7 +192,17 @@ test("umamiLinks rend les adresses, sans jamais les identifiants", async () => {
   expect(JSON.stringify(links)).not.toContain("lecture")
 })
 
+// Les deux DERNIERS seaux de la fenêtre courante, calculés plutôt
+// qu'écrits en dur : la fenêtre glisse avec l'horloge, et des dates fixes
+// rendraient ce test juste aujourd'hui et faux le mois prochain — sans
+// que personne ne l'ait touché.
+function derniersSeaux() {
+  const buckets = fenetreFor("jour", Date.now()).buckets
+  return { avantHier: buckets.at(-2)!, hier: buckets.at(-1)! }
+}
+
 function stubSite() {
+  const { avantHier, hier } = derniersSeaux()
   return vi.fn(async (url: string) => {
     const u = String(url)
     if (u.includes("/api/auth/login")) {
@@ -203,12 +214,12 @@ function stubSite() {
         status: 200,
         json: async () => ({
           sessions: [
-            { x: "2026-08-01T00:00:00Z", y: 5 },
-            { x: "2026-08-02T00:00:00Z", y: 9 },
+            { x: avantHier, y: 5 },
+            { x: hier, y: 9 },
           ],
           pageviews: [
-            { x: "2026-08-01T00:00:00Z", y: 12 },
-            { x: "2026-08-02T00:00:00Z", y: 20 },
+            { x: avantHier, y: 12 },
+            { x: hier, y: 20 },
           ],
         }),
       }
@@ -254,9 +265,14 @@ test("siteSummary rend totaux, période précédente, série et palmarès", asyn
     pageviews: { value: 128, prev: 118 },
     visitors: { value: 44, prev: 39 },
   })
-  expect(result.series).toEqual([
-    { date: "2026-08-01T00:00:00Z", visitors: 5, pageviews: 12 },
-    { date: "2026-08-02T00:00:00Z", visitors: 9, pageviews: 20 },
+  // La série est DENSE : trente seaux, dont vingt-huit à zéro. Umami n'en
+  // rend que deux — il omet les intervalles vides — et les deux derniers
+  // portent bien ce qu'il a rendu.
+  const { avantHier, hier } = derniersSeaux()
+  expect(result.series).toHaveLength(30)
+  expect(result.series?.slice(-2)).toEqual([
+    { date: avantHier, visitors: 5, pageviews: 12 },
+    { date: hier, visitors: 9, pageviews: 20 },
   ])
   // `/metrics` compte des VISITES : une visite par session, là où
   // `/stats?path=` compte chaque affichage. Mesuré sur 3.3.1, `/` sortait
@@ -432,6 +448,7 @@ test("les deux séries sont appariées par leur date, jamais par leur indice", a
   const t = makeTestConvex()
   const editor = await seedActor(t, "editor")
   configure()
+  const buckets = fenetreFor("jour", Date.now()).buckets
 
   vi.stubGlobal(
     "fetch",
@@ -450,13 +467,13 @@ test("les deux séries sont appariées par leur date, jamais par leur indice", a
           // 3 sur la journée du 2.
           json: async () => ({
             pageviews: [
-              { x: "2026-08-01T00:00:00Z", y: 12 },
-              { x: "2026-08-02T00:00:00Z", y: 20 },
-              { x: "2026-08-03T00:00:00Z", y: 30 },
+              { x: buckets.at(-3), y: 12 },
+              { x: buckets.at(-2), y: 20 },
+              { x: buckets.at(-1), y: 30 },
             ],
             sessions: [
-              { x: "2026-08-01T00:00:00Z", y: 5 },
-              { x: "2026-08-03T00:00:00Z", y: 9 },
+              { x: buckets.at(-3), y: 5 },
+              { x: buckets.at(-1), y: 9 },
             ],
           }),
         }
@@ -473,10 +490,207 @@ test("les deux séries sont appariées par leur date, jamais par leur indice", a
   )
 
   const result = await editor.identity.action(api.analytics.siteSummary, {})
-  expect(result.series).toEqual([
-    { date: "2026-08-01T00:00:00Z", visitors: 5, pageviews: 12 },
+  expect(result.series?.slice(-3)).toEqual([
+    { date: buckets.at(-3), visitors: 5, pageviews: 12 },
     // Le jour sans session ouverte vaut zéro visiteur, et ne décale rien.
-    { date: "2026-08-02T00:00:00Z", visitors: 0, pageviews: 20 },
-    { date: "2026-08-03T00:00:00Z", visitors: 9, pageviews: 30 },
+    { date: buckets.at(-2), visitors: 0, pageviews: 20 },
+    { date: buckets.at(-1), visitors: 9, pageviews: 30 },
   ])
+})
+
+// --- La granularité : jour / mois / année --------------------------------
+
+// Un `now` figé, et jamais `Date.now()` : une fenêtre calculée sur
+// l'horloge réelle rendrait ces assertions justes aujourd'hui et fausses
+// le mois prochain, ce qui est la pire des deux façons d'échouer.
+const NOW = Date.UTC(2026, 7, 29, 14, 23, 45, 678) // 29 août 2026, 14 h 23 UTC
+
+test("fenetreFor : 30 seaux journaliers, alignés sur minuit UTC", () => {
+  const f = fenetreFor("jour", NOW)
+  expect(f.unit).toBe("day")
+  expect(f.buckets).toHaveLength(30)
+  // Le dernier seau est le jour courant, le premier 29 jours plus tôt —
+  // trente seaux COMPLETS, pas trente jours glissants dont le premier
+  // serait tronqué au milieu.
+  expect(f.buckets.at(-1)).toBe("2026-08-29T00:00:00Z")
+  expect(f.buckets[0]).toBe("2026-07-31T00:00:00Z")
+  expect(f.startAt).toBe(Date.UTC(2026, 6, 31))
+  expect(f.endAt).toBe(NOW)
+})
+
+test("fenetreFor : 12 seaux mensuels, alignés sur le premier du mois", () => {
+  const f = fenetreFor("mois", NOW)
+  expect(f.unit).toBe("month")
+  expect(f.buckets).toHaveLength(12)
+  expect(f.buckets.at(-1)).toBe("2026-08-01T00:00:00Z")
+  // Le passage d'année se fait par `Date.UTC(y, m - 11, 1)`, qui normalise
+  // un mois négatif — écrire `(m - 11 + 12) % 12` aurait rendu septembre
+  // 2026 au lieu de septembre 2025.
+  expect(f.buckets[0]).toBe("2025-09-01T00:00:00Z")
+})
+
+test("fenetreFor : 5 seaux annuels, alignés sur le 1er janvier", () => {
+  const f = fenetreFor("annee", NOW)
+  expect(f.unit).toBe("year")
+  expect(f.buckets).toHaveLength(5)
+  expect(f.buckets[0]).toBe("2022-01-01T00:00:00Z")
+  expect(f.buckets.at(-1)).toBe("2026-01-01T00:00:00Z")
+})
+
+/** Un site qui répond, avec une seule journée de trafic dans le seau demandé. */
+function stubGranularite(urls: string[]) {
+  return vi.fn(async (url: string) => {
+    const u = String(url)
+    urls.push(u)
+    if (u.includes("/api/auth/login")) {
+      return { ok: true, status: 200, json: async () => ({ token: "jeton" }) }
+    }
+    if (u.includes("/pageviews")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pageviews: [{ x: "2026-08-01T00:00:00Z", y: 360 }],
+          sessions: [{ x: "2026-08-01T00:00:00Z", y: 10 }],
+        }),
+      }
+    }
+    if (u.includes("type=path") || u.includes("type=referrer")) {
+      return { ok: true, status: 200, json: async () => [] }
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ pageviews: 360, visitors: 10, comparison: { pageviews: 0, visitors: 0 } }),
+    }
+  })
+}
+
+test("siteSummary sans argument reste sur le jour — le défaut ne bouge pas", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  const urls: string[] = []
+  vi.stubGlobal("fetch", stubGranularite(urls))
+
+  const result = await editor.identity.action(api.analytics.siteSummary, {})
+  expect(result.periode).toBe("jour")
+  expect(result.unit).toBe("day")
+  expect(result.series).toHaveLength(30)
+  expect(urls.find((u) => u.includes("/pageviews"))).toContain("unit=day")
+})
+
+test("periode=mois demande unit=month, et rend douze seaux", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  const urls: string[] = []
+  vi.stubGlobal("fetch", stubGranularite(urls))
+
+  const result = await editor.identity.action(api.analytics.siteSummary, {
+    periode: "mois",
+  })
+  expect(result.periode).toBe("mois")
+  expect(result.unit).toBe("month")
+  // Vérifié contre Umami 3.3.1 : `unit=month` répond réellement, avec des
+  // `x` au premier du mois. `unit=week` et `unit=quarter`, eux, rendent 400.
+  expect(urls.find((u) => u.includes("/pageviews"))).toContain("unit=month")
+  expect(result.series).toHaveLength(12)
+})
+
+test("periode=annee demande unit=year, et rend cinq seaux", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  const urls: string[] = []
+  vi.stubGlobal("fetch", stubGranularite(urls))
+
+  const result = await editor.identity.action(api.analytics.siteSummary, {
+    periode: "annee",
+  })
+  expect(result.unit).toBe("year")
+  expect(urls.find((u) => u.includes("/pageviews"))).toContain("unit=year")
+  expect(result.series).toHaveLength(5)
+})
+
+test("la série est complète : les seaux sans trafic valent zéro, pas rien", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  vi.stubGlobal("fetch", stubGranularite([]))
+
+  const result = await editor.identity.action(api.analytics.siteSummary, {
+    periode: "mois",
+  })
+  // Umami OMET les intervalles vides au lieu de les mettre à zéro : ici un
+  // seul point pour douze mois. Tracé tel quel, le graphique mentirait sur
+  // les dates. Les seaux sont donc engendrés ici, et les lignes d'Umami
+  // jointes dessus par leur clé.
+  const aout = result.series?.find((p) => p.date === "2026-08-01T00:00:00Z")
+  expect(aout).toEqual({ date: "2026-08-01T00:00:00Z", visitors: 10, pageviews: 360 })
+  expect(result.series?.every((p) => typeof p.pageviews === "number")).toBe(true)
+  expect(result.series?.filter((p) => p.pageviews === 0)).toHaveLength(11)
+  // Du plus ancien au plus récent : un graphique lu à l'envers est un
+  // graphique faux qui a l'air juste.
+  const dates = result.series!.map((p) => p.date)
+  expect([...dates].sort()).toEqual(dates)
+})
+
+test("la comparaison porte la MÊME fenêtre que la série — donc la même durée", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  const urls: string[] = []
+  vi.stubGlobal("fetch", stubGranularite(urls))
+
+  const result = await editor.identity.action(api.analytics.siteSummary, {
+    periode: "mois",
+  })
+
+  // C'est Umami qui calcule la période précédente, et il la prend
+  // immédiatement avant la fenêtre demandée, de la MÊME durée — mesuré
+  // contre 3.3.1 : une fenêtre de six heures vide rendait `comparison` à
+  // 278 vues, exactement ce que rend la mesure directe des six heures
+  // d'avant. Le seul moyen de casser cette propriété serait de donner à
+  // `/stats` une fenêtre différente de celle de la série ; c'est cela que
+  // ce test verrouille.
+  const stats = urls.find((u) => u.includes("/stats"))!
+  expect(stats).toContain(`startAt=${result.startAt}`)
+  expect(stats).toContain(`endAt=${result.endAt}`)
+  expect(stats).toContain("compare=prev")
+  const pageviews = urls.find((u) => u.includes("/pageviews"))!
+  expect(pageviews).toContain(`startAt=${result.startAt}`)
+})
+
+test("le fuseau est demandé explicitement, pour figer le format des dates", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  const urls: string[] = []
+  vi.stubGlobal("fetch", stubGranularite(urls))
+
+  await editor.identity.action(api.analytics.siteSummary, {})
+
+  // Sans `timezone`, Umami 3.3.1 agrège en UTC et rend `2026-08-28T00:00:00Z`
+  // — vérifié identique à `timezone=UTC`. Avec un fuseau nommé, il rend
+  // `2026-08-01 00:00:00`, sans indicateur de fuseau : passé à `new Date`,
+  // ce format est lu en heure LOCALE du navigateur et décale le graphique
+  // d'un cran pour une partie des lecteurs. Le demander explicitement en
+  // UTC est ce qui empêche un changement de défaut chez Umami de produire
+  // ce décalage sans que rien n'échoue.
+  expect(urls.find((u) => u.includes("/pageviews"))).toContain("timezone=UTC")
+})
+
+test("une période inconnue est refusée par le validateur, pas interprétée", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  vi.stubGlobal("fetch", stubGranularite([]))
+
+  // Un `v.union` de littéraux, jamais `v.string()` : une chaîne libre
+  // laisserait « semaine » arriver jusqu'au calcul de fenêtre, où elle
+  // deviendrait silencieusement un défaut.
+  await expect(
+    editor.identity.action(api.analytics.siteSummary, { periode: "semaine" } as never),
+  ).rejects.toThrow()
 })

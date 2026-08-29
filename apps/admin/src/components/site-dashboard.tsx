@@ -3,12 +3,15 @@ import { useAction } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type {
   Metric,
-  SeriesPoint,
+  Periode,
   SiteSummary,
   UmamiLinks,
 } from "@astrotan/backend/convex/analytics"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ExternalLinkIcon } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
+import { CourbeAudience, SelecteurPeriode } from "@/components/audience-chart"
+import { LIBELLES_PERIODE, nombre } from "@/lib/dashboardFormat"
 
 // L'accueil de l'administration : comment va le site, en un écran.
 //
@@ -39,66 +42,29 @@ export function trend(metric: Metric): number | null {
   return Math.round(((metric.value - metric.prev) / metric.prev) * 100)
 }
 
-function Figure({ label, metric }: { label: string; metric: Metric }) {
+function Figure({
+  label,
+  metric,
+  fenetre,
+}: {
+  label: string
+  metric: Metric
+  /** « sur les 12 derniers mois » — la comparaison porte sur la MÊME durée. */
+  fenetre: string
+}) {
   const change = trend(metric)
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
-      <span className="text-3xl font-semibold tabular-nums">{metric.value}</span>
+      <span className="text-3xl font-semibold tabular-nums">{nombre(metric.value)}</span>
       <span className="text-xs text-muted-foreground tabular-nums">
         {change === null
           ? "Pas de période de comparaison"
-          : `${change >= 0 ? "▲" : "▼"} ${Math.abs(change)} % vs 30 jours précédents`}
+          : `${change >= 0 ? "▲" : "▼"} ${Math.abs(change)} % ${fenetre}`}
       </span>
     </div>
-  )
-}
-
-/**
- * La courbe, en SVG écrit à la main.
- *
- * Une seule courbe ne justifie pas une bibliothèque de graphiques : ce qui
- * suit tient en quelques lignes, n'ajoute rien au bundle, et ne fige aucun
- * choix. À la deuxième courbe, la question se repose.
- */
-export function Sparkline({ points }: { points: SeriesPoint[] }) {
-  if (points.length < 2) return null
-
-  const width = 600
-  const height = 80
-  const max = Math.max(...points.map((p) => p.visitors), 1)
-  const path = points
-    .map((point, index) => {
-      const x = (index / (points.length - 1)) * width
-      // L'origine SVG est en haut : sans cette soustraction, la courbe est
-      // dessinée à l'envers et personne ne le voit tout de suite.
-      const y = height - (point.visitors / max) * height
-      return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(" ")
-
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-20 w-full"
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={`Visiteurs par jour, maximum ${max}`}
-    >
-      <path
-        d={`${path} L${width},${height} L0,${height} Z`}
-        className="fill-primary/10"
-      />
-      <path
-        d={path}
-        fill="none"
-        className="stroke-primary"
-        strokeWidth="2"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
   )
 }
 
@@ -143,19 +109,35 @@ function Ranking({
 export function SiteDashboard({
   summary,
   umami,
+  periode,
+  onPeriode,
 }: {
   /** `undefined` tant que l'action est en vol. */
   summary: SiteSummary | undefined
   umami: UmamiLinks | null | undefined
+  periode: Periode
+  onPeriode: (p: Periode) => void
 }) {
+  const fenetre = LIBELLES_PERIODE[periode].fenetre
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Audience du site</CardTitle>
+      {/* Le titre et le sélecteur sur la même ligne : le second dit de quoi
+          parle le premier, et les séparer obligerait à chercher la période
+          en cours ailleurs que là où on lit les chiffres. */}
+      <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-0.5">
+          <CardTitle>Audience du site</CardTitle>
+          <span className="text-xs text-muted-foreground">{fenetre}</span>
+        </div>
+        <SelecteurPeriode
+          periode={periode}
+          onChange={onPeriode}
+          disabled={summary === undefined}
+        />
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         {summary === undefined ? (
-          <span className="text-sm text-muted-foreground">Chargement…</span>
+          <Skeleton className="h-[340px] rounded-lg" />
         ) : summary.status !== "ok" || summary.totals === null ? (
           <span className="text-sm text-muted-foreground">
             {EXPLANATIONS[summary.status === "ok" ? "unreachable" : summary.status]}
@@ -163,18 +145,19 @@ export function SiteDashboard({
         ) : (
           <>
             <div className="grid gap-6 sm:grid-cols-2">
-              <Figure label="Visiteurs" metric={summary.totals.visitors} />
-              <Figure label="Pages vues" metric={summary.totals.pageviews} />
+              <Figure
+                label="Visiteurs"
+                metric={summary.totals.visitors}
+                fenetre={`vs période précédente`}
+              />
+              <Figure
+                label="Pages vues"
+                metric={summary.totals.pageviews}
+                fenetre={`vs période précédente`}
+              />
             </div>
 
-            {summary.series && summary.series.length >= 2 && (
-              <div className="flex flex-col gap-1">
-                <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                  30 derniers jours
-                </span>
-                <Sparkline points={summary.series} />
-              </div>
-            )}
+            {summary.series && <CourbeAudience series={summary.series} periode={periode} />}
 
             <div className="grid gap-6 sm:grid-cols-2">
               {/* « visitées » et non « vues » : Umami compte ici une visite
@@ -230,11 +213,16 @@ export function SiteDashboardPanel({
   umami: UmamiLinks | null | undefined
 }) {
   const siteSummary = useAction(api.analytics.siteSummary)
+  const [periode, setPeriode] = useState<Periode>("jour")
   const [summary, setSummary] = useState<SiteSummary | undefined>(undefined)
 
   useEffect(() => {
     let current = true
-    siteSummary({})
+    // Remis à `undefined` à chaque changement de période : sans ça, les
+    // chiffres de la période précédente restent affichés pendant que la
+    // nouvelle arrive, et on lit des mois en croyant lire des jours.
+    setSummary(undefined)
+    siteSummary({ periode })
       .then((value) => {
         if (current) setSummary(value)
       })
@@ -244,6 +232,10 @@ export function SiteDashboardPanel({
         // s'afficher.
         if (current) {
           setSummary({
+            periode,
+            unit: "day",
+            startAt: 0,
+            endAt: 0,
             totals: null,
             series: null,
             topPages: null,
@@ -255,7 +247,14 @@ export function SiteDashboardPanel({
     return () => {
       current = false
     }
-  }, [siteSummary])
+  }, [siteSummary, periode])
 
-  return <SiteDashboard summary={summary} umami={umami} />
+  return (
+    <SiteDashboard
+      summary={summary}
+      umami={umami}
+      periode={periode}
+      onPeriode={setPeriode}
+    />
+  )
 }
