@@ -43,6 +43,21 @@
 //      être documentée dans docker/.env.example ET écrite par
 //      `pnpm bootstrap` dans `.env.vps`, sans quoi le premier `compose up`
 //      d'un adoptant échoue.
+//   5. CONVEX     — toute variable d'environnement lue par
+//      `packages/backend/convex/` doit être documentée dans
+//      `packages/backend/.env.example`. Ce déploiement-là n'a pas de
+//      compose ni de Dockerfile : son seul « endroit qui pose » est un
+//      `convex env set` tapé par un humain, et le seul document qui lui
+//      dise lequel taper est ce `.env.example`. Une variable absente de ce
+//      fichier n'est donc posée par personne — et un écran qui la lit
+//      refuse poliment, pour toujours.
+//        · `SECRETS_KEY` — la clé maîtresse du chiffrement des jetons
+//          saisis depuis l'interface. Sans elle, `secrets.set` lève
+//          `SECRETS_KEY_MISSING` et les sept jetons de `secrets.ts` ne se
+//          posent QUE par `convex env set` : `/settings/mesure` et
+//          `/settings/ia` sont décoratifs sur un déploiement neuf.
+//        · les cinq `UMAMI_API_*` et `OPENROUTER_API_KEY` — même famille,
+//          même silence.
 //   4. CONFIG DE BUILD — tout `process.env.X` lu par le fichier de
 //      configuration d'une app (`astro.config.ts`, `vite.config.ts`) doit
 //      être un `ARG` du Dockerfile ET un `build-args` de deploy.yml, comme
@@ -64,11 +79,13 @@
 //   · qu'une valeur soit JUSTE. Il compare des noms, pas des contenus : un
 //     `PREVIEW_SECRET` posé des deux côtés mais différent passe ce contrôle
 //     et casse la prévisualisation ;
-//   · le côté Convex. `packages/backend/convex/*.ts` lit ses propres
-//     `process.env` (`LEAD_SUBMIT_SECRET`, `CONSENT_LOG_SECRET`,
-//     `UMAMI_API_*`…) que `convex env set` pose, hors de toute image et hors
-//     de ce dépôt de fichiers. Un secret partagé posé sur le VPS mais pas
-//     sur Convex reste invisible ici ;
+//   · qu'une variable Convex soit réellement POSÉE sur le déploiement.
+//     L'écart n° 5 ci-dessus compare les lectures de
+//     `packages/backend/convex/` au seul document qui les décrive
+//     (`packages/backend/.env.example`) — c'est une vérification de
+//     documentation, pas d'état. Un secret partagé posé sur le VPS mais
+//     jamais sur Convex reste invisible ici, faute d'un fichier à
+//     interroger ;
 //   · les lectures dynamiques. Seul `process.env.NOM` littéral est reconnu ;
 //     un `process.env[nom]` calculé échappe à l'analyse ;
 //   · qu'un secret GitHub existe réellement dans les réglages du dépôt. Un
@@ -96,6 +113,8 @@ const COMPOSE = join(ROOT, "docker", "docker-compose.yml");
 const ENV_EXAMPLE = join(ROOT, "docker", ".env.example");
 const BOOTSTRAP = join(ROOT, "scripts", "bootstrap.mjs");
 const DEPLOY_WORKFLOW = join(ROOT, ".github", "workflows", "deploy.yml");
+const CONVEX_DIR = join(ROOT, "packages", "backend", "convex");
+const CONVEX_ENV_EXAMPLE = join(ROOT, "packages", "backend", ".env.example");
 
 // Les deux applications servies, et les trois fichiers qui posent leurs
 // variables. C'est la SEULE table écrite à la main du script, et elle ne
@@ -331,6 +350,72 @@ function bootstrapVpsVars() {
   return new Set([...body.slice(0, end).matchAll(/^#?\s*([A-Z][A-Z0-9_]*)=/gm)].map((m) => m[1]));
 }
 
+/**
+ * Les variables d'environnement que lit le backend Convex.
+ *
+ * Trois provenances, toutes DÉRIVÉES des fichiers — jamais une liste tenue
+ * à la main, qui serait un quatrième endroit à oublier :
+ *
+ *   · les `process.env.NOM` littéraux de `convex/` ;
+ *   · la liste close `SECRET_NOMS` de `convex/secrets.ts`, lue par
+ *     `lireSecret` à travers `process.env[nom]` — un accès calculé,
+ *     invisible à la recherche de littéraux ;
+ *   · `SECRETS_KEY_VAR` de `convex/lib/secretsCrypto.ts`, lue de la même
+ *     façon indirecte. C'est la clé maîtresse : absente, toute la famille
+ *     `secrets` est inerte.
+ *
+ * Rend `null` si l'une des deux dernières ne se reconnaît plus, pour que le
+ * garde-fou échoue bruyamment au lieu de rétrécir en silence.
+ */
+function convexEnvReads() {
+  const reads = new Map();
+  const add = (name, where) => {
+    if (PLATFORM.has(name)) return;
+    if (!reads.has(name)) reads.set(name, []);
+    reads.get(name).push(where);
+  };
+
+  for (const file of walk(CONVEX_DIR)) {
+    const rel = relative(ROOT, file);
+    if (isTest(rel) || !/\.ts$/.test(rel)) continue;
+    // `_generated/` et `betterAuth/_generated/` sont produits par la
+    // codegen Convex et exposent `process.env` en bloc (`export const env
+    // = process.env`) : rien à documenter là.
+    if (/(^|\/)_generated\//.test(rel)) continue;
+    read(file)
+      .split("\n")
+      .forEach((line, i) => {
+        // Les commentaires sont retirés ici, à la différence de `readsOf`
+        // ci-dessus : `convex/` est le seul arbre du dépôt où la PROSE
+        // parle des variables autant que le code (secrets.ts explique sa
+        // règle de précédence avec un `process.env.X` d'illustration).
+        // Sans ce retrait, ce garde-fou exigerait qu'on documente `X`.
+        const code = line.replace(/^\s*\*.*$/, "").split("//")[0];
+        for (const m of code.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) add(m[1], `${rel}:${i + 1}`);
+      });
+  }
+
+  const secretsSrc = read(join(CONVEX_DIR, "secrets.ts"));
+  const bloc = secretsSrc.match(/export const SECRET_NOMS = \[([\s\S]*?)\] as const/);
+  if (!bloc) return null;
+  const noms = [...bloc[1].matchAll(/"([A-Z][A-Z0-9_]*)"/g)].map((m) => m[1]);
+  if (noms.length === 0) return null;
+  for (const nom of noms) add(nom, "convex/secrets.ts (SECRET_NOMS)");
+
+  const cle = read(join(CONVEX_DIR, "lib", "secretsCrypto.ts")).match(
+    /export const SECRETS_KEY_VAR = "([A-Z][A-Z0-9_]*)"/,
+  );
+  if (!cle) return null;
+  add(cle[1], "convex/lib/secretsCrypto.ts (SECRETS_KEY_VAR)");
+
+  return reads;
+}
+
+/** Les variables documentées par un `.env.example`, commentées comprises. */
+function exampleVarsOf(path) {
+  return new Set([...read(path).matchAll(/^#?\s*([A-Z][A-Z0-9_]*)=/gm)].map((m) => m[1]));
+}
+
 /** Les variables documentées par docker/.env.example, commentées comprises. */
 function envExampleVars() {
   return new Set([...read(ENV_EXAMPLE).matchAll(/^#?\s*([A-Z][A-Z0-9_]*)=/gm)].map((m) => m[1]));
@@ -391,6 +476,8 @@ const workflowArgs = workflowBuildArgs(DEPLOY_WORKFLOW);
 const required = composeRequired();
 const vpsVars = bootstrapVpsVars();
 const exampleVars = envExampleVars();
+const convexReads = convexEnvReads();
+const convexDocumented = exampleVarsOf(CONVEX_ENV_EXAMPLE);
 
 // Garde-fou du garde-fou : si l'un des parseurs ne reconnaît plus son
 // fichier, il rendrait un ensemble vide et TOUT passerait. Mieux vaut un
@@ -399,6 +486,7 @@ if (services.size === 0) problems.push(["parseur", "aucun service trouvé dans d
 if (required.length === 0) problems.push(["parseur", "aucun `${VAR:?}` trouvé dans docker-compose.yml — corriger `composeRequired()`"]);
 if (workflowArgs.size === 0) problems.push(["parseur", "aucun `build-args:` trouvé dans deploy.yml — corriger `workflowBuildArgs()`"]);
 if (vpsVars === null) problems.push(["parseur", "gabarit `.env.vps` introuvable dans scripts/bootstrap.mjs — corriger `bootstrapVpsVars()`"]);
+if (convexReads === null || convexReads.size === 0) problems.push(["parseur", "lectures d'environnement du backend Convex introuvables — `SECRET_NOMS` ou `SECRETS_KEY_VAR` ont-ils changé de forme ? corriger `convexEnvReads()`"]);
 
 for (const app of APPS) {
   const { runtime, build } = readsOf(app);
@@ -472,6 +560,23 @@ for (const name of required) {
   }
 }
 
+// 5. CONVEX
+for (const [name, where] of convexReads ?? []) {
+  if (convexDocumented.has(name)) continue;
+  problems.push([
+    "convex",
+    `${name} — lue par ${where[0]}${where.length > 1 ? ` (+${where.length - 1})` : ""}, absente de packages/backend/.env.example. Ce déploiement n'a ni compose ni Dockerfile : ce fichier est le SEUL endroit qui dise quel \`convex env set\` taper. Non documentée, elle n'est posée par personne.`,
+  ]);
+}
+
+// Sens inverse : documentée, jamais lue. Note et non échec, comme pour les
+// build-args — mais c'est de la configuration morte, que personne ne
+// retrouve seul.
+for (const name of convexDocumented) {
+  if (convexReads?.has(name)) continue;
+  notes.push(`${name} documentée dans packages/backend/.env.example, lue nulle part dans packages/backend/convex/`);
+}
+
 // ─── Rapport ────────────────────────────────────────────────────────────────
 
 if (problems.length === 0) {
@@ -480,7 +585,9 @@ if (problems.length === 0) {
     const config = configReadsOf(a);
     return `${a.name} : ${runtime.size} runtime, ${[...build.keys()].filter((n) => /^(PUBLIC_|VITE_)/.test(n)).length} build${config.size > 0 ? `, ${config.size} config` : ""}`;
   });
-  process.stdout.write(`${C.grn}✓${C.r} branchement des variables cohérent — ${counted.join(" · ")} · ${required.length} exigées par le compose\n`);
+  process.stdout.write(
+    `${C.grn}✓${C.r} branchement des variables cohérent — ${counted.join(" · ")} · ${required.length} exigées par le compose · ${convexReads?.size ?? 0} lues par Convex\n`,
+  );
   for (const n of notes) process.stdout.write(`  ${C.dim}note : ${n}${C.r}\n`);
   process.exit(0);
 }

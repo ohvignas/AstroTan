@@ -103,12 +103,15 @@ function writeBackGenerated(path, generated) {
     if (lines.at(-1) !== "") lines.push("");
     lines.push(
       "# ── Généré par `pnpm bootstrap` — ne pas modifier à la main ─────────────────",
-      "# Clés HMAC, secret de session et secrets Umami, générés une seule fois puis",
-      "# relus tels quels. Les régénérer casse, selon la clé : la prévisualisation,",
-      "# l'invalidation de cache, le formulaire de contact, le journal de",
-      "# consentement, toutes les sessions ouvertes du dashboard, ou la connexion",
-      "# d'Umami à sa base (docker/README.md §6 et §13). Pour une rotation",
-      "# volontaire : vider la ligne, relancer, et redéployer les trois côtés.",
+      "# Clés HMAC, secret de session, clé maîtresse des jetons et secrets Umami,",
+      "# générés une seule fois puis relus tels quels. Les régénérer casse, selon",
+      "# la clé : la prévisualisation, l'invalidation de cache, le formulaire de",
+      "# contact, le journal de consentement, toutes les sessions ouvertes du",
+      "# dashboard, la connexion d'Umami à sa base — ou, pour SECRETS_KEY, la",
+      "# lecture de TOUS les jetons déjà saisis depuis l'administration, qui",
+      "# deviennent alors indéchiffrables et sont à ressaisir",
+      "# (docker/README.md §6 et §13). Pour une rotation volontaire : vider la",
+      "# ligne, relancer, et redéployer les trois côtés.",
       ...appended,
       "",
     );
@@ -314,6 +317,19 @@ const GENERATED = [
   // qu'identiques sur Convex et dans le conteneur `web`.
   { key: "LEAD_SUBMIT_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
   { key: "CONSENT_LOG_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
+  // La clé maîtresse du chiffrement des jetons saisis depuis
+  // l'administration (`convex/lib/secretsCrypto.ts`). Base64, pas
+  // hexadécimal, et 44 caractères et non 32 : AES-256-GCM exige EXACTEMENT
+  // 32 octets une fois décodés, ce que `rand -base64 32` produit sous forme
+  // de 44 caractères. Une valeur plus courte est refusée par
+  // `lireCleMaitresse` — distinctement de « absente », parce que le remède
+  // n'est pas le même.
+  //
+  // Sans elle, `secrets.set` lève `SECRETS_KEY_MISSING` : le refus est
+  // propre, mais toute la famille `secrets` est inerte et les sept jetons
+  // ne se posent plus que par `convex env set`. `/settings/mesure` et
+  // `/settings/ia` sont alors décoratifs sur un déploiement neuf.
+  { key: "SECRETS_KEY", gen: ["rand", "-base64", "32"], minLength: 44 },
   // Umami. Ces trois-là ne partent PAS sur Convex : elles ne servent qu'aux
   // conteneurs `umami` et `umami-db`, et le compose les exige en
   // `${VAR:?}`. Les générer ici est ce qui évite qu'un adoptant découvre
@@ -420,7 +436,7 @@ Remplissez-le, puis relancez. Ce qu'il attend :
   ${C.cyn}RESEND_API_KEY${C.r}              facultative — vide = invitations sans email
   ${C.cyn}UMAMI_DOMAIN${C.r}                facultative — défaut \`stats.<WEB_DOMAIN>\`
 
-Les secrets — clés HMAC, secret de session, secrets Umami — sont générés au
+Les secrets — clés HMAC, secret de session, clé maîtresse, Umami — générés au
 prochain passage : ne les saisissez pas, et n'ajoutez pas leurs lignes. Le
 script les écrira lui-même dans .env.deploy et les relira ensuite tels quels.
 Premier passage conseillé : ${C.b}pnpm bootstrap --dry-run${C.r}.
@@ -545,6 +561,10 @@ const CONVEX_VARS = [
   // absente, et la route se contente de refuser.
   { name: "LEAD_SUBMIT_SECRET", value: g("LEAD_SUBMIT_SECRET"), secret: true },
   { name: "CONSENT_LOG_SECRET", value: g("CONSENT_LOG_SECRET"), secret: true },
+  // Posée sur Convex et NULLE PART ailleurs : elle ne protège que ce qui
+  // vit dans la base de ce déploiement. La poser sur le VPS ou en secret
+  // GitHub reviendrait à ranger la clé à côté du coffre.
+  { name: "SECRETS_KEY", value: g("SECRETS_KEY"), secret: true },
   { name: "RESEND_API_KEY", value: g("RESEND_API_KEY"), secret: true, optional: true },
   { name: "RESEND_TEST_MODE", value: g("RESEND_TEST_MODE") || "true" },
 ];

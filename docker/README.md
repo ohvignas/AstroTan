@@ -330,8 +330,27 @@ Ce qu'une divergence produit, précisément :
 
 Le déploiement Convex a par ailleurs ses propres variables, qui ne
 transitent jamais par le VPS (`SITE_URL`, `WEB_SITE_URL`,
-`BETTER_AUTH_SECRET`, `RESEND_API_KEY`, `RESEND_TEST_MODE`) : voir
-`packages/backend/.env.example`, où chacune est documentée.
+`BETTER_AUTH_SECRET`, `SECRETS_KEY`, `RESEND_API_KEY`, `RESEND_TEST_MODE`,
+les six jetons de `secrets.ts`) : voir `packages/backend/.env.example`, où
+chacune est documentée.
+
+`SECRETS_KEY` mérite une phrase à elle, parce que son absence ne casse
+rien de visible. C'est la clé maîtresse qui chiffre les jetons saisis
+depuis l'administration. Sans elle, `secrets.set` refuse proprement
+(`SECRETS_KEY_MISSING`, bouton désactivé, commande affichée à l'écran) —
+mais toute la famille `secrets` est alors inerte : les sept jetons ne se
+posent plus que par `convex env set`, donc `/settings/mesure` et
+`/settings/ia` sont décoratifs. `pnpm bootstrap` la génère et la pose ; à
+la main, c'est exactement la commande que l'écran affiche :
+
+```bash
+cd packages/backend && npx convex env set SECRETS_KEY "$(openssl rand -base64 32)"
+```
+
+Elle ne va ni sur le VPS ni en secret GitHub : la poser ailleurs
+reviendrait à ranger la clé à côté du coffre. Et elle ne se régénère pas à
+la légère — tous les jetons déjà saisis deviennent indéchiffrables et sont
+à ressaisir.
 
 ## 7. Secrets GitHub
 
