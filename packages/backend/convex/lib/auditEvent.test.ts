@@ -15,16 +15,24 @@ describe("decrireAction", () => {
     expect(decrireAction("role.change", "Antoine", "editor")).toContain("editor")
   })
 
-  // Les huit gestes que la tâche demande d'instrumenter. La liste est
-  // fermée, et ce test est ce qui empêche d'en retirer un en silence :
-  // supprimer une action de `AUDIT_ACTIONS` fait disparaître ses lignes de
-  // journal sans rien casser d'autre.
-  test("la liste couvre exactement les huit gestes instrumentés", () => {
+  // Les huit gestes que la tâche initiale demandait d'instrumenter, plus
+  // les cinq de la relecture finale (correctif 2) : `invitation.create` —
+  // l'autre chemin, outre `users.setRole`, par lequel un rôle s'accorde —
+  // et la parité page/article pour publier, dépublier et supprimer.
+  // La liste est fermée, et ce test est ce qui empêche d'en retirer un en
+  // silence : supprimer une action de `AUDIT_ACTIONS` fait disparaître ses
+  // lignes de journal sans rien casser d'autre.
+  test("la liste couvre exactement les treize gestes instrumentés", () => {
     expect([...AUDIT_ACTIONS].sort()).toEqual(
       [
+        "invitation.create",
         "lead.remove",
         "page.publish",
+        "page.remove",
         "page.unpublish",
+        "post.publish",
+        "post.remove",
+        "post.unpublish",
         "role.change",
         "secret.clear",
         "secret.set",

@@ -24,6 +24,7 @@ import {
 import { insertOutboxRow } from "./revalidate"
 import { mintRenameRedirect } from "./redirects"
 import { MUTATION_REGISTRY } from "./_registry"
+import { journaliser } from "./lib/auditEvent"
 
 // Posts are the one place this template still holds content in the
 // database, and the exception is deliberate: a blog article *is* content,
@@ -319,6 +320,12 @@ export const remove = mutation({
       ])
       await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
     }
+
+    // Relecture finale, correctif 2 : ni `pages.remove` ni `posts.remove`
+    // ne laissaient de trace, alors que supprimer est strictement plus
+    // destructeur que dépublier — déjà journalisé plus bas pour l'article
+    // (`publishPost`/`unpublishPost`) et déjà pour la page (`pages.ts`).
+    await journaliser(ctx, { acteur: authUser, action: "post.remove", cible: post.slug })
   },
 })
 
@@ -521,7 +528,7 @@ export const publishPost = mutation({
   handler: async (ctx, args) => {
     // Publishing is owner/admin, never the editor who wrote the post —
     // enforced here, not by the dashboard hiding a button.
-    await requireRole(ctx, ["owner", "admin"])
+    const acteur = await requireRole(ctx, ["owner", "admin"])
     const post = await ctx.db.get(args.id)
     if (!post) throw new ConvexError({ code: "NOT_FOUND" })
 
@@ -534,6 +541,11 @@ export const publishPost = mutation({
     // wrong. The cron is the recovery path for when this call is lost, not
     // the primary one.
     await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+    // Relecture finale, correctif 2 : `pages.publishPage` journalise déjà
+    // ce geste côté pages (`pages.ts`) ; `publishPost` ne le faisait pas
+    // côté articles, alors que le raisonnement est identique — le slug
+    // vient de se mettre à répondre au public.
+    await journaliser(ctx, { acteur, action: "post.publish", cible: post.slug })
   },
 })
 
@@ -547,9 +559,13 @@ export const publishPost = mutation({
 export const unpublishPost = mutation({
   args: { id: v.id("posts") },
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["owner", "admin"])
+    const acteur = await requireRole(ctx, ["owner", "admin"])
     const post = await ctx.db.get(args.id)
     if (!post) throw new ConvexError({ code: "NOT_FOUND" })
+    // Rien n'a changé, donc rien à journaliser — même raisonnement que
+    // `pages.unpublish` : une ligne « a dépublié » sur un brouillon qui
+    // l'était déjà rendrait le journal faux.
+    if (post.status !== "published") return
 
     await ctx.db.patch(args.id, { status: "draft" })
     await insertOutboxRow(ctx, { kind: "post", postId: args.id }, [
@@ -557,6 +573,11 @@ export const unpublishPost = mutation({
       `post:${post.slug}`,
     ])
     await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+    // Relecture finale, correctif 2 : dépublier ne laisse aucune trace
+    // visible ailleurs — l'article répond 404 et rien ne dit qui l'a
+    // décidé — exactement le raisonnement déjà tenu pour
+    // `pages.unpublish` (`pages.ts:594`), qui vaut mot pour mot ici.
+    await journaliser(ctx, { acteur, action: "post.unpublish", cible: post.slug })
   },
 })
 

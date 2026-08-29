@@ -1090,6 +1090,37 @@ test("deux invitations créées séparément n'ont jamais le même token", async
   expect(first).not.toBe(second)
 })
 
+// --- Relecture finale, correctif 2 : trace d'audit ------------------------
+//
+// `create` est le seul chemin par lequel un compte — et le rôle qui va
+// avec — peut naître dans ce système (commentaire d'en-tête de ce
+// fichier). `users.setRole` journalise déjà tout changement de rôle sur un
+// compte existant ; ce test prouve que le second chemin qui en accorde
+// un, celui-ci, en laisse une trace lui aussi — un owner qui invite un
+// second admin devait auparavant pouvoir le faire sans qu'`auditLog` n'en
+// garde rien.
+test("create laisse une trace nommant l'acteur, l'email invité et le rôle proposé", async () => {
+  const t = makeTestConvex()
+  const email = "owner-audit-invitation@example.com"
+  const password = "correct horse battery staple audit invitation"
+  const owner = await seedUser(t, { email, password, name: "Owner Audit", role: "owner" })
+  await signIn(t, email, password)
+  const asOwner = await identityFor(t, owner.id)
+
+  await asOwner.mutation(api.invitations.create, {
+    email: "second-admin@example.com",
+    role: "admin",
+  })
+
+  const lignes = await t.run((ctx) => ctx.db.query("auditLog").collect())
+  expect(lignes).toHaveLength(1)
+  expect(lignes[0]?.action).toBe("invitation.create")
+  expect(lignes[0]?.acteurId).toBe(owner.id)
+  expect(lignes[0]?.acteurNom).toBe("Owner Audit")
+  expect(lignes[0]?.cible).toBe("second-admin@example.com")
+  expect(lignes[0]?.detail).toBe("admin")
+})
+
 // --- I5 (review) : list, pour retrouver et administrer les invitations ---
 
 test("list renvoie les invitations sans jamais exposer tokenHash ou pendingToken", async () => {

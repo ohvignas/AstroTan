@@ -417,6 +417,24 @@ test("supprimer un brouillon n'insère aucune ligne d'outbox", async () => {
   expect(rows).toHaveLength(0)
 })
 
+// Relecture finale, correctif 2 : `remove` ne laissait aucune trace,
+// alors que `publishPage`/`unpublish` (couverts par `auditLog.test.ts`)
+// en laissent une pour des gestes moins destructeurs — supprimer une page
+// n'était donc pas reconstituable après coup.
+test("supprimer une page laisse une trace nommant l'acteur et le slug", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "page-a-journaliser", createdBy: owner.id })
+
+  await owner.identity.mutation(api.pages.remove, { id })
+
+  const lignes = await t.run((ctx) => ctx.db.query("auditLog").collect())
+  expect(lignes).toHaveLength(1)
+  expect(lignes[0]?.action).toBe("page.remove")
+  expect(lignes[0]?.acteurId).toBe(owner.id)
+  expect(lignes[0]?.cible).toBe("page-a-journaliser")
+})
+
 // ---------------------------------------------------------------------
 // unpublish
 // ---------------------------------------------------------------------

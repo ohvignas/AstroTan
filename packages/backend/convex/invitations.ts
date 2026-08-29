@@ -11,6 +11,7 @@ import { MAX_DISPLAY_NAME_LENGTH } from "./profiles"
 import { MUTATION_REGISTRY } from "./_registry"
 import { makeResend } from "./lib/resend"
 import { resoudreExpediteur } from "./lib/expediteur"
+import { journaliser } from "./lib/auditEvent"
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -178,6 +179,24 @@ export const create = mutation({
       { invitationId },
     )
     await ctx.db.patch(invitationId, { scheduledEmailId })
+
+    // Relecture finale, correctif 2 : c'est le seul chemin par lequel un
+    // compte peut naître dans ce système (commentaire d'en-tête de ce
+    // fichier), y compris un second compte `admin` fabriqué par un
+    // `owner`/`admin` qui s'invite lui-même — un geste que `users.setRole`
+    // aurait journalisé, mais que ce chemin-ci laissait passer sans trace.
+    // `/confidentialite` promet de pouvoir dire qui a changé un rôle ; une
+    // invitation acceptée EN accorde un, au même titre qu'un `setRole`.
+    // L'email plutôt que l'id de l'invitation : c'est ce que l'écran des
+    // invitations affiche déjà, et ce sous quoi l'opérateur relira le
+    // geste — le rôle proposé est le `detail`, pas la `cible`, comme
+    // `role.change` le fait déjà pour `users.setRole`.
+    await journaliser(ctx, {
+      acteur: actor,
+      action: "invitation.create",
+      cible: email,
+      detail: args.role,
+    })
 
     return { token } // renvoyé une seule fois, pour l'email ; jamais relisible ensuite
   },

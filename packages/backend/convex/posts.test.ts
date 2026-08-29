@@ -434,6 +434,61 @@ test("unpublishPost repasse en brouillon et invalide aussi", async () => {
   expect(await t.query(api.posts.getPublishedPost, { slug: "u" })).toBeNull()
 })
 
+// --- Relecture finale, correctif 2 : trace d'audit ------------------------
+//
+// `pages.publishPage`/`pages.unpublish` sont journalisées (voir
+// `pages.ts`) ; `publishPost`/`unpublishPost` ne l'étaient pas, alors que
+// le raisonnement — un slug qui se met à répondre, ou cesse de répondre,
+// au public — est identique côté articles.
+
+test("publishPost laisse une trace nommant l'acteur et le slug", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, { title: "Trace", slug: "trace" })
+
+  await owner.identity.mutation(api.posts.publishPost, { id })
+
+  const lignes = await t.run((ctx) => ctx.db.query("auditLog").collect())
+  expect(lignes).toHaveLength(1)
+  expect(lignes[0]?.action).toBe("post.publish")
+  expect(lignes[0]?.acteurId).toBe(owner.id)
+  expect(lignes[0]?.cible).toBe("trace")
+})
+
+test("unpublishPost laisse une trace nommant l'acteur et le slug", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "Trace 2",
+    slug: "trace-2",
+  })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+
+  await owner.identity.mutation(api.posts.unpublishPost, { id })
+
+  const lignes = await t.run((ctx) => ctx.db.query("auditLog").collect())
+  const derniere = lignes.at(-1)
+  expect(derniere?.action).toBe("post.unpublish")
+  expect(derniere?.acteurId).toBe(owner.id)
+  expect(derniere?.cible).toBe("trace-2")
+})
+
+// Même raisonnement que `pages.unpublish` (`pages.ts:594`) : une ligne
+// « a dépublié » sur un article déjà en brouillon rendrait le journal
+// faux, ce qui est pire qu'incomplet.
+test("dépublier un article déjà en brouillon n'invente pas de trace", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "Jamais publié",
+    slug: "jamais-publie",
+  })
+
+  await owner.identity.mutation(api.posts.unpublishPost, { id })
+
+  expect(await t.run((ctx) => ctx.db.query("auditLog").collect())).toHaveLength(0)
+})
+
 test("publicationStatus rend l'état réel de la propagation", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
@@ -532,6 +587,26 @@ test("supprimer un article publié invalide son cache", async () => {
   // Un article supprimé mais toujours servi depuis le cache reste lisible
   // à son URL alors qu'il n'existe plus.
   expect((await outboxRows(t)).at(-1)?.tags).toEqual(["posts", "post:s-del"])
+})
+
+// Relecture finale, correctif 2 : ni `pages.remove` ni `posts.remove` ne
+// laissaient de trace, alors que supprimer est strictement plus
+// destructeur que dépublier — déjà journalisé juste au-dessus.
+test("supprimer un article laisse une trace nommant l'acteur et le slug", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "À journaliser",
+    slug: "a-journaliser",
+  })
+
+  await owner.identity.mutation(api.posts.remove, { id })
+
+  const lignes = await t.run((ctx) => ctx.db.query("auditLog").collect())
+  expect(lignes).toHaveLength(1)
+  expect(lignes[0]?.action).toBe("post.remove")
+  expect(lignes[0]?.acteurId).toBe(owner.id)
+  expect(lignes[0]?.cible).toBe("a-journaliser")
 })
 
 test("un editor ne peut plus modifier ni supprimer son article une fois publié", async () => {

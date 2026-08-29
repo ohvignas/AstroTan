@@ -574,6 +574,14 @@ export const remove = mutation({
       await insertOutboxRow(ctx, { kind: "page", pageId: page._id }, ["pages", `page:${page.slug}`])
       await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
     }
+
+    // Relecture finale, correctif 2 : `remove` ne laissait aucune trace,
+    // alors que `unpublish` juste plus bas en laisse une pour un geste
+    // strictement moins destructeur — la page dépubliée existe encore,
+    // supprimée elle ne pouvait déjà plus se retrouver nulle part. Le
+    // slug, jamais l'id seul : c'est sous ce nom qu'on relira le geste,
+    // comme pour `page.publish`/`page.unpublish`.
+    await journaliser(ctx, { acteur: authUser, action: "page.remove", cible: page.slug })
   },
 })
 

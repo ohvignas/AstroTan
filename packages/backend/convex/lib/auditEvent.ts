@@ -49,6 +49,26 @@ export const AUDIT_ACTIONS = [
   "page.publish",
   "page.unpublish",
   "settings.update",
+  // Relecture finale, correctif 2 : ajout PUR — chaque valeur ci-dessous
+  // est une nouvelle entrée dans cette union, jamais le retrait d'une
+  // existante. `auditActionValidator` (plus bas) en dérive, et `schema.ts`
+  // s'en sert pour la colonne `action` de `auditLog` : c'est exactement le
+  // sens autorisé par l'invariant 6 de `CLAUDE.md` (expand, jamais
+  // destructif) — une ligne déjà écrite avec une ancienne action reste
+  // valide, rien ne change pour elle.
+  //
+  // `invitation.create` : un `admin` qui s'invite lui-même en `admin`
+  // fabrique un second compte admin par un chemin que `users.setRole` ne
+  // voit jamais — voir `invitations.ts:create`.
+  "invitation.create",
+  // `post.publish`/`post.unpublish` : même asymétrie que `page.publish`/
+  // `page.unpublish` ci-dessus, côté articles — voir `posts.ts`.
+  "post.publish",
+  "post.unpublish",
+  // `page.remove`/`post.remove` : supprimer est strictement plus
+  // destructeur que dépublier (déjà journalisé), et ne l'était pas.
+  "page.remove",
+  "post.remove",
 ] as const
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
@@ -98,6 +118,16 @@ export function decrireAction(
       return `${acteurNom} a modifié les réglages du site${
         detail ? ` : ${detail}` : ""
       }`
+    case "invitation.create":
+      return `${acteurNom} a invité ${quoi}${detail ? ` en tant que ${detail}` : ""}`
+    case "post.publish":
+      return `${acteurNom} a publié l'article ${quoi}${suffixe}`
+    case "post.unpublish":
+      return `${acteurNom} a dépublié l'article ${quoi}${suffixe}`
+    case "page.remove":
+      return `${acteurNom} a supprimé la page ${quoi}${suffixe}`
+    case "post.remove":
+      return `${acteurNom} a supprimé l'article ${quoi}${suffixe}`
   }
 }
 
