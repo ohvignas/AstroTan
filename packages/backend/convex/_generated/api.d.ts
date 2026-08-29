@@ -10,6 +10,7 @@
 
 import type * as _registry from "../_registry.js";
 import type * as analytics from "../analytics.js";
+import type * as auditLog from "../auditLog.js";
 import type * as auth from "../auth.js";
 import type * as bootstrap from "../bootstrap.js";
 import type * as consent from "../consent.js";
@@ -20,6 +21,7 @@ import type * as dataSubject from "../dataSubject.js";
 import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
 import type * as leads from "../leads.js";
+import type * as lib_auditEvent from "../lib/auditEvent.js";
 import type * as lib_authz from "../lib/authz.js";
 import type * as lib_expediteur from "../lib/expediteur.js";
 import type * as lib_leadCascade from "../lib/leadCascade.js";
@@ -63,6 +65,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   _registry: typeof _registry;
   analytics: typeof analytics;
+  auditLog: typeof auditLog;
   auth: typeof auth;
   bootstrap: typeof bootstrap;
   consent: typeof consent;
@@ -73,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   invitations: typeof invitations;
   leads: typeof leads;
+  "lib/auditEvent": typeof lib_auditEvent;
   "lib/authz": typeof lib_authz;
   "lib/expediteur": typeof lib_expediteur;
   "lib/leadCascade": typeof lib_leadCascade;

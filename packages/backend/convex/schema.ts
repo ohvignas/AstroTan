@@ -8,6 +8,7 @@ import {
   consentActionValidator,
 } from "./validators"
 import { geoValidator, seoValidator } from "./content"
+import { auditActionValidator } from "./lib/auditEvent"
 
 // `seoValidator`/`geoValidator` live in `content.ts`, alongside the length
 // bounds Convex's `v.string()` cannot express itself
@@ -245,6 +246,43 @@ export default defineSchema({
     // Ce qui rend l'écriture idempotente : la requête part en `keepalive`
     // au moment où quelqu'un quitte la page, et peut être rejouée.
     .index("by_consent", ["consentId"]),
+
+  // Ce que quelqu'un a fait, et qu'on ne pourrait pas reconstituer
+  // autrement. Le dépôt sait déjà qui a CRÉÉ une page (`createdBy`) et qui
+  // a déplacé une fiche (`leadEvents.actorName`) ; il ne savait pas qui
+  // avait changé un rôle, écrit un jeton, supprimé un contact ou dépublié.
+  //
+  // Écrit DANS la même mutation que le geste, jamais par une action
+  // planifiée : une action planifiée peut échouer seule, et un journal
+  // auquel il peut manquer une ligne est pire qu'absent — on le croit
+  // complet.
+  //
+  // Jamais de valeur de secret ici, même tronquée : un journal se relit
+  // longtemps après, souvent par plus de monde que l'écran d'origine. Le
+  // nom du jeton suffit, et `auditLog.test.ts` l'atteste avec une valeur
+  // sentinelle plutôt que de le promettre.
+  //
+  // AUCUN INDEX, et c'est délibéré. Le seul ordre dont ce journal a besoin
+  // est le chronologique, que Convex sert déjà par l'index implicite
+  // `by_creation_time` de toute table — un `.index("by_creation", [])`
+  // n'ajouterait rien qu'un nom de plus à lire dans le schéma. Un index
+  // par acteur ou par action se justifiera le jour où l'écran de lecture
+  // filtrera dessus, pas avant.
+  auditLog: defineTable({
+    action: auditActionValidator,
+    // L'identifiant Better Auth de l'acteur : ce qui permet de recouper
+    // deux lignes même après un changement de nom.
+    acteurId: v.string(),
+    // Le nom d'affichage RECOPIÉ au moment du geste. Le relire à
+    // l'affichage rendrait anonymes toutes les lignes le jour où quelqu'un
+    // quitte l'équipe — et c'est ce jour-là qu'on relit un journal.
+    acteurNom: v.string(),
+    // Ce que le geste visait, déjà composé par le point d'écriture : le
+    // seul à savoir ce qu'il est prudent d'y mettre. Absent pour
+    // `settings.update`, qui ne vise rien en particulier.
+    cible: v.optional(v.string()),
+    detail: v.optional(v.string()),
+  }),
 
   redirects: defineTable({
     // Normalisé comme un slug de page : sans slash de tête ni de fin, pour
