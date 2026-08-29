@@ -47,8 +47,8 @@ describe("SETTINGS_PAGES", () => {
     // la page ouverte. Un `h1` sans rapport avec le libellé cliqué laisse
     // croire qu'on a atterri ailleurs.
     //
-    // La conjonction est normalisée : le menu écrit « Domaine & emails »
-    // faute de largeur, le titre « Domaine et emails ».
+    // La conjonction est normalisée : le menu écrit « Domaine & DNS »
+    // faute de largeur, le titre « Domaine et DNS ».
     for (const page of SETTINGS_PAGES) {
       const label = page.label.replace(" & ", " et ")
       expect(page.title.startsWith(label), `${page.title} / ${page.label}`).toBe(

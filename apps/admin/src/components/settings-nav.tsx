@@ -80,8 +80,14 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
   },
   {
     to: "/settings/domaine",
-    label: "Domaine & emails",
-    title: "Domaine et emails",
+    // Ex-« Domaine & emails ». L'écran ne fait plus d'emails du tout — il
+    // vérifie les enregistrements DNS, dont SPF, DKIM et DMARC, qui
+    // décident si les emails PEUVENT partir. « Envoi des emails », juste
+    // en dessous, décide de ce qui part et avec quel texte. Deux libellés
+    // qui parlaient tous deux d'emails ne disaient pas cette frontière ;
+    // « DNS » la nomme.
+    label: "Domaine & DNS",
+    title: "Domaine et DNS",
     description:
       "Le nom de domaine sur lequel ce déploiement doit répondre, et les enregistrements DNS que votre hébergeur attend — pour le site comme pour les emails.",
   },
@@ -89,7 +95,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
     to: "/settings/emails",
     label: "Envoi des emails",
     title: "Envoi des emails",
-    // Voisine de « Domaine & emails », et la frontière tient en un mot :
+    // Voisine de « Domaine & DNS », et la frontière tient en un mot :
     // là-bas les enregistrements DNS qui autorisent le domaine à écrire,
     // ici la clé, l'adresse et le TEXTE de chaque message.
     description:
