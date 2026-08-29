@@ -764,12 +764,17 @@ export const notifyStaff = internalAction({
     ].join("")
 
     const resend = await makeResend(ctx)
+    // Hissé hors de la boucle : la valeur est constante pour tout l'appel,
+    // la relire à chaque destinataire n'a aucune raison fonctionnelle — à
+    // la différence du `sendEmail` un par un juste en dessous, qui lui sert
+    // une vraie raison (ne pas révéler à chacun la liste des autres).
+    const expediteur = await resoudreExpediteur(ctx)
     for (const to of recipients) {
       // Un email par destinataire, pas un seul avec plusieurs `to` : une
       // notification interne n'a pas à révéler à chacun la liste des
       // adresses des autres.
       await resend.sendEmail(ctx, {
-        from: await resoudreExpediteur(ctx),
+        from: expediteur,
         to,
         subject: singleLine(`Nouveau message de ${name}`),
         html,
