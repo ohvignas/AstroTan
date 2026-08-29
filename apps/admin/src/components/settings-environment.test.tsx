@@ -286,18 +286,24 @@ describe("DomainAndEmailsPage", () => {
     expect(html({ testMode: false })).toMatch(/envois r[ée]els/i)
   })
 
-  test("la clé Resend se saisit, et l'écran dit qu'elle n'est pas encore lue depuis la base", () => {
+  test("la clé Resend se saisit, et l'écran dit qu'elle est bien lue depuis la base, derrière l'environnement", () => {
     const rendu = html()
     expect(rendu).toContain("secret-RESEND_API_KEY")
-    expect(rendu).toMatch(/seule la variable d(&#x27;|')environnement est lue/)
+    expect(rendu).toMatch(/la base est lue/i)
+    expect(rendu).toContain("secrets.lireSecret")
   })
 
-  test("nomme l'adresse d'expédition réellement utilisée, telle qu'elle est écrite dans le code", () => {
-    // Écrite en dur dans `convex/leads.ts` et `convex/invitations.ts`. La
-    // montrer est le seul moyen qu'un opérateur découvre qu'il envoie
-    // depuis le bac à sable de Resend avant que ses clients le lui
-    // apprennent.
-    expect(html()).toContain("onboarding@resend.dev")
+  test("nomme le repli d'expédition, et dit qu'emailFrom le remplace", () => {
+    // Le repli vit dans `convex/lib/expediteur.ts`
+    // (`EXPEDITEUR_BAC_A_SABLE`), pas écrit en dur dans `leads.ts` ni
+    // `invitations.ts` : `settings.emailFrom` le remplace dès qu'il
+    // contient une adresse valide. Montrer le repli reste le seul moyen
+    // qu'un opérateur découvre qu'il envoie depuis le bac à sable de
+    // Resend avant que ses clients le lui apprennent.
+    const rendu = html()
+    expect(rendu).toContain("onboarding@resend.dev")
+    expect(rendu).toContain("expediteur.ts")
+    expect(rendu).toMatch(/emailFrom/)
   })
 
   test("dit que les destinataires se règlent par les rôles, pas par une liste", () => {
@@ -341,5 +347,25 @@ describe("MeasurementPage", () => {
     )
     expect(rendu).toContain("PUBLIC_UMAMI_RECORDER")
     expect(rendu).toMatch(/attend le consentement/)
+  })
+
+  test("dit que les identifiants Umami sont bien lus depuis la base, derrière l'environnement", () => {
+    const rendu = render(
+      <MeasurementPage umamiApi={UMAMI_CONFIGURE} secrets={bloc()} />
+    )
+    expect(rendu).toMatch(/la base est lue/i)
+    expect(rendu).toContain("secrets.lireSecret")
+  })
+
+  test("dit que la base peut compléter un environnement Umami incomplet", () => {
+    // `environment.umamiApi.configured` ne voit que l'ENVIRONNEMENT
+    // (c'est une `query`, qui ne peut pas appeler `lireSecret`) : un
+    // environnement incomplet ne veut plus dire « non configuré », depuis
+    // que `analytics.ts` retombe sur la base pour chaque identifiant
+    // manquant.
+    const rendu = render(
+      <MeasurementPage umamiApi={UMAMI_ABSENT} secrets={bloc()} />
+    )
+    expect(rendu).toMatch(/si la base ne complète pas/i)
   })
 })

@@ -215,14 +215,12 @@ export function DomainAndEmailsPage({
               Sans elle, une invitation est bien créée mais son email ne part
               pas, et une notification de lead non plus. Le lead, lui, est
               enregistré quoi qu'il arrive.{" "}
-              <strong>
-                Aujourd'hui, seule la variable d'environnement est lue
-              </strong>{" "}
-              (<code className="text-xs">convex/lib/resend.ts</code> construit
-              le client sur <code className="text-xs">process.env</code>) : une
-              valeur saisie ici est bien chiffrée et rangée, mais elle ne
-              servira qu'une fois cet appel passé par le lecteur unique{" "}
-              <code className="text-xs">secrets.lireSecret</code>.
+              <strong>La base est lue</strong>{" "}
+              : <code className="text-xs">convex/lib/resend.ts</code> construit
+              le client via le lecteur unique{" "}
+              <code className="text-xs">secrets.lireSecret</code>, qui préfère
+              la variable d'environnement quand elle existe et retombe sinon
+              sur la valeur saisie ici, une fois déchiffrée.
             </Champ>
             {resend.configured ? null : (
               <p className="text-sm text-muted-foreground">
@@ -245,17 +243,21 @@ export function DomainAndEmailsPage({
         <div className="flex flex-col gap-1 border-l-2 border-border pl-3">
           <p className="text-sm font-medium">Adresse d'expédition</p>
           <p className="text-sm text-muted-foreground">
-            {/* Écrite en dur dans `convex/leads.ts` et
-                `convex/invitations.ts`. La montrer plutôt que d'ouvrir un
-                champ qui n'existe pas : c'est le bac à sable de Resend, et
-                un opérateur ne le découvre autrement que par ses
+            {/* Vit dans `convex/lib/expediteur.ts`
+                (`EXPEDITEUR_BAC_A_SABLE`), pas écrite en dur dans
+                `leads.ts` ni `invitations.ts` : c'est un repli, que
+                `settings.emailFrom` remplace dès qu'il contient une
+                adresse valide. La montrer reste utile tant qu'aucun champ
+                de cet écran ne règle `emailFrom` : un opérateur ne
+                découvre autrement le bac à sable que par ses
                 destinataires. */}
             <code className="text-xs">AstroTan &lt;onboarding@resend.dev&gt;</code>{" "}
-            — l'adresse de bac à sable de Resend, écrite dans le code
-            (<code className="text-xs">convex/leads.ts</code> et{" "}
-            <code className="text-xs">convex/invitations.ts</code>). Elle
-            fonctionne sans domaine vérifié et ne doit pas rester en
-            production.
+            — l'adresse de bac à sable de Resend, le repli défini dans{" "}
+            <code className="text-xs">convex/lib/expediteur.ts</code> et
+            utilisé tant que{" "}
+            <code className="text-xs">settings.emailFrom</code> est absent
+            ou invalide. Elle fonctionne sans domaine vérifié et ne doit
+            pas rester en production.
           </p>
         </div>
 
@@ -376,14 +378,13 @@ export function MeasurementPage({
           <>
             <CleMaitresseBandeau etat={secrets.cleMaitresse} />
             <p className="text-sm text-muted-foreground">
-              <strong>
-                Aujourd'hui, seul l'environnement est lu par les statistiques
-              </strong>{" "}
-              (<code className="text-xs">convex/analytics.ts</code> appelle{" "}
-              <code className="text-xs">readUmamiConfig(process.env)</code>) :
-              une valeur saisie ici est bien chiffrée et rangée, mais elle ne
-              servira qu'une fois cet appel passé par le lecteur unique{" "}
-              <code className="text-xs">secrets.lireSecret</code>.{" "}
+              <strong>La base est lue</strong>{" "}
+              : <code className="text-xs">convex/analytics.ts</code> résout
+              ces quatre identifiants via le lecteur unique{" "}
+              <code className="text-xs">secrets.lireSecret</code>, qui
+              préfère la variable d'environnement quand elle existe et
+              retombe sinon sur la valeur saisie ici, une fois déchiffrée.
+              {" "}
               {umamiApi.configured ? (
                 <>
                   L'environnement est complet
@@ -396,7 +397,7 @@ export function MeasurementPage({
                   .
                 </>
               ) : (
-                "L'environnement est incomplet : les statistiques répondent « non configuré »."
+                "L'environnement est incomplet : si la base ne complète pas ce qui manque, les statistiques répondent « non configuré »."
               )}
             </p>
             <Champ bloc={secrets} nom="UMAMI_API_URL">
