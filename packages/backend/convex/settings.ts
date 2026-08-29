@@ -153,12 +153,11 @@ export const getPrivate = query({
       // qui teste `=== null` pour afficher un état « non réglé » a besoin
       // que le champ soit toujours présent dans la réponse.
       //
-      // Aucun écran ne le règle aujourd'hui : les onglets de
-      // `apps/admin/src/routes/_authed/settings/` sont domaine, ia,
-      // identite, index, mesure, referencement, reseaux et webhook —
-      // aucun n'écrit `emailFrom`. En ajouter un est une fonctionnalité,
-      // pas une correction ; en attendant, ce champ ne se pose que par
-      // `npx convex run settings:update '{"emailFrom":"…"}'`.
+      // `/settings/emails` (`routes/_authed/settings/emails.tsx`) l'écrit,
+      // par cette même mutation (`settings.update`) — jamais en sauvegarde
+      // automatique, la barre attend un clic : une adresse à moitié tapée
+      // ne doit jamais devenir, ne serait-ce qu'une seconde, l'expéditeur
+      // de ce qui part.
       emailFrom: settings.emailFrom ?? null,
       // Même raisonnement qu'`emailFrom` juste au-dessus : ne pilote rien
       // côté site public, n'a donc rien à faire dans `get`. `null` et non
@@ -362,9 +361,10 @@ export const update = mutation({
       }
     }
 
-    // Relecture finale, correctif 1 : une adresse malformée posée en CLI
-    // (aucun écran ne règle ce champ aujourd'hui — voir `getPrivate`)
-    // était acceptée en silence et ne se révélait qu'à l'envoi, où
+    // Relecture finale, correctif 1 : une adresse malformée posée en CLI —
+    // seul chemin à l'époque, avant que `/settings/emails` n'écrive ce
+    // champ (voir `getPrivate`) — était acceptée en silence et ne se
+    // révélait qu'à l'envoi, où
     // `choisirExpediteur` (`lib/expediteur.ts`) l'aurait de toute façon
     // rejetée en repliant sur le bac à sable Resend — mais alors sans que
     // personne ne l'ait décidé. Même validateur que `resoudreExpediteur`
