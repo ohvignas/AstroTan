@@ -9,6 +9,115 @@
 export interface SecurityEnv {
   PUBLIC_CONVEX_URL?: string
   PUBLIC_UMAMI_URL?: string
+  /** Meta (Facebook) Pixel — sa présence seule ouvre les origines de Meta. */
+  PUBLIC_META_PIXEL_ID?: string
+  /** Balise Google (`G-`, `AW-`, `GT-`) — même règle. */
+  PUBLIC_GOOGLE_TAG_ID?: string
+}
+
+/**
+ * Les origines qu'un traceur a besoin d'atteindre, une fois chargé.
+ *
+ * LE DÉFAUT QUE CES DEUX TABLES FERMENT
+ *
+ * `'strict-dynamic'` ne porte que sur `script-src`. Le bandeau injecte ses
+ * balises par `document.createElement("script")` depuis un script noncé :
+ * `fbevents.js` et `gtag/js` se CHARGENT donc. Ensuite, plus rien ne
+ * passait — GA4 poste sur `google-analytics.com`, absent de `connect-src` ;
+ * le pixel Meta émet un `<img src="https://www.facebook.com/tr?…">`, absent
+ * d'`img-src` ; et `frame-src` non déclaré retombait sur `default-src
+ * 'self'`, ce qui bloque les iframes de synchronisation de cookies.
+ *
+ * Le résultat était un site qui demande un accord, l'obtient, l'enregistre,
+ * injecte la balise — et ne transmet rien. Aucun symptôme à l'écran : un
+ * consentement décoratif.
+ *
+ * CE QUI RESTE FERMÉ
+ *
+ * Ces origines n'entrent dans la politique QUE si la variable de build
+ * correspondante est posée. Un site sans pixel garde une CSP aussi stricte
+ * qu'avant — c'est la condition pour que cet élargissement soit acceptable,
+ * et le test « sans identifiant de traceur, la CSP ne nomme ni Google ni
+ * Meta » la tient.
+ *
+ * Et la CSP n'est que la première des deux barrières : elle dit ce que le
+ * navigateur AURAIT le droit de charger, pas ce qui est chargé. La seconde
+ * — le consentement — reste entière dans `ConsentBanner.astro` : sans un
+ * « oui », aucune balise n'est injectée, donc aucune de ces origines n'est
+ * jamais contactée.
+ *
+ * `script-src` n'est délibérément pas élargi : `'strict-dynamic'` suffit sur
+ * tout navigateur qui l'implémente, et c'est déjà par lui que ces balises
+ * se chargent aujourd'hui.
+ */
+interface OriginesTraceur {
+  connect: string[]
+  img: string[]
+  frame: string[]
+}
+
+/**
+ * Meta — la liste que Meta publie pour son pixel.
+ *
+ * `connect.facebook.net` sert le script ET reçoit des requêtes ;
+ * `www.facebook.com` reçoit le `/tr` (une image d'un pixel) et porte les
+ * iframes de synchronisation.
+ */
+const META: OriginesTraceur = {
+  connect: ["https://connect.facebook.net", "https://www.facebook.com"],
+  img: ["https://www.facebook.com"],
+  frame: ["https://www.facebook.com"],
+}
+
+/**
+ * Google — la liste que Google publie pour GA4 et pour Google Ads.
+ *
+ * Les jokers ne sont pas de la paresse : le trafic européen de GA4 part sur
+ * `region1.google-analytics.com`, et une origine écrite en dur n'aurait
+ * couvert que le point d'entrée américain — soit exactement la panne
+ * silencieuse qu'on répare, restreinte à l'Europe.
+ *
+ * Limite connue, à dire plutôt qu'à laisser découvrir : les conversions
+ * Google Ads pingent aussi les domaines nationaux (`www.google.fr`…), que
+ * `https://*.google.com` ne couvre pas. Les énumérer serait recopier la
+ * liste des TLD de Google dans ce fichier ; un site qui en dépend ajoute le
+ * sien ici.
+ */
+const GOOGLE: OriginesTraceur = {
+  connect: [
+    "https://*.google-analytics.com",
+    "https://*.analytics.google.com",
+    "https://*.googletagmanager.com",
+    "https://*.g.doubleclick.net",
+    "https://*.google.com",
+  ],
+  img: [
+    "https://*.google-analytics.com",
+    "https://*.googletagmanager.com",
+    "https://*.g.doubleclick.net",
+    "https://*.google.com",
+  ],
+  frame: ["https://*.doubleclick.net", "https://*.googletagmanager.com"],
+}
+
+/**
+ * Les traceurs que CE déploiement peut charger, d'après sa configuration.
+ *
+ * Une chaîne vide ne compte pas : un build-arg non posé vaut `""`, jamais
+ * `undefined`, et le traiter comme une valeur ouvrirait la CSP de tous les
+ * adoptants qui n'ont aucun traceur.
+ */
+function traceurs(env: SecurityEnv): OriginesTraceur[] {
+  const actifs: OriginesTraceur[] = []
+  if (env.PUBLIC_META_PIXEL_ID) actifs.push(META)
+  if (env.PUBLIC_GOOGLE_TAG_ID) actifs.push(GOOGLE)
+  return actifs
+}
+
+/** Les origines d'une surface, dédoublonnées, préfixées d'un espace ou vides. */
+function suffixe(origines: string[]): string {
+  const uniques = [...new Set(origines)]
+  return uniques.length === 0 ? "" : ` ${uniques.join(" ")}`
 }
 
 export function nouveauNonce(): string {
@@ -58,6 +167,13 @@ export function enTetesSecurite(
   //    gagne aucun droit de connexion.
   const umami = origine(env.PUBLIC_UMAMI_URL)
 
+  // Les origines des traceurs configurés — vides sur un site qui n'en a
+  // aucun, ce qui laisse la politique exactement telle qu'elle était.
+  const actifs = traceurs(env)
+  const connectTiers = suffixe(actifs.flatMap((t) => t.connect))
+  const imgTiers = suffixe(actifs.flatMap((t) => t.img))
+  const frameTiers = suffixe(actifs.flatMap((t) => t.frame))
+
   const entetes: Record<string, string> = {
     "Content-Security-Policy": [
       "default-src 'self'",
@@ -98,14 +214,20 @@ export function enTetesSecurite(
       // en local, `*.convex.site` en nuage). Si un déploiement venait à
       // servir ses fichiers depuis le second, cette ligne serait fausse et il
       // faudrait une variable à elle.
-      `img-src 'self' data: blob:${convex ? ` ${convex}` : ""}`,
+      `img-src 'self' data: blob:${convex ? ` ${convex}` : ""}${imgTiers}`,
       // `data:` n'est pas une largesse : au build, Vite inline les petites
       // polices en `data:font/woff2;base64,…`. Sans lui, la production perd
       // ses polices là où le serveur de développement, qui les sert en
       // fichiers, n'en montrait rien. C'est la violation que seul un build
       // réel fait apparaître.
       "font-src 'self' data:",
-      `connect-src 'self'${convex ? ` ${convex}` : ""}${umami ? ` ${umami}` : ""}`,
+      `connect-src 'self'${convex ? ` ${convex}` : ""}${umami ? ` ${umami}` : ""}${connectTiers}`,
+      // `frame-src` n'apparaît QUE si un traceur est configuré. Absente, la
+      // directive retombe sur `default-src 'self'` — la politique stricte
+      // d'origine, qu'un site sans pixel doit garder intacte. L'écrire
+      // inconditionnellement, ne serait-ce qu'en `'self'`, changerait la
+      // CSP de tous les adoptants pour le confort de deux.
+      ...(frameTiers ? [`frame-src 'self'${frameTiers}`] : []),
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

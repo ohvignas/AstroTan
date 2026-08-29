@@ -153,3 +153,98 @@ describe("les médias servis par Convex", () => {
     expect(csp).toContain("img-src 'self' data: blob:;")
   })
 })
+
+// ---------------------------------------------------------------------
+// Les pixels Meta et Google — charger n'est pas émettre
+// ---------------------------------------------------------------------
+// `'strict-dynamic'` ne porte que sur `script-src` : un script noncé peut
+// injecter `fbevents.js` et `gtag/js`, qui se chargent donc bel et bien
+// après consentement. Ensuite tout était bloqué — `connect-src` ne listait
+// que Convex et Umami, `img-src` pas facebook.com, et `frame-src` absent
+// retombait sur `default-src 'self'`. Le site demandait l'autorisation d'un
+// traitement que son propre serveur rendait impossible, sans que rien ne
+// l'affiche.
+//
+// Deux barrières, et elles restent distinctes : la CSP n'AUTORISE ces
+// origines que si l'opérateur a posé la variable de build, et le bandeau ne
+// CHARGE la balise que si le visiteur a dit oui.
+describe("la CSP et les traceurs soumis à consentement", () => {
+  const META = { ...ENV, PUBLIC_META_PIXEL_ID: "123456789012345" }
+  const GOOGLE = { ...ENV, PUBLIC_GOOGLE_TAG_ID: "G-XXXXXXXXXX" }
+
+  const directive = (env: Record<string, string>, nom: string) =>
+    enTetesSecurite("abc123", env)["Content-Security-Policy"]!
+      .split("; ")
+      .find((d) => d.startsWith(`${nom} `) || d === nom)
+
+  test("sans identifiant de traceur, la CSP ne nomme ni Google ni Meta", () => {
+    // La condition pour que tout le reste soit acceptable : un site sans
+    // pixel garde exactement la politique d'avant.
+    const csp = enTetesSecurite("abc123", ENV)["Content-Security-Policy"]!
+    expect(csp).not.toContain("google")
+    expect(csp).not.toContain("facebook")
+    expect(csp).not.toContain("doubleclick")
+    // `frame-src` n'est pas déclaré : les iframes retombent sur
+    // `default-src 'self'`, ce qui est la politique stricte voulue.
+    expect(directive(ENV, "frame-src")).toBeUndefined()
+  })
+
+  test("avec le pixel Meta, ses trois surfaces sont ouvertes", () => {
+    expect(directive(META, "connect-src")).toContain("https://www.facebook.com")
+    expect(directive(META, "connect-src")).toContain("https://connect.facebook.net")
+    // Le pixel émet un `<img src="https://www.facebook.com/tr?…">` : sans
+    // cette origine, la conversion n'est jamais comptée.
+    expect(directive(META, "img-src")).toContain("https://www.facebook.com")
+    expect(directive(META, "frame-src")).toContain("https://www.facebook.com")
+  })
+
+  test("le pixel Meta n'ouvre rien du côté de Google", () => {
+    const csp = enTetesSecurite("abc123", META)["Content-Security-Policy"]!
+    expect(csp).not.toContain("google")
+    expect(csp).not.toContain("doubleclick")
+  })
+
+  test("avec la balise Google, ses trois surfaces sont ouvertes", () => {
+    // GA4 poste sur `https://www.google-analytics.com/g/collect`, et sur
+    // `region1.google-analytics.com` pour le trafic européen — d'où le
+    // joker, qui couvre les deux.
+    expect(directive(GOOGLE, "connect-src")).toContain("https://*.google-analytics.com")
+    expect(directive(GOOGLE, "connect-src")).toContain("https://*.analytics.google.com")
+    expect(directive(GOOGLE, "img-src")).toContain("https://*.google-analytics.com")
+    expect(directive(GOOGLE, "frame-src")).toContain("https://*.doubleclick.net")
+  })
+
+  test("la balise Google n'ouvre rien du côté de Meta", () => {
+    expect(enTetesSecurite("abc123", GOOGLE)["Content-Security-Policy"]).not.toContain("facebook")
+  })
+
+  test("les deux traceurs cohabitent sans effacer Convex ni Umami", () => {
+    // La régression que ce test attrape : une directive reconstruite pour
+    // les pixels et qui perdrait en route les origines du site lui-même.
+    const csp = enTetesSecurite("abc123", {
+      ...ENV,
+      PUBLIC_UMAMI_URL: "https://stats.exemple.fr",
+      PUBLIC_META_PIXEL_ID: "123456789012345",
+      PUBLIC_GOOGLE_TAG_ID: "G-XXXXXXXXXX",
+    })["Content-Security-Policy"]!
+    const connect = csp.split("; ").find((d) => d.startsWith("connect-src"))!
+    expect(connect).toContain("'self'")
+    expect(connect).toContain("https://exemple.convex.cloud")
+    expect(connect).toContain("https://stats.exemple.fr")
+    expect(connect).toContain("https://www.facebook.com")
+    expect(connect).toContain("https://*.google-analytics.com")
+  })
+
+  test("un identifiant vide n'ouvre rien — c'est l'absence qui fait l'interrupteur", () => {
+    // Un build-arg non posé vaut la chaîne vide, jamais `undefined` : si
+    // cette chaîne ouvrait la CSP, un adoptant sans traceur hériterait
+    // quand même des origines de Google et de Meta.
+    const csp = enTetesSecurite("abc123", {
+      ...ENV,
+      PUBLIC_META_PIXEL_ID: "",
+      PUBLIC_GOOGLE_TAG_ID: "",
+    })["Content-Security-Policy"]!
+    expect(csp).not.toContain("google")
+    expect(csp).not.toContain("facebook")
+  })
+})
