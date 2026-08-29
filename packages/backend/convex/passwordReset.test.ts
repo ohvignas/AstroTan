@@ -493,3 +493,66 @@ test("un ban EXPIRÉ ne bloque pas non plus la consommation du jeton", async () 
 
   expect((await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE)).status).toBe(200)
 })
+
+// --- Trou 3 : la demande est limitée en débit ----------------------------
+
+test("la demande de réinitialisation est limitée par adresse", async () => {
+  // `/request-password-reset` est publique, non authentifiée, et elle
+  // ENVOIE UN EMAIL. Sans limite elle est deux choses à la fois : un moyen
+  // d'inonder la boîte de n'importe qui, et un moyen d'épuiser le quota
+  // Resend du déploiement — après quoi plus aucune invitation ne part, ce
+  // qui ferme le seul chemin de création de compte.
+  //
+  // Le bloc `rateLimit` d'`auth.ts` ne couvrait RIEN ici : il vaut
+  // `{ enabled: false }`, et le limiteur de Better Auth serait de toute
+  // façon inerte dans ce runtime (`storage: "memory"`, un état qui ne
+  // survit pas d'un isolat d'action HTTP Convex à l'autre).
+  const t = makeTestConvex()
+  await seedActeur(t, "actif@exemple.fr")
+  const envois = capturerLesEnvois()
+
+  const reponses = []
+  for (let i = 0; i < 10; i++) {
+    reponses.push(await demanderReinitialisation(t, "actif@exemple.fr"))
+  }
+  await runScheduledFunctions(t)
+
+  // Une poignée, pas dix : la boîte de la personne n'est pas une cible, et
+  // le quota Resend du déploiement est partagé avec les invitations.
+  expect(envois).toHaveLength(3)
+  expect(reponses.filter((r) => r.status === 200)).toHaveLength(3)
+  // Le refus est un vrai 429, pas un envoi qui échoue en silence — sans
+  // quoi « trois envois » pourrait passer pour une tout autre raison que
+  // celle annoncée.
+  expect(reponses.at(-1)!.status).toBe(429)
+
+  // La limite est par ADRESSE. Un seau global aurait fermé le dernier
+  // chemin de récupération du dépôt pour tout le monde dès qu'un attaquant
+  // l'a vidé ; celui du voisin n'a rien consommé.
+  await seedActeur(t, "voisin@exemple.fr")
+  expect((await demanderReinitialisation(t, "voisin@exemple.fr")).status).toBe(200)
+})
+
+test("la limite de débit ne dit pas si l'adresse a un compte", async () => {
+  // La clé est bâtie sur ce que la requête REVENDIQUE, jamais sur une
+  // recherche de compte. Un limiteur qui ne compterait que les adresses
+  // réelles rendrait 429 pour un compte existant et 200 pour une adresse
+  // inconnue : exactement l'oracle d'existence que tout le reste de ce
+  // chemin est construit pour éviter.
+  const t = makeTestConvex()
+  await seedActeur(t, "actif@exemple.fr")
+  capturerLesEnvois()
+
+  for (let i = 0; i < 4; i++) await demanderReinitialisation(t, "actif@exemple.fr")
+  for (let i = 0; i < 4; i++) await demanderReinitialisation(t, "personne@exemple.fr")
+
+  const connue = await demanderReinitialisation(t, "actif@exemple.fr")
+  const inconnue = await demanderReinitialisation(t, "personne@exemple.fr")
+
+  expect(connue.status).toBe(429)
+  // Au corps près, et pas seulement au code : c'est pourquoi le message ne
+  // porte aucun délai calculé — deux adresses limitées à une seconde
+  // d'intervalle rendraient deux corps différents, et la différence serait
+  // un oracle.
+  expect(connue).toEqual(inconnue)
+})

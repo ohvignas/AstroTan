@@ -19,6 +19,11 @@ import {
   scorePassword,
 } from "./lib/passwordStrength"
 import {
+  PASSWORD_RESET_RATE_LIMIT_CONFIG,
+  PASSWORD_RESET_RATE_LIMIT_NAME,
+  buildPasswordResetRateLimitKey,
+} from "./lib/passwordResetRateLimit"
+import {
   SIGN_IN_EMAIL_RATE_LIMIT_CONFIG,
   SIGN_IN_EMAIL_RATE_LIMIT_NAME,
   SIGN_IN_RATE_LIMIT_CONFIG,
@@ -259,6 +264,69 @@ const SIGN_IN_PATHS = new Set(["/sign-in/email"])
 // un autre cycle de vie, et fusionner les ensembles ferait qu'une
 // modification de l'un changerait silencieusement ce que l'autre attrape.
 const RESET_PASSWORD_PATHS = new Set(["/reset-password"])
+
+// La DEMANDE d'un jeton — publique, non authentifiée, et elle envoie un
+// email. Distincte du `Set` ci-dessus, et pas seulement par le chemin :
+// les deux routes sont gardées par des mécanismes différents (une limite
+// de débit ici, deux vérifications de contenu là) qui ne partagent rien.
+const REQUEST_PASSWORD_RESET_PATHS = new Set(["/request-password-reset"])
+
+// Le limiteur de `/request-password-reset` — voir
+// `lib/passwordResetRateLimit.ts` pour le raisonnement complet, y compris
+// pourquoi UN seul seau (par adresse, indépendant de l'origine) plutôt que
+// les deux de la connexion, et pourquoi pas de seau global au déploiement.
+//
+// Une seconde instance plutôt qu'un nom de plus sur `signInRateLimiter` :
+// les deux configurations n'ont ni la même forme ni la même raison d'être,
+// et les loger sous un client nommé pour la connexion aurait fait mentir
+// ce nom. Le composant, lui, est le même — un client `RateLimiter` ne
+// porte que de la configuration.
+const passwordResetRateLimiter = new RateLimiter(components.rateLimiter, {
+  [PASSWORD_RESET_RATE_LIMIT_NAME]: PASSWORD_RESET_RATE_LIMIT_CONFIG,
+})
+
+// Frontière de câblage, même rôle que `guardSignInRateLimit` ci-dessus :
+// la décision (configuration, clé) vit dans le module pur, et c'est ici
+// qu'on fait le vrai `ctx.runMutation` à travers le composant puis qu'on
+// traduit un dépassement en `APIError` — la seule forme que le routeur
+// de better-auth inspecte réellement (une `Error` ordinaire ressortirait
+// en 500 au corps vide).
+async function guardPasswordResetRateLimit(
+  convexCtx: GenericCtx<DataModel>,
+  authCtx: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0],
+): Promise<void> {
+  // Même trou de typage que pour la connexion : `GenericCtx<DataModel>`
+  // est une union query/mutation/action et seules les deux dernières
+  // portent `runMutation`. Cette route n'est atteignable que par l'action
+  // HTTP de `http.ts`, qui l'a toujours — mais on échoue fermé plutôt que
+  // de le supposer, un `as` compilerait encore si ça cessait d'être vrai.
+  if (!("runMutation" in convexCtx)) {
+    throw APIError.from("INTERNAL_SERVER_ERROR", {
+      code: "PASSWORD_RESET_RATE_LIMIT_UNAVAILABLE",
+      message:
+        "PASSWORD_RESET_RATE_LIMIT_UNAVAILABLE: contexte insuffisant pour appliquer la limitation de débit, demande refusée par prudence",
+    })
+  }
+
+  const body = authCtx.body as { email?: unknown } | undefined
+  const status = await passwordResetRateLimiter.limit(convexCtx, PASSWORD_RESET_RATE_LIMIT_NAME, {
+    key: buildPasswordResetRateLimitKey(body?.email),
+  })
+  if (status.ok) return
+
+  // Le message ne porte AUCUN délai calculé, contrairement à celui de la
+  // connexion, et c'est délibéré : deux adresses limitées à une seconde
+  // d'intervalle rendraient deux `retryAfter` différents, donc deux corps
+  // différents — une différence observable de l'extérieur sur un chemin
+  // dont toute la conception consiste à n'en laisser aucune. La fenêtre
+  // est fixe et connue (voir `PASSWORD_RESET_RATE_LIMIT_CONFIG`), donc il
+  // n'y a rien à apprendre dans ce délai qui vaille cet écart.
+  throw APIError.from("TOO_MANY_REQUESTS", {
+    code: "PASSWORD_RESET_RATE_LIMITED",
+    message:
+      "PASSWORD_RESET_RATE_LIMITED: trop de demandes de réinitialisation pour cette adresse, réessayez plus tard",
+  })
+}
 
 // Les deux pièces que `guardPasswordReset` lit sur le contexte de
 // l'endpoint. Type étroit et séparé de `OwnerHookEndpointContext` plus
@@ -1179,15 +1247,18 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
           await guardSignInRateLimit(convexCtx, ctx)
         }
 
-        // La consommation d'un jeton de réinitialisation, vérifiée ici
-        // pour la même raison que la connexion juste au-dessus : c'est une
-        // route de Better Auth, servie par `http.ts`, qu'aucune mutation
-        // de ce dépôt n'enveloppe — `hooks.before` est le seul endroit du
-        // code applicatif qui la voie passer.
+        // Les deux portes de la récupération de mot de passe, vérifiées
+        // ici pour la même raison que la connexion juste au-dessus : ce
+        // sont des routes de Better Auth, servies par `http.ts`, qu'aucune
+        // mutation de ce dépôt n'enveloppe — `hooks.before` est le seul
+        // endroit du code applicatif qui les voie passer.
         //
-        // Retourne tôt (rien à faire) ou lève, jamais autre chose : elle
-        // ne modifie pas le contexte, donc elle n'interfère pas avec les
-        // gardes de l'invariant owner plus bas.
+        // Elles retournent tôt (rien à faire) ou lèvent, jamais autre
+        // chose : aucune ne modifie le contexte, donc aucune n'interfère
+        // avec les gardes de l'invariant owner plus bas.
+        if (REQUEST_PASSWORD_RESET_PATHS.has(ctx.path)) {
+          await guardPasswordResetRateLimit(convexCtx, ctx)
+        }
         if (RESET_PASSWORD_PATHS.has(ctx.path)) {
           await guardPasswordReset(convexCtx, ctx)
         }
