@@ -39,6 +39,16 @@ describe("refuseWebhookUrl", () => {
     expect(refuseWebhookUrl(url)).toBe("INTERNAL_ADDRESS")
   })
 
+  test.each([
+    "https://2130706433/hook", // décimale : 127.0.0.1
+    "https://0177.0.0.1/hook", // octale : 127.0.0.1
+    "https://0x7f000001/hook", // hexadécimale : 127.0.0.1
+    "https://[::]/hook", // IPv6 non spécifiée, traitée comme boucle locale par beaucoup de piles
+    "https://[::ffff:127.0.0.1]/hook", // IPv4-mappée en IPv6
+  ])("refuse la forme numérique %s", (url) => {
+    expect(refuseWebhookUrl(url)).toBe("INTERNAL_ADDRESS")
+  })
+
   test("laisse passer une adresse publique qui ressemble à une privée", () => {
     // 172.32 est PUBLIQUE : la plage privée s'arrête à 172.31. Coder
     // « 172.» tout court aurait refusé des destinations légitimes.
