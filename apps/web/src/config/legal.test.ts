@@ -160,10 +160,9 @@ function constantesDeRetention(): Record<string, number> {
     "utf-8",
   )
   const valeurs: Record<string, number> = {}
-  for (const [, nom, expression] of source.matchAll(
-    /export const ([A-Z_]+_RETENTION_DAYS)\s*=\s*([^\n]+)/g,
-  )) {
-    const nettoye = expression.trim()
+  for (const m of source.matchAll(/export const ([A-Z_]+_RETENTION_DAYS)\s*=\s*([^\n]+)/g)) {
+    const nom = m[1]!
+    const nettoye = m[2]!.trim()
     // Un produit d'entiers (`3 * 365`) ou un entier. Évalué à la main
     // plutôt que par `eval` : le fichier lu est du code, et un test qui
     // exécute le code qu'il inspecte n'inspecte plus rien.
