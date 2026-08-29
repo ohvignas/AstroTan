@@ -214,31 +214,40 @@ export interface RankedItem {
 // --- La granularité demandée ---------------------------------------------
 
 /**
- * Les trois granularités offertes, et rien d'autre.
+ * Les trois fenêtres offertes, et rien d'autre.
  *
- * Une liste fermée plutôt qu'une chaîne libre : « semaine » et
- * « trimestre » ont l'air raisonnables et rendent tous les deux `400` chez
- * Umami (`unit` n'admet que `minute` `hour` `day` `month` `year`, vérifié
- * contre 3.3.1). Une chaîne libre les laisserait arriver jusqu'ici pour y
- * devenir silencieusement le défaut — un graphique au mauvais pas, sans un
- * mot.
+ * Ce sont des FENÊTRES, pas des unités Umami : deux d'entre elles se lisent
+ * au pas du jour et ne se distinguent que par leur longueur. L'unité reste
+ * un détail d'implémentation, et `GRANULARITES` est le seul endroit qui
+ * traduit l'une en l'autre.
+ *
+ * `annee` vaut douze seaux MENSUELS, jamais un seau annuel : `unit: "year"`
+ * avec `count: 1` rendrait un point unique, et la courbe refuse de tracer
+ * sous deux points (`CourbeAudience`) — l'écran afficherait « pas encore
+ * assez de mesures » sur une année pleine de trafic.
+ *
+ * Une liste fermée plutôt qu'une chaîne libre : « trimestre » a l'air
+ * raisonnable et rend `400` chez Umami (`unit` n'admet que `minute` `hour`
+ * `day` `month` `year`, vérifié contre 3.3.1). Une chaîne libre le
+ * laisserait arriver jusqu'ici pour y devenir silencieusement le défaut —
+ * un graphique au mauvais pas, sans un mot.
  */
-export const PERIODES = ["jour", "mois", "annee"] as const
+export const PERIODES = ["semaine", "mois", "annee"] as const
 export type Periode = (typeof PERIODES)[number]
 export type Unit = "day" | "month" | "year"
 
 const periodeValidator = v.union(
   ...(PERIODES.map((p) => v.literal(p)) as [
-    ReturnType<typeof v.literal<"jour">>,
+    ReturnType<typeof v.literal<"semaine">>,
     ReturnType<typeof v.literal<"mois">>,
     ReturnType<typeof v.literal<"annee">>,
   ]),
 )
 
 const GRANULARITES: Record<Periode, { unit: Unit; count: number }> = {
-  jour: { unit: "day", count: 30 },
-  mois: { unit: "month", count: 12 },
-  annee: { unit: "year", count: 5 },
+  semaine: { unit: "day", count: 7 },
+  mois: { unit: "day", count: 30 },
+  annee: { unit: "month", count: 12 },
 }
 
 export interface Fenetre {
@@ -349,17 +358,17 @@ export interface UmamiLinks {
    * sinon la racine d'Umami, qui en demandera une.
    */
   dashboard: string
-  /**
-   * Où aller pour RÉGLER Umami : ajouter un site, créer un compte, activer
-   * un partage. Toujours la racine, et toujours derrière une connexion.
-   */
-  admin: string
   /** `true` quand `dashboard` est un partage, donc consultable sans compte. */
   shared: boolean
 }
 
 /**
- * Les deux adresses d'Umami, pour les deux boutons de l'administration.
+ * L'adresse où REGARDER les chiffres d'Umami.
+ *
+ * Elle n'en rend qu'une : régler Umami se fait depuis Umami. Un second lien
+ * « administrer » a existé ici et a été retiré — il menait à la racine, qui
+ * demande une connexion que l'administration ne peut pas ouvrir (voir plus
+ * bas), et il occupait une place à côté du seul lien qui rend un service.
  *
  * Une `query` et non des variables de build de l'admin : une seconde source
  * pourrait diverger de celle que les actions interrogent, et les liens
@@ -399,7 +408,6 @@ export const umamiLinks = query({
     const shareId = process.env.UMAMI_API_SHARE_ID
     return {
       dashboard: shareId ? `${url}/share/${shareId}` : url,
-      admin: url,
       shared: Boolean(shareId),
     }
   },
@@ -432,7 +440,7 @@ export const siteSummary = action({
   handler: async (ctx, args): Promise<SiteSummary> => {
     await requireRole(ctx, ["owner", "admin", "editor"])
 
-    const fenetre = fenetreFor(args.periode ?? "jour", Date.now())
+    const fenetre = fenetreFor(args.periode ?? "mois", Date.now())
     const empty = {
       periode: fenetre.periode,
       unit: fenetre.unit,

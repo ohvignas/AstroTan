@@ -7,7 +7,7 @@ import type { SiteSummary, UmamiLinks } from "@astrotan/backend/convex/analytics
 import { SiteDashboard, trend } from "./site-dashboard"
 
 const OK: SiteSummary = {
-  periode: "jour",
+  periode: "mois",
   unit: "day",
   startAt: 1_787_000_000_000,
   endAt: 1_789_000_000_000,
@@ -26,13 +26,12 @@ const OK: SiteSummary = {
 
 const SHARED: UmamiLinks = {
   dashboard: "https://umami.illith.test/share/demo",
-  admin: "https://umami.illith.test",
   shared: true,
 }
 
 function render(summary: SiteSummary | undefined, umami: UmamiLinks | null = null) {
   return renderToStaticMarkup(
-    <SiteDashboard summary={summary} umami={umami} periode="jour" onPeriode={() => {}} />
+    <SiteDashboard summary={summary} umami={umami} periode="mois" onPeriode={() => {}} />
   )
 }
 
@@ -65,22 +64,23 @@ describe("SiteDashboard", () => {
     expect(html).toContain("Accès direct")
   })
 
-  test("avec un partage, distingue consulter et administrer", () => {
+  test("avec un partage, un seul lien, vers le partage", () => {
     const html = render(OK, SHARED)
-    // Le partage est en lecture seule ; confondre les deux liens ferait
-    // chercher les réglages là où ils ne sont pas.
     expect(html).toContain("/share/demo")
-    expect(html).toContain("Administrer Umami")
+    expect(html).toContain("Tout le détail")
+    // Le second lien « Administrer Umami » a été retiré : régler Umami se
+    // fait depuis Umami, et il occupait une place à côté du seul lien qui
+    // rend un service.
+    expect(html).not.toContain("Administrer")
   })
 
-  test("sans partage, un seul lien et pas de promesse d'administration", () => {
+  test("sans partage, le lien mène à la racine et le dit", () => {
     const html = render(OK, {
       dashboard: "https://umami.illith.test",
-      admin: "https://umami.illith.test",
       shared: false,
     })
     expect(html).toContain("Ouvrir Umami")
-    expect(html).not.toContain("Administrer Umami")
+    expect(html).not.toContain("Administrer")
   })
 
   test("sans Umami configuré, aucun lien mort", () => {
@@ -94,7 +94,7 @@ describe("SiteDashboard", () => {
     ["unauthorized", "refusés"],
   ] as const)("l'état %s explique au lieu d'afficher zéro", (status, expected) => {
     const html = render({
-      periode: "jour",
+      periode: "mois",
       unit: "day",
       startAt: 0,
       endAt: 0,

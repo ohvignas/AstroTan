@@ -55,18 +55,18 @@ describe("pluriel", () => {
 
 describe("etiquettePoint", () => {
   test("le format suit la granularité", () => {
-    expect(etiquettePoint("2026-08-29T00:00:00Z", "jour")).toMatch(/29/)
-    expect(etiquettePoint("2026-08-01T00:00:00Z", "mois")).toMatch(/26/)
-    expect(etiquettePoint("2026-01-01T00:00:00Z", "annee")).toBe("2026")
+    expect(etiquettePoint("2026-08-29T00:00:00Z", "semaine")).toMatch(/29/)
+    expect(etiquettePoint("2026-08-01T00:00:00Z", "mois")).toMatch(/1/)
+    expect(etiquettePoint("2026-01-01T00:00:00Z", "annee")).toMatch(/26/)
   })
 
   test("lit les seaux en UTC, pas dans le fuseau du navigateur", () => {
     // Les seaux sont demandés en UTC. Les relire en heure locale décalerait
     // l'étiquette d'un jour pour tout visiteur à l'ouest de Greenwich.
-    expect(etiquettePoint("2026-08-01T00:00:00Z", "jour")).toMatch(/1/)
+    expect(etiquettePoint("2026-08-01T00:00:00Z", "mois")).toMatch(/1/)
   })
 
   test("une date illisible se rend telle quelle plutôt que « Invalid Date »", () => {
-    expect(etiquettePoint("pas-une-date", "jour")).toBe("pas-une-date")
+    expect(etiquettePoint("pas-une-date", "mois")).toBe("pas-une-date")
   })
 })

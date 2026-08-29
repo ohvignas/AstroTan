@@ -60,18 +60,23 @@ export function pluriel(valeur: number, singulier: string, pluriel: string): str
 
 /** Ce que chaque période recouvre, écrit en toutes lettres. */
 export const LIBELLES_PERIODE: Record<Periode, { onglet: string; fenetre: string }> = {
-  jour: { onglet: "30 jours", fenetre: "sur les 30 derniers jours" },
-  mois: { onglet: "12 mois", fenetre: "sur les 12 derniers mois" },
-  annee: { onglet: "5 ans", fenetre: "sur les 5 dernières années" },
+  semaine: { onglet: "7 jours", fenetre: "sur les 7 derniers jours" },
+  mois: { onglet: "30 jours", fenetre: "sur les 30 derniers jours" },
+  // L'onglet dit « 1 an », la fenêtre dit ce qu'on trace vraiment : douze
+  // points mensuels. Un seul point annuel ne ferait pas une courbe.
+  annee: { onglet: "1 an", fenetre: "sur les 12 derniers mois" },
 }
 
 /**
  * L'étiquette d'un point de la courbe.
  *
- * La granularité décide du format : un jour se nomme par son quantième et
- * son mois, un mois par son mois et son année, une année par elle-même.
+ * La granularité décide du format : un seau de jour se nomme par son
+ * quantième et son mois, un seau de mois par son mois et son année.
  * Afficher « 1 août 2026 » sur douze points de mois remplirait l'axe de
  * « 1 » identiques.
+ *
+ * `semaine` et `mois` partagent le format : ce sont deux fenêtres au même
+ * pas de jour, elles ne diffèrent que par leur longueur.
  *
  * `timeZone: "UTC"` n'est pas une négligence : les seaux d'Umami sont
  * demandés en UTC, et les relire dans le fuseau du navigateur décalerait
@@ -81,9 +86,6 @@ export function etiquettePoint(dateISO: string, periode: Periode): string {
   const d = new Date(dateISO)
   if (Number.isNaN(d.getTime())) return dateISO
   if (periode === "annee") {
-    return d.toLocaleDateString("fr-FR", { year: "numeric", timeZone: "UTC" })
-  }
-  if (periode === "mois") {
     return d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit", timeZone: "UTC" })
   }
   return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" })
