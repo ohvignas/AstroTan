@@ -109,6 +109,13 @@ RUN pnpm deploy --legacy --filter @astrotan/web --prod /out
 # échoue au démarrage, sur un chemin qui n'existe pas. Effacer d'abord rend
 # la commande idempotente quel que soit ce que `deploy` a laissé.
 RUN rm -rf /out/dist && cp -r apps/web/dist /out/dist
+# Le point d'entrée réel du conteneur, copié explicitement plutôt que laissé
+# aux règles de `pnpm deploy` : ce qu'il embarque d'un package dépend des
+# `.gitignore` qui s'y appliquent et a déjà changé d'une version de pnpm à
+# l'autre. Un CMD qui pointe un fichier absent, c'est un conteneur qui ne
+# démarre jamais — et la seule protection contre la divergence de
+# `WEB_DOMAIN` qui disparaît en silence si on l'oublie ici.
+RUN cp apps/web/verifier-domaine.mjs /out/verifier-domaine.mjs
 
 FROM base AS runtime
 ENV NODE_ENV=production \
@@ -119,6 +126,16 @@ WORKDIR /app
 COPY --from=build --chown=node:node /out ./
 USER node
 EXPOSE 4321
-# Le mode standalone de @astrojs/node sert les pages prérendues ET exécute
-# les routes on-demand depuis ce même processus (spec §6.1).
-CMD ["node", "./dist/server/entry.mjs"]
+# Le domaine que ce conteneur SERT est relu au runtime (`environment:` du
+# service `web`) ; celui qu'Astro RECONNAÎT est figé dans `dist/` depuis le
+# build-arg ci-dessus. `verifier-domaine.mjs` compare les deux et refuse de
+# démarrer s'ils divergent, PUIS importe l'entrée Astro dans le même
+# processus — il reste donc PID 1, et SIGTERM continue de lui parvenir
+# directement. Le mode standalone de @astrojs/node sert les pages prérendues
+# ET exécute les routes on-demand depuis ce même processus (spec §6.1).
+#
+# Refuser au démarrage et non à la requête est délibéré : l'échec tombe
+# pendant le déploiement, où quelqu'un regarde et où le rollback existe, et
+# jamais dans le trafic d'un site en service. Le raisonnement est en tête de
+# `apps/web/verifier-domaine.mjs`.
+CMD ["node", "./verifier-domaine.mjs"]

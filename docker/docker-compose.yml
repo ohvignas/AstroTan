@@ -107,6 +107,25 @@ services:
       # le signale. Même raison pour le `:?` : la panne est silencieuse des
       # deux côtés.
       CONSENT_LOG_SECRET: ${CONSENT_LOG_SECRET:?CONSENT_LOG_SECRET is required}
+      # Le domaine servi, ici ET dans le label Traefik plus bas — la même
+      # interpolation, donc la même valeur, à chaque `compose up`.
+      #
+      # Il ne sert PAS à configurer le site : `security.allowedDomains` est
+      # figée dans l'image au build (build-arg du même nom,
+      # docker/web.Dockerfile). Il sert à ce que le conteneur puisse
+      # CONSTATER que les deux moitiés concordent — `verifier-domaine.mjs`,
+      # le CMD de l'image, compare cette valeur à celle figée dans `dist/`
+      # et refuse de démarrer si elles divergent.
+      #
+      # Ce qu'on ferme ainsi : changer le domaine ici sans reconstruire
+      # l'image ne cassait rien de visible. Le site servait, Traefik routait,
+      # et Astro cessait simplement de reconnaître l'hôte — donc d'honorer
+      # `x-forwarded-for`. `clientAddress` valait alors l'adresse de
+      # Traefik, LA MÊME pour tout Internet, et les deux limiteurs de débit
+      # du site retombaient à un seul seau pour l'ensemble des visiteurs.
+      # Mesuré : les deux cas répondent 204 sur /api/consent, seule
+      # l'empreinte enregistrée diffère.
+      WEB_DOMAIN: ${WEB_DOMAIN:?WEB_DOMAIN is required}
       # `PUBLIC_CONVEX_URL` n'apparaît pas ici : Astro l'a figée dans le
       # bundle au build (build-arg). La changer impose de reconstruire. Idem
       # pour `PUBLIC_UMAMI_*`, `PUBLIC_META_PIXEL_ID` et

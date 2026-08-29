@@ -103,9 +103,14 @@ const DEPLOY_WORKFLOW = join(ROOT, ".github", "workflows", "deploy.yml");
 const APPS = [
   {
     name: "apps/web",
-    // `src/` seulement : `astro.config.ts` et les scripts de build tournent
-    // sur le runner ou le poste de dev, pas dans le conteneur.
-    sources: ["apps/web/src"],
+    // `src/` — et `verifier-domaine.mjs`, qui est le vrai point d'entrée du
+    // conteneur (le `CMD` de docker/web.Dockerfile) : ses `process.env` sont
+    // des lectures runtime au même titre que celles de `src/`, exactement
+    // comme `serve.mjs` côté admin. `astro.config.ts`, lui, tourne sur le
+    // runner et reste en `buildConfigs` ci-dessous — `WEB_DOMAIN` est donc
+    // vérifiée DEUX FOIS ici, une par moitié, ce qui est précisément le
+    // point : c'est leur divergence que le garde-fou du conteneur mesure.
+    sources: ["apps/web/src", "apps/web/verifier-domaine.mjs"],
     // Lus PENDANT le build, jamais au démarrage du conteneur. Leurs
     // `process.env` sont donc des variables de build — écart n° 4.
     buildConfigs: ["apps/web/astro.config.ts"],
