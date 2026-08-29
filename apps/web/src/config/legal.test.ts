@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { processings, TABLE_COVERAGE } from "./legal"
 
@@ -73,4 +76,45 @@ test("la conservation des comptes ne prétend plus que supprimer un compte l'eff
   const comptes = processings.find((p) => p.purpose === "Gérer les comptes de l'administration")
   expect(comptes).toBeDefined()
   expect(comptes!.retention).toContain("journal")
+})
+
+test("la durée de purge Umami écrite dans le SQL est celle publiée sur /confidentialite", () => {
+  // Rien ne relie mécaniquement `docker/umami-purge.sql` (ce que le code
+  // APPLIQUE) à la ligne « Mesurer l'audience du site » ci-dessus (ce que
+  // la page ANNONCE) : sans ce test, l'un pourrait dire 13 mois pendant
+  // que l'autre en applique 24, sans qu'aucun outil ne le remarque —
+  // exactement le défaut que ce fichier existe pour rendre impossible pour
+  // les tables Convex, et qui restait ouvert pour Umami.
+  //
+  // `apps/web` n'a pas de dépendance vers `docker/` : ce test lit le
+  // fichier par son chemin, à la manière d'un test de contenu statique,
+  // pas d'un import.
+  const ici = dirname(fileURLToPath(import.meta.url))
+  const sql = readFileSync(resolve(ici, "../../../../docker/umami-purge.sql"), "utf-8")
+
+  // Seules les lignes de code comptent : le commentaire d'en-tête du
+  // fichier SQL cite lui-même le motif `interval 'N months'` pour expliquer
+  // le compte, ce qui fausserait un comptage sur le fichier entier.
+  const lignesDeCode = sql
+    .split("\n")
+    .filter((ligne) => !ligne.trim().startsWith("--"))
+    .join("\n")
+  const durees = [...lignesDeCode.matchAll(/interval '(\d+) months?'/g)].map((m) => Number(m[1]))
+
+  expect(durees.length, "aucune durée trouvée dans docker/umami-purge.sql").toBeGreaterThan(0)
+  expect(
+    new Set(durees).size,
+    "toutes les occurrences de la durée dans docker/umami-purge.sql doivent être identiques " +
+      "entre elles",
+  ).toBe(1)
+
+  const ligne = processings.find((p) => p.purpose === "Mesurer l'audience du site")
+  expect(ligne, "la ligne « Mesurer l'audience du site » doit exister").toBeDefined()
+  const dureePubliee = ligne!.retention.match(/^(\d+) mois/)
+  expect(dureePubliee, "la ligne publiée doit commencer par « N mois »").not.toBeNull()
+
+  expect(
+    durees[0],
+    "la durée appliquée par docker/umami-purge.sql doit être celle que /confidentialite publie",
+  ).toBe(Number(dureePubliee![1]))
 })

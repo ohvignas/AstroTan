@@ -440,6 +440,28 @@ pas que Convex répond, et c'est voulu : une panne du backend ne doit pas
 faire redémarrer en boucle un site qui sert encore parfaitement ses pages
 prérendues.
 
+**Si Umami est utilisé sur ce déploiement (section 13), démarrer la purge
+de rétention maintenant.** Le pipeline `Deploy` ne le fait jamais — c'est
+volontaire (§13.10) — donc `/confidentialite` annoncerait une purge de 13
+mois qui n'existe que si quelqu'un pense à lancer la commande. C'est cette
+étape-ci :
+
+```bash
+ssh <user>@<host> 'cd ~/astrotan && docker compose --profile purge up -d umami-purge'
+```
+
+Vérifier qu'elle a bien démarré — `docker compose ps` sans profil ne liste
+même pas ce service, « pas démarré » et « n'existe pas » sont donc
+indistinguables sans cette commande :
+
+```bash
+ssh <user>@<host> 'cd ~/astrotan && docker compose --profile purge ps umami-purge'
+```
+
+Une ligne `Up`, et non « no such service » ni l'absence de toute ligne,
+confirme que la purge tourne. Détail, ce qu'elle purge, et comment vérifier
+son effet sans rien supprimer : section 13.10.
+
 ### Le déploiement n'est pas sans coupure, et c'est assumé
 
 `docker compose up -d` **recrée** les conteneurs dont l'image a changé :
@@ -1069,23 +1091,37 @@ compose.
 
 **Ce qui est purgé, et pourquoi ce n'est pas qu'une table.** Umami n'a
 aucune contrainte de clé étrangère sur cette base — vérifié en interrogeant
-`information_schema.table_constraints` : zéro ligne `FOREIGN KEY`. Purger
-seulement `website_event` et `session` laisserait donc des lignes
-orphelines dans tout ce qui pend de l'un ou de l'autre. La requête
-(`docker/umami-purge.sql`) purge sept tables sur leur propre `created_at` :
-`event_data`, `session_data`, `session_link`, `heatmap_event`,
-`session_replay`, `session_replay_saved`, `revenue`, en plus de
-`website_event` et `session` eux-mêmes — le tout dans une seule transaction.
-Volontairement absentes : `website`, `user`, `team`, `team_user`,
-`app_setting`, `board`, `link`, `pixel`, `report`, `segment`, `share`,
-`two_factor_*` — des comptes, des réglages ou des définitions (tableaux de
-bord, segments, rapports), pas de la donnée d'audience horodatée par
-visite.
+`information_schema.table_constraints` ET `pg_constraint` : zéro ligne
+`FOREIGN KEY`. Purger seulement `website_event` et `session` laisserait
+donc des lignes orphelines dans tout ce qui pend de l'un ou de l'autre. La
+requête (`docker/umami-purge.sql`) purge neuf tables dans une seule
+transaction : `event_data`, `heatmap_event`, `revenue`, `session_data`,
+`session_link` et `session_replay` sur leur propre `created_at` ;
+`website_event` de même ; et deux exceptions dont la propre date ne dit pas
+la bonne chose — `session` (purgée seulement si en plus aucun
+`website_event` ne la référence encore, pour ne pas casser les
+ventilations pays/navigateur/appareil d'une session que le décalage du sel
+d'Umami garde active jusqu'à un mois après sa création) et
+`session_replay_saved` (un replay épinglé par un administrateur, purgé dès
+que son replay sous-jacent a disparu, **quel que soit l'âge de
+l'épinglage** — épingler ne prolonge jamais la conservation au-delà de la
+durée publiée). Le raisonnement complet, avec les deux cas exacts que ces
+exceptions évitent, est dans l'en-tête du fichier SQL — à lire avant d'y
+toucher. Volontairement absentes de la purge : `website`, `user`, `team`,
+`team_user`, `app_setting`, `board`, `link`, `pixel`, `report`, `segment`,
+`share`, `two_factor_*` — des comptes, des réglages ou des définitions
+(tableaux de bord, segments, rapports), pas de la donnée d'audience
+horodatée par visite.
+
+`apps/web/src/config/legal.test.ts` relit ce fichier SQL et vérifie que la
+durée qu'il applique (13 mois, répétée à l'identique partout où elle
+apparaît) est celle que `/confidentialite` publie : les deux ne peuvent pas
+diverger en silence.
 
 **Démarrage, volontaire et unique.** Le service porte `profiles: [purge]` :
 un `docker compose up` ordinaire, en développement comme sur le VPS
-(y compris celui du workflow `Deploy`, section 8), ne le démarre jamais. Le
-lancer une fois, après le premier déploiement :
+(y compris celui du workflow `Deploy`, section 8), ne le démarre jamais —
+voir section 8 pour l'étape qui le démarre après le premier déploiement.
 
 ```bash
 ssh <user>@<host> 'cd ~/astrotan && docker compose --profile purge up -d umami-purge'
@@ -1093,16 +1129,32 @@ ssh <user>@<host> 'cd ~/astrotan && docker compose --profile purge up -d umami-p
 
 Il tourne ensuite en boucle interne — une purge immédiate, puis une par
 mois — et `restart: unless-stopped` le fait survivre aux redémarrages de
-l'hôte. Vérifier qu'il tourne et lire son dernier passage :
+l'hôte. **Toujours avec `--profile purge`** pour le retrouver ensuite : sans
+ce drapeau, `docker compose ps` ne liste même pas ce service, et « pas
+démarré » devient indistinguable de « n'existe pas ».
 
 ```bash
-ssh <user>@<host> 'cd ~/astrotan && docker compose ps umami-purge && docker compose logs --tail 20 umami-purge'
+ssh <user>@<host> 'cd ~/astrotan && docker compose --profile purge ps umami-purge && docker compose --profile purge logs --tail 20 umami-purge'
 ```
 
 **Compter avant de croire qu'il ne fait rien.** Un site jeune n'a par
 construction aucune ligne de plus de 13 mois : le service tourne, ne
-supprime rien, et c'est le comportement correct. Pour vérifier le mécanisme
-sans rien supprimer, exécuter la requête dans une transaction annulée :
+supprime rien, et c'est le comportement correct. Pour le vérifier **sans
+aucun risque**, compter — une requête en lecture seule, rien à annuler :
+
+```bash
+docker compose exec umami-db psql -U umami -d umami -c \
+  "SELECT count(*) FROM website_event WHERE created_at < now() - interval '13 months';"
+```
+
+Zéro sur une instance jeune est le résultat attendu, pas un signe de panne.
+
+**Variante avancée, pour éprouver le `DELETE` lui-même** — à réserver à
+quelqu'un qui a lu la commande en entier avant de l'exécuter, jamais à
+copier sans la relire : elle contient un `DELETE` réel, protégé par une
+transaction qu'il faut annuler explicitement. Un `ROLLBACK` perdu ou
+remplacé par erreur (par un `COMMIT`, par exemple) supprime réellement les
+lignes de la fenêtre choisie.
 
 ```bash
 docker compose exec umami-db psql -U umami -d umami -c \
