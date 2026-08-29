@@ -1,101 +1,95 @@
 import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import { SettingsGroup } from "@/components/settings-nav"
+import {
+  CleMaitresseBandeau,
+  Command,
+  SecretField,
+  SecretHorsPortee,
+  SecretsReserves,
+} from "@/components/settings-secrets"
+import type { CleMaitresseEtat, SecretEtat } from "@/components/settings-secrets"
 
 // ---------------------------------------------------------------------
-// Les trois pages de réglages qui DÉCRIVENT l'environnement au lieu de le
-// modifier — Domaine & emails, Mesure & pixels, IA.
+// Les trois pages qui portent les JETONS et les variables de déploiement —
+// Domaine & emails, Mesure & pixels, IA.
 //
-// Elles n'ont aucun champ, et c'est le sujet du fichier plutôt qu'une
-// simplification. Trois familles de valeurs échappent à la base, chacune
-// pour une raison différente et chacune payée une fois ailleurs :
+// Elles n'avaient aucun champ, et le fichier expliquait pourquoi : une clé
+// d'API n'entre pas dans la table `settings`, qui a une projection publique.
+// C'est toujours vrai, et c'est pour cela que les jetons ont maintenant leur
+// PROPRE table, chiffrée (`convex/secrets.ts`) — pas parce que la contrainte
+// a disparu, mais parce qu'on lui a donné un autre logement.
 //
-//   • une clé d'API (OpenRouter, Resend, le mot de passe Umami) n'entre
-//     pas dans la table `settings`, qui a une projection publique — le
-//     secret de signature du webhook y est entré une fois et est devenu
-//     lisible par tout Internet ;
-//   • un identifiant de pixel (`PUBLIC_META_PIXEL_ID`,
-//     `PUBLIC_GOOGLE_TAG_ID`) est figé AU BUILD de l'image du site par
-//     Astro, exactement comme `PUBLIC_CONVEX_URL`. Un champ en base qui
-//     prétendrait le régler n'aurait aucun effet, en silence ;
-//   • un domaine se règle chez le registrar, dans le DNS et dans Traefik.
+// Ce qui reste sans champ, et le restera :
 //
-// Un formulaire est une promesse. Ces pages n'en font aucune : elles
-// disent l'état réel, nomment la variable, et donnent la commande.
-// `settings-environment.test.tsx` échoue si un `<input>` réapparaît.
+//   • les variables `PUBLIC_*` d'`apps/web` (pixels, script Umami) : Astro
+//     les fige AU BUILD de l'image du site, comme `PUBLIC_CONVEX_URL`. Un
+//     champ en base qui prétendrait les régler n'aurait aucun effet, en
+//     silence ;
+//   • `SITE_URL` / `WEB_SITE_URL` : lues au chargement des modules Convex
+//     (la `baseURL` de Better Auth, l'invalidation de cache), pas au moment
+//     de l'usage — une valeur en base arriverait trop tard ;
+//   • `RESEND_TEST_MODE` : lu dans le constructeur du client Resend, même
+//     raison ;
+//   • un domaine, qui se règle chez le registrar, dans le DNS et dans
+//     Traefik.
+//
+// Un formulaire est une promesse. Ces lignes-là n'en font aucune : elles
+// disent l'état, nomment la variable, et donnent la commande.
+// `settings-environment.test.tsx` échoue si un champ de saisie apparaît sur
+// l'une d'elles.
 // ---------------------------------------------------------------------
 
-type VarState = "configured" | "missing" | "unknown"
-
-const STATE_LABEL: Record<VarState, string> = {
-  configured: "Configurée",
-  missing: "Absente",
-  // Les variables `PUBLIC_*` d'`apps/web` : Convex ne les voit pas, et
-  // afficher « absente » serait une affirmation que rien ne soutient.
-  unknown: "Hors de portée du dashboard",
+/** Tout ce dont ces pages ont besoin pour afficher et écrire un jeton. */
+export interface SecretsBloc {
+  /** `null` quand l'appelant n'a pas le droit de lire l'état (editor). */
+  cleMaitresse: CleMaitresseEtat | null
+  etats: Record<string, SecretEtat>
+  canWrite: boolean
+  onSave: (nom: string, valeur: string) => Promise<void>
+  onClear: (nom: string) => Promise<void>
 }
 
 /**
- * Une variable d'environnement, telle que l'écran a le droit d'en parler :
- * son nom, son état, et — seulement si ce n'en est pas un secret — sa
- * valeur.
- *
- * Il n'existe volontairement aucune prop qui porterait la valeur d'un
- * secret : la seule façon d'en afficher un serait d'en inventer une, ce
- * qui se voit en revue.
+ * Un état par défaut plutôt qu'un rendu conditionnel à chaque appel : la
+ * query et la liste des noms viennent de deux endroits, et un nom que le
+ * serveur ne connaît pas doit s'afficher « absent » au lieu de faire
+ * disparaître la ligne sans rien dire.
  */
-function EnvVar({
-  name,
-  state,
-  label,
-  value,
-  children,
-}: {
-  name: string
-  state: VarState
-  /**
-   * Remplace « Configurée / Absente » quand la variable est un
-   * interrupteur plutôt qu'une clé : `RESEND_TEST_MODE` absente signifie
-   * « mode d'essai », et écrire « Absente » sur cette ligne dirait le
-   * contraire de ce qui se passe.
-   */
-  label?: string
-  /** Uniquement pour ce qui figure déjà dans la barre d'adresse d'un visiteur. */
-  value?: string | null
-  children?: ReactNode
-}) {
+function etatDe(bloc: SecretsBloc, nom: string): SecretEtat {
   return (
-    <div className="flex flex-col gap-1 border-l-2 border-border pl-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <code className="text-xs font-medium">{name}</code>
-        <Badge
-          variant={
-            state === "configured"
-              ? "secondary"
-              : state === "missing"
-                ? "destructive"
-                : "outline"
-          }
-        >
-          {label ?? STATE_LABEL[state]}
-        </Badge>
-        {value ? (
-          <code className="truncate text-xs text-muted-foreground">{value}</code>
-        ) : null}
-      </div>
-      {children ? (
-        <p className="text-sm text-muted-foreground">{children}</p>
-      ) : null}
-    </div>
+    bloc.etats[nom] ?? {
+      nom,
+      environnement: false,
+      base: false,
+      illisible: false,
+      quatreDerniers: null,
+      majAt: null,
+      source: "aucune",
+    }
   )
 }
 
-/** La commande à recopier dans un terminal, puisque l'écran ne peut pas la lancer. */
-function Command({ children }: { children: string }) {
+function Champ({
+  bloc,
+  nom,
+  children,
+}: {
+  bloc: SecretsBloc
+  nom: string
+  children?: ReactNode
+}) {
   return (
-    <pre className="overflow-x-auto rounded-md bg-muted px-3 py-2 text-xs">
-      <code>{children}</code>
-    </pre>
+    <SecretField
+      etat={etatDe(bloc, nom)}
+      // Sans clé maîtresse, l'écriture est refusée côté serveur : le champ
+      // est masqué plutôt que de laisser taper une clé pour rien.
+      disabled={!bloc.canWrite || bloc.cleMaitresse !== "posee"}
+      onSave={(valeur) => bloc.onSave(nom, valeur)}
+      onClear={() => bloc.onClear(nom)}
+    >
+      {children}
+    </SecretField>
   )
 }
 
@@ -103,29 +97,27 @@ function Command({ children }: { children: string }) {
 // IA
 // ---------------------------------------------------------------------
 
-export function AiPage({ configured }: { configured: boolean }) {
+export function AiPage({ secrets }: { secrets: SecretsBloc }) {
+  if (secrets.cleMaitresse === null) return <SecretsReserves />
   return (
     // Un seul groupe : pas de `h2`, il ne ferait que répéter le `h1`.
     <SettingsGroup>
-      <EnvVar
-        name="OPENROUTER_API_KEY"
-        state={configured ? "configured" : "missing"}
-      >
-        Posée sur le déploiement Convex, jamais en base : la table des
-        réglages a une projection publique, et une clé qui y entrerait
-        serait lisible par quiconque connaît l'URL Convex — celle-ci est
-        dans le bundle du site.
-      </EnvVar>
-      <Command>
-        cd packages/backend && npx convex env set OPENROUTER_API_KEY sk-or-…
-      </Command>
-      <p className="text-sm text-muted-foreground">
+      <CleMaitresseBandeau etat={secrets.cleMaitresse} />
+      <Champ bloc={secrets} nom="OPENROUTER_API_KEY">
         {/* Dire ce qui n'existe pas encore : une pastille verte sur une
             fonctionnalité absente est un mensonge que personne ne
             corrigera, parce que rien ne casse. */}
-        Aucune fonction de ce dépôt ne lit encore cette clé. La poser
-        prépare le terrain ; elle ne déclenche rien aujourd'hui.
+        <strong>Aucune fonction de ce dépôt ne lit encore cette clé</strong>,
+        ni ici ni dans l'environnement. La poser prépare le terrain ; elle ne
+        déclenche rien aujourd'hui.
+      </Champ>
+      <p className="text-sm text-muted-foreground">
+        L'autre chemin, plus sûr, et celui qui l'emporte sur la saisie
+        ci-dessus :
       </p>
+      <Command>
+        cd packages/backend && npx convex env set OPENROUTER_API_KEY sk-or-…
+      </Command>
     </SettingsGroup>
   )
 }
@@ -144,10 +136,12 @@ export function DomainAndEmailsPage({
   resend,
   adminUrl,
   webUrl,
+  secrets,
 }: {
   resend: { configured: boolean; testMode: boolean }
   adminUrl: string | null
   webUrl: string | null
+  secrets: SecretsBloc
 }) {
   return (
     <>
@@ -155,28 +149,44 @@ export function DomainAndEmailsPage({
         title="Les deux origines"
         description="Ce déploiement en connaît deux, et les confondre casse des choses différentes."
       >
-        <EnvVar
-          name="SITE_URL"
-          state={adminUrl ? "configured" : "missing"}
-          value={adminUrl}
-        >
-          L'origine du <strong>dashboard</strong> : elle sert de{" "}
-          <code className="text-xs">baseURL</code> à Better Auth et compose
-          les liens des emails d'invitation et de notification.
-        </EnvVar>
-        <EnvVar
-          name="WEB_SITE_URL"
-          state={webUrl ? "configured" : "missing"}
-          value={webUrl}
-        >
-          L'origine du <strong>site public</strong> : c'est elle qu'on
-          appelle pour invalider le cache à la publication. Fausse, le site
-          continue de servir l'ancienne version sans que rien ne le signale
-          ailleurs que dans la file d'invalidation.
-        </EnvVar>
-        <Command>
-          cd packages/backend && npx convex env set WEB_SITE_URL https://exemple.fr
-        </Command>
+        <SecretHorsPortee
+          nom="SITE_URL"
+          raison={
+            <>
+              L'origine du <strong>dashboard</strong> : elle sert de{" "}
+              <code className="text-xs">baseURL</code> à Better Auth et compose
+              les liens des emails d'invitation. Lue au chargement des modules
+              Convex, pas au moment de l'usage — une valeur saisie à l'écran
+              arriverait toujours trop tard.{" "}
+              {adminUrl ? (
+                <>
+                  Actuellement <code className="text-xs">{adminUrl}</code>.
+                </>
+              ) : (
+                <Badge variant="destructive">Absente</Badge>
+              )}
+            </>
+          }
+        />
+        <SecretHorsPortee
+          nom="WEB_SITE_URL"
+          raison={
+            <>
+              L'origine du <strong>site public</strong> : c'est elle qu'on
+              appelle pour invalider le cache à la publication. Fausse, le site
+              continue de servir l'ancienne version sans que rien ne le signale
+              ailleurs que dans la file d'invalidation.{" "}
+              {webUrl ? (
+                <>
+                  Actuellement <code className="text-xs">{webUrl}</code>.
+                </>
+              ) : (
+                <Badge variant="destructive">Absente</Badge>
+              )}
+            </>
+          }
+          commande="cd packages/backend && npx convex env set WEB_SITE_URL https://exemple.fr"
+        />
         <p className="text-sm text-muted-foreground">
           Changer de nom de domaine se fait en trois endroits, et aucun
           n'est cet écran : les enregistrements DNS chez le registrar,{" "}
@@ -193,26 +203,44 @@ export function DomainAndEmailsPage({
         title="Envoi des emails"
         description="Les invitations et les notifications de leads partent par Resend."
       >
-        <EnvVar
-          name="RESEND_API_KEY"
-          state={resend.configured ? "configured" : "missing"}
-        >
-          Sans elle, une invitation est bien créée mais son email ne part
-          pas, et une notification de lead non plus. Le lead, lui, est
-          enregistré quoi qu'il arrive.
-        </EnvVar>
-        <EnvVar
-          name="RESEND_TEST_MODE"
-          state={resend.testMode ? "missing" : "configured"}
-          label={resend.testMode ? "Mode d'essai" : "Envois réels"}
-        >
-          {resend.testMode
-            ? "Mode d'essai : Resend accepte les envois et ne les délivre pas. C'est la valeur par défaut, et la panne la plus silencieuse de ce déploiement — un email « envoyé » que personne ne reçoit. Passer en envois réels demande `RESEND_TEST_MODE=false` et un domaine d'expédition vérifié chez Resend."
-            : "Envois réels : chaque invitation et chaque notification part vraiment. Le domaine d'expédition doit être vérifié chez Resend, sinon Resend refuse."}
-        </EnvVar>
-        <Command>
-          cd packages/backend && npx convex env set RESEND_TEST_MODE false
-        </Command>
+        {secrets.cleMaitresse === null ? (
+          <p className="text-sm text-muted-foreground">
+            La clé Resend est réservée au propriétaire et aux administrateurs
+            — y compris son état.
+          </p>
+        ) : (
+          <>
+            <CleMaitresseBandeau etat={secrets.cleMaitresse} />
+            <Champ bloc={secrets} nom="RESEND_API_KEY">
+              Sans elle, une invitation est bien créée mais son email ne part
+              pas, et une notification de lead non plus. Le lead, lui, est
+              enregistré quoi qu'il arrive.{" "}
+              <strong>
+                Aujourd'hui, seule la variable d'environnement est lue
+              </strong>{" "}
+              (<code className="text-xs">convex/lib/resend.ts</code> construit
+              le client sur <code className="text-xs">process.env</code>) : une
+              valeur saisie ici est bien chiffrée et rangée, mais elle ne
+              servira qu'une fois cet appel passé par le lecteur unique{" "}
+              <code className="text-xs">secrets.lireSecret</code>.
+            </Champ>
+            {resend.configured ? null : (
+              <p className="text-sm text-muted-foreground">
+                <Badge variant="destructive">Absente de l'environnement</Badge>
+              </p>
+            )}
+          </>
+        )}
+
+        <SecretHorsPortee
+          nom="RESEND_TEST_MODE"
+          raison={
+            resend.testMode
+              ? "Mode d'essai : Resend accepte les envois et ne les délivre pas. C'est la valeur par défaut, et la panne la plus silencieuse de ce déploiement — un email « envoyé » que personne ne reçoit. Lu dans le constructeur du client Resend, donc dans l'environnement seulement. Passer en envois réels demande aussi un domaine d'expédition vérifié chez Resend."
+              : "Envois réels : chaque invitation et chaque notification part vraiment. Le domaine d'expédition doit être vérifié chez Resend, sinon Resend refuse."
+          }
+          commande="cd packages/backend && npx convex env set RESEND_TEST_MODE false"
+        />
 
         <div className="flex flex-col gap-1 border-l-2 border-border pl-3">
           <p className="text-sm font-medium">Adresse d'expédition</p>
@@ -256,57 +284,72 @@ export function DomainAndEmailsPage({
 
 export function MeasurementPage({
   umamiApi,
+  secrets,
 }: {
   umamiApi: { configured: boolean; url: string | null; shared: boolean }
+  secrets: SecretsBloc
 }) {
   return (
     <>
-      <SettingsGroup>
-        <p className="text-sm text-muted-foreground">
-          Rien de ce qui suit ne se règle depuis cet écran, et ce n'est pas
-          un oubli. Les variables <code className="text-xs">PUBLIC_*</code>{" "}
-          sont lues par Astro <strong>au build</strong> de l'image du site
-          public, comme <code className="text-xs">PUBLIC_CONVEX_URL</code> :
-          elles sont des secrets GitHub / build-args, le dashboard{" "}
-          <strong>ne peut pas savoir</strong> ce qu'elles valent, et les
-          changer demande de <strong>reconstruire</strong> puis redéployer
-          l'image du site.
-        </p>
-      </SettingsGroup>
-
       <SettingsGroup
         title="Le script qui compte"
         description="Umami, auto-hébergé. Le comptage ne dépose aucun cookie et n'attend donc aucun accord ; le rejeu de session, si."
       >
-        <EnvVar name="PUBLIC_UMAMI_URL" state="unknown">
-          L'origine de votre Umami. Avec l'identifiant ci-dessous, elle
-          charge <code className="text-xs">script.js</code> sur chaque page.
-        </EnvVar>
-        <EnvVar name="PUBLIC_UMAMI_WEBSITE_ID" state="unknown">
-          Le site mesuré, tel qu'Umami l'a créé.
-        </EnvVar>
-        <EnvVar name="PUBLIC_UMAMI_RECORDER" state="unknown">
-          <code className="text-xs">recorder.js</code> — Replays et
-          Heatmaps. Celui-là rejoue ce qu'une personne a fait sur la page,
-          saisies comprises : il attend le consentement, là où le simple
-          comptage en est exempté (aucun cookie, aucune IP conservée, aucun
-          suivi d'un site à l'autre).
-        </EnvVar>
+        <p className="text-sm text-muted-foreground">
+          Ces trois-là sont lues par Astro <strong>au build</strong> de
+          l'image du site public, comme{" "}
+          <code className="text-xs">PUBLIC_CONVEX_URL</code> : le dashboard{" "}
+          <strong>ne peut pas savoir</strong> ce qu'elles valent, et les
+          changer demande de <strong>reconstruire</strong> puis redéployer
+          l'image du site. Un champ ici ne ferait rien du tout.
+        </p>
+        <SecretHorsPortee
+          nom="PUBLIC_UMAMI_URL"
+          raison={
+            <>
+              L'origine de votre Umami. Avec l'identifiant ci-dessous, elle
+              charge <code className="text-xs">script.js</code> sur chaque
+              page.
+            </>
+          }
+        />
+        <SecretHorsPortee
+          nom="PUBLIC_UMAMI_WEBSITE_ID"
+          raison="Le site mesuré, tel qu'Umami l'a créé."
+        />
+        <SecretHorsPortee
+          nom="PUBLIC_UMAMI_RECORDER"
+          raison={
+            <>
+              <code className="text-xs">recorder.js</code> — Replays et
+              Heatmaps. Celui-là rejoue ce qu'une personne a fait sur la page,
+              saisies comprises : il <strong>attend le consentement</strong>,
+              là où le simple comptage en est exempté (aucun cookie, aucune IP
+              conservée, aucun suivi d'un site à l'autre).
+            </>
+          }
+        />
       </SettingsGroup>
 
       <SettingsGroup
         title="Les pixels publicitaires"
-        description="Leur absence est l'interrupteur."
+        description="Leur absence est l'interrupteur, et elle se règle au build comme les précédentes."
       >
-        <EnvVar name="PUBLIC_META_PIXEL_ID" state="unknown">
-          Pixel Meta. Catégorie « Publicité » du bandeau.
-        </EnvVar>
-        <EnvVar name="PUBLIC_GOOGLE_TAG_ID" state="unknown">
-          Balise Google (<code className="text-xs">gtag.js</code>). Classée
-          « Publicité » même quand elle sert à mesurer : le même script
-          alimente Analytics et Ads, et l'identifiant seul ne dit pas
-          lequel.
-        </EnvVar>
+        <SecretHorsPortee
+          nom="PUBLIC_META_PIXEL_ID"
+          raison="Pixel Meta. Catégorie « Publicité » du bandeau."
+        />
+        <SecretHorsPortee
+          nom="PUBLIC_GOOGLE_TAG_ID"
+          raison={
+            <>
+              Balise Google (<code className="text-xs">gtag.js</code>). Classée
+              « Publicité » même quand elle sert à mesurer : le même script
+              alimente Analytics et Ads, et l'identifiant seul ne dit pas
+              lequel.
+            </>
+          }
+        />
         <p className="text-sm text-muted-foreground">
           Sans elles, la catégorie « Publicité » disparaît du bandeau — et
           si plus aucun traceur ne demande d'accord, le bandeau ne
@@ -322,36 +365,70 @@ export function MeasurementPage({
 
       <SettingsGroup
         title="Les identifiants qui lisent les chiffres"
-        description="Les seules variables de cette page que le dashboard peut vérifier."
+        description="Umami auto-hébergé n'a pas de clé d'API : on s'authentifie avec un compte Umami. Les quatre premières ensemble ou rien."
       >
-        <p className="text-sm text-muted-foreground">
-          Umami auto-hébergé n'a pas de clé d'API : on s'authentifie avec un
-          compte Umami. Ces variables vivent sur le déploiement Convex —
-          jamais sur le VPS, jamais dans le navigateur.
-        </p>
-        <EnvVar
-          name="UMAMI_API_URL"
-          state={umamiApi.configured ? "configured" : "missing"}
-          value={umamiApi.url}
-        >
-          Les quatre ensemble ou rien :{" "}
-          <code className="text-xs">UMAMI_API_URL</code>,{" "}
-          <code className="text-xs">UMAMI_API_WEBSITE_ID</code>,{" "}
-          <code className="text-xs">UMAMI_API_USERNAME</code>,{" "}
-          <code className="text-xs">UMAMI_API_PASSWORD</code>. Une
-          intégration à moitié posée échouerait au moment de l'appel, là où
-          « non configurée » est une réponse nette.
-        </EnvVar>
-        <EnvVar
-          name="UMAMI_API_SHARE_ID"
-          state={umamiApi.shared ? "configured" : "missing"}
-        >
-          Facultative, et elle doit le rester : un lien de partage Umami est
-          un secret porteur — qui le détient voit les chiffres, sans compte.
-        </EnvVar>
-        <Command>
-          cd packages/backend && npx convex env set UMAMI_API_PASSWORD …
-        </Command>
+        {secrets.cleMaitresse === null ? (
+          <p className="text-sm text-muted-foreground">
+            Ces identifiants sont réservés au propriétaire et aux
+            administrateurs — y compris leur état.
+          </p>
+        ) : (
+          <>
+            <CleMaitresseBandeau etat={secrets.cleMaitresse} />
+            <p className="text-sm text-muted-foreground">
+              <strong>
+                Aujourd'hui, seul l'environnement est lu par les statistiques
+              </strong>{" "}
+              (<code className="text-xs">convex/analytics.ts</code> appelle{" "}
+              <code className="text-xs">readUmamiConfig(process.env)</code>) :
+              une valeur saisie ici est bien chiffrée et rangée, mais elle ne
+              servira qu'une fois cet appel passé par le lecteur unique{" "}
+              <code className="text-xs">secrets.lireSecret</code>.{" "}
+              {umamiApi.configured ? (
+                <>
+                  L'environnement est complet
+                  {umamiApi.url ? (
+                    <>
+                      {" "}
+                      (<code className="text-xs">{umamiApi.url}</code>)
+                    </>
+                  ) : null}
+                  .
+                </>
+              ) : (
+                "L'environnement est incomplet : les statistiques répondent « non configuré »."
+              )}
+            </p>
+            <Champ bloc={secrets} nom="UMAMI_API_URL">
+              L'origine de votre Umami, sans barre finale.
+            </Champ>
+            <Champ bloc={secrets} nom="UMAMI_API_WEBSITE_ID">
+              L'identifiant du site mesuré, tel qu'Umami l'a créé.
+            </Champ>
+            <Champ bloc={secrets} nom="UMAMI_API_USERNAME">
+              Un compte Umami en lecture.{" "}
+              <code className="text-xs">UMAMI_API_*</code> et non{" "}
+              <code className="text-xs">UMAMI_*</code> : le{" "}
+              <code className="text-xs">.env</code> du VPS porte déjà{" "}
+              <code className="text-xs">UMAMI_DB_PASSWORD</code> et{" "}
+              <code className="text-xs">UMAMI_APP_SECRET</code>, qui sont
+              d'autres secrets pour un autre usage.
+            </Champ>
+            <Champ bloc={secrets} nom="UMAMI_API_PASSWORD">
+              Le mot de passe de ce compte. Envoyé à Umami une fois, contre un
+              jeton de session que le serveur garde une demi-heure.
+            </Champ>
+            <Champ bloc={secrets} nom="UMAMI_API_SHARE_ID">
+              Facultative, et elle doit le rester : un lien de partage Umami
+              est un secret porteur — qui le détient voit les chiffres, sans
+              compte.
+              {umamiApi.shared ? " Une valeur est posée dans l'environnement." : ""}
+            </Champ>
+            <Command>
+              cd packages/backend && npx convex env set UMAMI_API_PASSWORD …
+            </Command>
+          </>
+        )}
       </SettingsGroup>
     </>
   )

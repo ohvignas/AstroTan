@@ -5,7 +5,7 @@ import { MeasurementPage } from "@/components/settings-environment"
 import {
   SettingsLoading,
   SettingsPageShell,
-  useSettingsAccess,
+  useSecretsAccess,
 } from "@/components/settings-page"
 
 export const Route = createFileRoute("/_authed/settings/mesure")({
@@ -13,13 +13,19 @@ export const Route = createFileRoute("/_authed/settings/mesure")({
 })
 
 function MesureRoute() {
-  const { loading, canWrite } = useSettingsAccess()
+  const { loading, canWrite, secrets } = useSecretsAccess()
+  // Deux sources, et elles ne disent pas la même chose :
+  // `settings.environment` rapporte ce que l'ENVIRONNEMENT du déploiement
+  // porte, `secrets.status` ce qui est rangé EN BASE. C'est la comparaison
+  // des deux qui permet à l'écran d'annoncer laquelle sert.
   const environment = useQuery(api.settings.environment)
-  if (loading || environment === undefined) return <SettingsLoading />
+  if (loading || environment === undefined || secrets === undefined) {
+    return <SettingsLoading />
+  }
 
   return (
     <SettingsPageShell to="/settings/mesure" canWrite={canWrite}>
-      <MeasurementPage umamiApi={environment.umamiApi} />
+      <MeasurementPage umamiApi={environment.umamiApi} secrets={secrets} />
     </SettingsPageShell>
   )
 }

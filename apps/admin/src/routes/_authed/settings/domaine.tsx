@@ -5,7 +5,7 @@ import { DomainAndEmailsPage } from "@/components/settings-environment"
 import {
   SettingsLoading,
   SettingsPageShell,
-  useSettingsAccess,
+  useSecretsAccess,
 } from "@/components/settings-page"
 
 export const Route = createFileRoute("/_authed/settings/domaine")({
@@ -13,11 +13,13 @@ export const Route = createFileRoute("/_authed/settings/domaine")({
 })
 
 function DomaineRoute() {
-  const { loading, canWrite } = useSettingsAccess()
+  const { loading, canWrite, secrets } = useSecretsAccess()
   // Des booléens et deux origines publiques, jamais la valeur d'une clé —
   // `settings.environment.test.ts` échoue si un secret sort d'ici.
   const environment = useQuery(api.settings.environment)
-  if (loading || environment === undefined) return <SettingsLoading />
+  if (loading || environment === undefined || secrets === undefined) {
+    return <SettingsLoading />
+  }
 
   return (
     <SettingsPageShell to="/settings/domaine" canWrite={canWrite}>
@@ -25,6 +27,7 @@ function DomaineRoute() {
         resend={environment.resend}
         adminUrl={environment.adminUrl}
         webUrl={environment.webUrl}
+        secrets={secrets}
       />
     </SettingsPageShell>
   )

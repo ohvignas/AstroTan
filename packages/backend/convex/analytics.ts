@@ -1,5 +1,7 @@
 import { v } from "convex/values"
 import { action, query } from "./_generated/server"
+import { api } from "./_generated/api"
+import { MUTATION_REGISTRY } from "./_registry"
 import { requireRole } from "./lib/authz"
 import {
   clearUmamiToken,
@@ -576,3 +578,29 @@ export const ssoLink = action({
     }
   },
 })
+
+// Les trois actions publiques de ce module, déclarées au registre.
+//
+// Le garde-fou d'exhaustivité ne regardait que les mutations : ces trois-là
+// y échappaient, alors qu'elles appellent toutes `requireRole`. Le trou
+// était dans la preuve, pas dans le code — mais un garde-fou qui ne regarde
+// qu'une moitié des portes n'en garde aucune.
+MUTATION_REGISTRY.push(
+  {
+    name: "analytics.forPath",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: (t) => t.action(api.analytics.forPath, { path: "/" }),
+  },
+  {
+    name: "analytics.siteSummary",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: (t) => t.action(api.analytics.siteSummary, {}),
+  },
+  {
+    // Réservée : ce lien prête un compte Umami partagé, ce qui n'est pas
+    // la même chose que lire des chiffres.
+    name: "analytics.ssoLink",
+    allowedRoles: ["owner", "admin"],
+    invoke: (t) => t.action(api.analytics.ssoLink, {}),
+  },
+)

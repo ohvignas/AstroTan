@@ -8,19 +8,19 @@ import { cn } from "@/lib/utils"
 //
 // Une PAGE par entrée, et non une ancre dans un long défilement. Le
 // premier essai empilait les huit sections sur un seul écran avec un
-// sommaire à ancres ; c'était illisible pour une raison structurelle et
-// pas cosmétique : deux natures de contenu s'y suivaient sans frontière.
-// Quatre sections s'enregistrent — elles ont un état local, une barre de
-// sauvegarde, des refus serveur possibles. Quatre ne font que rendre
-// compte de l'environnement — elles n'ont rien de tout cela. Les mettre
-// bout à bout dans une liste plate promettait un formulaire là où il n'y
-// en avait pas.
+// sommaire à ancres, ce qui était illisible ; une route par page fait
+// qu'on ne tombe jamais dans une section par accident en faisant défiler.
 //
-// D'où DEUX GROUPES NOMMÉS, qui rendent la différence visible au lieu de
-// la laisser deviner, et une route par page, qui fait qu'on ne tombe
-// jamais dans une section par accident en faisant défiler.
+// UNE SEULE LISTE, à plat. Le deuxième essai rangeait ces pages en deux
+// groupes nommés — « Le site » et « Le déploiement » — parce que trois
+// d'entre elles ne faisaient que rendre compte de l'environnement sans
+// rien pouvoir enregistrer. Ce n'est plus vrai : Domaine, Mesure et IA
+// portent maintenant les champs de saisie des jetons (`settings-secrets`).
+// Le critère qui justifiait la séparation ayant disparu, les intitulés de
+// groupe ne classaient plus rien — ils ajoutaient deux lignes à lire pour
+// une distinction qui n'existe plus.
 //
-// `SETTINGS_GROUPS` est la source de vérité unique : le menu en tire ses
+// `SETTINGS_PAGES` est la source de vérité unique : le menu en tire ses
 // libellés, l'en-tête de page son `h1` et sa phrase, et
 // `settings-nav.test.tsx` vérifie qu'il existe bien un fichier de route
 // pour chaque chemin déclaré ici.
@@ -47,90 +47,58 @@ export interface SettingsPageDef {
   title: string
   /** La phrase sous le `h1` : ce qu'on fait ici, pas ce que c'est. */
   description: string
-  /**
-   * Vrai quand la page ne peut RIEN enregistrer : elle décrit
-   * l'environnement du déploiement. Porte le bandeau « lecture seule » et
-   * n'a jamais de barre de sauvegarde.
-   */
-  readOnly?: true
 }
 
-export interface SettingsGroupDef {
-  label: string
-  /** Une ligne sous le titre du groupe, quand le groupe a une règle commune. */
-  caption?: string
-  pages: readonly SettingsPageDef[]
-}
-
-export const SETTINGS_GROUPS: readonly SettingsGroupDef[] = [
+export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
   {
-    label: "Le site",
-    pages: [
-      {
-        to: "/settings/identite",
-        label: "Identité",
-        title: "Identité du site",
-        description:
-          "Le nom, le logo et l'icône repris sur chaque page du site public, et la page qu'il sert à la racine.",
-      },
-      {
-        to: "/settings/referencement",
-        label: "Référencement",
-        title: "Référencement par défaut",
-        description:
-          "Ce sur quoi une page retombe quand elle ne définit aucune valeur qui lui soit propre. Une page qui remplit son propre champ l'emporte toujours sur celle-ci.",
-      },
-      {
-        to: "/settings/reseaux",
-        label: "Réseaux sociaux",
-        title: "Réseaux sociaux",
-        description: "Les liens repris dans le pied de page du site public.",
-      },
-      {
-        to: "/settings/webhook",
-        label: "Webhook",
-        title: "Webhook des leads",
-        description:
-          "Chaque message reçu par le formulaire de contact déclenche un appel vers cette adresse — un scénario n8n, Make, ou tout service qui écoute une URL.",
-      },
-    ],
+    to: "/settings/identite",
+    label: "Identité",
+    title: "Identité du site",
+    description:
+      "Le nom, le logo et l'icône repris sur chaque page du site public, et la page qu'il sert à la racine.",
   },
   {
-    label: "Le déploiement",
-    caption: "En lecture seule : ces pages décrivent, elles ne modifient rien.",
-    pages: [
-      {
-        to: "/settings/domaine",
-        label: "Domaine & emails",
-        title: "Domaine et emails",
-        description:
-          "Comment on joint ce déploiement, et depuis quelle adresse il écrit aux gens. Les deux tiennent à la même variable, d'où une seule page.",
-        readOnly: true,
-      },
-      {
-        to: "/settings/mesure",
-        label: "Mesure & pixels",
-        title: "Mesure et pixels",
-        description:
-          "Ce que le site compte sans rien demander, et ce qui attend l'accord du visiteur.",
-        readOnly: true,
-      },
-      {
-        to: "/settings/ia",
-        label: "IA",
-        title: "IA : la clé OpenRouter",
-        description:
-          "Une clé d'API ne va pas en base : la table des réglages a une projection publique. Celle-ci vit dans l'environnement Convex.",
-        readOnly: true,
-      },
-    ],
+    to: "/settings/referencement",
+    label: "Référencement",
+    title: "Référencement par défaut",
+    description:
+      "Ce sur quoi une page retombe quand elle ne définit aucune valeur qui lui soit propre. Une page qui remplit son propre champ l'emporte toujours sur celle-ci.",
+  },
+  {
+    to: "/settings/reseaux",
+    label: "Réseaux sociaux",
+    title: "Réseaux sociaux",
+    description: "Les liens repris dans le pied de page du site public.",
+  },
+  {
+    to: "/settings/webhook",
+    label: "Webhook",
+    title: "Webhook des leads",
+    description:
+      "Chaque message reçu par le formulaire de contact déclenche un appel vers cette adresse — un scénario n8n, Make, ou tout service qui écoute une URL.",
+  },
+  {
+    to: "/settings/domaine",
+    label: "Domaine & emails",
+    title: "Domaine et emails",
+    description:
+      "Comment on joint ce déploiement, et depuis quelle adresse il écrit aux gens. Les deux tiennent à la même variable, d'où une seule page.",
+  },
+  {
+    to: "/settings/mesure",
+    label: "Mesure & pixels",
+    title: "Mesure et pixels",
+    description:
+      "Ce que le site compte sans rien demander, ce qui attend l'accord du visiteur, et les identifiants avec lesquels le dashboard lit les chiffres.",
+  },
+  {
+    to: "/settings/ia",
+    label: "IA",
+    title: "IA : la clé OpenRouter",
+    description:
+      "La clé d'un fournisseur de modèles. Posée ici, elle est chiffrée avant d'entrer en base ; posée dans l'environnement Convex, elle n'y entre pas du tout — et c'est celle-là qui gagne.",
   },
 ]
-
-/** La même liste à plat — pour chercher la page courante, et pour les tests. */
-export const SETTINGS_PAGES: readonly SettingsPageDef[] = SETTINGS_GROUPS.flatMap(
-  (group) => group.pages
-)
 
 /**
  * Correspondance EXACTE, pas un préfixe.
@@ -159,17 +127,10 @@ export function findSettingsPage(pathname: string): SettingsPageDef | undefined 
  * (`useUnsavedChangesGuard`). Une ancre native passerait à travers ce
  * garde-fou sans rien signaler.
  *
- * Les libellés de groupe sont des `<p>`, pas des titres : ils précèdent
- * dans le document le `h1` de la page, et des `h2` posés là feraient
- * commencer la hiérarchie à l'envers. `aria-labelledby` sur chaque `<ul>`
- * donne le même repère à un lecteur d'écran, sans toucher au plan des
- * titres.
- *
  * Sur mobile, ce n'est pas un menu latéral rétréci mais une bande de
- * pastilles qui défile horizontalement — les deux groupes séparés par un
- * filet vertical plutôt que par leur titre, faute de place. Pas de
- * `sticky` en dessous de `lg` : chaque page est courte maintenant, et une
- * bande collée y mangerait de la hauteur sans jamais servir.
+ * pastilles qui défile horizontalement. Pas de `sticky` en dessous de
+ * `lg` : chaque page est courte, et une bande collée y mangerait de la
+ * hauteur sans jamais servir.
  */
 export function SettingsNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -179,69 +140,31 @@ export function SettingsNav() {
       aria-label="Sections des réglages"
       className="lg:sticky lg:top-4 lg:w-56 lg:shrink-0 lg:self-start"
     >
-      <div className="flex gap-3 overflow-x-auto pb-1 lg:flex-col lg:gap-5 lg:overflow-visible lg:pb-0">
-        {SETTINGS_GROUPS.map((group, index) => {
-          const headingId = `settings-groupe-${index}`
+      <ul className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+        {SETTINGS_PAGES.map((page) => {
+          const active = isSettingsPathActive(pathname, page.to)
           return (
-            <div
-              key={group.label}
-              className={cn(
-                "flex shrink-0 gap-1 lg:flex-col lg:shrink",
-                // Le filet ne sépare les groupes que dans la bande
-                // horizontale : en colonne, les titres de groupe font
-                // déjà la séparation.
-                index > 0 && "border-l pl-3 lg:border-l-0 lg:pl-0"
-              )}
-            >
-              {/* Visible AUSSI sur mobile, et c'est le point : la
-                  différence entre « ça s'enregistre » et « ça se lit »
-                  est la raison d'être des deux groupes. La masquer sous
-                  `lg` rendrait la bande de pastilles aussi plate que la
-                  liste qu'on vient de remplacer. Seule la légende, trop
-                  longue pour une ligne, attend le grand écran. */}
-              <p
-                id={headingId}
-                className="self-center px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase lg:self-auto lg:px-3"
+            <li key={page.to} className="shrink-0 lg:shrink">
+              <Link
+                to={page.to}
+                // `aria-current` seulement quand c'est vrai :
+                // `false` s'annonce aussi, et six « non courant »
+                // à la suite sont six annonces de trop.
+                {...(active ? { "aria-current": "page" as const } : {})}
+                className={cn(
+                  "block cursor-pointer rounded-md px-3 py-1.5 text-sm whitespace-nowrap transition-colors duration-150",
+                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                  active
+                    ? "bg-muted font-medium text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                )}
               >
-                {group.label}
-              </p>
-              {group.caption ? (
-                <p className="hidden px-3 text-xs text-muted-foreground lg:block">
-                  {group.caption}
-                </p>
-              ) : null}
-              <ul
-                aria-labelledby={headingId}
-                className="flex gap-1 lg:mt-1 lg:flex-col"
-              >
-                {group.pages.map((page) => {
-                  const active = isSettingsPathActive(pathname, page.to)
-                  return (
-                    <li key={page.to} className="shrink-0 lg:shrink">
-                      <Link
-                        to={page.to}
-                        // `aria-current` seulement quand c'est vrai :
-                        // `false` s'annonce aussi, et six « non courant »
-                        // à la suite sont six annonces de trop.
-                        {...(active ? { "aria-current": "page" as const } : {})}
-                        className={cn(
-                          "block cursor-pointer rounded-md px-3 py-1.5 text-sm whitespace-nowrap transition-colors duration-150",
-                          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                          active
-                            ? "bg-muted font-medium text-foreground"
-                            : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                        )}
-                      >
-                        {page.label}
-                      </Link>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
+                {page.label}
+              </Link>
+            </li>
           )
         })}
-      </div>
+      </ul>
     </nav>
   )
 }
@@ -271,29 +194,15 @@ export function SettingsPageHeader({
   canWrite,
 }: {
   page: SettingsPageDef
-  /** Sans effet sur une page en lecture seule, qui a son propre bandeau. */
   canWrite: boolean
 }) {
   return (
     <header className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-medium">{page.title}</h1>
-        {page.readOnly ? (
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-            Lecture seule
-          </span>
-        ) : null}
-      </div>
+      <h1 className="text-xl font-medium">{page.title}</h1>
       <p className="max-w-prose text-sm text-muted-foreground">
         {page.description}
       </p>
-      {page.readOnly ? (
-        <p className="max-w-prose rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-          Rien ne se règle depuis cette page : elle rend compte de
-          l'environnement du déploiement. Les commandes à lancer sont
-          données à côté de chaque variable.
-        </p>
-      ) : canWrite ? null : (
+      {canWrite ? null : (
         <p className="max-w-prose rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
           Ces réglages s'appliquent à toutes les pages à la fois : seuls le
           propriétaire et les administrateurs peuvent les modifier. Vous

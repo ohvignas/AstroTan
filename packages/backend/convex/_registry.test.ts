@@ -21,7 +21,7 @@ import "../testing/registryModules"
 // Ici, chaque clé partage le même préfixe (`./`) quelle que soit sa
 // profondeur, donc un seul strip suffit et le résultat ne dépend plus de
 // l'endroit où ce fichier de test se trouve dans l'arbre.
-test("toute mutation exportée est déclarée dans le registre", async () => {
+test("toute mutation ET action publique exportée est déclarée dans le registre", async () => {
   // Le composant Better Auth (`betterAuth/`) et les deux fichiers
   // d'infrastructure ci-dessous sont exclus du balayage, sans réduire la
   // couverture du garde-fou :
@@ -64,7 +64,14 @@ test("toute mutation exportée est déclarée dans le registre", async () => {
       // `t.withIdentity(...)` comme la matrice le fait, donc les exiger
       // dans ce registre serait incohérent avec la façon dont elles sont
       // réellement atteintes.
-      if (fn?.isMutation && fn?.isPublic) {
+      // Les ACTIONS publiques comptent aussi, et c'est un élargissement.
+      // Le filtre ne retenait que `isMutation` : quatre actions publiques
+      // échappaient donc au registre, dont `secrets.set` — celle qui écrit
+      // un jeton chiffré. Une revue de sécurité l'a relevé. Les quatre
+      // appelaient bien `requireRole`, le trou était dans la PREUVE et non
+      // dans le code, mais un garde-fou qui ne regarde qu'une moitié des
+      // portes n'en garde aucune.
+      if ((fn?.isMutation || fn?.isAction) && fn?.isPublic) {
         publicMutations.push(`${file}.${name}`)
       }
     }

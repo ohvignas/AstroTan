@@ -3,9 +3,10 @@ import {
   FileTextIcon,
   ImageIcon,
   InboxIcon,
-  NewspaperIcon,
-  type LucideIcon,
+  NewspaperIcon
+  
 } from "lucide-react"
+import type {LucideIcon} from "lucide-react";
 import type { DashboardOverview } from "@astrotan/backend/convex/dashboard"
 import { LEAD_STATUS_LABELS } from "@astrotan/backend/convex/content"
 import { Card, CardContent } from "@/components/ui/card"

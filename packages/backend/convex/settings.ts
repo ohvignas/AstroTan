@@ -23,8 +23,14 @@ import { MUTATION_REGISTRY } from "./_registry"
 //
 // `get` is deliberately public and unauthenticated: `apps/web` has no
 // session and no admin key, and it needs the site's name and logo on every
-// page. Nothing secret goes in this table — if a field ever needs a session
-// to read, it belongs somewhere else.
+// page.
+//
+// Un seul secret vit dans cette table — `leadWebhookSecret` — et il est
+// tenu par DEUX projections explicites : `get` (publique) et `getPrivate`
+// (dashboard). Aucune des deux ne le rend. Il n'y en aura pas d'autre : les
+// jetons saisis depuis l'écran vont dans la table `secrets`, chiffrés
+// (`convex/secrets.ts`), précisément parce que cette table-ci est lue sans
+// session.
 
 // The bounds live in `content.ts` and are re-exported here so existing
 // importers — `settings.test.ts` among them — do not have to know they
@@ -88,16 +94,66 @@ export const get = query({
 })
 
 /**
- * La ligne entière, pour le dashboard.
+ * Les réglages du site pour le DASHBOARD — projection explicite, elle aussi.
  *
- * Séparée de `get` parce que les deux publics n'ont pas les mêmes droits :
- * celle-ci exige un rôle, et c'est elle qui porte les secrets.
+ * Elle rendait la ligne entière, `leadWebhookSecret` compris, à un editor.
+ * C'était la même fuite que celle de `get`, refermée d'un seul côté : avec
+ * ce secret et `leadWebhookUrl` — rendu lui aussi — un editor forge des
+ * en-têtes `x-astrotan-signature` valides et injecte de faux leads dans le
+ * scénario n8n/Make de l'opérateur. Classer des leads ne donne pas ce
+ * pouvoir-là.
+ *
+ * Le correctif retenu est la projection plutôt que la restriction de rôle,
+ * pour deux raisons : l'écran garde UNE query de lecture (un editor a le
+ * droit de voir le nom du site, les réseaux, le SEO par défaut et l'état du
+ * dernier envoi), et le secret devient une demande explicite —
+ * `webhookSecret` ci-dessous — au lieu d'un passager clandestin dans une
+ * réponse qu'on lit pour autre chose.
+ *
+ * Champ par champ, comme `get` : ajouter une colonne à la table ne l'expose
+ * plus par accident.
  */
 export const getPrivate = query({
   args: {},
   handler: async (ctx) => {
     await requireRole(ctx, ["owner", "admin", "editor"])
-    return ctx.db.query("settings").first()
+    const settings = await ctx.db.query("settings").first()
+    if (settings === null) return null
+    return {
+      _id: settings._id,
+      _creationTime: settings._creationTime,
+      siteName: settings.siteName,
+      logoId: settings.logoId,
+      iconId: settings.iconId,
+      homePageSlug: settings.homePageSlug,
+      defaultSeo: settings.defaultSeo,
+      socials: settings.socials,
+      // L'adresse, oui : elle traverse déjà des journaux et des captures
+      // d'écran, ce n'est pas un secret — c'est précisément ce que la
+      // signature existe pour compenser. Le SECRET, non.
+      leadWebhookUrl: settings.leadWebhookUrl,
+      leadWebhookLastStatus: settings.leadWebhookLastStatus,
+      leadWebhookLastAt: settings.leadWebhookLastAt,
+    }
+  },
+})
+
+/**
+ * Le secret de signature du webhook, en clair — et rien d'autre.
+ *
+ * Une query à part, `owner`/`admin` seulement. En clair parce que c'est un
+ * secret PARTAGÉ : il n'a d'utilité que recopié dans le scénario n8n ou
+ * Make qui vérifie la signature, donc un écran qui ne saurait que dire
+ * « configuré » forcerait à en frapper un nouveau à chaque fois qu'on le
+ * perd. C'est la différence avec les jetons de `secrets.ts`, qui ne sortent
+ * jamais : ceux-là, personne n'a besoin de les relire.
+ */
+export const webhookSecret = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, ["owner", "admin"])
+    const settings = await ctx.db.query("settings").first()
+    return settings?.leadWebhookSecret ?? null
   },
 })
 
@@ -126,10 +182,10 @@ export const getPrivate = query({
  * figées au BUILD de l'image du site — Convex ne les voit pas, et n'a
  * aucun moyen de les voir.
  *
- * Mêmes rôles que `getPrivate`, à dessein : celle-ci rend strictement
- * moins que celle-là, qui donne déjà la ligne entière (secret du webhook
- * compris) à un editor. Plus restrictive ici, l'écran des réglages
- * n'aurait plus rien à montrer à qui a pourtant le droit de le consulter.
+ * Mêmes rôles que `getPrivate` : des booléens et deux origines publiques,
+ * rien qu'un editor ne puisse déjà lire ailleurs. Le fragment de valeur —
+ * les quatre derniers caractères d'un jeton — est ailleurs
+ * (`secrets.status`), et celui-là est réservé à owner/admin.
  */
 export const environment = query({
   args: {},

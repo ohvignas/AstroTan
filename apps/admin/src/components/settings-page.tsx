@@ -1,6 +1,9 @@
+import { useCallback } from "react"
 import type { ReactNode } from "react"
-import { useQuery } from "convex/react"
+import { useAction, useMutation, useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import { describeSettingsError } from "@/lib/settingsErrors"
+import type { SecretsBloc } from "@/components/settings-environment"
 import { SaveBar } from "@/components/save-bar"
 import type { AutoSave } from "@/components/save-bar"
 import {
@@ -127,4 +130,80 @@ export function SettingsFormShell({
       {guardDialog}
     </>
   )
+}
+
+// ---------------------------------------------------------------------
+// Les jetons, pour les trois pages qui en portent.
+// ---------------------------------------------------------------------
+
+/**
+ * Le rôle du visiteur ET l'état des jetons, pour les trois pages qui en
+ * portent — un seul appel plutôt que deux, parce qu'aucune de ces pages
+ * n'a de raison de connaître l'un sans l'autre.
+ *
+ * `secrets.status` est réservée à owner/admin (elle rend les quatre
+ * derniers caractères, qui sont un fragment de secret), d'où le `"skip"`
+ * pour un editor et le `cleMaitresse: null` qui en découle : les pages
+ * affichent alors une phrase à la place des champs, plutôt qu'un cadre
+ * vide.
+ *
+ * `useAction` et non `useMutation` pour l'écriture, et ce n'est pas une
+ * préférence : AES-GCM exige un IV aléatoire à chaque chiffrement, or
+ * l'aléa d'une mutation Convex est ensemencé pour rester déterministe.
+ * Voir `convex/secrets.ts`.
+ */
+export function useSecretsAccess(): {
+  loading: boolean
+  canWrite: boolean
+  /** `undefined` tant que l'état des jetons n'est pas arrivé. */
+  secrets: SecretsBloc | undefined
+} {
+  const { loading, canWrite } = useSettingsAccess()
+  const status = useQuery(api.secrets.status, canWrite ? {} : "skip")
+  const setSecret = useAction(api.secrets.set)
+  const clearSecret = useMutation(api.secrets.clear)
+
+  // Les refus serveur sont traduits ICI, une fois : le composant de champ
+  // se contente d'afficher le message de l'erreur qu'il reçoit, et n'a
+  // donc aucune raison de connaître les codes de `convex/secrets.ts`.
+  const onSave = useCallback(
+    async (nom: string, valeur: string) => {
+      try {
+        // `nom` traverse l'interface en `string` — la liste des noms est
+        // celle du serveur, rendue par `status`, et non une seconde copie
+        // écrite ici qui pourrait diverger. Le validateur Convex refuse
+        // tout nom hors de sa propre liste, donc le contrôle reste au bon
+        // endroit.
+        await setSecret({ nom: nom as never, valeur })
+      } catch (err) {
+        throw new Error(describeSettingsError(err))
+      }
+    },
+    [setSecret]
+  )
+
+  const onClear = useCallback(
+    async (nom: string) => {
+      try {
+        await clearSecret({ nom: nom as never })
+      } catch (err) {
+        throw new Error(describeSettingsError(err))
+      }
+    },
+    [clearSecret]
+  )
+
+  const secrets: SecretsBloc | undefined = !canWrite
+    ? { cleMaitresse: null, etats: {}, canWrite: false, onSave, onClear }
+    : status === undefined
+      ? undefined
+      : {
+          cleMaitresse: status.cleMaitresse,
+          etats: Object.fromEntries(status.secrets.map((s) => [s.nom, s])),
+          canWrite: true,
+          onSave,
+          onClear,
+        }
+
+  return { loading, canWrite, secrets }
 }

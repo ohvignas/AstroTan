@@ -487,3 +487,88 @@ test("supprimer un média servant de logo, d'icône ou d'image par défaut est r
     ).rejects.toThrow(/MEDIA_IN_USE/)
   }
 })
+
+test("remplacer un fichier suit ses références dans les réglages du site", async () => {
+  const t = makeTestConvex()
+  const { identity: owner } = await seedActor(t, "owner")
+
+  const ancien = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["ancien"])),
+  )) as Id<"_storage">
+  const mediaId = await owner.mutation(api.media.register, {
+    storageId: ancien,
+    filename: "logo.png",
+    mime: "image/png",
+    size: 1,
+    alt: "Logo du site",
+  })
+  await owner.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    logoId: ancien,
+    iconId: ancien,
+    defaultSeo: { ogImageId: ancien },
+  })
+
+  const nouveau = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["nouveau"])),
+  )) as Id<"_storage">
+  await owner.mutation(api.media.replaceFile, {
+    id: mediaId,
+    storageId: nouveau,
+    mime: "image/png",
+    size: 1,
+  })
+
+  // Sans ce suivi, `replaceFile` supprimait l'ancien fichier en laissant
+  // les réglages pointer dessus : le logo du site disparaissait, et l'écran
+  // n'affichait qu'un gabarit gris. C'est la panne dans laquelle ce
+  // déploiement a été trouvé.
+  const settings = await owner.query(api.settings.getPrivate, {})
+  expect(settings?.logoId).toBe(nouveau)
+  expect(settings?.iconId).toBe(nouveau)
+  expect(settings?.defaultSeo?.ogImageId).toBe(nouveau)
+
+  // Et le fichier remplacé est bien parti : le suivi n'a pas consisté à
+  // garder l'ancien en vie.
+  expect(await t.run((ctx: any) => ctx.storage.getUrl(ancien))).toBeNull()
+})
+
+test("remplacer un fichier suit aussi l'image de partage d'un article", async () => {
+  const t = makeTestConvex()
+  const { identity: owner } = await seedActor(t, "owner")
+
+  const ancien = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["ancien"])),
+  )) as Id<"_storage">
+  const mediaId = await owner.mutation(api.media.register, {
+    storageId: ancien,
+    filename: "og.png",
+    mime: "image/png",
+    size: 1,
+    alt: "Image de partage",
+  })
+  const postId = await owner.mutation(api.posts.create, {
+    title: "Article",
+    slug: "article-og",
+  })
+  await owner.mutation(api.posts.update, {
+    id: postId,
+    seo: { ogImageId: ancien },
+  })
+
+  const nouveau = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["nouveau"])),
+  )) as Id<"_storage">
+  await owner.mutation(api.media.replaceFile, {
+    id: mediaId,
+    storageId: nouveau,
+    mime: "image/png",
+    size: 1,
+  })
+
+  // La boucle des articles ne suivait que `coverId`, alors qu'`isReferenced`
+  // vérifie les deux champs : le second était protégé de la suppression et
+  // pas du remplacement.
+  const post = await owner.query(api.posts.get, { id: postId })
+  expect(post?.seo?.ogImageId).toBe(nouveau)
+})

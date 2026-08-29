@@ -3,12 +3,12 @@ import type { Periode, SiteSummary } from "@astrotan/backend/convex/analytics"
 import {
   ChartContainer,
   ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
+  ChartTooltipContent
+  
 } from "@/components/ui/chart"
+import type {ChartConfig} from "@/components/ui/chart";
 import { Button } from "@/components/ui/button"
-import { etiquettePoint, nombre } from "@/lib/dashboardFormat"
-import { LIBELLES_PERIODE } from "@/lib/dashboardFormat"
+import { etiquettePoint, nombre, LIBELLES_PERIODE  } from "@/lib/dashboardFormat"
 
 // La courbe d'audience, et le choix de sa granularité.
 //

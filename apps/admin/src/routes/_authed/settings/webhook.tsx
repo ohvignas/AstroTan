@@ -23,8 +23,17 @@ type Settings = FunctionReturnType<typeof api.settings.getPrivate>
 function WebhookRoute() {
   const { loading, canWrite } = useSettingsAccess()
   const settings = useQuery(api.settings.getPrivate)
+  // Le secret ne voyage plus dans `getPrivate` : il en a été retiré parce
+  // que cette query-là est ouverte aux editors, et qu'un editor muni du
+  // secret HMAC et de l'adresse forge des appels signés vers le scénario
+  // de l'opérateur. Il s'obtient désormais par une demande explicite,
+  // réservée à owner/admin — d'où le `"skip"` pour tous les autres.
+  const secret = useQuery(api.settings.webhookSecret, canWrite ? {} : "skip")
   if (loading || settings === undefined) return <SettingsLoading />
-  return <WebhookForm settings={settings} canWrite={canWrite} />
+  if (canWrite && secret === undefined) return <SettingsLoading />
+  return (
+    <WebhookForm settings={settings} secret={secret ?? null} canWrite={canWrite} />
+  )
 }
 
 // ---------------------------------------------------------------------
@@ -50,14 +59,16 @@ function WebhookRoute() {
 
 function WebhookForm({
   settings,
+  secret: secretInitial,
   canWrite,
 }: {
   settings: Settings
+  secret: string | null
   canWrite: boolean
 }) {
   const updateSettings = useMutation(api.settings.update)
   const [url, setUrl] = useState(settings?.leadWebhookUrl ?? "")
-  const [secret, setSecret] = useState(settings?.leadWebhookSecret ?? "")
+  const [secret, setSecret] = useState(secretInitial ?? "")
 
   // Chaîne vide = « débrancher » : `null` efface le réglage côté serveur,
   // là où `undefined` le laisserait tel quel. Sans cette distinction, un
@@ -99,14 +110,15 @@ function WebhookForm({
     >
       <SettingsGroup>
         {canWrite && (
+          // La seule phrase de cette page qui prévienne un défaut réel :
+          // sans elle, personne ne comprend pourquoi ce champ-ci ne
+          // s'enregistre pas tout seul comme les autres écrans.
           <p className="rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-            <strong>Cette page ne s'enregistre jamais toute seule.</strong>{" "}
+            <strong>Rien ne part avant le clic sur « Enregistrer ».</strong>{" "}
             <code className="text-xs">https://exemple.co</code> est une
             adresse valide en route vers{" "}
-            <code className="text-xs">https://exemple.com</code> :
-            enregistrée ne serait-ce qu'une seconde, elle enverrait à un
-            inconnu les leads reçus pendant cette seconde. Rien ne part
-            avant le clic sur « Enregistrer ».
+            <code className="text-xs">https://exemple.com</code>, et les
+            leads reçus entre-temps partiraient chez l'inconnu de passage.
           </p>
         )}
 
@@ -121,11 +133,8 @@ function WebhookForm({
             onChange={(event) => setUrl(event.target.value)}
           />
           <FieldDescription>
-            En <code className="text-xs">https</code> uniquement, et jamais
-            une adresse interne : un champ d'URL qui déclenche un appel
-            sortant est refusé sur <code className="text-xs">localhost</code>,
-            les plages privées et l'adresse de métadonnées de l'hébergeur.
-            Vider le champ débranche le webhook.
+            En <code className="text-xs">https</code>, jamais une adresse
+            interne. Vider le champ débranche le webhook.
           </FieldDescription>
         </Field>
 
@@ -140,14 +149,10 @@ function WebhookForm({
             onChange={(event) => setSecret(event.target.value)}
           />
           <FieldDescription>
-            Chaque envoi porte un en-tête{" "}
-            <code className="text-xs">x-astrotan-signature</code>,
-            HMAC-SHA256 du corps avec ce secret. Il permet à votre scénario
-            de vérifier que l'appel vient bien de vous — une URL de webhook
-            traverse des journaux et des captures d'écran, elle n'est pas un
-            secret. Laissé vide alors qu'une adresse est posée, le serveur
-            en frappe un au hasard : envoyer sans signature serait le pire
-            des deux mondes.
+            À recopier dans votre scénario : il signe chaque envoi
+            (HMAC-SHA256, en-tête{" "}
+            <code className="text-xs">x-astrotan-signature</code>). Laissé
+            vide avec une adresse posée, le serveur en frappe un au hasard.
           </FieldDescription>
         </Field>
 

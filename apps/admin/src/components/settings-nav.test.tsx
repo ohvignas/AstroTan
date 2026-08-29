@@ -16,7 +16,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import {
-  SETTINGS_GROUPS,
   SETTINGS_PAGES,
   SettingsPageHeader,
   findSettingsPage,
@@ -58,24 +57,6 @@ describe("SETTINGS_PAGES", () => {
   })
 })
 
-describe("SETTINGS_GROUPS", () => {
-  test("sépare ce qui s'enregistre de ce qui ne fait que décrire", () => {
-    // La raison d'être des deux groupes : les pages du premier ont une
-    // barre de sauvegarde, celles du second n'en ont aucune. Une page
-    // rangée dans le mauvais groupe promettrait un formulaire absent, ou
-    // cacherait celui qui existe.
-    expect(SETTINGS_GROUPS).toHaveLength(2)
-    const [reglable, lectureSeule] = SETTINGS_GROUPS
-    expect(reglable?.pages.every((page) => page.readOnly === undefined)).toBe(true)
-    expect(lectureSeule?.pages.every((page) => page.readOnly === true)).toBe(true)
-    expect(lectureSeule?.caption).toBeTruthy()
-  })
-
-  test("la liste à plat est exactement la concaténation des groupes", () => {
-    expect(SETTINGS_PAGES).toEqual(SETTINGS_GROUPS.flatMap((g) => g.pages))
-  })
-})
-
 // `?raw` : on lit le TEXTE des fichiers de route, on ne les exécute pas.
 // Les importer déclencherait `createFileRoute`, qui veut le registre du
 // routeur.
@@ -88,7 +69,7 @@ const ROUTE_FILES = import.meta.glob("../routes/_authed/settings/*.tsx", {
 describe("les fichiers de route", () => {
   test("il en existe un par page déclarée, et pas un de plus", () => {
     // Le lien mort le plus facile à fabriquer : renommer
-    // `reseaux.tsx` en `sociaux.tsx` et oublier `SETTINGS_GROUPS`. Rien
+    // `reseaux.tsx` en `sociaux.tsx` et oublier `SETTINGS_PAGES`. Rien
     // ne casse au typecheck, et l'entrée de menu mène à une 404.
     const fichiers = Object.keys(ROUTE_FILES)
       .map((path) => path.split("/").pop()?.replace(/\.tsx$/, ""))
@@ -160,16 +141,19 @@ describe("SettingsPageHeader", () => {
     expect(html).toContain("Identité du site")
   })
 
-  test("une page en lecture seule le dit deux fois : en pastille et en phrase", () => {
-    const html = render("/settings/ia", true)
-    expect(html).toContain("Lecture seule")
-    expect(html).toMatch(/Rien ne se règle depuis cette page/)
+  test("aucune page ne s'annonce en lecture seule : il n'y en a plus", () => {
+    // Les trois pages d'environnement portaient une pastille « Lecture
+    // seule » et un paragraphe qui l'expliquait. Elles portent maintenant
+    // les champs de saisie des jetons, et la mention serait fausse.
+    for (const page of SETTINGS_PAGES) {
+      expect(render(page.to, true)).not.toContain("Lecture seule")
+    }
   })
 
-  test("une page réglable n'affiche aucune mention de lecture seule", () => {
-    const html = render("/settings/identite", true)
-    expect(html).not.toContain("Lecture seule")
-    expect(html).not.toMatch(/propriétaire et les administrateurs/)
+  test("une page ne parle des rôles que pour dire à un editor ce qu'il ne peut pas", () => {
+    expect(render("/settings/identite", true)).not.toMatch(
+      /propriétaire et les administrateurs/
+    )
   })
 
   test("un editor lit pourquoi il ne peut rien changer", () => {

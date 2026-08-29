@@ -129,9 +129,10 @@ test("environment rend les origines du site et du dashboard, qui ne sont pas des
 
 test("un editor peut lire l'état sans pouvoir rien changer", async () => {
   const { identity } = await seedActor("editor")
-  // `getPrivate` lui rend déjà la ligne entière, secret du webhook compris :
-  // lui refuser des booléens strictement moins sensibles n'aurait protégé
+  // Des booléens et deux origines publiques : rien qu'un editor ne puisse
+  // déjà lire dans la barre d'adresse. Le lui refuser n'aurait protégé
   // personne, et l'écran des réglages, qu'il a le droit de consulter,
-  // n'aurait plus rien à afficher dans ses moitiés d'environnement.
+  // n'aurait plus rien à afficher dans ses moitiés d'environnement. Les
+  // fragments de jeton, eux, sont dans `secrets.status` — owner/admin.
   await expect(identity.query(api.settings.environment, {})).resolves.toBeTruthy()
 })

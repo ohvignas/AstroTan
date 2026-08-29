@@ -66,3 +66,77 @@ test("la ligne entière exige une session", async () => {
   const t = makeTestConvex()
   await expect(t.query(api.settings.getPrivate, {})).rejects.toThrow()
 })
+
+// La même fuite, du côté privé — et elle avait été refermée d'un seul côté.
+//
+// `getPrivate` rendait la LIGNE ENTIÈRE à un editor, `leadWebhookSecret`
+// compris. L'écran `/settings/webhook` n'est gardé que par `canWrite`, qui
+// grise le champ ; la valeur, elle, était bien dans la réponse. Avec ce
+// secret et l'adresse du webhook, un editor forge un en-tête
+// `x-astrotan-signature` valide et injecte de faux leads dans le scénario
+// de l'opérateur.
+test("getPrivate ne rend pas le secret du webhook, pas même à un owner", async () => {
+  const t = makeTestConvex()
+  const email = `settings-priv-${Date.now()}@example.com`
+  const password = "correct horse battery staple settings priv"
+  const user = await seedUser(t, { email, password, name: "Owner", role: "owner" })
+  await signIn(t, email, password)
+  const owner = await identityFor(t, user.id)
+
+  await owner.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    leadWebhookUrl: "https://hook.exemple.fr/leads",
+    leadWebhookSecret: "sentinelle-hmac-a-ne-jamais-rendre",
+  })
+
+  const privee = await owner.query(api.settings.getPrivate, {})
+  // L'adresse reste : elle n'est pas un secret, et l'écran l'affiche.
+  expect(privee?.leadWebhookUrl).toBe("https://hook.exemple.fr/leads")
+  expect(JSON.stringify(privee)).not.toContain("sentinelle-hmac-a-ne-jamais-rendre")
+  // Le nom du champ autant que la valeur : le jour où quelqu'un le recopie
+  // dans la projection, ce test le dit même si la valeur est vide.
+  expect(Object.keys(privee ?? {})).not.toContain("leadWebhookSecret")
+
+  // Il s'obtient par une demande explicite, réservée à owner/admin.
+  expect(await owner.query(api.settings.webhookSecret, {})).toBe(
+    "sentinelle-hmac-a-ne-jamais-rendre"
+  )
+})
+
+test("un editor lit les réglages sans jamais voir le secret du webhook", async () => {
+  const t = makeTestConvex()
+  const password = "correct horse battery staple settings editor"
+  const ownerEmail = `settings-o-${Date.now()}@example.com`
+  const owner = await seedUser(t, {
+    email: ownerEmail,
+    password,
+    name: "Owner",
+    role: "owner",
+  })
+  await signIn(t, ownerEmail, password)
+  const ownerIdentity = await identityFor(t, owner.id)
+  await ownerIdentity.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    leadWebhookUrl: "https://hook.exemple.fr/leads",
+    leadWebhookSecret: "sentinelle-hmac-editor",
+  })
+
+  const editorEmail = `settings-e-${Date.now()}@example.com`
+  const editor = await seedUser(t, {
+    email: editorEmail,
+    password,
+    name: "Editor",
+    role: "editor",
+  })
+  await signIn(t, editorEmail, password)
+  const editorIdentity = await identityFor(t, editor.id)
+
+  // Il garde ce dont l'écran a besoin…
+  const vue = await editorIdentity.query(api.settings.getPrivate, {})
+  expect(vue?.siteName).toBe("AstroTan")
+  expect(JSON.stringify(vue)).not.toContain("sentinelle-hmac-editor")
+  // …et la demande explicite lui est refusée.
+  await expect(
+    editorIdentity.query(api.settings.webhookSecret, {})
+  ).rejects.toThrow(/FORBIDDEN/)
+})

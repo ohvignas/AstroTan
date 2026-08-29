@@ -1,7 +1,7 @@
 import { ConvexError } from "convex/values"
 
-// Tous les codes que `api.settings.update` et `api.settings.setHomePage`
-// peuvent lever, traduits pour un opérateur — même forme que
+// Tous les codes que `api.settings.update`, `api.settings.setHomePage` et
+// `api.secrets.set` peuvent lever, traduits pour un opérateur — même forme que
 // `lib/pageErrors.ts` et `lib/redirectErrors.ts`.
 //
 // Ce dictionnaire vivait dans `routes/_authed/settings.tsx`, avec un
@@ -17,6 +17,15 @@ const SETTINGS_ERROR_MESSAGES: Record<string, string> = {
   BANNED: "Votre compte a été suspendu.",
   NOT_FOUND: "Introuvable — a peut-être déjà été modifié ailleurs.",
   INVALID_SITE_NAME: "Le nom du site ne peut pas être vide.",
+  // `convex/secrets.ts`. La commande arrive dans la charge de l'erreur
+  // (`commande`), mais l'écran l'affiche déjà en clair au-dessus du champ :
+  // la répéter ici ferait deux endroits à corriger le jour où elle change.
+  SECRETS_KEY_MISSING:
+    "Aucune clé maîtresse (SECRETS_KEY) sur ce déploiement : rien n'est enregistré. Un jeton stocké sans chiffrement serait lisible dans n'importe quel export de la base.",
+  SECRETS_KEY_MALFORMED:
+    "La clé maîtresse (SECRETS_KEY) est présente mais inutilisable : elle doit faire 32 octets encodés en base64.",
+  EMPTY_SECRET:
+    "Un jeton vide ne veut rien dire. Pour retirer celui qui est en base, utilisez « Retirer de la base ».",
 }
 
 export function describeSettingsError(error: unknown): string {

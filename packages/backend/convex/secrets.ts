@@ -354,3 +354,17 @@ MUTATION_REGISTRY.push({
   allowedRoles: ["owner", "admin"],
   invoke: (t) => t.mutation(api.secrets.clear, { nom: "OPENROUTER_API_KEY" }),
 })
+
+// `set` est une ACTION, et le garde-fou d'exhaustivité couvre désormais les
+// actions publiques au même titre que les mutations. Sans cette entrée,
+// `_registry.test.ts` échoue — ce qui est exactement le service qu'on lui
+// demande.
+MUTATION_REGISTRY.push({
+  name: "secrets.set",
+  allowedRoles: ["owner", "admin"],
+  invoke: (t) =>
+    t.action(api.secrets.set, {
+      nom: "OPENROUTER_API_KEY",
+      valeur: "sk-or-registry-fixture-0000",
+    }),
+})

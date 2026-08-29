@@ -277,6 +277,36 @@ export const replaceFile = mutation({
       }
     }
 
+    // Le troisième et le quatrième porteurs, oubliés jusqu'ici alors
+    // qu'`isReferenced` les connaît déjà : `posts.seo.ogImageId` et les
+    // trois champs image des réglages du site. Le résultat était le même
+    // que le trou qu'`isReferenced` a fermé pour `remove`, mais par l'autre
+    // porte : remplacer le fichier servant de logo laissait
+    // `settings.logoId` sur l'ancien `storageId`, que la ligne du dessous
+    // supprime — et l'écran des réglages n'affichait plus rien, sans dire
+    // pourquoi. C'est exactement l'état dans lequel ce déploiement a été
+    // trouvé.
+    for (const post of await ctx.db.query("posts").collect()) {
+      if (post.seo?.ogImageId === previous) {
+        await ctx.db.patch(post._id, {
+          seo: { ...post.seo, ogImageId: args.storageId },
+        })
+      }
+    }
+    for (const row of await ctx.db.query("settings").collect()) {
+      const patch: {
+        logoId?: Id<"_storage">
+        iconId?: Id<"_storage">
+        defaultSeo?: typeof row.defaultSeo
+      } = {}
+      if (row.logoId === previous) patch.logoId = args.storageId
+      if (row.iconId === previous) patch.iconId = args.storageId
+      if (row.defaultSeo?.ogImageId === previous) {
+        patch.defaultSeo = { ...row.defaultSeo, ogImageId: args.storageId }
+      }
+      if (Object.keys(patch).length > 0) await ctx.db.patch(row._id, patch)
+    }
+
     if (previous !== args.storageId) await ctx.storage.delete(previous)
   },
 })

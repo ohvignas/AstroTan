@@ -43,6 +43,10 @@ let originalEnv: NodeJS.ProcessEnv
 // n'en ont pas besoin, mais les poser inconditionnellement dans
 // `beforeEach` ne leur nuit pas.
 beforeEach(() => {
+  // `secrets.set` en a besoin : sans elle, l'action refuse AVANT d'avoir
+  // vérifié le rôle, et la matrice lirait ce refus comme une interdiction
+  // de rôle. 32 octets, comme en production.
+  process.env.SECRETS_KEY = Buffer.alloc(32, 7).toString("base64")
   originalEnv = { ...process.env }
   process.env.BETTER_AUTH_SECRET = "test-secret-please-do-not-use-in-prod-x"
   process.env.SITE_URL = ORIGIN

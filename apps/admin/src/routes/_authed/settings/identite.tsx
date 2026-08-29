@@ -96,13 +96,16 @@ function IdentiteForm({
 
   const trimmedSiteName = siteName.trim()
 
-  const autoFields = {
-    siteName,
-    // `undefined` veut dire « laisse tel quel » pour `settings.update` :
-    // un logo n'est donc jamais retiré depuis cet écran, seulement écrit.
-    ...(logoId === null ? {} : { logoId }),
-    ...(iconId === null ? {} : { iconId }),
-  }
+  // `null` est envoyé, et c'est le point : `settings.update` déclare ces
+  // deux champs en `v.union(v.id("_storage"), v.null())` et traduit `null`
+  // en `undefined` juste avant le patch, où il efface bien le champ. Les
+  // omettre — ce que cet écran faisait — rendait le bouton « Retirer »
+  // impossible, faute de valeur transmissible pour dire « efface-le ».
+  //
+  // Sans danger au montage : `useAutoSave` sème sa référence au premier
+  // rendu et ne déclenche rien tant que la photo n'a pas changé, donc un
+  // `logoId: null` déjà nul n'écrit jamais.
+  const autoFields = { siteName, logoId, iconId }
 
   const autoSave = useAutoSave({
     enabled: canWrite,
@@ -168,6 +171,7 @@ function IdentiteForm({
             value={logoId}
             disabled={!canWrite}
             onChange={setLogoId}
+            onClear={() => setLogoId(null)}
             noun="logo"
           />
         </Field>
@@ -183,6 +187,7 @@ function IdentiteForm({
             value={iconId}
             disabled={!canWrite}
             onChange={setIconId}
+            onClear={() => setIconId(null)}
             noun="icône"
           />
         </Field>
@@ -314,22 +319,46 @@ function ImageField({
   value,
   disabled,
   onChange,
+  onClear,
   noun,
 }: {
   value: Id<"_storage"> | null
   disabled: boolean
   onChange: (value: Id<"_storage">) => void
+  onClear: () => void
   /** « logo » ou « icône » — au singulier, sans article. */
   noun: string
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
-  // `api.media.list` plutôt qu'une recherche par identifiant de stockage :
-  // seule la liste résout une URL côté serveur, et une vignette sans URL
-  // n'est qu'un nom de fichier. Souscrite seulement quand une image est
-  // réellement posée — même raisonnement que le champ de couverture de
-  // l'éditeur d'articles.
+  const feminin = noun === "icône"
+  // Deux sources, et il en fallait deux — c'est la cause exacte du logo qui
+  // ne s'affichait pas.
+  //
+  // `media.list` donne le nom du fichier et son texte alternatif, mais
+  // seulement pour les fichiers INSCRITS dans la médiathèque. Or
+  // `settings.logoId` désigne un `_storage`, pas une ligne `media` : les
+  // deux peuvent diverger, et sur ce déploiement ils ont divergé — le média
+  // servant de logo a été supprimé à une époque où `media.remove` ne
+  // vérifiait pas encore les réglages (corrigé depuis, `isReferenced`).
+  // `settings.logoId` pointait donc sur un fichier disparu ; `list` ne le
+  // trouvait pas, l'écran tombait sur son gabarit gris, et rien ne disait
+  // pourquoi.
+  //
+  // `media.publicUrl` répond à la question que `list` ne pose pas : ce
+  // `storageId` désigne-t-il encore un fichier ? Elle rend une URL, ou
+  // `null` — et `null` est le seul signal fiable de « ce fichier n'existe
+  // plus ». C'est le chemin qu'`apps/web` emprunte déjà pour afficher le
+  // logo sur chaque page (`layout/Header.astro`).
   const media = useQuery(api.media.list, value === null ? "skip" : {})
+  const url = useQuery(
+    api.media.publicUrl,
+    value === null ? "skip" : { storageId: value }
+  )
   const selected = media?.find((item) => item.storageId === value) ?? null
+  // `undefined` = en cours de chargement ; `null` = le fichier a disparu.
+  // Confondre les deux ferait clignoter le message d'erreur à chaque
+  // ouverture de la page.
+  const introuvable = value !== null && url === null
 
   return (
     <div className="flex flex-col gap-3">
@@ -339,43 +368,60 @@ function ImageField({
               « aucun » : il y a bien une image en ligne sur le site, et un
               écran qui l'ignore laisse croire à un réglage cassé. */}
           <img
-            src={noun === "icône" ? defaultIcon : defaultLogo}
+            src={feminin ? defaultIcon : defaultLogo}
             alt=""
             className="h-10 w-auto max-w-32 rounded border border-border bg-muted object-contain p-1"
           />
           <p className="text-sm text-muted-foreground">
-            Aucun{noun === "icône" ? "e" : ""} {noun} téléversé
-            {noun === "icône" ? "e" : ""} — le fichier du dépôt est utilisé.
+            Aucun{feminin ? "e" : ""} {noun} téléversé{feminin ? "e" : ""} — le
+            fichier du dépôt est utilisé.
           </p>
         </div>
       ) : (
         <div className="flex items-center gap-3">
           <div className="flex size-20 items-center justify-center overflow-hidden rounded-lg border border-input bg-muted">
-            {selected?.url ? (
+            {url ? (
               <img
-                src={selected.url}
-                alt={selected.alt}
+                src={url}
+                alt={selected?.alt ?? ""}
                 className="size-full object-contain"
               />
             ) : (
-              <ImageIcon className="size-5 text-muted-foreground" />
+              <ImageIcon
+                className={
+                  introuvable
+                    ? "size-5 text-destructive"
+                    : "size-5 text-muted-foreground"
+                }
+              />
             )}
           </div>
           <div className="min-w-0 text-sm">
-            <p className="truncate font-medium">
-              {selected?.filename ?? "Fichier hors médiathèque"}
-            </p>
-            <p className="truncate text-muted-foreground">
-              {/* Un `storageId` peut exister sans ligne `media` — un
-                  fichier téléversé hors de la médiathèque. `media.ts`
-                  appelle cela une réponse ordinaire, pas un échec. */}
-              {selected?.alt ?? "Texte alternatif inconnu"}
-            </p>
+            {introuvable ? (
+              <p className="text-destructive">
+                Ce fichier n'existe plus dans le stockage — il a été supprimé
+                ou remplacé depuis qu'il a été choisi. Le site sert le{" "}
+                {noun} du dépôt en attendant. Choisissez-en un
+                {feminin ? "e" : ""} autre, ou retirez-le.
+              </p>
+            ) : (
+              <>
+                <p className="truncate font-medium">
+                  {selected?.filename ?? "Fichier hors médiathèque"}
+                </p>
+                <p className="truncate text-muted-foreground">
+                  {/* Un `storageId` peut exister sans ligne `media` — un
+                      fichier téléversé hors de la médiathèque. `media.ts`
+                      appelle cela une réponse ordinaire, pas un échec. */}
+                  {selected?.alt ?? "Texte alternatif inconnu"}
+                </p>
+              </>
+            )}
           </div>
         </div>
       )}
       {!disabled && (
-        <div>
+        <div className="flex flex-wrap gap-2">
           <Button
             type="button"
             variant="outline"
@@ -385,23 +431,34 @@ function ImageField({
           >
             <ImageIcon data-icon="inline-start" />
             {value === null
-              ? `Choisir un${noun === "icône" ? "e" : ""} ${noun}`
-              : `Changer d${noun === "icône" ? "’" : "e "}${noun}`}
+              ? `Choisir un${feminin ? "e" : ""} ${noun}`
+              : `Changer d${feminin ? "’" : "e "}${noun}`}
           </Button>
+          {/* Le bouton manquait, et son absence était justifiée par un
+              commentaire faux : `settings.update` déclare bien
+              `logoId: v.optional(v.union(v.id("_storage"), v.null()))` et
+              traduit `null` en effacement. C'est le formulaire qui ne
+              transmettait jamais `null`. Il le fait maintenant — et sans
+              cela, une référence cassée n'avait aucune sortie. */}
+          {value !== null && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="cursor-pointer"
+              onClick={onClear}
+            >
+              Retirer
+            </Button>
+          )}
         </div>
       )}
-      {/* Pas de bouton « retirer », et l'omission est délibérée :
-          `settings.update` déclare `logoId` en `v.optional(v.id(...))`, et
-          Convex retire les champs `undefined` sur le fil — il n'existe
-          donc aucune valeur que cet écran puisse envoyer pour dire
-          « efface-le ». Un bouton qui ne ferait rien en silence serait
-          pire que son absence. */}
       <MediaPicker
         open={pickerOpen}
         onOpenChange={setPickerOpen}
         onSelect={onChange}
         selectedStorageId={value}
-        title={noun === "icône" ? "Icône du site" : "Logo du site"}
+        title={feminin ? "Icône du site" : "Logo du site"}
         description="Repris sur chaque page du site public."
       />
     </div>
