@@ -4,10 +4,10 @@
 // Quatre de ces tests gardent des décisions qui ne se voient pas dans le
 // code — elles se voient à l'écran, ou nulle part :
 //
-//   1. l'interrupteur d'un email non désactivable est inerte ET dit
-//      pourquoi. Le serveur refuse déjà (`emails.setActif` lève
-//      `EMAIL_NON_DESACTIVABLE`), mais un interrupteur grisé sans phrase se
-//      lit « c'est cassé » ;
+//   1. l'interrupteur d'un email non désactivable est inerte, et cette
+//      inertie se VOIT — cadenas, mention « Toujours actif ». Le serveur
+//      refuse déjà (`emails.setActif` lève `EMAIL_NON_DESACTIVABLE`) ;
+//      l'écran ne doit ni proposer le geste, ni plaider la décision ;
 //   2. le mode d'essai est visible sans rien déplier — c'est la panne la
 //      plus silencieuse de ce déploiement : Resend accepte tout et ne
 //      délivre rien, et c'est la valeur par défaut ;
@@ -232,9 +232,6 @@ describe("ListeEmails", () => {
   })
 
   test("une ligne repliée dit quand même qu'un texte a été personnalisé", () => {
-    const parDefaut = renderToStaticMarkup(
-      <ListeEmails emails={[NOTIFICATION]} onToggle={() => {}} />
-    )
     const personnalise = renderToStaticMarkup(
       <ListeEmails
         emails={[
@@ -246,8 +243,19 @@ describe("ListeEmails", () => {
         onToggle={() => {}}
       />
     )
-    expect(parDefaut).toMatch(/par défaut/i)
     expect(personnalise).toMatch(/personnalisé/i)
+  })
+
+  test("et ne dit RIEN quand le texte est celui du code", () => {
+    // L'état normal de tout déploiement neuf. Une pastille « Texte par
+    // défaut » sur chacune des trois lignes se relit en entier pour
+    // apprendre qu'il ne s'est rien passé ; c'est l'absence de pastille qui
+    // porte cette information, gratuitement.
+    const parDefaut = renderToStaticMarkup(
+      <ListeEmails emails={LISTE} onToggle={() => {}} />
+    )
+    expect(parDefaut).not.toMatch(/par défaut/i)
+    expect(parDefaut).not.toMatch(/personnalisé/i)
   })
 
   test("un texte enregistré devenu invalide est signalé sans déplier", () => {
@@ -285,35 +293,32 @@ describe("ListeEmails", () => {
     expect(html).toMatch(/toujours actif/i)
   })
 
-  test("chaque email verrouillé dit pourquoi, en toutes lettres", () => {
+  test("chaque email verrouillé le montre, sans plaider sa cause", () => {
     // Le catalogue peut en compter d'autres un jour : la boucle vaut pour
-    // tous, et le repli sur le texte long du catalogue garantit qu'un
-    // nouvel email verrouillé n'arrive jamais muet à l'écran.
+    // tous. Ce qu'un email verrouillé doit rendre, c'est son ÉTAT — un
+    // interrupteur qui ne bouge pas, et de quoi voir que c'est voulu. La
+    // justification, elle, s'adresse au développeur qui voudrait rendre
+    // l'interrupteur actif : elle vit sur `raisonNonDesactivable`, à côté
+    // du code qui l'applique.
     const verrouilles = CATALOGUE.filter((email) => !email.desactivable)
     expect(verrouilles.length).toBeGreaterThan(0)
     for (const description of verrouilles) {
       const html = renderToStaticMarkup(
         <ListeEmails emails={[ligne(description.cle)]} onToggle={() => {}} />
       )
-      // Une phrase, dans le flux du document — et non tronquée dans un
-      // attribut. Une raison dans un `title=` n'existe pas au clavier, pas
-      // au doigt, et pas pour un lecteur d'écran qui survole.
-      expect(html, description.cle).toMatch(/sans lui,/i)
+      expect(html, description.cle).toMatch(/aria-disabled="true"/)
+      expect(html, description.cle).toMatch(/toujours actif/i)
+      // Ni la démonstration du catalogue, ni la phrase courte qui la
+      // résumait. Les deux plaidaient une décision que cet écran ne permet
+      // pas de défaire.
+      const longue = description.raisonNonDesactivable ?? ""
+      expect(longue.length, description.cle).toBeGreaterThan(120)
+      expect(html, description.cle).not.toContain(echappe(longue.slice(0, 60)))
+      expect(html, description.cle).not.toMatch(/sans lui,/i)
+      // Et pas déplacée dans un attribut au passage : une raison dans un
+      // `title=` n'existe ni au clavier, ni au doigt.
       expect(html, description.cle).not.toMatch(/title="/i)
     }
-  })
-
-  test("la raison est une phrase d'utilisateur, pas la démonstration du catalogue", () => {
-    // `raisonNonDesactivable` démontre l'irréversibilité au développeur
-    // qui voudrait rendre l'interrupteur actif — jeton effacé avant l'envoi,
-    // absence d'action « renvoyer », inscription fermée. Elle reste à côté
-    // du code qui l'applique ; l'écran n'en garde que le fait.
-    const html = renderToStaticMarkup(
-      <ListeEmails emails={[INVITATION]} onToggle={() => {}} />
-    )
-    const longue = INVITATION.raisonNonDesactivable ?? ""
-    expect(longue.length).toBeGreaterThan(120)
-    expect(html).not.toContain(echappe(longue.slice(0, 60)))
   })
 
   test("un email désactivable, lui, garde un interrupteur vivant", () => {
@@ -326,35 +331,43 @@ describe("ListeEmails", () => {
     expect(html).not.toMatch(/<input[^>]*\sdisabled/)
   })
 
-  test("chaque ligne porte son titre, et son panneau porte le reste", () => {
-    // `quand` et `destinataire` décrivent l'email et ne se lisent qu'au
-    // moment de décider ce qu'on écrit dedans. Sur la liste repliée, ils
-    // ajoutaient trois phrases à ce qui doit se parcourir des yeux.
+  test("le titre porte l'email à lui seul, replié comme déplié", () => {
+    // `quand` et `destinataire` sont sortis de l'écran : deux phrases par
+    // email, six pour trois lignes, qui redisaient ce que le titre dit
+    // déjà. Ils restent dans `LigneEmail` — `validationLocale` reconstruit
+    // une `DescriptionEmail` avec — mais rien ne les rend. Si un titre
+    // cesse un jour de suffire, c'est le TITRE qu'on réécrit, dans le
+    // catalogue.
+    const panneau = (email: EmailAffiche) => (
+      <EditeurGabarit
+        email={email}
+        objet={email.objet}
+        corps={email.corps}
+        erreur={null}
+      />
+    )
     const repliee = renderToStaticMarkup(
       <ListeEmails emails={LISTE} onToggle={() => {}} />
     )
-    for (const email of LISTE) {
-      expect(repliee).toContain(echappe(email.titre))
-    }
-    expect(repliee).not.toContain(echappe(NOTIFICATION.quand.slice(0, 40)))
-
     const depliee = renderToStaticMarkup(
       <ListeEmails
         emails={LISTE}
         onToggle={() => {}}
         cleOuverte="leadNotification"
-        editeur={(email) => (
-          <EditeurGabarit
-            email={email}
-            objet={email.objet}
-            corps={email.corps}
-            erreur={null}
-          />
-        )}
+        editeur={panneau}
       />
     )
-    expect(depliee).toContain(echappe(NOTIFICATION.quand.slice(0, 40)))
-    expect(depliee).toContain(echappe(NOTIFICATION.destinataire.slice(0, 40)))
+
+    for (const email of LISTE) {
+      expect(repliee).toContain(echappe(email.titre))
+      expect(depliee).toContain(echappe(email.titre))
+      for (const html of [repliee, depliee]) {
+        expect(html, email.cle).not.toContain(echappe(email.quand.slice(0, 40)))
+        expect(html, email.cle).not.toContain(
+          echappe(email.destinataire.slice(0, 40))
+        )
+      }
+    }
   })
 
   test("la ligne dépliée est celle qu'on a ouverte, et elle seule", () => {
@@ -483,13 +496,50 @@ describe("EditeurGabarit", () => {
     expect(html).toMatch(/<button[^>]*disabled/)
   })
 
-  test("les variables disponibles sont là, une par bouton", () => {
+  test("TOUTES les variables du catalogue sont là, pour chaque email", () => {
+    // Ce que l'écran n'affiche pas, personne ne le devine : `rendreTexte`
+    // remplace par la chaîne vide un `{{quelquechose}}` qui n'existe pas,
+    // et `validerGabarit` refuse à l'enregistrement ce qui n'est pas dans
+    // cette liste. La boucle part du CATALOGUE, pas d'une copie : une
+    // variable ajoutée là-bas et oubliée ici échoue ce test.
+    for (const description of CATALOGUE) {
+      const email = ligne(description.cle)
+      const html = renderToStaticMarkup(
+        <EditeurGabarit email={email} objet="o" corps="c" erreur={null} />
+      )
+      expect(description.variables.length, description.cle).toBeGreaterThan(0)
+      for (const nom of description.variables) {
+        expect(html, `${description.cle} / ${nom}`).toContain(`{{${nom}}}`)
+      }
+    }
+  })
+
+  test("les obligatoires se distinguent des autres", () => {
+    // Les perdre est le seul refus qu'on ne voit pas venir en tapant : un
+    // gabarit d'invitation sans `{{lien}}` a l'air fini, et c'est le
+    // serveur qui le refuse. La distinction est visuelle (pastille pleine
+    // et astérisque) ET dite au nom accessible — un lecteur d'écran qui
+    // annonce « lien étoile » n'apprend rien à personne.
     const html = renderToStaticMarkup(
+      <EditeurGabarit
+        email={INVITATION}
+        objet="o"
+        corps="c"
+        erreur={null}
+        onCorps={() => {}}
+      />
+    )
+    expect(INVITATION.variablesObligatoires).toContain("lien")
+    expect(html).toMatch(/aria-label="\{\{lien\}\}, obligatoire"/)
+    expect(html).toMatch(/obligatoire/)
+
+    // Un email sans aucune obligatoire ne porte pas de légende qui ne
+    // désignerait rien.
+    const sansObligatoire = renderToStaticMarkup(
       <EditeurGabarit email={NOTIFICATION} objet="o" corps="c" erreur={null} />
     )
-    for (const nom of NOTIFICATION.variables) {
-      expect(html).toContain(`{{${nom}}}`)
-    }
+    expect(NOTIFICATION.variablesObligatoires).toHaveLength(0)
+    expect(sansObligatoire).not.toMatch(/obligatoire/)
   })
 
   test("on peut revenir au texte du code", () => {
@@ -647,6 +697,18 @@ describe("SectionCleResend", () => {
     // que par `npx convex run` ou par l'environnement.
     const html = renderToStaticMarkup(<SectionCleResend secrets={bloc()} />)
     expect(html).toContain("secret-RESEND_API_KEY")
+  })
+
+  test("le champ dit où l'on fabrique la clé qu'il demande", () => {
+    // Sans ce lien, la personne qui vient d'installer ce template a un
+    // champ vide et aucune idée d'où sortir ce qu'on lui demande d'y
+    // coller. Un lien, pas une phrase : son texte EST l'adresse.
+    const html = renderToStaticMarkup(<SectionCleResend secrets={bloc()} />)
+    expect(html).toContain('href="https://resend.com/api-keys"')
+    expect(html).toContain('target="_blank"')
+    // `noopener noreferrer` comme les autres liens sortants du dépôt : la
+    // page ouverte ne doit garder aucune prise sur le dashboard.
+    expect(html).toContain('rel="noopener noreferrer"')
   })
 
   test("jamais en clair, jamais pré-remplie", () => {

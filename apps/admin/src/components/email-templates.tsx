@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { ChevronRightIcon } from "lucide-react"
+import { ChevronRightIcon, ExternalLinkIcon, LockIcon } from "lucide-react"
 import type {
   CleEmail,
   DescriptionEmail,
@@ -36,9 +36,15 @@ import type { SecretsBloc } from "@/components/settings-environment"
 // de ce qu'elle y lirait. Trois formes sont donc admises à l'écran, et
 // rien d'autre :
 //
-//   • un ÉTAT — « Absent », « Mode d'essai », « Texte personnalisé » ;
+//   • un ÉTAT — « Absent », « Mode d'essai », « Personnalisé » ;
 //   • une ÉTIQUETTE — « Clé Resend », « Adresse d'expédition » ;
 //   • une ACTION — « Enregistrer », « Modifier le texte ».
+//
+// Un ÉTAT est ce qui s'écarte de la normale. « Par défaut » est la normale
+// de tout déploiement neuf : la pastille ne s'affiche donc que quand un
+// texte a été personnalisé. Nommer la normalité trois fois de suite dans
+// une liste de trois lignes n'ajoute rien à ce que l'absence de pastille
+// dit déjà.
 //
 // Une phrase qui n'est aucun des trois est un commentaire de code qui a
 // fui dans l'interface. Elle redescend ici. La version précédente de cet
@@ -75,7 +81,23 @@ import type { SecretsBloc } from "@/components/settings-environment"
 //     sa place sur un écran de réglages. Voir la réserve du rapport ;
 //   • les COMMANDES shell. Un `npx convex env set …` affiché dans un
 //     dashboard dit à la personne qui le lit que l'écran ne sait pas faire
-//     son travail. Elles vivent dans `docker/README.md`.
+//     son travail. Elles vivent dans `docker/README.md` ;
+//   • la JUSTIFICATION d'un email verrouillé — « Sans lui, personne ne peut
+//     créer de compte. », « Sans lui, un mot de passe perdu ne se récupère
+//     plus. ». Deux phrases qui plaidaient une décision déjà prise, et que
+//     personne ne peut défaire depuis cet écran. Le cadenas et la mention
+//     « Toujours actif » disent le FAIT, qui est tout ce dont un geste
+//     dépend ; le raisonnement reste sur `raisonNonDesactivable`
+//     (`lib/catalogueEmails.ts`), à côté du code qui l'applique ;
+//   • `quand` et `destinataire` — les blocs « Part … » / « Vers … » du
+//     panneau déplié. Deux phrases par email, soit six pour trois lignes,
+//     qui redisaient ce que le titre porte déjà : une invitation part à qui
+//     l'on invite, une notification de contact arrive à l'équipe, une
+//     réinitialisation va à qui l'a demandée. Ils restent dans le catalogue
+//     et dans `LigneEmail` — `validationLocale` en a besoin pour
+//     reconstruire une `DescriptionEmail` — mais l'écran ne les rend plus.
+//     Si un jour un titre ne suffit plus, c'est le TITRE qu'il faut réécrire
+//     (dans le catalogue), pas ces blocs qu'il faut ressusciter.
 //
 // Deux raisons de tout garder présentatif — queries et mutations restent
 // dans `routes/_authed/settings/emails.tsx` :
@@ -259,10 +281,17 @@ export function EtatEnvoi({
 /**
  * `RESEND_API_KEY` — la seule interface de saisie de cette clé du dépôt.
  *
- * Aucune aide sous le champ : le titre du groupe traduit le nom technique,
- * la pastille de `SecretField` donne l'état, et `EtatEnvoi` dit en haut de
- * page ce qu'on perd quand elle manque. Une phrase de plus ici ne dirait
- * qu'une quatrième fois la même chose.
+ * Aucune PHRASE sous le champ : le titre du groupe traduit le nom
+ * technique, la pastille de `SecretField` donne l'état, et `EtatEnvoi` dit
+ * en haut de page ce qu'on perd quand elle manque. Une explication de plus
+ * ici ne dirait qu'une quatrième fois la même chose.
+ *
+ * Un LIEN, en revanche, fait quelque chose qu'aucune de ces trois ne fait :
+ * il mène à l'endroit où la clé se fabrique. Sans lui, la personne qui
+ * vient d'installer ce template a un champ vide et aucune idée d'où sortir
+ * ce qu'on lui demande d'y coller — elle quitte le dashboard pour chercher.
+ * Son texte est l'URL elle-même : c'est la forme la plus courte qui dise
+ * déjà où l'on va.
  */
 export function SectionCleResend({
   secrets,
@@ -289,7 +318,22 @@ export function SectionCleResend({
           La saisie n&apos;est pas disponible sur ce déploiement.
         </p>
       )}
-      <ChampSecret bloc={secrets} nom="RESEND_API_KEY" />
+      <ChampSecret bloc={secrets} nom="RESEND_API_KEY">
+        {/* `target="_blank"` : on ne quitte pas un écran de réglages où une
+            adresse est peut-être en cours de saisie. `noopener noreferrer`
+            comme les autres liens sortants du dépôt (`nav-main.tsx`,
+            `site-dashboard.tsx`) — la page ouverte ne doit pas garder de
+            prise sur celle-ci. */}
+        <a
+          href="https://resend.com/api-keys"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 underline"
+        >
+          resend.com/api-keys
+          <ExternalLinkIcon aria-hidden="true" className="size-3" />
+        </a>
+      </ChampSecret>
     </SettingsGroup>
   )
 }
@@ -371,33 +415,6 @@ export function ChampAdresseExpedition({
 // ---------------------------------------------------------------------
 
 /**
- * Ce qu'on lit d'un email verrouillé, en une phrase d'utilisateur.
- *
- * Le catalogue porte déjà une `raisonNonDesactivable` — trois lignes qui
- * démontrent l'irréversibilité au développeur qui voudrait rendre
- * l'interrupteur actif. Elle reste où elle est : c'est la justification de
- * la décision, et elle a sa place à côté du code qui l'applique.
- *
- * Ici il faut l'autre moitié : le fait, pas le raisonnement. « Sans lui,
- * personne ne peut créer de compte » se lit en une seconde et suffit à ne
- * pas ouvrir un ticket pour un interrupteur grisé — ce qui est tout ce
- * qu'on lui demande.
- *
- * Le repli sur le texte du catalogue n'est pas décoratif : un quatrième
- * email non désactivable ajouté sans passer ici afficherait sa raison
- * longue plutôt que rien du tout.
- */
-const RAISON_COURTE: Partial<Record<CleEmail, string>> = {
-  invitation: "Sans lui, personne ne peut créer de compte.",
-  passwordReset: "Sans lui, un mot de passe perdu ne se récupère plus.",
-}
-
-function raisonAffichee(email: EmailAffiche): string | null {
-  if (email.desactivable) return null
-  return RAISON_COURTE[email.cle] ?? email.raisonNonDesactivable
-}
-
-/**
  * Une ligne par email du catalogue, repliée.
  *
  * REPLIÉE À L'ARRIVÉE, et c'est le cœur de la refonte : on ne vient
@@ -412,6 +429,12 @@ function raisonAffichee(email: EmailAffiche): string | null {
  * trois états qui expliquent pourquoi quelque chose n'arrive pas ; les
  * cacher derrière un clic ferait de l'accordéon un endroit où l'on range
  * les pannes.
+ *
+ * Chacun des trois ne s'affiche QUE quand il tient : un déploiement neuf
+ * montre donc trois titres, deux cadenas et un interrupteur, et rien
+ * d'autre. « Par défaut », « aucun problème » et « actif » sont l'état
+ * normal, et une liste qui les nomme est une liste qu'on relit en entier
+ * pour découvrir qu'il ne s'y passe rien.
  *
  * Un `<button>` et un rendu conditionnel plutôt qu'un composant
  * d'accordéon : l'ouverture est décidée par la route (une seule à la fois,
@@ -471,7 +494,6 @@ function LigneEmailAffichee({
 }) {
   const panneauId = `gabarit-${email.cle}`
   const interrupteurId = `email-actif-${email.cle}`
-  const raison = raisonAffichee(email)
 
   return (
     <li>
@@ -503,9 +525,13 @@ function LigneEmailAffichee({
         </button>
 
         <div className="flex w-full items-center gap-3 pl-6 sm:w-auto sm:pl-0">
-          <Badge variant={email.personnalise ? "secondary" : "outline"}>
-            {email.personnalise ? "Texte personnalisé" : "Texte par défaut"}
-          </Badge>
+          {/* Rien quand le texte est celui du code : c'est l'état de tout
+              déploiement neuf, et une pastille par ligne pour dire « il ne
+              s'est rien passé » se lit trois fois avant de ne rien
+              apprendre. Ce qui compte est qu'un texte AIT ÉTÉ changé —
+              c'est ce qui explique qu'un email ne ressemble plus à ce que
+              le dépôt envoie. */}
+          {email.personnalise ? <Badge variant="secondary">Personnalisé</Badge> : null}
 
           {email.desactivable ? (
             <label
@@ -534,24 +560,22 @@ function LigneEmailAffichee({
             // dont le serveur ne veut pas. Il reste affiché, en position
             // « actif » : le retirer ferait perdre l'information que
             // l'email, lui, part bien.
+            //
+            // Le cadenas remplace la phrase qui plaidait la décision. Il
+            // dit la même chose de l'extérieur — ceci ne s'ouvre pas — sans
+            // demander à personne de lire un argument sur un geste qui n'est
+            // de toute façon pas proposé.
             <label
               htmlFor={interrupteurId}
               className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground sm:ml-auto"
             >
+              <LockIcon aria-hidden="true" className="size-3.5 shrink-0" />
               <span>Toujours actif</span>
               <Switch id={interrupteurId} checked disabled />
             </label>
           )}
         </div>
       </div>
-
-      {/* La raison, AFFICHÉE. Pas une infobulle, pas un `title=` : un
-          interrupteur grisé sans phrase se lit « c'est cassé », et la
-          personne qui le lit ainsi ouvre un ticket au lieu de comprendre
-          qu'on lui épargne un verrouillage irréversible. */}
-      {raison === null ? null : (
-        <p className="pb-2.5 pl-6 text-sm text-muted-foreground">{raison}</p>
-      )}
 
       {/* Un texte enregistré que la relecture a écarté. L'envoi n'échoue
           pas — `gabaritPour` repart du texte du code — et c'est
@@ -588,10 +612,19 @@ function LigneEmailAffichee({
  * un geste dont on sait déjà qu'il échouera n'est pas de la permissivité,
  * c'est un piège.
  *
- * `quand` et `destinataire` sont ici et non sur la ligne repliée : ils
- * décrivent l'email, et on ne les lit qu'au moment de décider ce qu'on va
- * écrire dedans. Sur la ligne repliée, ils ajoutaient trois phrases à une
- * liste qu'on doit pouvoir parcourir des yeux.
+ * LES VARIABLES SONT TOUTES LÀ, et c'est une exigence, pas une commodité :
+ * `email.variables` est rendu en entier, sans tri ni sélection. Ce que
+ * l'écran n'affiche pas, personne ne le devine — `rendreTexte` remplace
+ * silencieusement par la chaîne vide un `{{quelquechose}}` qui n'existe
+ * pas, et `validerGabarit` refuse à l'enregistrement ce qui n'est pas dans
+ * cette liste. Elle fait autorité : elle vient du catalogue
+ * (`lib/catalogueEmails.ts`), qui est aussi la liste que les trois envois
+ * interpolent réellement.
+ *
+ * Les OBLIGATOIRES se distinguent — pastille pleine et astérisque — parce
+ * que les perdre est le seul refus qu'on ne voit pas venir en tapant : un
+ * gabarit d'invitation sans `{{lien}}` a l'air fini, et c'est le serveur
+ * qui le refusera.
  */
 export function EditeurGabarit({
   email,
@@ -659,17 +692,6 @@ export function EditeurGabarit({
 
   return (
     <div className="ml-6 flex flex-col gap-4 rounded-lg bg-muted/40 p-4">
-      <dl className="flex flex-col gap-1 text-sm text-muted-foreground">
-        <div className="flex gap-2">
-          <dt className="shrink-0 font-medium text-foreground">Part</dt>
-          <dd>{email.quand}</dd>
-        </div>
-        <div className="flex gap-2">
-          <dt className="shrink-0 font-medium text-foreground">Vers</dt>
-          <dd>{email.destinataire}</dd>
-        </div>
-      </dl>
-
       <Field>
         <FieldLabel htmlFor={`objet-${email.cle}`}>Objet</FieldLabel>
         <Input
@@ -696,33 +718,43 @@ export function EditeurGabarit({
       </Field>
 
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted-foreground">
-          Variables — cliquer en insère une dans le corps.
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-muted-foreground">
+          <span>Variables</span>
+          {/* La légende n'apparaît que s'il y a quelque chose à légender :
+              la notification de contact n'a aucune variable obligatoire, et
+              une note en bas de son panneau ne désignerait rien. */}
           {obligatoires.length > 0 ? (
-            <>
-              {" "}
-              <strong>
-                {obligatoires.map((nom) => `{{${nom}}}`).join(", ")}
-              </strong>{" "}
-              {obligatoires.length > 1 ? "sont obligatoires" : "est obligatoire"}
-              .
-            </>
+            <span className="text-xs">
+              <span aria-hidden="true">*</span> obligatoire
+            </span>
           ) : null}
-        </p>
+        </div>
         <div className="flex flex-wrap gap-2">
-          {email.variables.map((nom) => (
-            <Button
-              key={nom}
-              type="button"
-              variant="outline"
-              size="sm"
-              className="cursor-pointer font-mono text-xs"
-              disabled={!canWrite}
-              onClick={() => inserer(nom)}
-            >
-              {`{{${nom}}}`}
-            </Button>
-          ))}
+          {email.variables.map((nom) => {
+            const requise = obligatoires.includes(nom)
+            return (
+              <Button
+                key={nom}
+                type="button"
+                // Pleine contre contour : la distinction se voit avant
+                // d'être lue, et l'astérisque la nomme pour qui ne
+                // distingue pas les deux remplissages.
+                variant={requise ? "secondary" : "outline"}
+                size="sm"
+                className="cursor-pointer font-mono text-xs"
+                disabled={!canWrite}
+                // L'astérisque est décoratif à l'oral : le mot entier passe
+                // par le nom accessible, sinon un lecteur d'écran annonce
+                // « lien étoile » et la personne ne sait pas ce qui est
+                // obligatoire.
+                aria-label={requise ? `{{${nom}}}, obligatoire` : `{{${nom}}}`}
+                onClick={() => inserer(nom)}
+              >
+                {`{{${nom}}}`}
+                {requise ? <span aria-hidden="true">*</span> : null}
+              </Button>
+            )
+          })}
         </div>
       </div>
 
