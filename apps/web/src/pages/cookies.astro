@@ -21,8 +21,8 @@ import { legalEntity } from "../config/legal"
 
 const { page } = await loadPage(Astro)
 
-const tags = consentTags(import.meta.env)
-const ask = shouldAskConsent(import.meta.env)
+const tags = consentTags(import.meta.env, consentConfig.googleConsentMode.enabled)
+const ask = shouldAskConsent(import.meta.env, consentConfig.googleConsentMode.enabled)
 const umami = Boolean(
   import.meta.env.PUBLIC_UMAMI_URL && import.meta.env.PUBLIC_UMAMI_WEBSITE_ID,
 )

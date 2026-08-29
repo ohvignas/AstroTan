@@ -46,17 +46,24 @@ export const consentConfig: ConsentConfig = {
   googleConsentMode: { enabled: true },
 
   /**
-   * La traçabilité — la preuve du consentement, que le RGPD demande de
-   * pouvoir produire.
+   * La traçabilité — la preuve du consentement, que le RGPD (article 7-1)
+   * demande de pouvoir produire : il ne suffit pas d'avoir affiché un
+   * bandeau, il faut pouvoir DÉMONTRER que la personne a répondu, quand, et
+   * sur quelle version de la politique.
    *
-   * Éteinte par défaut, et c'est un arbitrage assumé : la garder, c'est
-   * conserver un identifiant d'appareil et un horodatage pour chaque
-   * visiteur qui répond — donc traiter une donnée personnelle de plus, au
-   * nom de la conformité. Un site vitrine sans enjeu s'en passe ; un site
-   * qui fait de la publicité ciblée a intérêt à l'allumer.
+   * Allumée. Ce que ça implique, écrit ici parce que ça se relit : chaque
+   * réponse crée une ligne portant un identifiant d'appareil aléatoire et
+   * un horodatage — donc un traitement de donnée personnelle de plus, au
+   * nom de la conformité. C'est le sens de la ligne « Enregistrer le choix
+   * exprimé sur les cookies » du registre, dans `config/legal.ts`.
    *
-   * Allumée, elle poste sur `/api/consent`, qui écrit dans Convex. Voir
-   * `docs/rgpd.md` pour la marche à suivre.
+   * Elle ne s'allume pas toute seule pour autant : sans
+   * `CONSENT_LOG_SECRET` posé des DEUX côtés — l'environnement du conteneur
+   * `web` et celui du déploiement Convex — `/api/consent` répond 204 et
+   * n'écrit rien. Un adoptant qui n'en veut pas laisse le secret vide, et
+   * peut passer ce drapeau à `false` pour que la requête ne parte même pas.
+   *
+   * Voir le skill `consent-rgpd` pour la mise en service.
    */
-  traceability: { enabled: false, endpoint: "/api/consent" },
+  traceability: { enabled: true, endpoint: "/api/consent" },
 }

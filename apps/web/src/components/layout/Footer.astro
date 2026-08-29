@@ -13,11 +13,12 @@ import SiteBrand from "../SiteBrand.astro"
 import Icon from "../ui/primitives/Icon/Icon.astro"
 import { footerNav, REPO_URL } from "../../config/nav"
 import { shouldAskConsent } from "../../lib/consent"
+import { consentConfig } from "../../config/consent"
 
 // Le lien « Gérer les cookies » n'a de sens que si quelque chose est à
 // gérer. Un site sans traceur soumis à consentement n'affiche ni bandeau ni
 // bouton — et ne prétend donc pas offrir un réglage qui n'existe pas.
-const ask = shouldAskConsent(import.meta.env)
+const ask = shouldAskConsent(import.meta.env, consentConfig.googleConsentMode.enabled)
 
 const settings = await getConvexClient().query(api.settings.get, {})
 const siteName = settings?.siteName ?? "AstroTan"

@@ -121,11 +121,26 @@ export interface ConsentEnv {
  */
 export interface ConsentTag {
   id: string
+  /** Ce qui conditionne son CHARGEMENT. */
   category: ConsentCategory
   src?: string
   attrs?: Record<string, string>
   code?: string
   cookies?: string[]
+  /**
+   * Les catégories qui doivent apparaître dans le bandeau à cause de cette
+   * balise, sans pour autant conditionner son chargement.
+   *
+   * Le cas qui a rendu ce champ nécessaire : un conteneur Google `GT-` sert
+   * à la fois la mesure et la publicité. Le charger sous la seule catégorie
+   * « Publicité » faisait disparaître la case « Mesure d'audience » du
+   * bandeau — et `readSwitches` part de « tout refusé », si bien que
+   * `analytics_storage` restait `denied` pour quiconque passait par
+   * « Personnaliser », alors que « Tout accepter » l'accordait. Deux
+   * chemins, même intention, deux états Consent Mode différents, et rien
+   * pour le signaler.
+   */
+  alsoAsks?: ConsentCategory[]
 }
 
 function trimSlash(url: string): string {
@@ -140,7 +155,15 @@ function trimSlash(url: string): string {
  * « Publicité » ne s'affiche pas dans le bandeau. L'absence de configuration
  * est l'interrupteur — le même principe que `analyticsScripts`.
  */
-export function consentTags(env: ConsentEnv & Record<string, unknown>): ConsentTag[] {
+export function consentTags(
+  env: ConsentEnv & Record<string, unknown>,
+  /**
+   * Reflète `consentConfig.googleConsentMode.enabled`. Par défaut `true` :
+   * l'immense majorité des appels n'a pas à s'en soucier, et l'oubli du
+   * paramètre ne doit pas produire un site qui charge Google sans défaut.
+   */
+  googleConsentMode = true,
+): ConsentTag[] {
   const tags: ConsentTag[] = []
 
   const umami = env.PUBLIC_UMAMI_URL ? trimSlash(env.PUBLIC_UMAMI_URL) : undefined
@@ -170,22 +193,54 @@ export function consentTags(env: ConsentEnv & Record<string, unknown>): ConsentT
 
   if (env.PUBLIC_GOOGLE_TAG_ID) {
     const tagId = env.PUBLIC_GOOGLE_TAG_ID
-    // La balise Google est classée `marketing` et non `analytics` alors même
-    // qu'elle sert souvent à mesurer. La raison : le même `gtag.js` alimente
-    // Analytics ET Ads, et l'identifiant seul ne dit pas lequel. La classer
-    // au plus exigeant est le seul choix qui ne se trompe pas dans le sens
-    // qui coûte cher. Consent Mode affine ensuite signal par signal.
-    tags.push({
-      id: "google-tag",
-      category: "marketing",
-      src: `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(tagId)}`,
-    })
-    tags.push({
-      id: "google-tag-init",
-      category: "marketing",
-      code: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config',${JSON.stringify(tagId)});`,
-      cookies: ["_ga", "_gid", "_gcl_au"],
-    })
+    // Le préfixe de l'identifiant dit à quoi la balise sert, et c'est la
+    // seule information disponible pour la classer :
+    //
+    //   `G-`   GA4        → mesure
+    //   `AW-`  Google Ads → publicité
+    //   `DC-`  Campaign Manager → publicité
+    //   `GT-`  conteneur Google Tag → les deux, donc chargé au plus
+    //          exigeant, mais il fait quand même poser la question de la
+    //          mesure (`alsoAsks`), sans quoi `analytics_storage` reste
+    //          refusé pour un conteneur qui contient GA4.
+    //
+    // Tout ce qui n'est pas reconnu prend le traitement le plus exigeant :
+    // se tromper dans ce sens coûte une case de trop, se tromper dans
+    // l'autre charge un traceur publicitaire sans accord.
+    const mesureSeule = tagId.startsWith("G-")
+    const category: ConsentCategory = mesureSeule ? "analytics" : "marketing"
+    const alsoAsks: ConsentCategory[] =
+      mesureSeule || tagId.startsWith("AW-") || tagId.startsWith("DC-") ? [] : ["analytics"]
+
+    // Consent Mode éteint alors qu'une balise Google est configurée : on ne
+    // charge rien. Sans le bloc de défaut, Google cesse de traiter les
+    // données de l'EEE, du Royaume-Uni et de la Suisse — et le site n'a
+    // aucun moyen de s'en apercevoir. Une balise silencieusement inutile
+    // vaut moins qu'une balise absente.
+    if (googleConsentMode) {
+      tags.push({
+        id: "google-tag",
+        category,
+        alsoAsks,
+        src: `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(tagId)}`,
+      })
+      tags.push({
+        id: "google-tag-init",
+        category,
+        alsoAsks,
+        code: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config',${JSON.stringify(tagId)});`,
+        // `_ga_<id>` est le cookie de session de GA4, et c'est LUI qui porte
+        // la continuité : l'oublier laissait GA4 reprendre la même session
+        // au rechargement après un « Tout refuser ». Son nom se dérive de
+        // l'identifiant, d'où le calcul plutôt qu'une constante.
+        //
+        // `_gid` a été retiré : c'est un cookie d'Universal Analytics, que
+        // GA4 ne dépose plus. L'annoncer sur `/cookies` décrivait un dépôt
+        // qui n'a pas lieu — inoffensif, mais la page promet de ne décrire
+        // que ce qui tourne réellement.
+        cookies: ["_ga", `_ga_${tagId.replace(/^(G|GT|AW|DC)-/, "")}`, "_gcl_au"],
+      })
+    }
   }
 
   return tags
@@ -200,14 +255,22 @@ export function consentTags(env: ConsentEnv & Record<string, unknown>): ConsentT
  */
 export function activeCategories(
   env: ConsentEnv & Record<string, unknown>,
+  googleConsentMode = true,
 ): ConsentCategory[] {
-  const used = new Set(consentTags(env).map((tag) => tag.category))
+  const used = new Set<ConsentCategory>()
+  for (const tag of consentTags(env, googleConsentMode)) {
+    used.add(tag.category)
+    for (const autre of tag.alsoAsks ?? []) used.add(autre)
+  }
   return CONSENT_CATEGORIES.filter((category) => used.has(category))
 }
 
 /** Vrai quand ce site a quelque chose à demander. */
-export function shouldAskConsent(env: ConsentEnv & Record<string, unknown>): boolean {
-  return activeCategories(env).length > 0
+export function shouldAskConsent(
+  env: ConsentEnv & Record<string, unknown>,
+  googleConsentMode = true,
+): boolean {
+  return activeCategories(env, googleConsentMode).length > 0
 }
 
 /**
@@ -277,17 +340,19 @@ export function parseConsent(
 export function tagsToInject(
   env: ConsentEnv & Record<string, unknown>,
   consent: ConsentRecord | ConsentChoices | null,
+  googleConsentMode = true,
 ): ConsentTag[] {
   if (consent === null) return []
-  return consentTags(env).filter((tag) => consent[tag.category])
+  return consentTags(env, googleConsentMode).filter((tag) => consent[tag.category])
 }
 
 /** Les cookies à effacer quand une catégorie passe de accordée à refusée. */
 export function cookiesToClear(
   env: ConsentEnv & Record<string, unknown>,
   consent: ConsentChoices,
+  googleConsentMode = true,
 ): string[] {
-  const names = consentTags(env)
+  const names = consentTags(env, googleConsentMode)
     .filter((tag) => !consent[tag.category])
     .flatMap((tag) => tag.cookies ?? [])
   return [...new Set(names)]
@@ -342,9 +407,17 @@ export function consentModeState(choices: ConsentChoices): ConsentModeState {
  * L'état par défaut, posé AVANT `gtag.js` et avant toute réponse.
  *
  * `wait_for_update` dit à Google de patienter ce nombre de millisecondes
- * avant de conclure : sans lui, une balise chargée plus vite que le clic du
- * visiteur enregistre un refus qui n'en était pas un, et la mise à jour qui
- * suit arrive trop tard. 500 ms est la valeur que documente Google.
+ * avant de conclure : une balise chargée plus vite que le clic du visiteur
+ * enregistrerait sinon un refus qui n'en était pas un. 500 ms est la valeur
+ * que documente Google.
+ *
+ * ATTENTION — dans CE site, ce délai ne sert jamais, et croire l'inverse
+ * conduit à casser la vraie garantie. `gtag.js` n'est pas dans le HTML : il
+ * est injecté après la réponse, et l'appel `gtag('consent','update', …)`
+ * part AVANT cette injection, aussi bien au premier passage qu'au retour
+ * d'un visiteur connu. Ce qui empêche un faux refus est donc cet ORDRE, pas
+ * les 500 ms. Le délai reste comme filet pour le jour où quelqu'un ajoutera
+ * une balise Google en dur dans le `<head>`.
  */
 export function consentModeDefault(config: Pick<ConsentConfig, "googleConsentMode">): string {
   const denied = consentModeState(allDenied())

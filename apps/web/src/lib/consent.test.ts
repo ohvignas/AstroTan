@@ -64,12 +64,64 @@ describe("consentTags", () => {
     expect(consentTags({ PUBLIC_UMAMI_RECORDER: "true" })).toEqual([])
   })
 
-  test("Meta et Google sont du marketing, et rien d'autre ne l'est", () => {
-    const env = { PUBLIC_META_PIXEL_ID: "1234567890", PUBLIC_GOOGLE_TAG_ID: "G-ABC123" }
-    const tags = consentTags(env)
-    expect(tags.map((tag) => tag.id)).toEqual(["meta-pixel", "google-tag", "google-tag-init"])
-    expect(tags.every((tag) => tag.category === "marketing")).toBe(true)
+  test("le pixel Meta est du marketing", () => {
+    const env = { PUBLIC_META_PIXEL_ID: "1234567890" }
+    expect(consentTags(env).map((tag) => tag.id)).toEqual(["meta-pixel"])
     expect(activeCategories(env)).toEqual(["marketing"])
+  })
+
+  test("un identifiant GA4 est de la MESURE, pas de la publicité", () => {
+    // Le défaut que ce test ferme : `G-…` était classé `marketing`, donc la
+    // case « Mesure d'audience » ne s'affichait pas. `readSwitches` part de
+    // « tout refusé » et n'écrit que les catégories qui ont un interrupteur
+    // — `analytics_storage` restait donc `denied` pour quiconque passait
+    // par « Personnaliser », alors que « Tout accepter » l'accordait. Deux
+    // chemins, même intention, deux états Consent Mode différents.
+    const env = { PUBLIC_GOOGLE_TAG_ID: "G-ABC123" }
+    expect(consentTags(env).every((tag) => tag.category === "analytics")).toBe(true)
+    expect(activeCategories(env)).toEqual(["analytics"])
+  })
+
+  test("un identifiant Google Ads est de la publicité", () => {
+    const env = { PUBLIC_GOOGLE_TAG_ID: "AW-999" }
+    expect(consentTags(env).every((tag) => tag.category === "marketing")).toBe(true)
+    expect(activeCategories(env)).toEqual(["marketing"])
+  })
+
+  test("un conteneur `GT-` sert les deux, donc il pose les deux questions", () => {
+    // Il peut contenir GA4 ET Google Ads. On le charge au plus exigeant,
+    // mais la case « Mesure d'audience » doit exister pour piloter
+    // `analytics_storage` — sinon le signal reste refusé pour un conteneur
+    // qui fait de la mesure.
+    const env = { PUBLIC_GOOGLE_TAG_ID: "GT-XYZ" }
+    expect(consentTags(env).every((tag) => tag.category === "marketing")).toBe(true)
+    expect(activeCategories(env)).toEqual(["analytics", "marketing"])
+  })
+
+  test("un identifiant non reconnu prend le traitement le plus exigeant", () => {
+    // Se tromper dans ce sens coûte une case de trop. Se tromper dans
+    // l'autre charge un traceur publicitaire sans accord.
+    const env = { PUBLIC_GOOGLE_TAG_ID: "ZZ-inconnu" }
+    expect(consentTags(env).every((tag) => tag.category === "marketing")).toBe(true)
+    expect(activeCategories(env)).toEqual(["analytics", "marketing"])
+  })
+
+  test("Consent Mode éteint, aucune balise Google n'est chargée", () => {
+    // Sans le bloc de défaut, Google cesse de traiter les données de l'EEE
+    // et le site n'a aucun moyen de s'en apercevoir. Une balise
+    // silencieusement inutile vaut moins qu'une balise absente.
+    const env = { PUBLIC_GOOGLE_TAG_ID: "G-ABC123" }
+    expect(consentTags(env, false)).toEqual([])
+    expect(shouldAskConsent(env, false)).toBe(false)
+  })
+
+  test("le cookie de session GA4 est nommé, dérivé de l'identifiant", () => {
+    // `_ga_<id>` porte la continuité de session. L'oublier laissait GA4
+    // reprendre la même session après un « Tout refuser ».
+    const [, init] = consentTags({ PUBLIC_GOOGLE_TAG_ID: "G-ABC123" })
+    expect(init!.cookies).toEqual(["_ga", "_ga_ABC123", "_gcl_au"])
+    // `_gid` est un cookie d'Universal Analytics, que GA4 ne pose plus.
+    expect(init!.cookies).not.toContain("_gid")
   })
 
   test("l'identifiant Google est encodé dans l'URL", () => {
@@ -116,7 +168,13 @@ describe("cookiesToClear", () => {
   test("retirer un accord nomme les cookies à effacer", () => {
     // Couper le futur en laissant le passé sur l'appareil n'est pas un
     // retrait — c'est ce que fait un bandeau sur deux.
-    expect(cookiesToClear(env, allDenied())).toEqual(["_fbp", "_fbc", "_ga", "_gid", "_gcl_au"])
+    expect(cookiesToClear(env, allDenied())).toEqual([
+      "_fbp",
+      "_fbc",
+      "_ga",
+      "_ga_1",
+      "_gcl_au",
+    ])
   })
 
   test("un accord maintenu n'efface rien", () => {

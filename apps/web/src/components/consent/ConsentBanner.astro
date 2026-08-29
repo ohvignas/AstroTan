@@ -26,11 +26,11 @@ import {
 } from "../../lib/consent"
 import { consentConfig } from "../../config/consent"
 
-const categories = activeCategories(import.meta.env)
+const categories = activeCategories(import.meta.env, consentConfig.googleConsentMode.enabled)
 // Aucun tiers configuré : pas de bandeau. Demander l'autorisation de faire
 // une chose qu'on ne fait pas est une nuisance, et une description fausse du
 // site.
-const ask = shouldAskConsent(import.meta.env)
+const ask = shouldAskConsent(import.meta.env, consentConfig.googleConsentMode.enabled)
 ---
 
 {
@@ -224,7 +224,7 @@ const ask = shouldAskConsent(import.meta.env)
     const injected = new Set<string>()
 
     function injectTags(choices: ConsentChoices): void {
-      for (const tag of tagsToInject(env, choices)) {
+      for (const tag of tagsToInject(env, choices, consentConfig.googleConsentMode.enabled)) {
         // Idempotence : on peut rouvrir ses réglages et confirmer deux fois.
         // Deux fois le même pixel, c'est deux fois la même conversion.
         if (injected.has(tag.id)) continue
@@ -256,7 +256,7 @@ const ask = shouldAskConsent(import.meta.env)
       // Le point de tête couvre les sous-domaines : Google et Meta posent sur
       // `.exemple.fr`, et un effacement sans ce point rate la cible.
       const domains = [host, `.${host}`, `.${host.split(".").slice(-2).join(".")}`]
-      for (const name of cookiesToClear(env, choices)) {
+      for (const name of cookiesToClear(env, choices, consentConfig.googleConsentMode.enabled)) {
         for (const domain of domains) {
           document.cookie = `${name}=; Max-Age=0; path=/; domain=${domain}`
         }
@@ -394,6 +394,14 @@ const ask = shouldAskConsent(import.meta.env)
       }
       injectTags(choicesOf(current))
     } else {
+      // Aucune réponse valide : soit personne n'a répondu, soit la réponse a
+      // expiré, soit la version de la politique a changé.
+      //
+      // Effacer ICI aussi, et pas seulement dans `apply` : dans les deux
+      // derniers cas la base légale a disparu, et les cookies posés par un
+      // accord précédent survivaient à leur propre autorisation. Ils
+      // restaient même si la personne ne répondait plus jamais.
+      clearCookies(allDenied())
       banner.hidden = false
     }
   }
@@ -404,9 +412,13 @@ const ask = shouldAskConsent(import.meta.env)
     position: fixed;
     z-index: 60;
     display: grid;
-    gap: var(--space-sm);
-    width: min(26rem, calc(100vw - 2rem));
-    padding: var(--space-lg);
+    gap: var(--space-md);
+    /* 34rem et non 26 : à 26rem le texte tombait sur cinq lignes et les
+       trois boutons passaient sur deux rangées, « Personnaliser » se
+       retrouvant seul en dessous — ce qui le fait lire comme une option
+       secondaire alors que c'est le chemin vers le refus détaillé. */
+    width: min(34rem, calc(100vw - 2rem));
+    padding: var(--space-xl);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-xl);
     background: var(--color-bg-primary);
@@ -450,6 +462,17 @@ const ask = shouldAskConsent(import.meta.env)
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
+  }
+
+  /* Les trois boutons tiennent sur une ligne à cette largeur. En dessous de
+     30rem — un téléphone — ils s'empilent en pleine largeur plutôt que de
+     se serrer : trois cibles étroites côte à côte au pouce, c'est un clic
+     sur « Tout accepter » qu'on ne voulait pas. */
+  @media (width <= 30rem) {
+    .consent-banner__actions {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
   }
 
   .consent-banner__links {
@@ -496,7 +519,7 @@ const ask = shouldAskConsent(import.meta.env)
        navigateur applique lui-même à un `<dialog>` modal. Sans cette ligne,
        le panneau s'ouvre collé en haut à gauche. */
     margin: auto;
-    width: min(38rem, calc(100vw - 2rem));
+    width: min(42rem, calc(100vw - 2rem));
     border: 1px solid var(--color-border);
     border-radius: var(--radius-xl);
     padding: 0;

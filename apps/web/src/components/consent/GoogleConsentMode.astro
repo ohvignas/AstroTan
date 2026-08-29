@@ -14,6 +14,34 @@
 //
 // `is:inline` est délibéré. Bundlé, ce script partirait dans un fichier
 // séparé chargé en différé, et « avant gtag.js » deviendrait une course.
+//
+// ---------------------------------------------------------------------
+// Ce site est en Consent Mode « BASIQUE », et c'est un choix
+// ---------------------------------------------------------------------
+// Google distingue deux modes, et le critère est unique : la balise se
+// charge-t-elle avant la réponse du visiteur ?
+//
+//   avancé  — `gtag.js` chargé dès la page, tout refusé par défaut. Il
+//             envoie quand même des « pings sans cookie » (horodatage,
+//             user-agent, referrer) pour un visiteur qui REFUSE.
+//   basique — la balise n'est chargée qu'après accord. Rien ne part.
+//
+// Ici `gtag.js` est injecté par le bandeau après réponse : basique.
+//
+// Ce qu'on y gagne : aucune requête vers googletagmanager.com ni
+// google-analytics.com avant le clic, donc aucune IP, aucun user-agent,
+// aucun referrer transmis à Google pour quelqu'un qui refuse ou qui ne
+// répond pas. C'est la seule configuration où « aucun pixel ne part sans
+// accord » est littéralement vrai.
+//
+// Ce qu'on y perd, et il faut le savoir avant de s'étonner des chiffres :
+// la modélisation des conversions est « générale » (tendances agrégées
+// entre annonceurs) au lieu d'être spécifique au site. `ads_data_redaction`
+// et `url_passthrough` sont sans objet tant qu'on reste en basique — ils
+// n'agissent que sur des requêtes émises pendant un refus, et il n'y en a
+// aucune.
+//
+// https://developers.google.com/tag-platform/security/concepts/consent-mode
 import { consentModeDefault } from "../../lib/consent"
 import { consentConfig } from "../../config/consent"
 
