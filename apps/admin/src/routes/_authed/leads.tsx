@@ -1,6 +1,29 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardCode,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  closestCorners,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core"
+import type {
+  Announcements,
+  CollisionDetection,
+  DragEndEvent,
+  DragOverEvent,
+  DragStartEvent,
+  KeyboardCoordinateGetter,
+  ScreenReaderInstructions,
+} from "@dnd-kit/core"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Doc, Id } from "@astrotan/backend/convex/_generated/dataModel"
 import {
@@ -18,14 +41,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Trash2Icon } from "lucide-react"
+import { GripVerticalIcon, Trash2Icon } from "lucide-react"
 
 export const Route = createFileRoute("/_authed/leads")({
   component: LeadsPage,
@@ -38,12 +54,17 @@ export const Route = createFileRoute("/_authed/leads")({
 // n'a pas d'endroit où poser cet état. Chaque colonne se lit du plus récent
 // au plus ancien, l'ordre dans lequel on répond.
 //
-// Le glisser-déposer utilise l'API native du navigateur — aucune
-// bibliothèque, aucun octet de plus. Il ne marche ni au clavier ni au
-// doigt : c'est une limite de l'API, pas un oubli. Le sélecteur de chaque
-// carte reste donc, non comme un doublon mais comme LE chemin pour qui
-// n'a pas de souris. Retirer l'un des deux rendrait le tableau
-// inutilisable pour quelqu'un.
+// Le glisser-déposer passe par dnd-kit et non par l'API native du
+// navigateur. L'API native ne coûtait aucun octet, mais elle ne connaît que
+// la souris : ni clavier, ni doigt — donc ni téléphone ni tablette. Elle
+// fabriquait aussi son fantôme de glissement à partir de la SÉLECTION de
+// texte en cours, d'où l'impression que toute la page se soulevait ; il
+// avait fallu une rustine (`setDragImage`) que le calque de dnd-kit rend
+// inutile.
+//
+// Un seul et même geste sert donc tout le monde, et le sélecteur de statut
+// que chaque carte portait — le chemin de secours de qui n'a pas de souris
+// — a disparu avec sa raison d'être.
 
 function formatDate(ms: number): string {
   return new Intl.DateTimeFormat("fr-FR", {
@@ -54,15 +75,145 @@ function formatDate(ms: number): string {
   }).format(new Date(ms))
 }
 
+/**
+ * La colonne visée : celle sous le pointeur, sinon la plus proche.
+ *
+ * « La plus proche » seule mesure la position de la CARTE, pas celle du
+ * doigt. Une carte attrapée par son bord gauche déborde d'une centaine de
+ * pixels à droite du pointeur, et l'on dépose alors dans la colonne
+ * d'à-côté en croyant viser celle qu'on montre. `pointerWithin` répond à
+ * la seule question que se pose la personne : sur quelle colonne suis-je ?
+ *
+ * Le repli existe pour le clavier, où il n'y a pas de pointeur du tout —
+ * et pour les quelques pixels de gouttière entre deux colonnes.
+ */
+const colonneVisee: CollisionDetection = (args) => {
+  const sousLePointeur = pointerWithin(args)
+  return sousLePointeur.length > 0 ? sousLePointeur : closestCorners(args)
+}
+
+/** Ce qu'une carte emporte avec elle pendant le glissement. */
+type DonneesCarte = { lead: Doc<"leads"> }
+
+function litCarte(data: unknown): Doc<"leads"> | null {
+  return (data as DonneesCarte | undefined)?.lead ?? null
+}
+
+/**
+ * Au clavier, une flèche saute d'une colonne à la colonne voisine.
+ *
+ * Le calcul par défaut de dnd-kit déplace la carte de 25 px par appui —
+ * une quinzaine de pressions pour franchir une colonne de 288 px, ce qui
+ * revient à ne pas avoir de chemin clavier du tout.
+ *
+ * La voisine se lit dans `LEAD_STATUSES`, pas dans la géométrie. Chercher
+ * « le rectangle le plus proche vers la droite » revenait à désigner la
+ * colonne de départ elle-même, dont le centre est à quelques pixels de la
+ * carte saisie : les appuis se perdaient dans ce micro-écart au lieu de
+ * traverser. Un index ne dérive pas.
+ *
+ * Haut et bas ne rendent rien : l'ordre d'une colonne est celui des dates,
+ * il ne se réarrange pas à la main.
+ */
+const colonneVoisine: KeyboardCoordinateGetter = (
+  event,
+  { currentCoordinates, context: { active, collisionRect, droppableRects, over } },
+) => {
+  const sens =
+    event.code === KeyboardCode.Right ? 1 : event.code === KeyboardCode.Left ? -1 : 0
+  if (sens === 0 || collisionRect === null) return
+
+  // `over` d'abord : c'est la colonne réellement visée à cet instant, celle
+  // que les appuis précédents ont atteinte. Le statut de la fiche ne sert
+  // que pour le tout premier appui, avant que la première collision soit
+  // calculée.
+  const depart = LEAD_STATUSES.indexOf(
+    (over?.id ?? litCarte(active?.data.current)?.status) as LeadStatus,
+  )
+  const voisine = LEAD_STATUSES[depart + sens]
+  // Aux deux bouts du tableau il n'y a pas de voisine, et c'est très bien :
+  // la carte reste où elle est plutôt que de sortir par le côté.
+  if (depart === -1 || voisine === undefined) return
+  const cible = droppableRects.get(voisine)
+  if (cible === undefined) return
+
+  // Viser le centre de la colonne : le prochain appui repartira donc d'une
+  // position sans reste, et non d'un décalage accumulé.
+  const dx = cible.left + cible.width / 2 - (collisionRect.left + collisionRect.width / 2)
+  return { x: currentCoordinates.x + dx, y: currentCoordinates.y }
+}
+
+// dnd-kit annonce chaque étape à un lecteur d'écran. Ses formules par
+// défaut sont en anglais et parlent de « position dans la liste » — deux
+// choses fausses ici, où l'on déplace une fiche entre des colonnes nommées.
+const instructionsClavier: ScreenReaderInstructions = {
+  draggable:
+    "Pour déplacer une fiche, appuyez sur la barre d'espace. " +
+    "Utilisez les flèches gauche et droite pour changer de colonne, " +
+    "la barre d'espace pour déposer, la touche Échap pour annuler.",
+}
+
+function libelleColonne(id: unknown): string | undefined {
+  return LEAD_STATUS_LABELS[id as LeadStatus]
+}
+
+const annonces: Announcements = {
+  onDragStart: ({ active }) =>
+    `Fiche de ${litCarte(active.data.current)?.name} saisie.`,
+  onDragOver: ({ over }) =>
+    over ? `Au-dessus de la colonne ${libelleColonne(over.id)}.` : undefined,
+  onDragEnd: ({ active, over }) => {
+    const nom = litCarte(active.data.current)?.name
+    return over
+      ? `Fiche de ${nom} déposée dans la colonne ${libelleColonne(over.id)}.`
+      : `Fiche de ${nom} reposée à sa place.`
+  },
+  onDragCancel: ({ active }) =>
+    `Déplacement annulé. Fiche de ${litCarte(active.data.current)?.name} reposée à sa place.`,
+}
+
 function LeadsPage() {
   const board = useQuery(api.leads.board)
   const profile = useQuery(api.profiles.me)
   const move = useMutation(api.leads.move)
   const remove = useMutation(api.leads.remove)
   const [openLead, setOpenLead] = useState<Doc<"leads"> | null>(null)
+  // La fiche en cours de déplacement. Elle sert au calque qui suit le
+  // geste — la carte d'origine, elle, reste en place et s'estompe, sans
+  // quoi la colonne se refermerait sous le doigt.
+  const [saisie, setSaisie] = useState<Doc<"leads"> | null>(null)
   // La colonne actuellement survolée pendant un glissement. Sans ce retour
   // visuel, on lâche à l'aveugle et on découvre le résultat après coup.
   const [survolee, setSurvolee] = useState<LeadStatus | null>(null)
+  // La fiche déposée au clavier, dont il faut rattraper le focus. Changer
+  // de colonne démonte la carte et la remonte ailleurs : le focus tombe
+  // alors sur `<body>`, et déplacer la fiche suivante demande de
+  // retraverser toute la page. Personne ne déplace une seule fiche.
+  const [aRefocaliser, setARefocaliser] = useState<Id<"leads"> | null>(null)
+
+  const sensors = useSensors(
+    // Huit pixels avant qu'un appui devienne un glissement : sans cette
+    // contrainte, le capteur avale le clic et le panneau des messages ne
+    // s'ouvre plus jamais.
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    // Au doigt, c'est un délai et non une distance : une contrainte de
+    // distance confondrait le début d'un défilement avec le début d'un
+    // glissement, et la page deviendrait impossible à faire défiler. La
+    // tolérance annule l'appui long dès que le doigt part défiler.
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    // `scrollBehavior: "auto"` n'est pas un détail de confort. Quand la
+    // colonne visée est hors écran, dnd-kit fait défiler le tableau ET
+    // retranche d'avance ce défilement du déplacement de la carte. Le
+    // défilement doux — le défaut — est asynchrone : la soustraction est
+    // faite tout de suite, le défilement arrive plus tard, et entre les
+    // deux la carte est à un endroit qui ne correspond à rien. Chaque
+    // appui suivant repart de ce décalage et l'aggrave. Un défilement
+    // immédiat rend les deux moitiés du calcul vraies en même temps.
+    useSensor(KeyboardSensor, {
+      coordinateGetter: colonneVoisine,
+      scrollBehavior: "auto",
+    }),
+  )
 
   // Supprimer est réservé : un éditeur classe, il n'efface pas ce qu'un
   // visiteur a écrit. L'interface masque, et la mutation revérifie.
@@ -97,6 +248,95 @@ function LeadsPage() {
     )
   }
 
+  function onDragStart(event: DragStartEvent) {
+    setSaisie(litCarte(event.active.data.current))
+    setARefocaliser(null)
+  }
+
+  function onDragOver(event: DragOverEvent) {
+    setSurvolee((event.over?.id as LeadStatus | undefined) ?? null)
+  }
+
+  function onDragEnd(event: DragEndEvent) {
+    setSaisie(null)
+    setSurvolee(null)
+    const lead = litCarte(event.active.data.current)
+    const status = event.over?.id as LeadStatus | undefined
+    // Lâcher une carte dans sa propre colonne ne doit pas écrire : ce
+    // serait une mutation pour rien, et une ligne d'historique qui ne
+    // raconte rien.
+    if (lead && status && status !== lead.status) {
+      void move({ id: lead._id, status })
+      // Seulement au clavier : à la souris, le focus n'a pas bougé et le
+      // déplacer d'autorité ferait sauter l'écran sous le curseur.
+      if (event.activatorEvent instanceof KeyboardEvent) setARefocaliser(lead._id)
+    }
+  }
+
+  function onDragCancel() {
+    setSaisie(null)
+    setSurvolee(null)
+  }
+
+  // Le filet.
+  //
+  // Ce qui suit ne corrige aucune cause : il rend l'état bloqué impossible
+  // à conserver. Le défaut signalé — « quand j'attrape un élément il reste
+  // collé à ma souris, obligé de relancer la page » — est celui d'un
+  // `pointerup` qui n'atteint jamais dnd-kit : capture perdue quand le nœud
+  // est démonté par un re-rendu de la query réactive, relâchement hors de
+  // la fenêtre, onglet masqué en plein geste. Le glissement ne se termine
+  // alors jamais, et rien ne le rattrape.
+  //
+  // Une correction qui vise une cause a déjà été tentée ici et n'a pas
+  // suffi. Celle-ci part de l'autre bout : quel que soit le chemin, si le
+  // bouton est relâché — ou la fenêtre perdue — et qu'un glissement est
+  // encore en cours un tour de boucle plus tard, on envoie à dnd-kit la
+  // touche par laquelle il annule lui-même, puis on remet notre propre
+  // état à zéro.
+  //
+  // Le `setTimeout(…, 0)` n'est pas une temporisation prudente : dans un
+  // dépôt NORMAL, `pointerup` précède `onDragEnd`. Sans ce tour de boucle,
+  // le filet couperait chaque dépôt réussi juste avant qu'il n'écrive.
+  // Après, `saisie` est déjà `null` et le filet ne fait rien — il ne se
+  // déclenche que sur le cas anormal.
+  // Miroir de `saisie` lisible depuis un `setTimeout` sans le refermer dans
+  // la valeur du rendu où il a été posé.
+  const saisieRef = useRef<Doc<"leads"> | null>(null)
+  saisieRef.current = saisie
+
+  useEffect(() => {
+    if (saisie === null) return
+
+    function rattraper() {
+      window.setTimeout(() => {
+        if (saisieRef.current === null) return
+        // La touche par laquelle dnd-kit annule un glissement. La
+        // synthétiser plutôt que de simplement vider notre état : sans
+        // elle, le calque disparaîtrait mais dnd-kit se croirait encore en
+        // train de glisser, et avalerait le clic suivant.
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+        setSaisie(null)
+        setSurvolee(null)
+      }, 0)
+    }
+
+    function surVisibilite() {
+      if (document.visibilityState === "hidden") rattraper()
+    }
+
+    window.addEventListener("pointerup", rattraper)
+    window.addEventListener("pointercancel", rattraper)
+    window.addEventListener("blur", rattraper)
+    document.addEventListener("visibilitychange", surVisibilite)
+    return () => {
+      window.removeEventListener("pointerup", rattraper)
+      window.removeEventListener("pointercancel", rattraper)
+      window.removeEventListener("blur", rattraper)
+      document.removeEventListener("visibilitychange", surVisibilite)
+    }
+  }, [saisie])
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-baseline justify-between">
@@ -106,120 +346,232 @@ function LeadsPage() {
         </p>
       </div>
 
-      {/* Défilement horizontal plutôt que colonnes rétrécies : cinq colonnes
-          sur un écran étroit donnent cinq bandes illisibles. */}
-      <div className="flex gap-4 overflow-x-auto pb-2">
-        {LEAD_STATUSES.map((status) => (
-          <section
-            key={status}
-            className={`flex w-72 shrink-0 flex-col gap-3 rounded-lg p-1 transition-colors ${
-              survolee === status ? "bg-accent" : ""
-            }`}
-            // `preventDefault` sur `dragOver` est ce qui autorise le dépôt :
-            // sans lui le navigateur refuse le lâcher, et rien n'indique
-            // pourquoi.
-            onDragOver={(event) => {
-              event.preventDefault()
-              setSurvolee(status)
-            }}
-            onDragLeave={() => setSurvolee((s) => (s === status ? null : s))}
-            onDrop={(event) => {
-              event.preventDefault()
-              setSurvolee(null)
-              const id = event.dataTransfer.getData("text/plain") as Id<"leads">
-              const from = event.dataTransfer.getData("application/x-lead-status")
-              // Lâcher une carte dans sa propre colonne ne doit pas écrire :
-              // ce serait une mutation pour rien, et une ligne d'historique
-              // qui ne raconte rien.
-              if (id && from !== status) void move({ id, status })
-            }}
-          >
-            <header className="flex items-center justify-between px-1">
-              <h2 className="text-sm font-medium">{LEAD_STATUS_LABELS[status]}</h2>
-              <Badge variant="secondary" className="tabular-nums">
-                {board[status].length}
-              </Badge>
-            </header>
+      <DndContext
+        sensors={sensors}
+        // Les colonnes s'étirent toutes à la hauteur de la plus haute
+        // (`items-stretch` du conteneur) : le repli géométrique a donc des
+        // rectangles réguliers à comparer, et non des colonnes hautes comme
+        // leur contenu.
+        collisionDetection={colonneVisee}
+        accessibility={{ announcements: annonces, screenReaderInstructions: instructionsClavier }}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
+      >
+        {/* Défilement horizontal plutôt que colonnes rétrécies : cinq colonnes
+            sur un écran étroit donnent cinq bandes illisibles. */}
+        <div className="flex gap-4 overflow-x-auto pb-2">
+          {LEAD_STATUSES.map((status) => (
+            <ColonneLeads
+              key={status}
+              status={status}
+              leads={board[status]}
+              survolee={survolee === status}
+              canDelete={canDelete}
+              aRefocaliser={aRefocaliser}
+              onOpen={setOpenLead}
+              onRemove={(id) => void remove({ id })}
+            />
+          ))}
+        </div>
 
-            <div className="flex flex-col gap-2">
-              {board[status].map((lead) => (
-                <article
-                  key={lead._id}
-                  draggable
-                  onDragStart={(event) => {
-                    // Sans cette ligne, le navigateur fabrique son propre
-                    // fantôme à partir de la SÉLECTION de texte en cours —
-                    // d'où l'impression que toute la page se soulève. Lui
-                    // désigner la carte donne un fantôme de la taille de la
-                    // carte, et rien d'autre.
-                    event.dataTransfer.setDragImage(
-                      event.currentTarget,
-                      event.currentTarget.clientWidth / 2,
-                      24,
-                    )
-                    event.dataTransfer.setData("text/plain", lead._id)
-                    // Le statut d'origine voyage avec la carte : c'est ce
-                    // qui permet à la colonne d'ignorer un dépôt sur
-                    // elle-même sans relire le tableau.
-                    event.dataTransfer.setData("application/x-lead-status", lead.status)
-                    event.dataTransfer.effectAllowed = "move"
-                  }}
-                  // `select-none` : sans lui, un glissement commencé sur du texte
-                  // démarre une sélection au lieu d'un déplacement, et les
-                  // deux se disputent le geste.
-                  className="cursor-grab select-none rounded-lg border bg-card p-3 text-sm shadow-xs active:cursor-grabbing"
-                >
-                  <button
-                    type="button"
-                    className="w-full text-left"
-                    onClick={() => setOpenLead(lead)}
-                  >
-                    <p className="font-medium">{lead.name}</p>
-                    <p className="truncate text-muted-foreground">{lead.email}</p>
-                    <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-                      {formatDate(lead.lastMessageAt)}
-                      {lead.messageCount > 1 && ` · ${lead.messageCount} messages`}
-                    </p>
-                  </button>
+        {/* Le calque vit hors du conteneur qui défile : rendu dedans, il
+            serait rogné au bord dès qu'on traverse le tableau.
 
-                  <div className="mt-3 flex items-center gap-2">
-                    <Select
-                      value={lead.status}
-                      onValueChange={(next) =>
-                        void move({ id: lead._id, status: next as LeadStatus })
-                      }
-                    >
-                      <SelectTrigger size="sm" className="flex-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {LEAD_STATUSES.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {LEAD_STATUS_LABELS[option]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-
-                    {canDelete && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Supprimer la fiche de ${lead.name}`}
-                        onClick={() => void remove({ id: lead._id })}
-                      >
-                        <Trash2Icon className="size-4" />
-                      </Button>
-                    )}
-                  </div>
-                </article>
-              ))}
+            `dropAnimation={null}` pour deux raisons, et la seconde est la
+            plus sérieuse. D'abord l'animation par défaut ramène le calque
+            vers l'emplacement d'ORIGINE de la carte — or la carte part
+            dans une autre colonne : elle montre le mauvais endroit. Ensuite
+            le calque reste monté tant que cette animation n'est pas
+            terminée, et une animation peut ne jamais se terminer — un
+            onglet passé en arrière-plan gèle la ligne de temps du
+            document. La carte reste alors collée à l'écran, relâchée pour
+            l'application mais pas pour l'œil. Sans animation, le calque
+            disparaît au relâchement, toujours. */}
+        <DragOverlay dropAnimation={null}>
+          {saisie && (
+            <div className="w-72 rotate-2 cursor-grabbing rounded-lg border bg-card p-3 text-sm shadow-lg">
+              <ContenuCarte lead={saisie} canDelete={canDelete} />
             </div>
-          </section>
-        ))}
-      </div>
+          )}
+        </DragOverlay>
+      </DndContext>
 
       <LeadMessages lead={openLead} onClose={() => setOpenLead(null)} />
+    </div>
+  )
+}
+
+function ColonneLeads({
+  status,
+  leads,
+  survolee,
+  canDelete,
+  aRefocaliser,
+  onOpen,
+  onRemove,
+}: {
+  status: LeadStatus
+  leads: Doc<"leads">[]
+  survolee: boolean
+  canDelete: boolean
+  aRefocaliser: Id<"leads"> | null
+  onOpen: (lead: Doc<"leads">) => void
+  onRemove: (id: Id<"leads">) => void
+}) {
+  // L'identifiant de la zone de dépôt EST le statut : c'est ce que
+  // `onDragEnd` relit pour composer la mutation, sans table de
+  // correspondance à tenir à jour.
+  const { setNodeRef } = useDroppable({ id: status })
+
+  return (
+    <section
+      ref={setNodeRef}
+      className={`flex w-72 shrink-0 flex-col gap-3 rounded-lg p-1 transition-colors ${
+        survolee ? "bg-accent" : ""
+      }`}
+    >
+      <header className="flex items-center justify-between px-1">
+        <h2 className="text-sm font-medium">{LEAD_STATUS_LABELS[status]}</h2>
+        <Badge variant="secondary" className="tabular-nums">
+          {leads.length}
+        </Badge>
+      </header>
+
+      <div className="flex flex-col gap-2">
+        {leads.map((lead) => (
+          <CarteLead
+            key={lead._id}
+            lead={lead}
+            canDelete={canDelete}
+            rattraperLeFocus={aRefocaliser === lead._id}
+            onOpen={() => onOpen(lead)}
+            onRemove={() => onRemove(lead._id)}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function CarteLead({
+  lead,
+  canDelete,
+  rattraperLeFocus,
+  onOpen,
+  onRemove,
+}: {
+  lead: Doc<"leads">
+  canDelete: boolean
+  rattraperLeFocus: boolean
+  onOpen: () => void
+  onRemove: () => void
+}) {
+  const { setNodeRef, setActivatorNodeRef, listeners, attributes, isDragging } =
+    useDraggable({ id: lead._id, data: { lead } satisfies DonneesCarte })
+  const poignee = useRef<HTMLButtonElement | null>(null)
+
+  // Cette carte vient d'arriver dans sa nouvelle colonne à la suite d'un
+  // dépôt au clavier, et le focus l'attend. Le drapeau est remis à zéro au
+  // glissement suivant, donc l'effet ne se redéclenche pas dans son dos.
+  useEffect(() => {
+    if (rattraperLeFocus) poignee.current?.focus()
+  }, [rattraperLeFocus])
+
+  return (
+    // Les écouteurs sont sur la carte entière : à la souris et au doigt, on
+    // attrape la fiche où l'on veut, comme avant.
+    //
+    // `select-none` : sans lui, un glissement commencé sur du texte démarre
+    // une sélection au lieu d'un déplacement, et les deux se disputent le
+    // geste.
+    <article
+      ref={setNodeRef}
+      {...listeners}
+      className={`cursor-grab select-none rounded-lg border bg-card p-3 text-sm shadow-xs active:cursor-grabbing ${
+        isDragging ? "opacity-40" : ""
+      }`}
+    >
+      <ContenuCarte
+        lead={lead}
+        canDelete={canDelete}
+        onOpen={onOpen}
+        onRemove={onRemove}
+        poignee={
+          // La poignée n'est pas une décoration : dnd-kit refuse de démarrer
+          // un glissement au clavier tant que le focus n'est pas exactement
+          // sur le nœud désigné ici. C'est ce qui laisse Entrée et Espace au
+          // bouton voisin, qui ouvre les messages — sans elle, les deux
+          // gestes se disputeraient la même touche.
+          <button
+            ref={(node) => {
+              poignee.current = node
+              setActivatorNodeRef(node)
+            }}
+            type="button"
+            {...attributes}
+            aria-label={`Déplacer la fiche de ${lead.name}`}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+          >
+            <GripVerticalIcon className="size-4" />
+          </button>
+        }
+      />
+    </article>
+  )
+}
+
+/**
+ * Ce qu'une carte montre, sans rien savoir du glissement.
+ *
+ * Rendu deux fois : à sa place dans la colonne, et dans le calque qui suit
+ * le geste. Le calque n'a ni poignée ni gestionnaires — il n'est qu'une
+ * image — et c'est pourquoi tout est facultatif ici.
+ */
+function ContenuCarte({
+  lead,
+  canDelete,
+  onOpen,
+  onRemove,
+  poignee,
+}: {
+  lead: Doc<"leads">
+  canDelete: boolean
+  onOpen?: () => void
+  onRemove?: () => void
+  poignee?: React.ReactNode
+}) {
+  return (
+    <div className="flex items-start gap-1">
+      <button
+        type="button"
+        className="min-w-0 flex-1 text-left"
+        disabled={onOpen === undefined}
+        onClick={onOpen}
+      >
+        <p className="font-medium">{lead.name}</p>
+        <p className="truncate text-muted-foreground">{lead.email}</p>
+        <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+          {formatDate(lead.lastMessageAt)}
+          {lead.messageCount > 1 && ` · ${lead.messageCount} messages`}
+        </p>
+      </button>
+
+      {poignee}
+
+      {canDelete && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          aria-label={`Supprimer la fiche de ${lead.name}`}
+          disabled={onRemove === undefined}
+          onClick={onRemove}
+        >
+          <Trash2Icon className="size-4" />
+        </Button>
+      )}
     </div>
   )
 }
@@ -233,8 +585,8 @@ function LeadMessages({
 }) {
   // `"skip"` tant qu'aucune fiche n'est ouverte : sans lui, cette query
   // s'abonnerait en permanence pour un panneau que personne ne regarde.
-  const messages = useQuery(
-    api.leads.messages,
+  const timeline = useQuery(
+    api.leads.timeline,
     lead === null ? "skip" : { id: lead._id as Id<"leads"> },
   )
 
@@ -250,25 +602,75 @@ function LeadMessages({
           </DialogDescription>
         </DialogHeader>
 
-        {messages === undefined ? (
+        {timeline === undefined ? (
           <p className="text-sm text-muted-foreground">Chargement…</p>
         ) : (
-          <ol className="flex flex-col gap-4">
-            {messages.map((message) => (
-              <li key={message._id} className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground tabular-nums">
-                  {formatDate(message._creationTime)}
-                </p>
-                {message.subject && (
-                  <p className="mt-1 font-medium">{message.subject}</p>
-                )}
-                {/* `whitespace-pre-wrap` : ce que la personne a écrit, avec
-                    ses retours à la ligne. Le rendre en HTML serait accepter
-                    du balisage venu d'un formulaire public. */}
-                <p className="mt-2 whitespace-pre-wrap">{message.body}</p>
-              </li>
-            ))}
-          </ol>
+          <>
+            {/* Dit franchement ce qui manque plutôt que de laisser une fiche
+                ancienne passer pour une fiche sans histoire. On ne fabrique
+                surtout pas d'événements rétroactifs : ils auraient l'air
+                vrais. */}
+            {!timeline.complete && (
+              <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                Cette fiche est antérieure au suivi des événements. Ses
+                messages sont là ; les changements de colonne d'avant ne sont
+                enregistrés nulle part.
+              </p>
+            )}
+
+            <ol className="relative flex flex-col gap-5 border-l pl-6">
+              {timeline.entries.map((entry, index) => (
+                <li key={`${entry.kind}-${entry.at}-${index}`} className="relative">
+                  {/* La pastille sur le filet vertical. `-left-[1.6875rem]`
+                      la recentre sur la bordure du `<ol>` : le filet fait
+                      1 px, la pastille 9, et le padding 24. */}
+                  <span
+                    aria-hidden="true"
+                    className="absolute -left-[1.6875rem] top-1.5 size-2.5 rounded-full border-2 border-background bg-border"
+                  />
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    {formatDate(entry.at)}
+                  </p>
+
+                  {entry.kind === "created" && (
+                    <p className="mt-1 text-sm">Première venue.</p>
+                  )}
+
+                  {entry.kind === "status" && (
+                    <p className="mt-1 text-sm">
+                      Passée de{" "}
+                      <Badge variant="outline">
+                        {LEAD_STATUS_LABELS[entry.from]}
+                      </Badge>{" "}
+                      à{" "}
+                      <Badge variant="outline">
+                        {LEAD_STATUS_LABELS[entry.to]}
+                      </Badge>
+                      {/* Le nom est celui recopié au moment du geste — un
+                          historique doit rester lisible après un départ. */}
+                      {entry.actorName !== null && <> par {entry.actorName}</>}
+                    </p>
+                  )}
+
+                  {entry.kind === "message" && (
+                    <div className="mt-1 rounded-lg border p-3">
+                      <p className="text-sm font-medium">A écrit</p>
+                      {entry.subject && (
+                        <p className="mt-1 font-medium">{entry.subject}</p>
+                      )}
+                      {/* `whitespace-pre-wrap` : ce que la personne a écrit,
+                          avec ses retours à la ligne. Le rendre en HTML
+                          serait accepter du balisage venu d'un formulaire
+                          public. */}
+                      <p className="mt-2 whitespace-pre-wrap text-sm">
+                        {entry.body}
+                      </p>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </>
         )}
       </DialogContent>
     </Dialog>

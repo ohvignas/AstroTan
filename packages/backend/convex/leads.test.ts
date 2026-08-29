@@ -9,6 +9,7 @@ import {
   signIn,
 } from "../testing/betterAuthFixture"
 import type { TestConvex } from "convex-test"
+import type { LeadTimelineEntry } from "./leads"
 import type schema from "./schema"
 
 const SECRET = "un-secret-partage-de-plus-de-32-caracteres"
@@ -42,6 +43,20 @@ async function seedActor(
   const user = await seedUser(t, { email, password, name: `Actor ${role}`, role })
   await signIn(t, email, password)
   return await identityFor(t, user.id)
+}
+
+/** Les corps des messages d'une frise, du plus récent au plus ancien. */
+function corps(entries: LeadTimelineEntry[]): string[] {
+  return entries.flatMap((entry) => (entry.kind === "message" ? [entry.body] : []))
+}
+
+/** Les changements de colonne d'une frise, sous une forme lisible. */
+function mouvements(entries: LeadTimelineEntry[]): string[] {
+  return entries.flatMap((entry) =>
+    entry.kind === "status"
+      ? [`${entry.from} -> ${entry.to} (${entry.actorName ?? "le visiteur"})`]
+      : [],
+  )
 }
 
 const MESSAGE = {
@@ -103,11 +118,8 @@ test("réécrire ne crée pas une seconde carte, et remet la fiche en tête", as
   expect(after.new[0]).toMatchObject({ name: "Camille Dupont", messageCount: 2 })
 
   // Rien n'est écrasé : les deux messages sont là, le plus récent en tête.
-  const messages = await admin.query(api.leads.messages, { id: after.new[0]!._id })
-  expect(messages.map((m) => m.body)).toEqual([
-    "Je relance.",
-    "Bonjour, je voudrais un devis.",
-  ])
+  const { entries } = await admin.query(api.leads.timeline, { id: after.new[0]!._id })
+  expect(corps(entries)).toEqual(["Je relance.", "Bonjour, je voudrais un devis."])
 })
 
 test("les bornes et l'adresse sont vérifiées côté serveur", async () => {
@@ -159,7 +171,7 @@ test("supprimer une fiche emporte ses messages", async () => {
   // Une fiche supprimée qui laisserait ses messages derrière elle serait
   // une fuite : personne ne les verrait plus, et ils resteraient.
   expect((await admin.query(api.leads.board, {})).new).toHaveLength(0)
-  await expect(admin.query(api.leads.messages, { id })).rejects.toThrow()
+  await expect(admin.query(api.leads.timeline, { id })).rejects.toThrow()
 })
 
 test("une panne du webhook ne perd pas le lead", async () => {
@@ -369,8 +381,8 @@ test("un échec d'envoi ne perd pas le lead", async () => {
   const board = await admin.query(api.leads.board, {})
   expect(board.new).toHaveLength(1)
   expect(board.new[0]).toMatchObject({ email: "camille@example.com", messageCount: 1 })
-  const messages = await admin.query(api.leads.messages, { id: board.new[0]!._id })
-  expect(messages.map((m) => m.body)).toEqual(["Bonjour, je voudrais un devis."])
+  const { entries } = await admin.query(api.leads.timeline, { id: board.new[0]!._id })
+  expect(corps(entries)).toEqual(["Bonjour, je voudrais un devis."])
 })
 
 test("sans compte owner ni admin, rien ne part et rien ne lève", async () => {
@@ -458,7 +470,150 @@ test("ni le webhook ni l'email en panne n'empêchent le lead d'arriver", async (
   expect(board.new).toHaveLength(1)
   expect(board.new[0]!.email).toBe(MESSAGE.email)
 
-  const messages = await admin.query(api.leads.messages, { id: board.new[0]!._id })
-  expect(messages).toHaveLength(1)
+  const { entries } = await admin.query(api.leads.timeline, { id: board.new[0]!._id })
+  expect(corps(entries)).toHaveLength(1)
   expect(envoi).toHaveBeenCalled()
+})
+
+// --- L'historique d'une fiche --------------------------------------------
+
+test("chaque changement de colonne laisse l'ancien, le nouveau et son auteur", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+
+  const board = await admin.query(api.leads.board, {})
+  const id = board.new[0]!._id
+  await admin.mutation(api.leads.move, { id, status: "contacted" })
+  await admin.mutation(api.leads.move, { id, status: "won" })
+
+  const { entries, complete } = await admin.query(api.leads.timeline, { id })
+
+  // C'est tout le point du lot : `leads.move` écrivait le nouveau statut
+  // par-dessus l'ancien, qui n'existait plus nulle part.
+  expect(mouvements(entries)).toEqual([
+    "contacted -> won (Actor admin)",
+    "new -> contacted (Actor admin)",
+  ])
+  // La création est le plancher, et elle est en bas.
+  expect(entries.at(-1)).toMatchObject({ kind: "created" })
+  expect(complete).toBe(true)
+})
+
+test("déposer une fiche dans sa propre colonne n'écrit aucune ligne", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+  const id = (await admin.query(api.leads.board, {})).new[0]!._id
+
+  await admin.mutation(api.leads.move, { id, status: "new" })
+
+  // « passé de Nouveau à Nouveau » serait du bruit dans un historique
+  // qu'on lit précisément pour comprendre ce qui a changé.
+  const { entries } = await admin.query(api.leads.timeline, { id })
+  expect(mouvements(entries)).toEqual([])
+})
+
+test("une relance raconte le retour en colonne Nouveau, sans auteur", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+  const id = (await admin.query(api.leads.board, {})).new[0]!._id
+  await admin.mutation(api.leads.move, { id, status: "lost" })
+
+  await t.mutation(api.leads.submit, { ...MESSAGE, body: "Je relance." })
+
+  const { entries } = await admin.query(api.leads.timeline, { id })
+  // Personne dans l'équipe ne l'a décidé : la personne a réécrit, et la
+  // fiche est remontée. L'auteur absent est ce qui dit cette différence.
+  expect(mouvements(entries)).toEqual(["lost -> new (le visiteur)", "new -> lost (Actor admin)"])
+  // Et le message se lit au-dessus du mouvement qu'il a provoqué, bien que
+  // les deux partagent la milliseconde.
+  expect(entries[0]).toMatchObject({ kind: "message", body: "Je relance." })
+  expect(entries[1]).toMatchObject({ kind: "status", to: "new" })
+})
+
+test("le corps du message reste entier dans la frise", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  const long = "Bonjour,\n\n" + "x".repeat(3_000) + "\n\nMerci."
+  await t.mutation(api.leads.submit, { ...MESSAGE, subject: "Un devis", body: long })
+
+  const id = (await admin.query(api.leads.board, {})).new[0]!._id
+  const { entries } = await admin.query(api.leads.timeline, { id })
+  // Tronquer côté serveur rendrait le panneau incapable de montrer ce que
+  // la personne a écrit, et personne ne s'en apercevrait.
+  expect(entries[0]).toMatchObject({ kind: "message", subject: "Un devis", body: long })
+})
+
+test("une fiche antérieure au suivi le dit, et garde ses messages", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+
+  // Les lignes déjà en base n'ont aucun événement. On les fabrique telles
+  // qu'elles sont — sans événement — plutôt que d'inventer un historique
+  // rétroactif à partir de dates approximatives, qui aurait l'air vrai.
+  const id = await t.run(async (ctx: any) => {
+    const leadId = await ctx.db.insert("leads", {
+      name: "Fiche ancienne",
+      email: "ancienne@example.com",
+      status: "qualified",
+      lastMessageAt: Date.now(),
+      messageCount: 1,
+    })
+    await ctx.db.insert("leadMessages", { leadId, body: "Écrit avant le suivi." })
+    return leadId
+  })
+
+  const { entries, complete } = await admin.query(api.leads.timeline, { id })
+  // Le message est là — ne pas savoir ce qui lui est arrivé n'est pas une
+  // raison de le cacher — mais la frise ne prétend pas être complète.
+  expect(corps(entries)).toEqual(["Écrit avant le suivi."])
+  expect(complete).toBe(false)
+})
+
+test("un déplacement sur une fiche ancienne complète l'historique sans le réécrire", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  const id = await t.run(async (ctx: any) =>
+    ctx.db.insert("leads", {
+      name: "Fiche ancienne",
+      email: "ancienne2@example.com",
+      status: "new",
+      lastMessageAt: Date.now(),
+      messageCount: 0,
+    }),
+  )
+
+  await admin.mutation(api.leads.move, { id, status: "contacted" })
+
+  const { entries, complete } = await admin.query(api.leads.timeline, { id })
+  expect(mouvements(entries)).toEqual(["new -> contacted (Actor admin)"])
+  // Le suivi commence là où il commence : la fiche reste marquée
+  // incomplète, parce que ce qui a précédé n'a toujours pas été enregistré.
+  expect(complete).toBe(false)
+})
+
+test("supprimer une fiche emporte son historique", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+  const id = (await admin.query(api.leads.board, {})).new[0]!._id
+  await admin.mutation(api.leads.move, { id, status: "contacted" })
+
+  await admin.mutation(api.leads.remove, { id })
+
+  // Des événements qui désignent une fiche disparue ne se rendent nulle
+  // part et ne se suppriment plus : ils resteraient pour toujours.
+  const restants = await t.run(async (ctx: any) => ctx.db.query("leadEvents").collect())
+  expect(restants).toHaveLength(0)
+})
+
+test("lire l'historique exige une session", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+  const id = (await admin.query(api.leads.board, {})).new[0]!._id
+
+  await expect(t.query(api.leads.timeline, { id })).rejects.toThrow()
 })

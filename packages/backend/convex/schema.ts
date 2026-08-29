@@ -176,6 +176,48 @@ export default defineSchema({
     userAgent: v.optional(v.string()),
   }).index("by_lead", ["leadId"]),
 
+  // Ce qui est arrivé à une fiche, dans l'ordre où c'est arrivé.
+  //
+  // La table `leads` ne porte que l'état COURANT : `status` dit où la fiche
+  // se trouve aujourd'hui, et le déplacement qui l'y a amenée n'existait
+  // nulle part — `leads.move` écrivait le nouveau statut par-dessus
+  // l'ancien, qui disparaissait. Un tableau à colonnes sans mémoire des
+  // colonnes traversées ne permet pas de répondre à « depuis quand cette
+  // personne attend ? », qui est la seule question qu'on se pose devant
+  // une fiche ancienne.
+  //
+  // Les événements sont écrits DANS la mutation qui change les choses, pas
+  // par une action planifiée : une écriture planifiée peut échouer seule,
+  // et un historique auquel il manque une ligne est pire qu'absent — on le
+  // croit complet.
+  //
+  // Champs à plat plutôt qu'une union d'objets : `from`/`to` n'ont de sens
+  // que pour `status`, `messageId` que pour `message`. Une union donnerait
+  // ce typage gratuitement, mais un index Convex se déclare sur un champ
+  // commun à toutes les branches, et c'est `leads.timeline` — un seul
+  // lecteur, un seul endroit — qui recompose la forme typée à la lecture.
+  leadEvents: defineTable({
+    leadId: v.id("leads"),
+    type: v.union(v.literal("created"), v.literal("message"), v.literal("status")),
+    // Le couple qui manquait. `from` absent sur `created` : rien ne
+    // précède la création.
+    from: v.optional(leadStatusValidator),
+    to: v.optional(leadStatusValidator),
+    // Le message que cet événement accompagne. Le CORPS n'est pas recopié
+    // ici : il vit dans `leadMessages` et nulle part ailleurs, sans quoi
+    // deux copies du même texte finiraient par diverger.
+    messageId: v.optional(v.id("leadMessages")),
+    // Qui a fait le geste, quand il vient de l'administration. Absent
+    // quand il vient du visiteur — c'est ce qui distingue « Antoine a
+    // classé la fiche » de « la personne a réécrit ».
+    actorId: v.optional(v.string()),
+    // Le nom d'affichage RECOPIÉ au moment du geste, volontairement. Un
+    // historique doit rester lisible après un changement de nom ou la
+    // suppression du compte ; le relire à l'affichage rendrait des lignes
+    // anonymes le jour où quelqu'un s'en va.
+    actorName: v.optional(v.string()),
+  }).index("by_lead", ["leadId"]),
+
   redirects: defineTable({
     // Normalisé comme un slug de page : sans slash de tête ni de fin, pour
     // que `/contact`, `contact` et `/contact/` ne puissent pas désigner

@@ -7,6 +7,7 @@ import {
   mutation,
   query,
 } from "./_generated/server"
+import type { MutationCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
@@ -109,6 +110,11 @@ export const submit = mutation({
         lastMessageAt: now,
         messageCount: 1,
       })
+      // Le plancher de l'historique. C'est sa présence — et rien d'autre —
+      // qui permet à `timeline` de distinguer « il ne s'est rien passé »
+      // de « ce qui s'est passé n'a pas été enregistré » pour les fiches
+      // antérieures au suivi.
+      await ctx.db.insert("leadEvents", { leadId, type: "created", to: "new" })
     } else {
       leadId = existing._id
       await ctx.db.patch(leadId, {
@@ -119,17 +125,33 @@ export const submit = mutation({
         lastMessageAt: now,
         messageCount: existing.messageCount + 1,
       })
+      // Une relance ramène la fiche en tête, donc dans la colonne Nouveau.
+      // C'est un vrai changement de colonne — celui qu'on voit se produire
+      // sur le tableau — et il se raconte comme les autres, sans auteur :
+      // personne dans l'équipe ne l'a décidé, la personne a réécrit.
+      if (existing.status !== "new") {
+        await ctx.db.insert("leadEvents", {
+          leadId,
+          type: "status",
+          from: existing.status,
+          to: "new",
+        })
+      }
     }
 
     // Un message n'écrase jamais le précédent. Fusionner les deux forcerait
     // à choisir entre garder le premier ou le dernier, et les deux choix
     // perdent quelque chose que personne ne pourra retrouver.
-    await ctx.db.insert("leadMessages", {
+    const messageId = await ctx.db.insert("leadMessages", {
       leadId,
       subject,
       body,
       userAgent: args.userAgent,
     })
+    // L'événement ne recopie pas le corps : il pointe la ligne qui le
+    // porte. Deux copies du même texte finiraient par diverger, et il n'y
+    // aurait plus moyen de dire laquelle la personne a écrite.
+    await ctx.db.insert("leadEvents", { leadId, type: "message", messageId })
 
     // APRÈS l'écriture, et planifié : le lead est en base quoi qu'il
     // advienne du tiers. Planifier avant, ou appeler pendant, ferait
@@ -186,9 +208,46 @@ export const board = query({
   },
 })
 
-export const messages = query({
+/** Une ligne de la frise, telle que le panneau de détail la rend. */
+export type LeadTimelineEntry =
+  | { kind: "created"; at: number }
+  | { kind: "message"; at: number; subject?: string; body: string }
+  | {
+      kind: "status"
+      at: number
+      from: LeadStatus
+      to: LeadStatus
+      /** `null` quand le geste vient du visiteur et non de l'équipe. */
+      actorName: string | null
+    }
+
+export type LeadTimeline = {
+  /** Du plus récent au plus ancien — l'ordre dans lequel on relit. */
+  entries: LeadTimelineEntry[]
+  /**
+   * Faux quand la fiche est antérieure au suivi des événements : ses
+   * messages sont là, mais ce qui leur est arrivé ne l'est pas. Le panneau
+   * le dit au lieu de laisser croire à une fiche sans histoire — et l'on
+   * ne fabrique surtout pas d'événements rétroactifs à partir de dates
+   * approximatives, qui auraient l'air vrais.
+   */
+  complete: boolean
+}
+
+// À date égale — deux écritures d'une même mutation partagent la
+// milliseconde — c'est ce rang qui décide, et non l'ordre d'arrivée dans
+// la boucle. Une relance produit d'un seul coup le retour en colonne
+// Nouveau et le message : « a écrit » se lit au-dessus de « repassé en
+// Nouveau », parce que le second est la conséquence du premier.
+const RANG: Record<LeadTimelineEntry["kind"], number> = {
+  created: 0,
+  status: 1,
+  message: 2,
+}
+
+export const timeline = query({
   args: { id: v.id("leads") },
-  handler: async (ctx, args): Promise<Doc<"leadMessages">[]> => {
+  handler: async (ctx, args): Promise<LeadTimeline> => {
     await requireRole(ctx, ["owner", "admin", "editor"])
 
     // La fiche d'abord : sans elle, rendre une liste vide laisserait croire
@@ -196,11 +255,70 @@ export const messages = query({
     const lead = await ctx.db.get(args.id)
     if (lead === null) throw new ConvexError({ code: "NOT_FOUND" })
 
-    return await ctx.db
-      .query("leadMessages")
-      .withIndex("by_lead", (q) => q.eq("leadId", args.id))
-      .order("desc")
-      .collect()
+    const [events, messages] = await Promise.all([
+      ctx.db
+        .query("leadEvents")
+        .withIndex("by_lead", (q) => q.eq("leadId", args.id))
+        .collect(),
+      ctx.db
+        .query("leadMessages")
+        .withIndex("by_lead", (q) => q.eq("leadId", args.id))
+        .collect(),
+    ])
+
+    // Les événements forment la trame ; les messages fournissent le texte.
+    // Ce qui reste dans cette table après la boucle est exactement ce
+    // qu'aucun événement ne couvre — les messages écrits avant que le
+    // suivi n'existe. Ils apparaissent quand même : ne pas savoir ce qui
+    // leur est arrivé n'est pas une raison de les cacher.
+    const parMessage = new Map(messages.map((message) => [message._id, message]))
+    const entries: LeadTimelineEntry[] = []
+
+    for (const event of events) {
+      if (event.type === "message") {
+        const message = event.messageId && parMessage.get(event.messageId)
+        // Un événement dont le message a disparu ne se rend pas : il
+        // afficherait une ligne vide sans rien apprendre.
+        if (!message) continue
+        parMessage.delete(message._id)
+        entries.push({
+          kind: "message",
+          at: message._creationTime,
+          subject: message.subject,
+          body: message.body,
+        })
+      } else if (event.type === "status") {
+        // `from`/`to` sont facultatifs dans le schéma parce qu'ils n'ont de
+        // sens que pour ce type — c'est ici, au seul point de lecture, que
+        // la forme typée se recompose.
+        if (event.from === undefined || event.to === undefined) continue
+        entries.push({
+          kind: "status",
+          at: event._creationTime,
+          from: event.from,
+          to: event.to,
+          actorName: event.actorName ?? null,
+        })
+      } else {
+        entries.push({ kind: "created", at: event._creationTime })
+      }
+    }
+
+    for (const message of parMessage.values()) {
+      entries.push({
+        kind: "message",
+        at: message._creationTime,
+        subject: message.subject,
+        body: message.body,
+      })
+    }
+
+    entries.sort((a, b) => b.at - a.at || RANG[b.kind] - RANG[a.kind])
+
+    return {
+      entries,
+      complete: events.some((event) => event.type === "created"),
+    }
   },
 })
 
@@ -216,13 +334,52 @@ export const newCount = query({
   },
 })
 
+/**
+ * Le nom sous lequel l'équipe se connaît, recopié dans l'événement.
+ *
+ * `profiles.displayName` plutôt que l'adresse : c'est ce que l'écran des
+ * utilisateurs affiche déjà. L'email sert de repli — un profil peut
+ * manquer le temps qu'`auth.onUpdate` le répare —, et il vaut toujours
+ * mieux qu'une ligne sans auteur.
+ */
+async function nomDeLAuteur(
+  ctx: MutationCtx,
+  authUserId: string,
+  email: string,
+): Promise<string> {
+  const profile = await ctx.db
+    .query("profiles")
+    .withIndex("by_auth_user", (q) => q.eq("authUserId", authUserId))
+    .unique()
+  return profile?.displayName ?? email
+}
+
 export const move = mutation({
   args: { id: v.id("leads"), status: statusValidator },
   handler: async (ctx, args): Promise<null> => {
-    await requireRole(ctx, ["owner", "admin", "editor"])
+    const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
     const lead = await ctx.db.get(args.id)
     if (lead === null) throw new ConvexError({ code: "NOT_FOUND" })
+
+    // Reposer une carte dans sa propre colonne n'est pas un déplacement.
+    // L'interface l'évite déjà, mais c'est ici que ça compte : une ligne
+    // « passé de Nouveau à Nouveau » serait du bruit dans un historique
+    // qu'on lit pour comprendre.
+    if (lead.status === args.status) return null
+
     await ctx.db.patch(args.id, { status: args.status })
+    // Dans la MÊME mutation que le changement, jamais dans une action
+    // planifiée : l'écriture et sa trace réussissent ou échouent ensemble.
+    // Un historique auquel il peut manquer une ligne est pire qu'absent —
+    // on le croit complet.
+    await ctx.db.insert("leadEvents", {
+      leadId: args.id,
+      type: "status",
+      from: lead.status,
+      to: args.status,
+      actorId: authUser._id,
+      actorName: await nomDeLAuteur(ctx, authUser._id, authUser.email),
+    })
     return null
   },
 })
@@ -243,6 +400,15 @@ export const remove = mutation({
       .withIndex("by_lead", (q) => q.eq("leadId", args.id))
       .collect()
     for (const message of messages) await ctx.db.delete(message._id)
+
+    // L'historique part avec, pour la même raison : des événements qui
+    // désignent une fiche disparue ne se rendent nulle part et ne se
+    // suppriment plus.
+    const events = await ctx.db
+      .query("leadEvents")
+      .withIndex("by_lead", (q) => q.eq("leadId", args.id))
+      .collect()
+    for (const event of events) await ctx.db.delete(event._id)
 
     await ctx.db.delete(args.id)
     return null
