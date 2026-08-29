@@ -135,13 +135,14 @@ describe("les variables hors de portée", () => {
   // un bloc qui n'était qu'une explication et une commande, sur un écran
   // qui ne doit montrer que des états, des étiquettes et des actions.
   //
-  // Ce qu'il gardait reste vrai et n'est plus dit nulle part dans
-  // l'administration : `SITE_URL` compose les liens contenus DANS les
-  // emails, et une valeur saisie à l'écran arriverait toujours trop tard
-  // (elle est lue au chargement des modules Convex). Le raisonnement est
-  // conservé en commentaire dans `email-templates.tsx`. Comme
-  // `WEB_SITE_URL` avant elle, elle attend un écran qui l'accueille —
-  // « Domaine et DNS » est le candidat naturel pour les deux.
+  // Ce qu'il gardait reste vrai et n'est plus dit qu'à un seul endroit :
+  // `SITE_URL` compose les liens contenus DANS les emails, et une valeur
+  // saisie à l'écran arriverait toujours trop tard (elle est lue au
+  // chargement des modules Convex) — le raisonnement complet est conservé
+  // en commentaire dans `email-templates.tsx`. `OrigineDesLiens` a rejoint
+  // `« Domaine et DNS »` (`components/domain-check.tsx`, rendu par
+  // `routes/_authed/settings/domaine.tsx`), qui portait déjà la même
+  // vérification pour `WEB_SITE_URL` — testé là-bas, pas ici.
 })
 
 describe("la précédence, écrite à l'écran", () => {

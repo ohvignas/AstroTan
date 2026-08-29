@@ -86,6 +86,58 @@ function LigneVerdict({ verdict }: { verdict: Verdict }) {
   )
 }
 
+// ---------------------------------------------------------------------
+// L'origine que porte SITE_URL — celle des liens envoyés par email.
+//
+// Un état, pas une explication : le raisonnement complet (pourquoi cette
+// valeur ne se règle pas depuis un champ, ce qu'elle compose) vit en
+// commentaire dans `email-templates.tsx` et `settings-environment.tsx`
+// (bloc « Domaine & emails — RETIRÉE »), pas ici. Le seul cas qui vaille un
+// signal est celui qu'`AvertissementDivergence` (`domaine.tsx`) porte déjà
+// pour `WEB_SITE_URL` : aligné sur la même forme plutôt que d'en inventer
+// une seconde.
+// ---------------------------------------------------------------------
+
+export function OrigineDesLiens({
+  adminUrl,
+  hote,
+  correspond,
+  declare,
+}: {
+  adminUrl: string | null
+  /** L'hôte de `adminUrl`, déjà résolu par l'appelant — voir `hoteDe` dans `domaine.tsx`. */
+  hote: string | null
+  correspond: boolean
+  declare: string | null
+}) {
+  if (correspond) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Origine des liens des emails :{" "}
+        {adminUrl === null ? (
+          "non réglée"
+        ) : (
+          <code className="text-xs">{adminUrl}</code>
+        )}
+      </p>
+    )
+  }
+  return (
+    <p className="text-sm">
+      <strong>
+        Ces liens partent de{" "}
+        {hote === null ? (
+          "aucune origine réglée"
+        ) : (
+          <code className="text-xs">{hote}</code>
+        )}
+      </strong>
+      , pas de <code className="text-xs">{declare}</code> : ils ne mènent
+      nulle part.
+    </p>
+  )
+}
+
 /** Ce que le résolveur a rendu — la moitié de l'écart, quand il y en a un. */
 function ValeursTrouvees({ valeurs }: { valeurs: string[] }) {
   if (valeurs.length === 0) return null

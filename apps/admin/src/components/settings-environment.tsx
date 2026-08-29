@@ -151,13 +151,17 @@ export function AiPage({ secrets }: { secrets: SecretsBloc }) {
 //     dans `email-templates.tsx` et `/settings/emails`. La saisie de
 //     `RESEND_API_KEY` avait disparu de toute l'administration avec cette
 //     réécriture — c'est la régression que ce nouvel écran referme ;
-//   • **`SITE_URL`** y est aussi (`OrigineDesLiens`), parce que c'est elle
-//     qui compose les liens contenus DANS les emails ;
-//   • **`WEB_SITE_URL`** n'est plus nommée nulle part. Elle ne concerne pas
-//     les emails (invalidation du cache du site public), et `domaine.tsx`
-//     la LIT déjà — `AvertissementDivergence` compare son hôte au domaine
-//     déclaré — sans la nommer ni donner sa commande. Manque assumé, et
-//     signalé : c'est à l'écran Domaine de la reprendre, pas à celui-ci.
+//   • **`SITE_URL`** est passée par `email-templates.tsx` (`OrigineDesLiens`)
+//     un temps, puis en est repartie avec la refonte « états, étiquettes,
+//     actions » (`settings-environment.test.tsx`) : un bloc qui n'était
+//     qu'explication et commande n'a pas sa place sur un écran de réglages.
+//     Elle vit maintenant à côté de `WEB_SITE_URL`, pour la même raison —
+//     voir la ligne suivante ;
+//   • **`WEB_SITE_URL`** et `SITE_URL` sont toutes deux nommées par
+//     `routes/_authed/settings/domaine.tsx` (`AvertissementDivergence` pour
+//     l'une, `OrigineDesLiens` de `components/domain-check.tsx` pour
+//     l'autre) : le domaine déclaré y vit déjà, c'est la seule ligne de
+//     base à laquelle comparer une origine.
 // ---------------------------------------------------------------------
 
 // ---------------------------------------------------------------------

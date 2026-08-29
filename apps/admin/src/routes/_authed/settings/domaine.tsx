@@ -5,7 +5,7 @@ import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Verdict } from "@astrotan/backend/convex/dns"
 import { describeSettingsError } from "@/lib/settingsErrors"
-import { ResultatsDns } from "@/components/domain-check"
+import { OrigineDesLiens, ResultatsDns } from "@/components/domain-check"
 import { useAutoSave } from "@/components/save-bar"
 import { SettingsGroup } from "@/components/settings-nav"
 import {
@@ -147,6 +147,15 @@ function DomaineForm({
         ) : null}
       </SettingsGroup>
 
+      <SettingsGroup>
+        <OrigineDesLiens
+          adminUrl={environment.adminUrl}
+          hote={hoteDe(environment.adminUrl)}
+          correspond={correspondAuDomaine(hoteDe(environment.adminUrl), domaineEnregistre)}
+          declare={domaineEnregistre}
+        />
+      </SettingsGroup>
+
       <AvertissementDivergence
         declare={domaineEnregistre}
         webUrl={environment.webUrl}
@@ -272,6 +281,21 @@ function hoteDe(origine: string | null): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * L'hôte de `SITE_URL` correspond-il au domaine déclaré ?
+ *
+ * Pas une égalité stricte, contrairement à `AvertissementDivergence` :
+ * `ADMIN_DOMAIN` est conventionnellement un SOUS-domaine du site
+ * (`admin.exemple.fr` pour `exemple.fr` — `docker/.env.example`), jamais le
+ * même hôte. `declare === null` rend `true` : sans domaine déclaré, il n'y
+ * a rien à comparer, pas une divergence à affirmer.
+ */
+function correspondAuDomaine(hote: string | null, declare: string | null): boolean {
+  if (declare === null) return true
+  if (hote === null) return false
+  return hote === declare || hote.endsWith(`.${declare}`)
 }
 
 function AvertissementDivergence({

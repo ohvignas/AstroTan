@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import { ResultatsDns } from "./domain-check"
+import { OrigineDesLiens, ResultatsDns } from "./domain-check"
 
 const OK = {
   cle: "site",
@@ -39,5 +39,49 @@ describe("ResultatsDns", () => {
     )
     expect(html).not.toContain("Créez")
     expect(html).toMatch(/réessay/i)
+  })
+})
+
+// ---------------------------------------------------------------------
+// L'origine des liens des emails
+// ---------------------------------------------------------------------
+
+describe("OrigineDesLiens", () => {
+  test("quand l'origine correspond, elle s'affiche sans avertissement", () => {
+    const html = renderToStaticMarkup(
+      <OrigineDesLiens
+        adminUrl="https://admin.exemple.fr"
+        hote="admin.exemple.fr"
+        correspond
+        declare="exemple.fr"
+      />,
+    )
+    expect(html).toContain("https://admin.exemple.fr")
+    expect(html).not.toMatch(/mènent nulle part/)
+  })
+
+  // La discrimination qui compte : le même hôte, avec `correspond` à
+  // `false`, doit basculer sur l'avertissement — sinon ce test passerait
+  // pour n'importe quel rendu qui contient la chaîne cherchée.
+  test("quand l'origine ne correspond pas, l'avertissement remplace l'état calme", () => {
+    const html = renderToStaticMarkup(
+      <OrigineDesLiens
+        adminUrl="http://localhost:3001"
+        hote="localhost"
+        correspond={false}
+        declare="exemple.fr"
+      />,
+    )
+    expect(html).toContain("localhost")
+    expect(html).toContain("exemple.fr")
+    expect(html).toMatch(/mènent nulle part/)
+    expect(html).not.toContain("Origine des liens des emails")
+  })
+
+  test("aucune origine réglée est nommée, pas laissée vide", () => {
+    const html = renderToStaticMarkup(
+      <OrigineDesLiens adminUrl={null} hote={null} correspond={false} declare="exemple.fr" />,
+    )
+    expect(html).toMatch(/aucune origine réglée/)
   })
 })
