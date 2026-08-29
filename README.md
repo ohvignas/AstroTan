@@ -21,10 +21,18 @@ délibéré : trois modèles de contenu en base ont été essayés puis retirés
 ## Mise en service
 
 **Si un agent (Claude Code, Cursor, Codex…) installe ce template : lisez
-[`AGENTS.md`](AGENTS.md).** Il contient les commandes réelles, les huit étapes
-d'amorçage dans l'ordre, les invariants et les pièges d'environnement.
+[`AGENTS.md`](AGENTS.md).** Il contient les commandes réelles, les invariants
+et les pièges d'environnement.
 
-Pour un humain, tout ce qui peut être automatisé l'est par une commande :
+Le parcours complet, du clone au premier écran, tient en six étapes — et les
+trois du milieu sont une seule commande.
+
+**1. Créer le déploiement Convex.** Depuis `packages/backend`, dans un vrai
+terminal (`npx convex dev` est interactive, un agent ne peut pas la lancer).
+Noter les deux URLs, `*.convex.cloud` et `*.convex.site`, puis générer une
+clé de déploiement de production (*Settings → Deploy keys*).
+
+**2. Remplir un fichier, lancer une commande.**
 
 ```bash
 corepack enable && pnpm install
@@ -34,27 +42,50 @@ pnpm bootstrap               # distribue
 ```
 
 Vous remplissez [`.env.deploy`](.env.deploy.example) — domaines, email ACME,
-dépôt et propriétaire GHCR, URLs et clé de déploiement Convex, accès SSH du
-VPS, clé Resend. Le script en distribue les valeurs vers les trois
-destinations qui ne peuvent pas se lire entre elles :
+adresse du premier compte, dépôt et propriétaire GHCR, URLs et clé de
+déploiement Convex, accès SSH du VPS, clé Resend. Le script en distribue les
+valeurs vers les trois destinations qui ne peuvent pas se lire entre elles :
 
 | Destination | Ce qui y est posé |
 |---|---|
-| déploiement Convex | les 7 variables de [`packages/backend/.env.example`](packages/backend/.env.example), par `convex env set` |
-| secrets GitHub Actions | les 9 secrets de [`docker/README.md`](docker/README.md) §7, par `gh secret set` |
+| déploiement Convex | les variables de [`packages/backend/.env.example`](packages/backend/.env.example), par `convex env set` |
+| secrets GitHub Actions | les secrets de [`docker/README.md`](docker/README.md) §7, par `gh secret set` |
 | développement local | `apps/web/.env.local` et `apps/admin/.env.local` |
 
-Il génère au passage `BETTER_AUTH_SECRET`, `PREVIEW_SECRET` et
-`REVALIDATE_SECRET` — une fois, puis les relit tels quels — et produit
+Il génère au passage les dix secrets que personne ne choisit à la main —
+le secret de session, les quatre clés HMAC, la clé maîtresse `SECRETS_KEY`,
+les trois secrets Umami — une fois, puis les relit tels quels, et produit
 `.env.vps`, le bloc à copier dans `~/astrotan/.env` sur le VPS. Il n'affiche
 jamais la valeur d'un secret, et `--dry-run` n'écrit ni n'appelle rien.
 
-Restent à votre charge, parce qu'ils n'ont rien d'automatisable : le DNS, la
-visibilité des packages GHCR, le premier essai sur le CA de staging de Let's
-Encrypt, et le premier déploiement. Le script les rappelle en fin
-d'exécution avec la section correspondante de [`docker/README.md`](docker/README.md),
-**qui reste la référence** — et la marche à suivre entière pour qui n'a ni
-`gh` ni Node sous la main.
+**3. Ce que le script ne peut pas faire.** Il les rappelle en fin
+d'exécution, chacun avec sa section de [`docker/README.md`](docker/README.md),
+**qui reste la référence** : la visibilité des packages GHCR, le DNS, la
+copie de `.env.vps` sur le VPS, et le premier essai sur le CA de *staging*
+de Let's Encrypt (5 certificats par 7 jours en production, sans remise à
+zéro possible).
+
+**4. Premier déploiement.** Pousser sur `main` et regarder le workflow
+*Deploy*. C'est lui qui lance `convex deploy`, donc lui qui met les
+functions sur le déploiement.
+
+**5. Relancer `pnpm bootstrap`, une fois.** Rien à modifier, rien à
+ressaisir : le script est rejouable et ne repose aucun secret. Ce second
+passage fait les deux choses qui exigeaient que les functions existent, et
+sans lesquelles un déploiement dont tous les conteneurs sont `healthy`
+reste inutilisable :
+
+- il crée les lignes `pages` — **sans elles, toutes les URL du site
+  répondent 404**, y compris `/`. Une page est un couple : son fichier
+  `.astro` *et* sa ligne ;
+- il émet l'invitation du premier compte, en rôle `owner`. L'accès au
+  dashboard est sur invitation seule : **sans elle, personne n'entre**,
+  pas même vous.
+
+**6. Ouvrir le lien `…/accept-invite?token=…`** que le script vient
+d'afficher, et choisir son mot de passe sur la page normale. Aucun mot de
+passe ne passe par le script, le shell, ou un historique. Les comptes
+suivants s'invitent depuis le dashboard.
 
 Chaque `.env.example` documente, variable par variable : à quoi elle sert, où
 trouver la valeur, si c'est un secret, et ce qui casse si elle est fausse.

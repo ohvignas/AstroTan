@@ -569,12 +569,21 @@ const CONVEX_VARS = [
   { name: "RESEND_TEST_MODE", value: g("RESEND_TEST_MODE") || "true" },
 ];
 
-// Les secrets de docker/README.md §7, dans son ordre. La liste ne couvre pas
-// `PUBLIC_UMAMI_WEBSITE_ID` ni les deux identifiants de pixels : aucune de
-// ces valeurs n'existe avant qu'un humain ait ouvert Umami ou la console de
-// l'annonceur, donc ce script n'a rien à en dire. Elles se posent à la main
-// (README §7 et §13), et leur absence est sans conséquence — le site ne
-// mesure alors rien et n'appelle aucun tiers.
+// Les secrets de docker/README.md §7, dans son ordre.
+//
+// CINQ secrets référencés par `deploy.yml` ne sont PAS dans cette liste, et
+// il faut les nommer tous les cinq — en annoncer trois donnait une liste
+// qu'on croyait complète :
+//
+//   PUBLIC_UMAMI_URL, PUBLIC_UMAMI_WEBSITE_ID, PUBLIC_UMAMI_RECORDER,
+//   PUBLIC_META_PIXEL_ID, PUBLIC_GOOGLE_TAG_ID
+//
+// Aucune de ces valeurs n'existe avant qu'un humain ait ouvert Umami ou la
+// console de l'annonceur, donc ce script n'a rien à en dire. Elles se
+// posent à la main (docker/README.md §7 et §13), et leur absence est sans
+// conséquence pour le build : le site ne mesure alors rien et n'appelle
+// aucun tiers. C'est le trou assumé que `check-env-wiring.mjs` documente
+// aussi, sous « ce qu'il ne vérifie pas ».
 const GITHUB_SECRETS = [
   { name: "CONVEX_DEPLOY_KEY", value: g("CONVEX_DEPLOY_KEY"), secret: true },
   { name: "PUBLIC_CONVEX_URL", value: g("CONVEX_CLOUD_URL") },
@@ -1098,4 +1107,11 @@ ${C.b}Ce qui reste à votre charge${C.r} — le script ne peut pas le faire pour
      sans lesquelles TOUTES les URL du site répondent 404, et rend le lien
      du premier compte — sans lui, personne n'entre dans le dashboard.
                                                      ${C.dim}docker/README.md §8${C.r}
+  7. ${C.cyn}Mesure d'audience${C.r}, facultative — cinq secrets GitHub que ce script ne
+     pose pas, parce qu'aucune de leurs valeurs n'existe avant qu'un humain
+     ait ouvert Umami ou la console d'un annonceur :
+     PUBLIC_UMAMI_URL, PUBLIC_UMAMI_WEBSITE_ID, PUBLIC_UMAMI_RECORDER,
+     PUBLIC_META_PIXEL_ID, PUBLIC_GOOGLE_TAG_ID. Absentes, le site ne mesure
+     rien et n'appelle aucun tiers — c'est un défaut sûr, pas une panne.
+                                                     ${C.dim}docker/README.md §7 et §13${C.r}
 ${DRY ? `\n${C.ylw}Relancez sans --dry-run pour appliquer.${C.r}` : ""}`);

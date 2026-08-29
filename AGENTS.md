@@ -70,9 +70,11 @@ with a missing or stale `_generated`, regenerate it with a real
 
 ## First-time setup
 
-Steps 2 to 4 below are `pnpm bootstrap` (`scripts/bootstrap.mjs`). It is the
-only place that knows all of the configuration at once, because the three
-destinations cannot read each other.
+Steps 2 to 4, and step 9, are `pnpm bootstrap` (`scripts/bootstrap.mjs`). It
+is the only place that knows all of the configuration at once, because the
+three destinations cannot read each other. It is replayable by design, and
+step 9 is that design being used: the two things it cannot do before the
+first `convex deploy` are done by running it a second time.
 
 ```bash
 pnpm bootstrap --dry-run   # creates .env.deploy, then shows every action
@@ -81,13 +83,19 @@ pnpm bootstrap             # distributes
 ```
 
 Flags: `--dry-run` (writes nothing, calls neither `gh` nor `convex`),
-`--skip-convex`, `--skip-github`, `--help`. Every step announces itself and
-is skipped, loudly, when its prerequisite is missing (`gh` absent or not
-authenticated, `node_modules` not installed). The script never prints a
-secret's value — state, length and a short SHA-256 fingerprint only.
+`--skip-convex`, `--skip-github`, `--skip-seed`, `--skip-invite`, `--help`.
+Every step announces itself and is skipped, loudly, when its prerequisite is
+missing (`gh` absent or not authenticated, `node_modules` not installed).
+The script never prints a secret's value — state, length and a short SHA-256
+fingerprint only. The one exception is the first account's invitation link,
+which has no purpose unless a human reads it, and which grants nothing the
+deploy key in hand does not already grant.
 
-An agent may run it: nothing in it is interactive. `npx convex dev` in step 1
-still is, and still must be left to the human.
+An agent may run it, and nothing in it ever blocks. It asks one question —
+the first account's address — only when `stdin` is a TTY and `/dev/tty` can
+be opened; otherwise it keeps the default (`ADMIN_EMAIL`, else `ACME_EMAIL`)
+and says which one it took. `npx convex dev` in step 1 is still interactive,
+and still must be left to the human.
 
 1. **Create the Convex deployment.** Run `npx convex dev` from
    `packages/backend` in a real terminal (it is interactive, see Environment
@@ -96,11 +104,16 @@ still is, and still must be left to the human.
    generate a production deploy key (Settings → Deploy keys).
 2. **The Convex deployment's own variables** — `BETTER_AUTH_SECRET`,
    `SITE_URL`, `WEB_SITE_URL`, `PREVIEW_SECRET`, `REVALIDATE_SECRET`,
+   `LEAD_SUBMIT_SECRET`, `CONSENT_LOG_SECRET`, `SECRETS_KEY`,
    `RESEND_API_KEY`, `RESEND_TEST_MODE` — posted by `convex env set`, value
    on stdin. Each is documented in
    [`packages/backend/.env.example`](packages/backend/.env.example), which
-   stays authoritative. An empty `RESEND_API_KEY` is not posted at all, and
-   the script says so.
+   stays authoritative, and `scripts/check-env-wiring.mjs` fails when
+   `packages/backend/convex/` reads one that file does not document. An
+   empty `RESEND_API_KEY` is not posted at all, and the script says so.
+   `SECRETS_KEY` is the master key for tokens typed into the dashboard:
+   without it the whole `secrets` family is inert — the refusal is clean,
+   but `/settings/mesure` and `/settings/ia` do nothing.
 3. **The app-side variables for local development**: `apps/web/.env.local` and
    `apps/admin/.env.local`, written from the matching `.env.example` (that is
    the filename those examples ask for, and the one Vite and Astro load last,
@@ -110,14 +123,19 @@ still is, and still must be left to the human.
    1 built you. `PREVIEW_SECRET` and `REVALIDATE_SECRET` are injected: they
    must be byte-identical to the Convex deployment's, being HMAC keys checked
    on both sides of a boundary, not passwords.
-4. **The nine GitHub Actions secrets**, posted by `gh secret set --repo
+4. **The GitHub Actions secrets**, posted by `gh secret set --repo
    <owner/name>`, value on stdin. `--repo` is mandatory here: a fresh clone
    of this template usually has no git remote, and without it `gh` fails on
    "no git remote found". The name comes from `GITHUB_REPOSITORY` in
-   `.env.deploy` — the script never guesses it. Two of the nine are files
+   `.env.deploy` — the script never guesses it. Two of them are files
    rather than typed values: `VPS_SSH_KEY` (read from `VPS_SSH_KEY_PATH`) and
    `VPS_SSH_KNOWN_HOSTS` (from `ssh-keyscan -H`, announced before it runs).
-   `docker/README.md` §7 lists all nine and where each comes from.
+   `docker/README.md` §7 is authoritative on the list and on where each
+   value comes from. Five build-time `PUBLIC_*` are deliberately left out —
+   `PUBLIC_UMAMI_URL`, `PUBLIC_UMAMI_WEBSITE_ID`, `PUBLIC_UMAMI_RECORDER`,
+   `PUBLIC_META_PIXEL_ID`, `PUBLIC_GOOGLE_TAG_ID`: none of those values
+   exists before a human has opened Umami or an advertiser's console, and
+   their absence costs measurement, never a build.
 
 What the script cannot do, and prints as a reminder with its runbook section:
 
@@ -139,6 +157,30 @@ What the script cannot do, and prints as a reminder with its runbook section:
    7 days and a botched first attempt costs a week; `.env.vps` ships the
    `ACME_CA_SERVER` line commented, ready to uncomment), then push to `main`
    and let the `Deploy` workflow run (§8).
+
+Then back to the script, one last time:
+
+9. **Run `pnpm bootstrap` again**, once, after that first deploy. Nothing to
+   edit and no secret is re-posted; the two steps below simply needed the
+   functions to exist, and `convex deploy` (step 1 of the `Deploy` workflow)
+   is what puts them there. Without them a deployment whose pipeline is
+   green and whose containers are `healthy` is unusable:
+   - `seed:demoContent` creates the `pages` rows. Despite the name it is not
+     decoration: it is the only code in the repository that creates them,
+     and **without them every URL answers 404**, `/` included. A page is a
+     pair — its `.astro` file *and* its row. Idempotent by slug.
+   - `bootstrap:createInvitation` issues the first account's invitation,
+     with `role: "owner"`. Access is invitation-only (`disableSignUp: true`,
+     no OAuth), so **without it nobody can get in**. `owner` and never
+     `admin`: `invitations.create` refuses `role: "owner"` for every actor,
+     and an admin may not invite, promote, demote or remove another admin —
+     a deployment whose first account is an admin never has an owner and
+     stays capped at one administrator, with no way out through the UI. Not
+     idempotent, so the script reads `bootstrap:owners` first and skips when
+     an owner already exists, rather than minting a link that will be
+     refused at acceptance time. Open the printed
+     `/accept-invite?token=…` link and choose a password on the ordinary
+     page; no password ever passes through the script or a shell history.
 
 Rollback: `docker/README.md` §9. Schema changes: expand → migrate →
 contract, §10.
