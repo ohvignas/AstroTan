@@ -168,6 +168,21 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
       // du bas, qui existe pour forcer cette décision au lieu de la laisser
       // passer en silence.
       args = { visitorId: "visiteur-inexistant" }
+    } else if (q.argFields.length === 1 && q.argFields[0] === "secret") {
+      // `routing.hotes` : les hôtes que Traefik doit router, pour le
+      // service `routeur`, qui n'a pas de session — d'où un SECRET
+      // PARTAGÉ (`ROUTING_SECRET`) plutôt qu'un `requireRole`. La garde
+      // est différente, la conséquence ici est la même que pour les
+      // queries gardées par session : `assertSharedSecret` lève avant
+      // qu'on lise quoi que ce soit, donc la valeur n'a pas d'importance
+      // et cette query est exclue du contrôle de fuite plutôt que sautée
+      // en silence.
+      //
+      // Elle ne rend de toute façon aucune page : trois hôtes, dérivés.
+      // Ce qui est déclaré ici, c'est la FORME de l'argument, pour que la
+      // prochaine query gardée par secret ne tombe pas dans le `throw` du
+      // bas sans que personne n'ait décidé.
+      args = { secret: "ce-secret-est-faux-et-c-est-le-propos" }
     } else if (q.argFields.length === 1 && q.argFields[0] === "id") {
       // Task 8's `pages.get`/`pages.publicationStatus`: both session-gated
       // (`requireRole`), so calling them with no identity at all (this
