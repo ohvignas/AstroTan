@@ -459,6 +459,19 @@ pas que Convex répond, et c'est voulu : une panne du backend ne doit pas
 faire redémarrer en boucle un site qui sert encore parfaitement ses pages
 prérendues.
 
+**Tant que `RESEND_TEST_MODE` n'est pas passé à `false`, aucun email n'est
+réellement délivré** — ni une invitation envoyée depuis le dashboard
+au-delà de la première (celle de `bootstrap:createInvitation`, qui ne passe
+pas par Resend), ni une réinitialisation de mot de passe : Resend accepte
+l'envoi et ne le délivre qu'à ses propres adresses de test
+(`packages/backend/.env.example` documente la clé). Faites-le maintenant,
+une fois un domaine d'expédition vérifié dans le tableau de bord Resend —
+pas après qu'un adoptant ait perdu son mot de passe pour le découvrir :
+
+```bash
+cd packages/backend && npx convex env set RESEND_TEST_MODE false
+```
+
 **Si Umami est utilisé sur ce déploiement (section 13), démarrer la purge
 de rétention maintenant.** Le pipeline `Deploy` ne le fait jamais — c'est
 volontaire (§13.10) — donc `/confidentialite` annoncerait une purge de 13

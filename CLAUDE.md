@@ -172,9 +172,15 @@ Ce sont des **index**, pas la doc complète. Rafraîchir avec
 ## Amorcer un accès administrateur
 
 L'accès au dashboard est sur invitation seule (`disableSignUp: true`, pas
-d'OAuth), et émettre une invitation exige d'être déjà owner ou admin. Deux
-situations n'ont donc pas d'issue par l'interface : un déploiement neuf sans
-aucun compte, et la perte de tous les accès owner/admin.
+d'OAuth), et émettre une invitation exige d'être déjà owner ou admin. Oublier
+son propre mot de passe n'en fait plus partie : la personne le réinitialise
+elle-même, sans passer par la CLI — à condition que l'envoi d'emails soit
+réellement configuré (`RESEND_TEST_MODE=false`, voir `docker/README.md` §8 ;
+tant que ce n'est pas fait, Resend accepte l'envoi et ne le délivre jamais).
+
+Deux situations restent sans issue par l'interface : un déploiement neuf sans
+aucun compte, et la perte de **tous** les accès owner/admin à la fois — perdre
+un seul mot de passe n'y suffit plus.
 
 **`pnpm bootstrap` le fait** — étape 7, une fois les functions déployées :
 il lit `bootstrap:owners`, saute si un owner existe déjà, et rend sinon le

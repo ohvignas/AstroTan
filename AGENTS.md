@@ -182,6 +182,13 @@ Then back to the script, one last time:
      `/accept-invite?token=…` link and choose a password on the ordinary
      page; no password ever passes through the script or a shell history.
 
+`bootstrap:createInvitation` is also the only way back in if every
+owner/admin account is lost at once. Losing a single password is different:
+that account now resets its own, from the login screen, no CLI involved —
+but only once email sending is actually configured
+(`RESEND_TEST_MODE=false`, `docker/README.md` §8; until then Resend accepts
+the send and never delivers it).
+
 Rollback: `docker/README.md` §9. Schema changes: expand → migrate →
 contract, §10.
 
