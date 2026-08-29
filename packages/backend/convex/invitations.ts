@@ -11,6 +11,7 @@ import { MAX_DISPLAY_NAME_LENGTH } from "./profiles"
 import { MUTATION_REGISTRY } from "./_registry"
 import { makeResend } from "./lib/resend"
 import { resoudreExpediteur } from "./lib/expediteur"
+import { rendreHtml, rendreTexte, singleLine } from "./lib/gabarit"
 import { journaliser } from "./lib/auditEvent"
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
@@ -257,13 +258,41 @@ export const sendInvitationEmail = internalAction({
     if (!siteUrl) throw new Error("SITE_URL is not set on this Convex deployment")
     const link = `${siteUrl}/accept-invite?token=${encodeURIComponent(claimed.token)}`
 
+    // Le texte vient de l'écran « envoi des emails », ou du catalogue quand
+    // personne n'y a touché — `gabaritPour` décide, et il est le SEUL à
+    // décider (voir l'en-tête d'`emails.ts`). Il revalide déjà la ligne
+    // enregistrée avant de la rendre, si bien qu'un gabarit devenu invalide
+    // (le catalogue a gagné une variable obligatoire depuis) fait retomber
+    // l'envoi sur le littéral du code au lieu de l'arrêter — même forme que
+    // `choisirExpediteur`. Revalider une seconde fois ici serait recopier
+    // cette règle à un endroit où elle finirait par diverger.
+    //
+    // Aucune lecture d'`actif` : l'invitation n'est pas désactivable, et
+    // c'est le seul chemin de création de compte du dépôt (voir
+    // `lib/catalogueEmails.ts`). Un interrupteur consulté ici — même un qui
+    // ne devrait jamais valoir faux — fermerait cette porte sans recours le
+    // jour où une ligne arriverait par une restauration de sauvegarde.
+    const gabarit = await ctx.runQuery(internal.emails.gabarit, { cle: "invitation" })
+    const valeurs = { lien: link }
+
     const resend = await makeResend(ctx)
     await resend.sendEmail(ctx, {
       from: await resoudreExpediteur(ctx),
       to: claimed.email,
-      subject: "Invitation à rejoindre AstroTan",
-      html: `<p>Vous avez été invité·e à rejoindre AstroTan.</p><p><a href="${link}">Créer votre compte</a></p>`,
-      text: `Vous avez été invité·e à rejoindre AstroTan : ${link}`,
+      // `singleLine` APRÈS le rendu, pas avant : `validerGabarit` garantit
+      // que le GABARIT de l'objet tient sur une ligne, jamais ce que les
+      // valeurs y injectent. Ici elles sont construites par le serveur,
+      // mais la protection appartient au site de rendu, pas à la
+      // provenance du jour — c'est `leads.ts` qui reçoit d'Internet, et les
+      // deux envois doivent se lire pareil.
+      subject: singleLine(rendreTexte(gabarit.objet, valeurs)),
+      // Le corps est du texte brut, y compris celui du catalogue : un
+      // gabarit réécrit peut déplacer, renommer ou retirer le lien, si
+      // bien qu'aucune ancre `<a>` ne peut être reconstruite autour de lui
+      // sans deviner. `white-space:pre-wrap` rend les sauts de ligne du
+      // texte, et les clients de messagerie transforment l'URL en lien.
+      html: `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs)}</p>`,
+      text: rendreTexte(gabarit.corps, valeurs),
     })
   },
 })

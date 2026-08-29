@@ -16,7 +16,7 @@ import { resoudreExpediteur } from "./lib/expediteur"
 // Déplacés dans `lib/gabarit.ts`, où le rendu des gabarits d'email en a
 // besoin aussi. Une règle d'échappement recopiée en deux endroits finit
 // par diverger, et c'est la copie oubliée qui laisse passer l'injection.
-import { escapeHtml, singleLine } from "./lib/gabarit"
+import { escapeHtml, rendreHtml, rendreTexte, singleLine } from "./lib/gabarit"
 import { lireSecret } from "./secrets"
 import { listUsersWithRole } from "./users"
 import { assertSharedSecret } from "./lib/sharedSecret"
@@ -705,6 +705,16 @@ export const notifyStaff = internalAction({
     messageCount: v.number(),
   },
   handler: async (ctx, args): Promise<null> => {
+    // Lu AVANT la clé Resend : couper cette notification est une décision
+    // explicite de l'adoptant, là où une clé absente n'est qu'une
+    // configuration incomplète. Le silence est le même dans les deux cas —
+    // et c'est voulu : `emails.setActif` a déjà journalisé qui a coupé
+    // quoi, un job en échec ne dirait rien de plus que ce journal.
+    const gabarit = await ctx.runQuery(internal.emails.gabarit, {
+      cle: "leadNotification",
+    })
+    if (!gabarit.actif) return null
+
     // `lireSecret` et non `process.env` : c'est LE point de lecture des
     // jetons (`secrets.ts`), et il connaît la précédence environnement →
     // base. La garde précédente ne voyait que l'environnement, si bien
@@ -728,23 +738,54 @@ export const notifyStaff = internalAction({
     const relance =
       args.messageCount > 1 ? `${args.messageCount}e message de cette personne.` : null
 
-    const text = [
-      `${name} <${args.email}> a écrit depuis le formulaire de contact.`,
-      ...(relance ? [relance] : []),
-      ``,
-      `Sujet : ${subject}`,
-      ``,
-      args.body,
-      ``,
-      `Répondre depuis le dashboard : ${link}`,
-    ].join("\n")
+    // Les cinq variables que `lib/catalogueEmails.ts` déclare pour cet
+    // email, et rien de plus : `rendreTexte` rend la chaîne vide pour tout
+    // le reste, et `validerGabarit` a déjà refusé à l'écriture ce qui n'est
+    // pas dans cette liste.
+    //
+    // `nom` et `sujet` arrivent déjà passés par `singleLine` — ce sont des
+    // champs d'une seule ligne par nature. `message` non : il est
+    // multi-ligne par construction, et c'est lui qui rend obligatoire le
+    // `singleLine` sur l'OBJET rendu, plus bas.
+    const valeurs = {
+      nom: name,
+      email: args.email,
+      sujet: subject,
+      message: args.body,
+      lien: link,
+    }
 
+    // La relance est composée AUTOUR du gabarit, jamais dedans, et c'est le
+    // seul des deux choix possibles qui tienne :
+    //
+    // - `messageCount` ne peut pas devenir une variable du catalogue. Le
+    //   langage de gabarit n'a pas de condition, si bien que
+    //   `{{messageCount}}` afficherait « 1e message de cette personne. » dès
+    //   la première prise de contact — une phrase fausse à chaque premier
+    //   message, chez tout adoptant qui l'emploierait.
+    // - Une variable `relance` valant la phrase entière ou la chaîne vide
+    //   ne serait pas une variable : ce serait une phrase française écrite
+    //   en dur dans le code, exposée sous un nom qui promet une valeur, et
+    //   elle laisserait une ligne blanche au milieu du corps les fois où
+    //   elle ne dit rien.
+    //
+    // C'est aussi ce que `lib/catalogueEmails.ts` a déjà tranché en
+    // écrivant que la relance « reste une décision du serveur, pas un texte
+    // que ce catalogue expose à la modification ». Elle passe donc devant
+    // le corps rendu, à une place que l'adoptant ne peut ni déplacer ni
+    // faire disparaître — c'est ce que garde le test « la mention de
+    // relance survit au passage par le gabarit ».
+    const corpsTexte = rendreTexte(gabarit.corps, valeurs)
+    const text = relance ? `${relance}\n\n${corpsTexte}` : corpsTexte
+
+    // Le gabarit est du texte brut : ses sauts de ligne ont besoin de
+    // `pre-wrap`, et le lien de réponse n'est plus une ancre `<a>` parce
+    // qu'un texte réécrit peut le déplacer, le renommer ou le retirer — on
+    // ne peut pas en reconstruire une sans deviner. `rendreHtml` échappe
+    // les valeurs (elles viennent d'Internet), pas le gabarit.
     const html = [
-      `<p><strong>${escapeHtml(name)}</strong> &lt;${escapeHtml(args.email)}&gt; a écrit depuis le formulaire de contact.</p>`,
       relance ? `<p>${escapeHtml(relance)}</p>` : "",
-      `<p><strong>Sujet :</strong> ${escapeHtml(subject)}</p>`,
-      `<p style="white-space:pre-wrap">${escapeHtml(args.body)}</p>`,
-      `<p><a href="${escapeHtml(link)}">Répondre depuis le dashboard</a></p>`,
+      `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs)}</p>`,
     ].join("")
 
     const resend = await makeResend(ctx)
@@ -760,7 +801,16 @@ export const notifyStaff = internalAction({
       await resend.sendEmail(ctx, {
         from: expediteur,
         to,
-        subject: singleLine(`Nouveau message de ${name}`),
+        // `singleLine` APRÈS le rendu, et c'est là toute la protection.
+        // `validerGabarit` refuse un GABARIT d'objet contenant un saut de
+        // ligne, mais `Nouveau message de {{nom}}` est un gabarit
+        // parfaitement valide — et ses valeurs viennent du formulaire de
+        // contact public. Un `{{message}}` dans l'objet, ou un nom portant
+        // un `\nBcc:`, rouvrirait l'injection d'en-têtes SMTP au rendu,
+        // après toute validation. C'est la protection que la version
+        // écrite à la main appliquait déjà ici même ; passer par le
+        // gabarit ne doit pas la perdre.
+        subject: singleLine(rendreTexte(gabarit.objet, valeurs)),
         html,
         text,
         // Répondre à cet email, c'est répondre à la personne qui a écrit.

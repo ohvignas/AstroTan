@@ -640,3 +640,121 @@ test("lire l'historique exige une session", async () => {
 
   await expect(t.query(api.leads.timeline, { id })).rejects.toThrow()
 })
+
+// --- Le gabarit de l'écran « envoi des emails » --------------------------
+//
+// La notification de lead est le seul des deux envois du dépôt qui compose
+// autre chose que le gabarit : la mention de relance, et un objet dont
+// toutes les variables viennent d'Internet. Les trois tests suivants
+// gardent chacun une de ces frontières.
+
+test("un gabarit personnalisé remplace le texte de la notification", async () => {
+  const t = makeTestConvex()
+  // L'owner sert deux fois : c'est lui qui réécrit le texte, et c'est lui
+  // qui le reçoit. Exactement le scénario réel.
+  const owner = await seedActor(t, "owner")
+  process.env.RESEND_API_KEY = "re_test_key"
+  await owner.mutation(api.emails.setTemplate, {
+    cle: "leadNotification",
+    objet: "Contact : {{sujet}}",
+    corps: "{{nom}} a écrit : {{message}}",
+  })
+
+  const envoyes = capturerLesEnvois()
+  await t.mutation(api.leads.submit, { ...MESSAGE, subject: "Devis toiture" })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(envoyes).toHaveLength(1)
+  expect(envoyes[0]!.subject).toBe("Contact : Devis toiture")
+  expect(envoyes[0]!.text).toBe("Camille Dupont a écrit : Bonjour, je voudrais un devis.")
+})
+
+test("la notification coupée, plus rien ne part — et aucun job ne rougit", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  process.env.RESEND_API_KEY = "re_test_key"
+  await owner.mutation(api.emails.setActif, { cle: "leadNotification", actif: false })
+
+  const envoyes = capturerLesEnvois()
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  // Couper un envoi est une décision, pas une panne : le silence est le
+  // même que sans clé Resend, et le job reste vert.
+  expect(envoyes).toHaveLength(0)
+  expect(await jobsEnEchec(t)).toBe(0)
+  // Le lead, lui, arrive quand même. Couper la notification ne coupe pas
+  // la fiche.
+  expect((await owner.query(api.leads.board, {})).new).toHaveLength(1)
+})
+
+test("l'objet rendu tient sur une seule ligne, quoi que le visiteur écrive", async () => {
+  // `validerGabarit` protège le GABARIT, jamais les valeurs : il refuse un
+  // objet contenant un saut de ligne, mais `Nouveau message : {{message}}`
+  // est un gabarit parfaitement valide — et `message` vient du formulaire
+  // public. Sans `singleLine` APRÈS le rendu, l'injection d'en-têtes SMTP
+  // rouvre, après toute validation.
+  //
+  // L'objet emploie `{{message}}` et non `{{nom}}` parce que c'est le seul
+  // des deux qui discrimine : `notifyStaff` passe déjà `nom` et `sujet`
+  // par `singleLine` avant la substitution (ce sont des champs d'une seule
+  // ligne par nature), alors que le corps du message est multi-ligne par
+  // construction. Le nom porte quand même un saut de ligne ici, pour que
+  // le scénario complet soit couvert.
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  process.env.RESEND_API_KEY = "re_test_key"
+  await owner.mutation(api.emails.setTemplate, {
+    cle: "leadNotification",
+    objet: "Nouveau message de {{nom}} : {{message}}",
+    corps: "{{message}}",
+  })
+
+  const envoyes = capturerLesEnvois()
+  await t.mutation(api.leads.submit, {
+    ...MESSAGE,
+    name: "Camille\nBcc: quelquun@ailleurs.fr",
+    body: "Bonjour\nBcc: quelquun-dautre@ailleurs.fr\n\nà bientôt",
+  })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(envoyes).toHaveLength(1)
+  expect(envoyes[0]!.subject).not.toMatch(/[\r\n]/)
+})
+
+test("la mention de relance survit au passage par le gabarit", async () => {
+  // Elle ne dépend d'aucune variable du catalogue (`messageCount` n'en est
+  // pas une) : branchée naïvement, elle disparaîtrait de toutes les
+  // notifications de deuxième message sans que rien ne le signale. Ce test
+  // est la seule chose qui l'empêche de se reperdre au prochain
+  // déplacement.
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  process.env.RESEND_API_KEY = "re_test_key"
+  const envoyes = capturerLesEnvois()
+
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.mutation(api.leads.submit, { ...MESSAGE, body: "Je relance." })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(envoyes).toHaveLength(2)
+  expect(envoyes[1]!.text).toContain("2e message de cette personne.")
+  expect(envoyes[1]!.html).toContain("2e message de cette personne.")
+  // Et pas sur une première prise de contact, sans quoi le test passerait
+  // aussi le jour où la mention serait collée à tous les envois.
+  expect(envoyes[0]!.text).not.toContain("message de cette personne")
+
+  // La mention tient même quand l'adoptant a réécrit le texte : elle est
+  // composée autour du gabarit, pas dedans.
+  await owner.mutation(api.emails.setTemplate, {
+    cle: "leadNotification",
+    objet: "Contact",
+    corps: "{{message}}",
+  })
+  await t.mutation(api.leads.submit, { ...MESSAGE, body: "Je relance encore." })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(envoyes).toHaveLength(3)
+  expect(envoyes[2]!.text).toContain("3e message de cette personne.")
+  expect(envoyes[2]!.text).toContain("Je relance encore.")
+})

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
+import { Resend } from "@convex-dev/resend"
 import { api, internal } from "./_generated/api"
 import { generateToken, hashToken } from "./lib/token"
+import { CATALOGUE } from "./lib/catalogueEmails"
 import { MAX_DISPLAY_NAME_LENGTH } from "./profiles"
 import { ORIGIN, identityFor, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
 
@@ -29,6 +31,10 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = originalEnv
+  // Les tests du gabarit espionnent `Resend.prototype.sendEmail` : sans
+  // cette ligne, l'espion survivrait au test qui l'a posé et le fichier
+  // deviendrait sensible à l'ordre d'exécution.
+  vi.restoreAllMocks()
 })
 
 // `t.finishInProgressScheduledFunctions()` only drains jobs already in the
@@ -1528,4 +1534,126 @@ test("le pseudo choisi devient le displayName du profil, sans repli sur l'email"
       .first(),
   )
   expect(byEmail).toBeNull()
+})
+
+// --- Le gabarit de l'écran « envoi des emails » --------------------------
+//
+// Ce que ces tests gardent : l'invitation part par le MÊME chemin que ce
+// que l'écran affiche. Sans eux, l'écran pourrait promettre un texte que
+// personne ne recevrait — un réglage décoratif, ce qui est pire qu'un
+// réglage absent.
+
+type EnvoiCapture = {
+  to: string | string[]
+  subject: string
+  html?: string
+  text?: string
+}
+
+/**
+ * Espionne l'envoi au niveau du prototype, et non d'une instance : le
+ * client Resend est construit à l'appel (`lib/resend.ts`), donc il n'existe
+ * aucune instance à intercepter avant que l'action ne tourne. Aucune clé
+ * d'API n'est nécessaire — la méthode entière est remplacée.
+ */
+function capturerLesEnvois(): EnvoiCapture[] {
+  const envoyes: EnvoiCapture[] = []
+  vi.spyOn(Resend.prototype, "sendEmail").mockImplementation((async (
+    _ctx: unknown,
+    options: EnvoiCapture,
+  ) => {
+    envoyes.push(options)
+    return "email-de-test"
+  }) as unknown as Resend["sendEmail"])
+  return envoyes
+}
+
+const INVITATION = CATALOGUE.find((email) => email.cle === "invitation")!
+
+test("un gabarit personnalisé remplace le texte de l'invitation, lien compris", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  await asAdmin.mutation(api.emails.setTemplate, {
+    cle: "invitation",
+    objet: "Rejoignez Acme",
+    corps: "Bonjour, ouvrez {{lien}}",
+  })
+
+  const envois = capturerLesEnvois()
+  await asAdmin.mutation(api.invitations.create, {
+    email: "nouveau@exemple.fr",
+    role: "editor",
+  })
+  await runScheduledFunctions(t)
+
+  expect(envois).toHaveLength(1)
+  expect(envois[0]!.subject).toBe("Rejoignez Acme")
+  expect(envois[0]!.text).toContain("Bonjour, ouvrez ")
+  // Le lien est la raison d'être de cet email : il doit survivre au
+  // remplacement du texte, dans les deux corps, sinon l'invitation
+  // n'ouvre plus aucune porte.
+  expect(envois[0]!.text).toContain("/accept-invite?token=")
+  expect(envois[0]!.html).toContain("/accept-invite?token=")
+})
+
+test("une ligne de gabarit devenue invalide n'empêche pas l'invitation de partir", async () => {
+  // Le scénario réel : le catalogue gagne une variable obligatoire dans une
+  // version ultérieure, et les gabarits enregistrés avant ne l'ont pas.
+  // L'email doit partir avec le texte du code, pas échouer.
+  //
+  // Écrit directement en base parce que `setTemplate` refuse ce texte
+  // aujourd'hui — et c'est exactement le point : la ligne existe malgré la
+  // validation d'écriture, parce qu'elle a été écrite quand elle passait.
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  await t.run(async (ctx) => {
+    await ctx.db.insert("emailTemplates", {
+      cle: "invitation",
+      objet: "Bonjour",
+      corps: "sans lien",
+      actif: true,
+      majPar: "un-identifiant-better-auth",
+      majAt: Date.now(),
+    })
+  })
+
+  const envois = capturerLesEnvois()
+  await asAdmin.mutation(api.invitations.create, {
+    email: "nouveau@exemple.fr",
+    role: "editor",
+  })
+  await runScheduledFunctions(t)
+
+  expect(envois).toHaveLength(1)
+  expect(envois[0]!.subject).toBe(INVITATION.objetParDefaut)
+  expect(envois[0]!.text).toContain("/accept-invite?token=")
+})
+
+test("l'invitation part même quand la ligne dit `actif: false`", async () => {
+  // `setActif` refuse déjà de l'écrire (`emails.test.ts` le garde), et
+  // `gabaritPour` force `actif` à vrai sur un email non désactivable. Ce
+  // test-ci garde la troisième barrière, la seule qui compte vraiment :
+  // que l'ENVOI ne consulte pas un interrupteur qui n'existe pas. Une
+  // ligne pareille peut arriver par une restauration de sauvegarde ou un
+  // `npx convex import` — et elle fermerait sans recours le seul chemin de
+  // création de compte du dépôt.
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  await t.run(async (ctx) => {
+    await ctx.db.insert("emailTemplates", {
+      cle: "invitation",
+      actif: false,
+      majPar: "un-identifiant-better-auth",
+      majAt: Date.now(),
+    })
+  })
+
+  const envois = capturerLesEnvois()
+  await asAdmin.mutation(api.invitations.create, {
+    email: "nouveau@exemple.fr",
+    role: "editor",
+  })
+  await runScheduledFunctions(t)
+
+  expect(envois).toHaveLength(1)
 })

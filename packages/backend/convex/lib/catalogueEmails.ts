@@ -63,11 +63,13 @@ export const CATALOGUE: readonly DescriptionEmail[] = [
       "porte sans recours.",
     variables: ["lien"],
     variablesObligatoires: ["lien"],
-    // Copie exacte d'`invitations.ts:264` (`subject`) — aucune
-    // interpolation à convertir.
+    // Repris mot pour mot du `subject` qu'`invitations.ts` écrivait à la
+    // main — aucune interpolation à convertir. Depuis que
+    // `sendInvitationEmail` rend le gabarit, ce littéral n'est plus une
+    // copie : c'est le seul exemplaire, et le changer change ce qui part.
     objetParDefaut: "Invitation à rejoindre AstroTan",
-    // Copie exacte d'`invitations.ts:266` (`text`), seule interpolation
-    // (`${link}`) convertie en `{{lien}}`.
+    // Même provenance pour le `text`, seule interpolation (`${link}`)
+    // convertie en `{{lien}}`.
     corpsParDefaut: "Vous avez été invité·e à rejoindre AstroTan : {{lien}}",
   },
   {
@@ -81,15 +83,21 @@ export const CATALOGUE: readonly DescriptionEmail[] = [
     // variable — contrairement au lien de l'invitation, rien ici n'ouvre
     // une porte que son absence fermerait.
     variablesObligatoires: [],
-    // Copie exacte de `leads.ts:773` (`subject`, via `singleLine`), avec
-    // `${name}` converti en `{{nom}}`.
+    // Repris mot pour mot du `subject` que `notifyStaff` composait à la
+    // main, `${name}` converti en `{{nom}}`. Le `singleLine` qui
+    // l'entourait n'a PAS déménagé ici et ne le peut pas : il protège le
+    // texte RENDU, pas le gabarit, et `notifyStaff` l'applique donc après
+    // la substitution — sans quoi ce littéral, parfaitement valide,
+    // rouvrirait l'injection d'en-têtes SMTP par la valeur de `{{nom}}`.
     objetParDefaut: "Nouveau message de {{nom}}",
-    // Copie exacte de `leads.ts:741-750` (le tableau `text`, joint par
-    // `\n`), interpolations converties en `{{variable}}`. La ligne de
-    // relance (`args.messageCount > 1 ? ... : null`) est omise : elle ne
-    // dépend d'aucune des variables déclarées ci-dessus (`messageCount`
-    // n'en est pas une) et reste une décision du serveur, pas un texte que
-    // ce catalogue expose à la modification.
+    // Même provenance pour le tableau `text` joint par `\n`,
+    // interpolations converties en `{{variable}}`. La ligne de relance
+    // (`args.messageCount > 1 ? ... : null`) est omise : elle ne dépend
+    // d'aucune des variables déclarées ci-dessus (`messageCount` n'en est
+    // pas une) et reste une décision du serveur, pas un texte que ce
+    // catalogue expose à la modification. `notifyStaff` la compose donc
+    // AUTOUR du gabarit rendu, jamais dedans — voir son commentaire pour
+    // les deux façons de l'y faire entrer et pourquoi aucune ne tient.
     corpsParDefaut: [
       "{{nom}} <{{email}}> a écrit depuis le formulaire de contact.",
       "",
