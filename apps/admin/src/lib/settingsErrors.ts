@@ -24,6 +24,12 @@ const SETTINGS_ERROR_MESSAGES: Record<string, string> = {
     "Aucune clé maîtresse (SECRETS_KEY) sur ce déploiement : rien n'est enregistré. Un jeton stocké sans chiffrement serait lisible dans n'importe quel export de la base.",
   SECRETS_KEY_MALFORMED:
     "La clé maîtresse (SECRETS_KEY) est présente mais inutilisable : elle doit faire 32 octets encodés en base64.",
+  // `convex/settings.ts` (le domaine déclaré) et `convex/dns.ts` (celui
+  // qu'on vérifie) lèvent le même code : les deux passent par
+  // `normaliserHote`, et un opérateur ne peut le provoquer qu'en collant
+  // une URL entière ou une adresse avec un port.
+  INVALID_DOMAIN:
+    "Ce n'est pas un nom de domaine : il s'écrit « exemple.fr », sans https://, sans barre oblique, sans port.",
   EMPTY_SECRET:
     "Un jeton vide ne veut rien dire. Pour retirer celui qui est en base, utilisez « Retirer de la base ».",
 }

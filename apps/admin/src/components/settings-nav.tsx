@@ -82,7 +82,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
     label: "Domaine & emails",
     title: "Domaine et emails",
     description:
-      "Comment on joint ce déploiement, et depuis quelle adresse il écrit aux gens. Les deux tiennent à la même variable, d'où une seule page.",
+      "Le nom de domaine sur lequel ce déploiement doit répondre, et les enregistrements DNS que votre hébergeur attend — pour le site comme pour les emails.",
   },
   {
     to: "/settings/mesure",
