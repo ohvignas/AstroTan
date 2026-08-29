@@ -42,7 +42,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { GripVerticalIcon, Trash2Icon } from "lucide-react"
+import { ColumnsIcon, GripVerticalIcon, ListIcon, SearchIcon, Trash2Icon } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { RowActionButton } from "@/components/row-actions"
 import { evenementAnnulationDnd } from "@/lib/dragRescue"
 import { describeLeadError } from "@/lib/leadErrors"
 
@@ -196,6 +213,10 @@ function LeadsPage() {
   // Le refus du serveur, montré à l'écran. Sans lui, un déplacement rejeté
   // est indiscernable d'un geste raté.
   const [erreur, setErreur] = useState<string | null>(null)
+  // La recherche filtre les DEUX vues. Un filtre qui ne s'appliquerait qu'à
+  // l'une donnerait deux comptes différents pour la même requête.
+  const [recherche, setRecherche] = useState("")
+  const [vue, setVue] = useState<"tableau" | "liste">("tableau")
 
   const sensors = useSensors(
     // Huit pixels avant qu'un appui devienne un glissement : sans cette
@@ -306,7 +327,26 @@ function LeadsPage() {
     )
   }
 
-  const total = LEAD_STATUSES.reduce((sum, status) => sum + board[status].length, 0)
+  // Le filtre est appliqué ici, une fois, et les deux vues lisent son
+  // résultat. Sur le nom ET l'email : on cherche une personne, et on se
+  // souvient de l'un ou de l'autre.
+  const requete = recherche.trim().toLowerCase()
+  const filtre = (lead: Doc<"leads">) =>
+    requete === "" ||
+    lead.name.toLowerCase().includes(requete) ||
+    lead.email.toLowerCase().includes(requete)
+
+  const colonnes = Object.fromEntries(
+    LEAD_STATUSES.map((status) => [status, board[status].filter(filtre)]),
+  ) as Record<LeadStatus, Doc<"leads">[]>
+
+  // La liste, tous statuts confondus, du plus récent au plus ancien : c'est
+  // l'ordre dans lequel on répond, et la seule raison d'ouvrir cette vue.
+  const liste = LEAD_STATUSES.flatMap((status) => colonnes[status]).sort(
+    (a, b) => b.lastMessageAt - a.lastMessageAt,
+  )
+
+  const total = LEAD_STATUSES.reduce((sum, status) => sum + colonnes[status].length, 0)
 
   if (total === 0) {
     return (
@@ -339,25 +379,34 @@ function LeadsPage() {
     const lead = litCarte(event.active.data.current)
     const status = event.over?.id as LeadStatus | undefined
 
-    // Trace temporaire, lue depuis le journal du serveur de développement
-    // (`[Client]`). Elle répond à la seule question qu'on ne peut pas
-    // trancher en lisant le code : le dépôt a-t-il désigné une colonne, ou
-    // `over` est-il nul ?
-    console.warn(
+    // `console.error` et non `warn` : le serveur de développement ne relaie
+    // que le premier vers son journal. Trace temporaire.
+    console.error(
       `[drag] fiche=${lead?.name ?? "?"} depuis=${lead?.status ?? "?"} vers=${status ?? "AUCUNE"}`,
     )
+
+    // Relâcher hors de toute colonne ne déplace rien, et le disait par le
+    // silence — indiscernable d'une panne. dnd-kit rend `over` nul quand le
+    // pointeur ne survole aucune zone de dépôt au moment du relâchement.
+    if (lead && !status) {
+      setErreur(
+        "Relâché en dehors des colonnes : la fiche n'a pas bougé. Déposez-la sur la colonne visée.",
+      )
+      return
+    }
 
     // Lâcher une carte dans sa propre colonne ne doit pas écrire : ce
     // serait une mutation pour rien, et une ligne d'historique qui ne
     // raconte rien.
     if (lead && status && status !== lead.status) {
+      setErreur(null)
       // Un `void` sur cette promesse renvoyait l'échec au néant : la carte
       // revenait à sa place sans un mot, et rien à l'écran ne distinguait
       // « refusé par le serveur » de « je n'ai pas visé la bonne colonne ».
       // C'est la classe de défaut que tout ce chantier corrige : une
       // moitié qui échoue en silence.
       move({ id: lead._id, status }).catch((err: unknown) => {
-        console.warn("[drag] la mutation a échoué", err)
+        console.error("[drag] la mutation a échoué", err)
         setErreur(describeLeadError(err))
       })
       // Seulement au clavier : à la souris, le focus n'a pas bougé et le
@@ -380,6 +429,46 @@ function LeadsPage() {
         </p>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <SearchIcon
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            type="search"
+            value={recherche}
+            onChange={(e) => setRecherche(e.target.value)}
+            placeholder="Rechercher un nom ou un email"
+            aria-label="Rechercher une fiche"
+            className="pl-8"
+          />
+        </div>
+
+        {/* Deux boutons plutôt qu'un interrupteur : `aria-pressed` dit
+            laquelle est active, et l'état se lit sans avoir à deviner ce
+            que bascule un unique bouton. */}
+        <div className="flex gap-1 rounded-lg border p-1">
+          {(["tableau", "liste"] as const).map((v) => (
+            <Button
+              key={v}
+              type="button"
+              size="sm"
+              variant={vue === v ? "secondary" : "ghost"}
+              aria-pressed={vue === v}
+              onClick={() => setVue(v)}
+            >
+              {v === "tableau" ? (
+                <ColumnsIcon data-icon="inline-start" />
+              ) : (
+                <ListIcon data-icon="inline-start" />
+              )}
+              {v === "tableau" ? "Tableau" : "Liste"}
+            </Button>
+          ))}
+        </div>
+      </div>
+
       {erreur !== null && (
         <p
           role="alert"
@@ -389,6 +478,19 @@ function LeadsPage() {
         </p>
       )}
 
+      {vue === "liste" ? (
+        <ListeLeads
+          leads={liste}
+          canDelete={canDelete}
+          onOpen={setOpenLead}
+          onMove={(id, status) =>
+            move({ id, status }).catch((err: unknown) => setErreur(describeLeadError(err)))
+          }
+          onRemove={(id) =>
+            remove({ id }).catch((err: unknown) => setErreur(describeLeadError(err)))
+          }
+        />
+      ) : (
       <DndContext
         sensors={sensors}
         // Les colonnes s'étirent toutes à la hauteur de la plus haute
@@ -409,7 +511,7 @@ function LeadsPage() {
             <ColonneLeads
               key={status}
               status={status}
-              leads={board[status]}
+              leads={colonnes[status]}
               survolee={survolee === status}
               canDelete={canDelete}
               aRefocaliser={aRefocaliser}
@@ -442,6 +544,7 @@ function LeadsPage() {
           )}
         </DragOverlay>
       </DndContext>
+      )}
 
       <LeadMessages lead={openLead} onClose={() => setOpenLead(null)} />
     </div>
@@ -617,6 +720,109 @@ function ContenuCarte({
           <Trash2Icon className="size-4" />
         </Button>
       )}
+    </div>
+  )
+}
+
+/**
+ * La vue liste — tous statuts confondus, du plus récent au plus ancien.
+ *
+ * Elle n'est pas un doublon du tableau : le tableau répond à « où en est
+ * chaque demande ? », la liste à « qui a écrit en dernier ? ». Et surtout
+ * elle offre un chemin pour changer de statut qui ne dépend pas du
+ * glisser-déposer — un menu déroulant marche à la souris, au clavier et au
+ * doigt, là où un glissement demande de la précision et échoue en silence
+ * quand on relâche à côté.
+ */
+function ListeLeads({
+  leads,
+  canDelete,
+  onOpen,
+  onMove,
+  onRemove,
+}: {
+  leads: Doc<"leads">[]
+  canDelete: boolean
+  onOpen: (lead: Doc<"leads">) => void
+  onMove: (id: Id<"leads">, status: LeadStatus) => void
+  onRemove: (id: Id<"leads">) => void
+}) {
+  if (leads.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-sm text-muted-foreground">
+          Aucune fiche ne correspond.
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    // Le tableau défile dans son propre cadre : la page, elle, ne défile
+    // jamais horizontalement.
+    <div className="min-w-0 overflow-x-auto rounded-lg border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Personne</TableHead>
+            <TableHead className="w-44">Statut</TableHead>
+            <TableHead className="w-24 text-right">Messages</TableHead>
+            <TableHead className="w-44">Dernier message</TableHead>
+            <TableHead className="w-24 text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {leads.map((lead) => (
+            <TableRow key={lead._id}>
+              <TableCell>
+                {/* Le nom ouvre la fiche : la cible la plus large de la
+                    ligne mène à l'action la plus courante. */}
+                <button
+                  type="button"
+                  onClick={() => onOpen(lead)}
+                  className="text-left font-medium hover:underline"
+                >
+                  {lead.name}
+                </button>
+                <p className="text-xs text-muted-foreground">{lead.email}</p>
+              </TableCell>
+              <TableCell>
+                <Select
+                  value={lead.status}
+                  onValueChange={(v) => onMove(lead._id, v as LeadStatus)}
+                >
+                  <SelectTrigger size="sm" aria-label={`Statut de ${lead.name}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LEAD_STATUSES.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {LEAD_STATUS_LABELS[status]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </TableCell>
+              {/* `tabular-nums` : les chiffres s'alignent d'une ligne à
+                  l'autre au lieu de danser. */}
+              <TableCell className="text-right tabular-nums">{lead.messageCount}</TableCell>
+              <TableCell className="text-sm text-muted-foreground tabular-nums">
+                {formatDate(lead.lastMessageAt)}
+              </TableCell>
+              <TableCell className="text-right">
+                {canDelete && (
+                  <RowActionButton
+                    label={`Supprimer la fiche de ${lead.name}`}
+                    onClick={() => onRemove(lead._id)}
+                  >
+                    <Trash2Icon />
+                  </RowActionButton>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   )
 }
