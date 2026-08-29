@@ -260,10 +260,13 @@ services:
   # (Convex) purge déjà `leads` et `consentRecords` sur un cron mensuel
   # (`crons.ts`), mais Umami vit dans son propre PostgreSQL, hors de portée
   # de ce cron — aucun code Convex ne peut l'atteindre. La requête exécutée
-  # est `docker/umami-purge.sql` (lu, en détail : elle purge sept tables,
+  # est `docker/umami-purge.sql` (lu, en détail : elle purge neuf tables,
   # pas seulement `website_event`, parce qu'Umami n'a aucune contrainte de
   # clé étrangère et qu'une purge partielle laisserait des lignes
-  # orphelines).
+  # orphelines). Sept est le nombre de tables FILLES ; `session` et
+  # `session_replay_saved` s'y ajoutent, purgées non pas sur leur propre âge
+  # mais une fois disparue la dernière ligne qui les référençait —
+  # `docker/README.md` §13.10 les compte, lui, correctement.
   #
   # `profiles: [purge]` : absent de tout `docker compose up` ordinaire, en
   # développement comme en production — le workflow `Deploy` (README §8)
