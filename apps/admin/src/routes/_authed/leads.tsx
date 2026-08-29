@@ -107,7 +107,7 @@ function formatDate(ms: number): string {
  * Le repli existe pour le clavier, où il n'y a pas de pointeur du tout —
  * et pour les quelques pixels de gouttière entre deux colonnes.
  */
-const colonneVisee: CollisionDetection = (args) => {
+export const colonneVisee: CollisionDetection = (args) => {
   const sousLePointeur = pointerWithin(args)
   return sousLePointeur.length > 0 ? sousLePointeur : closestCorners(args)
 }
@@ -135,7 +135,7 @@ function litCarte(data: unknown): Doc<"leads"> | null {
  * Haut et bas ne rendent rien : l'ordre d'une colonne est celui des dates,
  * il ne se réarrange pas à la main.
  */
-const colonneVoisine: KeyboardCoordinateGetter = (
+export const colonneVoisine: KeyboardCoordinateGetter = (
   event,
   { currentCoordinates, context: { active, collisionRect, droppableRects, over } },
 ) => {
@@ -445,10 +445,12 @@ function LeadsPage() {
           />
         </div>
 
+        {/* Poussé à droite : la recherche prend la place disponible, la
+            bascule reste où l'œil la cherche, contre le bord. */}
         {/* Deux boutons plutôt qu'un interrupteur : `aria-pressed` dit
             laquelle est active, et l'état se lit sans avoir à deviner ce
             que bascule un unique bouton. */}
-        <div className="flex gap-1 rounded-lg border p-1">
+        <div className="ml-auto flex gap-1 rounded-lg border p-1">
           {(["tableau", "liste"] as const).map((v) => (
             <Button
               key={v}
@@ -551,7 +553,7 @@ function LeadsPage() {
   )
 }
 
-function ColonneLeads({
+export function ColonneLeads({
   status,
   leads,
   survolee,
@@ -787,7 +789,14 @@ function ListeLeads({
                 <p className="text-xs text-muted-foreground">{lead.email}</p>
               </TableCell>
               <TableCell>
+                {/* `items` n'est pas décoratif : le `Select.Value` de Base
+                    UI, contrairement à celui de Radix, ne retient le
+                    libellé de l'option choisie que si la racine reçoit
+                    cette table. Sans elle il affiche la valeur stockée —
+                    « new » au lieu de « Nouveau ». Le piège est déjà
+                    documenté dans `users.tsx`, et je ne l'ai pas relu. */}
                 <Select
+                  items={LEAD_STATUS_LABELS}
                   value={lead.status}
                   onValueChange={(v) => onMove(lead._id, v as LeadStatus)}
                 >

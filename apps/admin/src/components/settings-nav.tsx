@@ -1,245 +1,338 @@
-import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Link, useRouterState } from "@tanstack/react-router"
 import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------
-// Le sommaire des réglages — la liste, le menu, et l'enveloppe d'une
-// section.
+// Le sommaire des réglages : la liste des pages, le menu, l'en-tête d'une
+// page.
 //
-// Les trois vivent dans le même fichier parce qu'ils partagent une seule
-// source de vérité : `SETTINGS_SECTIONS`. Le menu en tire ses libellés,
-// l'enveloppe en tire le titre de la carte et l'`id` de son ancre. Écrire
-// le titre à la main dans l'écran et le libellé à la main dans le menu,
-// c'est se donner rendez-vous avec le jour où les deux ne disent plus la
-// même chose — et où le lien du menu ne mène nulle part parce que l'`id`
-// a été renommé d'un seul côté.
+// Une PAGE par entrée, et non une ancre dans un long défilement. Le
+// premier essai empilait les huit sections sur un seul écran avec un
+// sommaire à ancres ; c'était illisible pour une raison structurelle et
+// pas cosmétique : deux natures de contenu s'y suivaient sans frontière.
+// Quatre sections s'enregistrent — elles ont un état local, une barre de
+// sauvegarde, des refus serveur possibles. Quatre ne font que rendre
+// compte de l'environnement — elles n'ont rien de tout cela. Les mettre
+// bout à bout dans une liste plate promettait un formulaire là où il n'y
+// en avait pas.
+//
+// D'où DEUX GROUPES NOMMÉS, qui rendent la différence visible au lieu de
+// la laisser deviner, et une route par page, qui fait qu'on ne tombe
+// jamais dans une section par accident en faisant défiler.
+//
+// `SETTINGS_GROUPS` est la source de vérité unique : le menu en tire ses
+// libellés, l'en-tête de page son `h1` et sa phrase, et
+// `settings-nav.test.tsx` vérifie qu'il existe bien un fichier de route
+// pour chaque chemin déclaré ici.
 // ---------------------------------------------------------------------
 
-export type SettingsSectionId =
-  | "site"
-  | "seo"
-  | "reseaux"
-  | "leads"
-  | "ia"
-  | "emails"
-  | "domaine"
-  | "mesure"
+export type SettingsPath =
+  | "/settings/identite"
+  | "/settings/referencement"
+  | "/settings/reseaux"
+  | "/settings/webhook"
+  | "/settings/domaine"
+  | "/settings/mesure"
+  | "/settings/ia"
 
-export interface SettingsSectionDef {
-  id: SettingsSectionId
+export interface SettingsPageDef {
+  to: SettingsPath
   /** Ce que le menu affiche. Court : la colonne est étroite. */
   label: string
-  /** La phrase sous le titre de la carte. */
+  /**
+   * Le `h1` de la page. Il commence toujours par le libellé du menu — on
+   * doit pouvoir relier d'un coup d'œil l'entrée cliquée et la page
+   * ouverte, sinon le menu ment sur l'endroit où l'on est.
+   */
+  title: string
+  /** La phrase sous le `h1` : ce qu'on fait ici, pas ce que c'est. */
   description: string
+  /**
+   * Vrai quand la page ne peut RIEN enregistrer : elle décrit
+   * l'environnement du déploiement. Porte le bandeau « lecture seule » et
+   * n'a jamais de barre de sauvegarde.
+   */
+  readOnly?: true
 }
 
-/**
- * L'ordre de l'écran, et donc celui du menu.
- *
- * Ce qu'on peut changer vient d'abord — l'identité du site, son
- * référencement, ses liens, ses leads. Ce qui se décrit sans se modifier
- * vient ensuite : ces quatre sections-là racontent l'environnement du
- * déploiement, et un opérateur n'y descend que pour vérifier ou
- * diagnostiquer.
- */
-export const SETTINGS_SECTIONS: readonly SettingsSectionDef[] = [
+export interface SettingsGroupDef {
+  label: string
+  /** Une ligne sous le titre du groupe, quand le groupe a une règle commune. */
+  caption?: string
+  pages: readonly SettingsPageDef[]
+}
+
+export const SETTINGS_GROUPS: readonly SettingsGroupDef[] = [
   {
-    id: "site",
-    label: "Site",
-    description:
-      "Ce que le visiteur voit en premier : le nom, le logo, l'icône, et la page servie à la racine.",
+    label: "Le site",
+    pages: [
+      {
+        to: "/settings/identite",
+        label: "Identité",
+        title: "Identité du site",
+        description:
+          "Le nom, le logo et l'icône repris sur chaque page du site public, et la page qu'il sert à la racine.",
+      },
+      {
+        to: "/settings/referencement",
+        label: "Référencement",
+        title: "Référencement par défaut",
+        description:
+          "Ce sur quoi une page retombe quand elle ne définit aucune valeur qui lui soit propre. Une page qui remplit son propre champ l'emporte toujours sur celle-ci.",
+      },
+      {
+        to: "/settings/reseaux",
+        label: "Réseaux sociaux",
+        title: "Réseaux sociaux",
+        description: "Les liens repris dans le pied de page du site public.",
+      },
+      {
+        to: "/settings/webhook",
+        label: "Webhook",
+        title: "Webhook des leads",
+        description:
+          "Chaque message reçu par le formulaire de contact déclenche un appel vers cette adresse — un scénario n8n, Make, ou tout service qui écoute une URL.",
+      },
+    ],
   },
   {
-    id: "seo",
-    label: "SEO par défaut",
-    description:
-      "Ce sur quoi une page retombe quand elle ne définit aucune valeur SEO qui lui soit propre. Une page qui remplit son propre champ l'emporte toujours sur celui-ci.",
-  },
-  {
-    id: "reseaux",
-    label: "Réseaux sociaux",
-    description: "Les liens repris dans le pied de page du site.",
-  },
-  {
-    id: "leads",
-    label: "Leads & webhook",
-    description:
-      "Chaque message reçu déclenche un appel vers cette adresse — un scénario n8n, Make, ou tout service qui écoute une URL.",
-  },
-  {
-    id: "ia",
-    label: "IA",
-    description:
-      "La clé OpenRouter vit dans l'environnement Convex, jamais en base. Cet écran dit si elle est posée ; il ne peut ni la lire ni l'écrire.",
-  },
-  {
-    id: "emails",
-    label: "Emails",
-    description:
-      "Les invitations et les notifications de leads partent par Resend, avec des identifiants qui vivent sur le déploiement Convex.",
-  },
-  {
-    id: "domaine",
-    label: "Domaine",
-    description:
-      "Les deux origines que le déploiement connaît. Elles se règlent chez le DNS, dans Traefik et dans l'environnement Convex — pas ici.",
-  },
-  {
-    id: "mesure",
-    label: "Mesure & pixels",
-    description:
-      "Umami compte les pages vues ; les pixels Meta et Google attendent le consentement. Les trois sont des variables de build du site public.",
+    label: "Le déploiement",
+    caption: "En lecture seule : ces pages décrivent, elles ne modifient rien.",
+    pages: [
+      {
+        to: "/settings/domaine",
+        label: "Domaine & emails",
+        title: "Domaine et emails",
+        description:
+          "Comment on joint ce déploiement, et depuis quelle adresse il écrit aux gens. Les deux tiennent à la même variable, d'où une seule page.",
+        readOnly: true,
+      },
+      {
+        to: "/settings/mesure",
+        label: "Mesure & pixels",
+        title: "Mesure et pixels",
+        description:
+          "Ce que le site compte sans rien demander, et ce qui attend l'accord du visiteur.",
+        readOnly: true,
+      },
+      {
+        to: "/settings/ia",
+        label: "IA",
+        title: "IA : la clé OpenRouter",
+        description:
+          "Une clé d'API ne va pas en base : la table des réglages a une projection publique. Celle-ci vit dans l'environnement Convex.",
+        readOnly: true,
+      },
+    ],
   },
 ]
+
+/** La même liste à plat — pour chercher la page courante, et pour les tests. */
+export const SETTINGS_PAGES: readonly SettingsPageDef[] = SETTINGS_GROUPS.flatMap(
+  (group) => group.pages
+)
+
+/**
+ * Correspondance EXACTE, pas un préfixe.
+ *
+ * `startsWith` aurait marché aujourd'hui et cassé au premier chemin
+ * imbriqué : `/settings/reseaux` est un préfixe de `/settings/reseaux-x`,
+ * et deux entrées se seraient allumées ensemble. La barre finale est
+ * tolérée parce que le navigateur peut l'ajouter.
+ */
+export function isSettingsPathActive(pathname: string, to: string): boolean {
+  return pathname === to || pathname === `${to}/`
+}
+
+export function findSettingsPage(pathname: string): SettingsPageDef | undefined {
+  return SETTINGS_PAGES.find((page) => isSettingsPathActive(pathname, page.to))
+}
 
 // ---------------------------------------------------------------------
 // Le menu
 // ---------------------------------------------------------------------
 
 /**
- * De vrais `<a href="#…">`, et rien d'autre.
+ * `<Link>` de TanStack Router, et non un `<a href>` : ce sont de vraies
+ * navigations, et le routeur doit les voir — c'est lui qui les bloque
+ * quand la page quittée a des modifications non enregistrées
+ * (`useUnsavedChangesGuard`). Une ancre native passerait à travers ce
+ * garde-fou sans rien signaler.
  *
- * Un `<button onClick={scrollTo}>` aurait eu l'air identique et coûté
- * trois choses d'un coup : le lien ne se copie plus, ne s'ouvre plus dans
- * un onglet, et disparaît de la liste des liens qu'un lecteur d'écran
- * énumère. Le navigateur sait déjà déplacer une page vers une ancre, au
- * clavier comme à la souris ; `settings-nav.test.tsx` vérifie qu'on ne
- * s'est pas remis à l'écrire nous-mêmes.
+ * Les libellés de groupe sont des `<p>`, pas des titres : ils précèdent
+ * dans le document le `h1` de la page, et des `h2` posés là feraient
+ * commencer la hiérarchie à l'envers. `aria-labelledby` sur chaque `<ul>`
+ * donne le même repère à un lecteur d'écran, sans toucher au plan des
+ * titres.
  *
- * Sur mobile ce n'est pas un menu latéral rétréci mais une bande de
- * pastilles qui défile horizontalement, collée en haut : une colonne de
- * huit entrées au-dessus du formulaire repousserait le premier champ hors
- * de l'écran, et une colonne écrasée à côté de lui ne laisserait de place
- * ni à l'une ni à l'autre.
+ * Sur mobile, ce n'est pas un menu latéral rétréci mais une bande de
+ * pastilles qui défile horizontalement — les deux groupes séparés par un
+ * filet vertical plutôt que par leur titre, faute de place. Pas de
+ * `sticky` en dessous de `lg` : chaque page est courte maintenant, et une
+ * bande collée y mangerait de la hauteur sans jamais servir.
  */
-export function SettingsNav({ current }: { current: string }) {
+export function SettingsNav() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+
   return (
     <nav
       aria-label="Sections des réglages"
-      className="sticky top-0 z-10 -mx-4 border-b bg-background px-4 py-2 lg:top-4 lg:mx-0 lg:w-56 lg:shrink-0 lg:self-start lg:border-b-0 lg:px-0 lg:py-0"
+      className="lg:sticky lg:top-4 lg:w-56 lg:shrink-0 lg:self-start"
     >
-      <ul className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
-        {SETTINGS_SECTIONS.map((section) => {
-          const active = section.id === current
+      <div className="flex gap-3 overflow-x-auto pb-1 lg:flex-col lg:gap-5 lg:overflow-visible lg:pb-0">
+        {SETTINGS_GROUPS.map((group, index) => {
+          const headingId = `settings-groupe-${index}`
           return (
-            <li key={section.id} className="shrink-0 lg:shrink">
-              <a
-                href={`#${section.id}`}
-                // `aria-current` seulement quand c'est vrai : `false` est
-                // une valeur qu'un lecteur d'écran annonce aussi, et huit
-                // « non courant » à la suite sont huit annonces de trop.
-                {...(active ? { "aria-current": "true" as const } : {})}
-                className={cn(
-                  "block rounded-md px-3 py-1.5 text-sm whitespace-nowrap transition-colors",
-                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                  active
-                    ? "bg-muted font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                )}
+            <div
+              key={group.label}
+              className={cn(
+                "flex shrink-0 gap-1 lg:flex-col lg:shrink",
+                // Le filet ne sépare les groupes que dans la bande
+                // horizontale : en colonne, les titres de groupe font
+                // déjà la séparation.
+                index > 0 && "border-l pl-3 lg:border-l-0 lg:pl-0"
+              )}
+            >
+              {/* Visible AUSSI sur mobile, et c'est le point : la
+                  différence entre « ça s'enregistre » et « ça se lit »
+                  est la raison d'être des deux groupes. La masquer sous
+                  `lg` rendrait la bande de pastilles aussi plate que la
+                  liste qu'on vient de remplacer. Seule la légende, trop
+                  longue pour une ligne, attend le grand écran. */}
+              <p
+                id={headingId}
+                className="self-center px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase lg:self-auto lg:px-3"
               >
-                {section.label}
-              </a>
-            </li>
+                {group.label}
+              </p>
+              {group.caption ? (
+                <p className="hidden px-3 text-xs text-muted-foreground lg:block">
+                  {group.caption}
+                </p>
+              ) : null}
+              <ul
+                aria-labelledby={headingId}
+                className="flex gap-1 lg:mt-1 lg:flex-col"
+              >
+                {group.pages.map((page) => {
+                  const active = isSettingsPathActive(pathname, page.to)
+                  return (
+                    <li key={page.to} className="shrink-0 lg:shrink">
+                      <Link
+                        to={page.to}
+                        // `aria-current` seulement quand c'est vrai :
+                        // `false` s'annonce aussi, et six « non courant »
+                        // à la suite sont six annonces de trop.
+                        {...(active ? { "aria-current": "page" as const } : {})}
+                        className={cn(
+                          "block cursor-pointer rounded-md px-3 py-1.5 text-sm whitespace-nowrap transition-colors duration-150",
+                          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                          active
+                            ? "bg-muted font-medium text-foreground"
+                            : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                        )}
+                      >
+                        {page.label}
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
           )
         })}
-      </ul>
+      </div>
     </nav>
   )
 }
 
 // ---------------------------------------------------------------------
-// L'enveloppe d'une section
+// L'en-tête d'une page de réglages
 // ---------------------------------------------------------------------
 
 /**
- * Une section : son ancre, son titre, sa description, sa carte.
+ * Un `h1` par page, et un seul.
  *
- * `scroll-mt-20` n'est pas décoratif — sans lui, l'ancre amène le titre
- * exactement sous la bande de menu collée en haut sur mobile, et le
- * visiteur atterrit sur une section dont il ne voit pas le nom.
+ * L'écran d'avant écrivait « Réglages » en `h1` puis répétait le nom de
+ * chaque section en titre de carte juste en dessous de son entrée de
+ * menu : le même mot trois fois, et aucun des trois ne disait où l'on
+ * était. Ici le `h1` porte le nom de la page, la phrase dit ce qu'on y
+ * fait, et les cartes en dessous n'ont plus de titre du tout — sauf
+ * quand une page a réellement plusieurs groupes de champs, auquel cas ce
+ * sont des `h2` (`SettingsGroup`).
+ *
+ * Pas de fil d'Ariane : deux niveaux ne le justifient pas, la barre
+ * latérale de l'application marque déjà « Réglages », et un troisième
+ * repère au-dessus du titre serait un repère de plus à lire pour la même
+ * information.
  */
-export function SettingsSection({
-  id,
-  children,
+export function SettingsPageHeader({
+  page,
+  canWrite,
 }: {
-  id: SettingsSectionId
-  children: ReactNode
+  page: SettingsPageDef
+  /** Sans effet sur une page en lecture seule, qui a son propre bandeau. */
+  canWrite: boolean
 }) {
-  const section = SETTINGS_SECTIONS.find((candidate) => candidate.id === id)
-  if (section === undefined) {
-    throw new Error(`Section de réglages inconnue : ${id}`)
-  }
   return (
-    <section id={id} aria-labelledby={`${id}-titre`} className="scroll-mt-20">
-      <Card>
-        <CardHeader>
-          <CardTitle id={`${id}-titre`}>{section.label}</CardTitle>
-          <CardDescription>{section.description}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">{children}</CardContent>
-      </Card>
-    </section>
+    <header className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-xl font-medium">{page.title}</h1>
+        {page.readOnly ? (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            Lecture seule
+          </span>
+        ) : null}
+      </div>
+      <p className="max-w-prose text-sm text-muted-foreground">
+        {page.description}
+      </p>
+      {page.readOnly ? (
+        <p className="max-w-prose rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          Rien ne se règle depuis cette page : elle rend compte de
+          l'environnement du déploiement. Les commandes à lancer sont
+          données à côté de chaque variable.
+        </p>
+      ) : canWrite ? null : (
+        <p className="max-w-prose rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          Ces réglages s'appliquent à toutes les pages à la fois : seuls le
+          propriétaire et les administrateurs peuvent les modifier. Vous
+          pouvez les consulter.
+        </p>
+      )}
+    </header>
   )
 }
 
-// ---------------------------------------------------------------------
-// Quelle section est sous les yeux
-// ---------------------------------------------------------------------
-
 /**
- * L'`id` de la section la plus haute actuellement visible.
+ * Un groupe de champs à l'intérieur d'une page — son `h2` et son cadre.
  *
- * `IntersectionObserver` plutôt qu'un écouteur de `scroll` : le navigateur
- * fait le calcul hors du fil principal et ne nous réveille qu'aux
- * franchissements, là où un `scroll` déclencherait une mesure de position
- * à chaque pixel parcouru.
- *
- * `rootMargin` coupe les 55 % du bas de la fenêtre : sans cela, la
- * dernière section du haut resterait « courante » alors même que celle du
- * dessous occupe déjà tout l'écran. Les 88 px du haut laissent passer la
- * bande de menu collée.
- *
- * Rend toujours une valeur, y compris avant le premier rendu du
- * navigateur : le menu doit désigner quelque chose dès la première
- * peinture, sinon il clignote.
+ * N'est utilisé que par les pages qui ont réellement PLUSIEURS groupes.
+ * Une page à un seul groupe n'a pas de `h2` : il répéterait son `h1`, et
+ * c'est exactement le doublon qu'on vient d'enlever.
  */
-export function useCurrentSection(): string {
-  const [current, setCurrent] = useState<string>(SETTINGS_SECTIONS[0]?.id ?? "")
-
-  useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return
-
-    const elements = SETTINGS_SECTIONS.map((section) =>
-      document.getElementById(section.id)
-    ).filter((element): element is HTMLElement => element !== null)
-    if (elements.length === 0) return
-
-    const visible = new Set<string>()
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) visible.add(entry.target.id)
-          else visible.delete(entry.target.id)
-        }
-        // La première DANS L'ORDRE DU DOCUMENT, pas la plus visible : au
-        // milieu d'un défilement, deux sections se partagent l'écran et
-        // « la plus grande surface » saute de l'une à l'autre à chaque
-        // pixel. Le haut de la fenêtre, lui, ne tremble pas.
-        const first = SETTINGS_SECTIONS.find((section) => visible.has(section.id))
-        if (first !== undefined) setCurrent(first.id)
-      },
-      { rootMargin: "-88px 0px -55% 0px", threshold: 0 }
-    )
-    for (const element of elements) observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
-
-  return current
+export function SettingsGroup({
+  title,
+  description,
+  children,
+}: {
+  title?: string
+  description?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section className="flex flex-col gap-4 rounded-xl bg-card p-4 text-sm ring-1 ring-foreground/10">
+      {title ? (
+        <div className="flex flex-col gap-1">
+          <h2 className="font-heading text-base leading-snug font-medium">
+            {title}
+          </h2>
+          {description ? (
+            <p className="text-sm text-muted-foreground">{description}</p>
+          ) : null}
+        </div>
+      ) : null}
+      {children}
+    </section>
+  )
 }

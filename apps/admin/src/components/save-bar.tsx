@@ -6,6 +6,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------
 // La barre d'enregistrement partagée par les trois écrans d'édition
@@ -81,12 +82,24 @@ export function SaveBar({
   error,
   canSave,
   onSave,
+  className = "-mx-4 -mb-4",
 }: {
   status: SaveStatus
   lastSavedAt: number | null
   error: string | null
   canSave: boolean
   onSave: () => void
+  /**
+   * Les débordements de la barre, et rien d'autre.
+   *
+   * Le défaut `-mx-4 -mb-4` vaut pour un écran dont le formulaire occupe
+   * toute la largeur du contenu — les éditeurs de pages et d'articles.
+   * Les réglages ont depuis une colonne de menu à gauche : y appliquer le
+   * même débordement ferait commencer le filet du haut au milieu de la
+   * gouttière. Ils passent `-mr-4 -mb-4` : à ras de la colonne à gauche,
+   * à ras du bord de la page à droite.
+   */
+  className?: string
 }) {
   return (
     // Collante en bas, et volontairement débordante des marges de
@@ -98,7 +111,12 @@ export function SaveBar({
     // page elle se décolle et reprend sa place dans le flux, si bien que le
     // dernier champ du formulaire n'est jamais masqué au repos. `mt-4`
     // garde l'écart avec la dernière carte.
-    <div className="sticky bottom-0 z-20 -mx-4 -mb-4 mt-4 border-t bg-background px-4 py-3">
+    <div
+      className={cn(
+        "sticky bottom-0 z-20 mt-4 border-t bg-background px-4 py-3",
+        className
+      )}
+    >
       <div className="flex flex-wrap items-center justify-end gap-3">
         <p
           role="status"

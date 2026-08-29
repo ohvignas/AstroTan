@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
+import { Route as DndTestRouteImport } from './routes/dnd-test'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as AuthedCompteRouteImport } from './routes/_authed/compte'
@@ -25,6 +26,14 @@ import { Route as AuthedPagesIndexRouteImport } from './routes/_authed/pages/ind
 import { Route as AuthedPagesPageIdRouteImport } from './routes/_authed/pages/$pageId'
 import { Route as AuthedPostsIndexRouteImport } from './routes/_authed/posts/index'
 import { Route as AuthedPostsPostIdRouteImport } from './routes/_authed/posts/$postId'
+import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
+import { Route as AuthedSettingsDomaineRouteImport } from './routes/_authed/settings/domaine'
+import { Route as AuthedSettingsIaRouteImport } from './routes/_authed/settings/ia'
+import { Route as AuthedSettingsIdentiteRouteImport } from './routes/_authed/settings/identite'
+import { Route as AuthedSettingsMesureRouteImport } from './routes/_authed/settings/mesure'
+import { Route as AuthedSettingsReferencementRouteImport } from './routes/_authed/settings/referencement'
+import { Route as AuthedSettingsReseauxRouteImport } from './routes/_authed/settings/reseaux'
+import { Route as AuthedSettingsWebhookRouteImport } from './routes/_authed/settings/webhook'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const AuthedRoute = AuthedRouteImport.update({
@@ -34,6 +43,11 @@ const AuthedRoute = AuthedRouteImport.update({
 const AcceptInviteRoute = AcceptInviteRouteImport.update({
   id: '/accept-invite',
   path: '/accept-invite',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DndTestRoute = DndTestRouteImport.update({
+  id: '/dnd-test',
+  path: '/dnd-test',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -106,6 +120,47 @@ const AuthedPostsPostIdRoute = AuthedPostsPostIdRouteImport.update({
   path: '/posts/$postId',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedSettingsIndexRoute = AuthedSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
+const AuthedSettingsDomaineRoute = AuthedSettingsDomaineRouteImport.update({
+  id: '/domaine',
+  path: '/domaine',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
+const AuthedSettingsIaRoute = AuthedSettingsIaRouteImport.update({
+  id: '/ia',
+  path: '/ia',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
+const AuthedSettingsIdentiteRoute = AuthedSettingsIdentiteRouteImport.update({
+  id: '/identite',
+  path: '/identite',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
+const AuthedSettingsMesureRoute = AuthedSettingsMesureRouteImport.update({
+  id: '/mesure',
+  path: '/mesure',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
+const AuthedSettingsReferencementRoute =
+  AuthedSettingsReferencementRouteImport.update({
+    id: '/referencement',
+    path: '/referencement',
+    getParentRoute: () => AuthedSettingsRoute,
+  } as any)
+const AuthedSettingsReseauxRoute = AuthedSettingsReseauxRouteImport.update({
+  id: '/reseaux',
+  path: '/reseaux',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
+const AuthedSettingsWebhookRoute = AuthedSettingsWebhookRouteImport.update({
+  id: '/webhook',
+  path: '/webhook',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -115,64 +170,91 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AuthedIndexRoute
   '/accept-invite': typeof AcceptInviteRoute
+  '/dnd-test': typeof DndTestRoute
   '/login': typeof LoginRoute
   '/compte': typeof AuthedCompteRoute
   '/leads': typeof AuthedLeadsRoute
   '/media': typeof AuthedMediaRoute
   '/redirects': typeof AuthedRedirectsRoute
-  '/settings': typeof AuthedSettingsRoute
+  '/settings': typeof AuthedSettingsRouteWithChildren
   '/statistiques': typeof AuthedStatistiquesRoute
   '/users': typeof AuthedUsersRoute
   '/api/health': typeof ApiHealthRoute
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/posts/$postId': typeof AuthedPostsPostIdRoute
+  '/settings/domaine': typeof AuthedSettingsDomaineRoute
+  '/settings/ia': typeof AuthedSettingsIaRoute
+  '/settings/identite': typeof AuthedSettingsIdentiteRoute
+  '/settings/mesure': typeof AuthedSettingsMesureRoute
+  '/settings/referencement': typeof AuthedSettingsReferencementRoute
+  '/settings/reseaux': typeof AuthedSettingsReseauxRoute
+  '/settings/webhook': typeof AuthedSettingsWebhookRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/pages/': typeof AuthedPagesIndexRoute
   '/posts/': typeof AuthedPostsIndexRoute
+  '/settings/': typeof AuthedSettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/accept-invite': typeof AcceptInviteRoute
+  '/dnd-test': typeof DndTestRoute
   '/login': typeof LoginRoute
   '/compte': typeof AuthedCompteRoute
   '/leads': typeof AuthedLeadsRoute
   '/media': typeof AuthedMediaRoute
   '/redirects': typeof AuthedRedirectsRoute
-  '/settings': typeof AuthedSettingsRoute
   '/statistiques': typeof AuthedStatistiquesRoute
   '/users': typeof AuthedUsersRoute
   '/api/health': typeof ApiHealthRoute
   '/': typeof AuthedIndexRoute
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/posts/$postId': typeof AuthedPostsPostIdRoute
+  '/settings/domaine': typeof AuthedSettingsDomaineRoute
+  '/settings/ia': typeof AuthedSettingsIaRoute
+  '/settings/identite': typeof AuthedSettingsIdentiteRoute
+  '/settings/mesure': typeof AuthedSettingsMesureRoute
+  '/settings/referencement': typeof AuthedSettingsReferencementRoute
+  '/settings/reseaux': typeof AuthedSettingsReseauxRoute
+  '/settings/webhook': typeof AuthedSettingsWebhookRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/pages': typeof AuthedPagesIndexRoute
   '/posts': typeof AuthedPostsIndexRoute
+  '/settings': typeof AuthedSettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authed': typeof AuthedRouteWithChildren
   '/accept-invite': typeof AcceptInviteRoute
+  '/dnd-test': typeof DndTestRoute
   '/login': typeof LoginRoute
   '/_authed/compte': typeof AuthedCompteRoute
   '/_authed/leads': typeof AuthedLeadsRoute
   '/_authed/media': typeof AuthedMediaRoute
   '/_authed/redirects': typeof AuthedRedirectsRoute
-  '/_authed/settings': typeof AuthedSettingsRoute
+  '/_authed/settings': typeof AuthedSettingsRouteWithChildren
   '/_authed/statistiques': typeof AuthedStatistiquesRoute
   '/_authed/users': typeof AuthedUsersRoute
   '/api/health': typeof ApiHealthRoute
   '/_authed/': typeof AuthedIndexRoute
   '/_authed/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/_authed/posts/$postId': typeof AuthedPostsPostIdRoute
+  '/_authed/settings/domaine': typeof AuthedSettingsDomaineRoute
+  '/_authed/settings/ia': typeof AuthedSettingsIaRoute
+  '/_authed/settings/identite': typeof AuthedSettingsIdentiteRoute
+  '/_authed/settings/mesure': typeof AuthedSettingsMesureRoute
+  '/_authed/settings/referencement': typeof AuthedSettingsReferencementRoute
+  '/_authed/settings/reseaux': typeof AuthedSettingsReseauxRoute
+  '/_authed/settings/webhook': typeof AuthedSettingsWebhookRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_authed/pages/': typeof AuthedPagesIndexRoute
   '/_authed/posts/': typeof AuthedPostsIndexRoute
+  '/_authed/settings/': typeof AuthedSettingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/accept-invite'
+    | '/dnd-test'
     | '/login'
     | '/compte'
     | '/leads'
@@ -184,31 +266,48 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/pages/$pageId'
     | '/posts/$postId'
+    | '/settings/domaine'
+    | '/settings/ia'
+    | '/settings/identite'
+    | '/settings/mesure'
+    | '/settings/referencement'
+    | '/settings/reseaux'
+    | '/settings/webhook'
     | '/api/auth/$'
     | '/pages/'
     | '/posts/'
+    | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/accept-invite'
+    | '/dnd-test'
     | '/login'
     | '/compte'
     | '/leads'
     | '/media'
     | '/redirects'
-    | '/settings'
     | '/statistiques'
     | '/users'
     | '/api/health'
     | '/'
     | '/pages/$pageId'
     | '/posts/$postId'
+    | '/settings/domaine'
+    | '/settings/ia'
+    | '/settings/identite'
+    | '/settings/mesure'
+    | '/settings/referencement'
+    | '/settings/reseaux'
+    | '/settings/webhook'
     | '/api/auth/$'
     | '/pages'
     | '/posts'
+    | '/settings'
   id:
     | '__root__'
     | '/_authed'
     | '/accept-invite'
+    | '/dnd-test'
     | '/login'
     | '/_authed/compte'
     | '/_authed/leads'
@@ -221,14 +320,23 @@ export interface FileRouteTypes {
     | '/_authed/'
     | '/_authed/pages/$pageId'
     | '/_authed/posts/$postId'
+    | '/_authed/settings/domaine'
+    | '/_authed/settings/ia'
+    | '/_authed/settings/identite'
+    | '/_authed/settings/mesure'
+    | '/_authed/settings/referencement'
+    | '/_authed/settings/reseaux'
+    | '/_authed/settings/webhook'
     | '/api/auth/$'
     | '/_authed/pages/'
     | '/_authed/posts/'
+    | '/_authed/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AuthedRoute: typeof AuthedRouteWithChildren
   AcceptInviteRoute: typeof AcceptInviteRoute
+  DndTestRoute: typeof DndTestRoute
   LoginRoute: typeof LoginRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -248,6 +356,13 @@ declare module '@tanstack/react-router' {
       path: '/accept-invite'
       fullPath: '/accept-invite'
       preLoaderRoute: typeof AcceptInviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dnd-test': {
+      id: '/dnd-test'
+      path: '/dnd-test'
+      fullPath: '/dnd-test'
+      preLoaderRoute: typeof DndTestRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -348,6 +463,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedPostsPostIdRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/settings/': {
+      id: '/_authed/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AuthedSettingsIndexRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/domaine': {
+      id: '/_authed/settings/domaine'
+      path: '/domaine'
+      fullPath: '/settings/domaine'
+      preLoaderRoute: typeof AuthedSettingsDomaineRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/ia': {
+      id: '/_authed/settings/ia'
+      path: '/ia'
+      fullPath: '/settings/ia'
+      preLoaderRoute: typeof AuthedSettingsIaRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/identite': {
+      id: '/_authed/settings/identite'
+      path: '/identite'
+      fullPath: '/settings/identite'
+      preLoaderRoute: typeof AuthedSettingsIdentiteRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/mesure': {
+      id: '/_authed/settings/mesure'
+      path: '/mesure'
+      fullPath: '/settings/mesure'
+      preLoaderRoute: typeof AuthedSettingsMesureRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/referencement': {
+      id: '/_authed/settings/referencement'
+      path: '/referencement'
+      fullPath: '/settings/referencement'
+      preLoaderRoute: typeof AuthedSettingsReferencementRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/reseaux': {
+      id: '/_authed/settings/reseaux'
+      path: '/reseaux'
+      fullPath: '/settings/reseaux'
+      preLoaderRoute: typeof AuthedSettingsReseauxRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
+    '/_authed/settings/webhook': {
+      id: '/_authed/settings/webhook'
+      path: '/webhook'
+      fullPath: '/settings/webhook'
+      preLoaderRoute: typeof AuthedSettingsWebhookRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -358,12 +529,38 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthedSettingsRouteChildren {
+  AuthedSettingsDomaineRoute: typeof AuthedSettingsDomaineRoute
+  AuthedSettingsIaRoute: typeof AuthedSettingsIaRoute
+  AuthedSettingsIdentiteRoute: typeof AuthedSettingsIdentiteRoute
+  AuthedSettingsMesureRoute: typeof AuthedSettingsMesureRoute
+  AuthedSettingsReferencementRoute: typeof AuthedSettingsReferencementRoute
+  AuthedSettingsReseauxRoute: typeof AuthedSettingsReseauxRoute
+  AuthedSettingsWebhookRoute: typeof AuthedSettingsWebhookRoute
+  AuthedSettingsIndexRoute: typeof AuthedSettingsIndexRoute
+}
+
+const AuthedSettingsRouteChildren: AuthedSettingsRouteChildren = {
+  AuthedSettingsDomaineRoute: AuthedSettingsDomaineRoute,
+  AuthedSettingsIaRoute: AuthedSettingsIaRoute,
+  AuthedSettingsIdentiteRoute: AuthedSettingsIdentiteRoute,
+  AuthedSettingsMesureRoute: AuthedSettingsMesureRoute,
+  AuthedSettingsReferencementRoute: AuthedSettingsReferencementRoute,
+  AuthedSettingsReseauxRoute: AuthedSettingsReseauxRoute,
+  AuthedSettingsWebhookRoute: AuthedSettingsWebhookRoute,
+  AuthedSettingsIndexRoute: AuthedSettingsIndexRoute,
+}
+
+const AuthedSettingsRouteWithChildren = AuthedSettingsRoute._addFileChildren(
+  AuthedSettingsRouteChildren,
+)
+
 interface AuthedRouteChildren {
   AuthedCompteRoute: typeof AuthedCompteRoute
   AuthedLeadsRoute: typeof AuthedLeadsRoute
   AuthedMediaRoute: typeof AuthedMediaRoute
   AuthedRedirectsRoute: typeof AuthedRedirectsRoute
-  AuthedSettingsRoute: typeof AuthedSettingsRoute
+  AuthedSettingsRoute: typeof AuthedSettingsRouteWithChildren
   AuthedStatistiquesRoute: typeof AuthedStatistiquesRoute
   AuthedUsersRoute: typeof AuthedUsersRoute
   AuthedIndexRoute: typeof AuthedIndexRoute
@@ -378,7 +575,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedLeadsRoute: AuthedLeadsRoute,
   AuthedMediaRoute: AuthedMediaRoute,
   AuthedRedirectsRoute: AuthedRedirectsRoute,
-  AuthedSettingsRoute: AuthedSettingsRoute,
+  AuthedSettingsRoute: AuthedSettingsRouteWithChildren,
   AuthedStatistiquesRoute: AuthedStatistiquesRoute,
   AuthedUsersRoute: AuthedUsersRoute,
   AuthedIndexRoute: AuthedIndexRoute,
@@ -394,6 +591,7 @@ const AuthedRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   AuthedRoute: AuthedRouteWithChildren,
   AcceptInviteRoute: AcceptInviteRoute,
+  DndTestRoute: DndTestRoute,
   LoginRoute: LoginRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
