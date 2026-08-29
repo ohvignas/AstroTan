@@ -77,6 +77,27 @@ describe("refuseWebhookUrl", () => {
     expect(refuseWebhookUrl(url)).toBeNull()
   })
 
+  // Correctif 3 (relecture finale) : `fe80::/10`, l'équivalent IPv6 exact
+  // du lien-local IPv4 `169.254.0.0/16` — déjà refusé plus haut — ne
+  // l'était pas.
+  test.each([
+    "https://[fe80::1]/hook",
+    "https://[fe80::abcd:ef01]/hook",
+    "https://[febf::1]/hook", // borne haute de la plage /10
+  ])("refuse l'adresse lien-local IPv6 %s", (url) => {
+    expect(refuseWebhookUrl(url)).toBe("INTERNAL_ADDRESS")
+  })
+
+  // Non-régression : les adresses publiques que le tour précédent avait
+  // débloquées ne doivent pas redevenir des faux positifs avec ce
+  // correctif — elles ne commencent pas par `fe8`/`fe9`/`fea`/`feb`.
+  test.each([
+    "https://[2001:db8::1]/hook",
+    "https://[2606:4700:4700::1111]/hook",
+  ])("laisse toujours passer une adresse IPv6 publique %s après le correctif fe80::/10", (url) => {
+    expect(refuseWebhookUrl(url)).toBeNull()
+  })
+
   test("refuse ce qui n'est pas une URL, et ce qui est démesuré", () => {
     expect(refuseWebhookUrl("pas une url")).toBe("NOT_A_URL")
     expect(refuseWebhookUrl("")).toBe("NOT_A_URL")

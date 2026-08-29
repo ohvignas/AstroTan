@@ -115,7 +115,25 @@ export function refuseWebhookUrl(value: string): WebhookUrlRefusal | null {
     // aurait aussi refusé `2001:db8::1` ou `2606:4700:4700::1111` (le
     // résolveur DNS public de Cloudflare) — des adresses publiques qui
     // se terminent par ces chiffres sans être la boucle locale.
-    if (inner === "::" || inner === "::1" || inner.startsWith("fc") || inner.startsWith("fd")) {
+    //
+    // Relecture finale, correctif 3 : `fe80::/10` (lien-local IPv6, jamais
+    // routable au-delà du segment local) est l'exact équivalent IPv6 de
+    // `169.254.0.0/16` (lien-local IPv4, déjà refusé par `isPrivateOctets`
+    // ci-dessus) — la parité manquait. `/^fe[89ab]/` couvre le premier
+    // hextet de `fe80` à `febf`, précisément la plage `/10` : les 10 bits
+    // de poids fort valent `1111111010`, et les 6 bits libres du même
+    // hextet parcourent tout l'intervalle `80`-`bf` en hexadécimal. Même
+    // heuristique par préfixe textuel que `fc`/`fd` juste au-dessus — une
+    // barrière, pas un parseur d'adresse — et donc avec la même limite
+    // assumée par l'en-tête de ce fichier : elle ne voit que le hextet
+    // déjà écrit avec ses zéros de tête, pas sa valeur numérique.
+    if (
+      inner === "::" ||
+      inner === "::1" ||
+      inner.startsWith("fc") ||
+      inner.startsWith("fd") ||
+      /^fe[89ab]/.test(inner)
+    ) {
       return "INTERNAL_ADDRESS"
     }
     if (isMappedIpv4Internal(inner)) return "INTERNAL_ADDRESS"
