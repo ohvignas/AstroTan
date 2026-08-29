@@ -4,6 +4,7 @@
 // only thing the SEO and GEO panels reach.
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
+import { getImage } from "astro:assets"
 import { getConvexClient } from "../lib/convexClient"
 import siteIcon from "../assets/icon_astrotan.png"
 import type { PageRecord } from "../lib/loadPage"
@@ -83,9 +84,40 @@ const description = page?.seo?.description ?? settings?.defaultSeo?.description
 // L'icône téléversée depuis les réglages l'emporte sur celle du dépôt —
 // même arbitrage que le logo dans l'en-tête. Le fichier embarqué reste le
 // repli, pour qu'un template fraîchement cloné ait quand même un favicon.
-const faviconUrl = settings?.iconId
+const iconDistante = settings?.iconId
   ? await getConvexClient().query(api.media.publicUrl, { storageId: settings.iconId })
-  : siteIcon.src
+  : null
+
+/**
+ * Le favicon, proxifié par `astro:assets`.
+ *
+ * C'est le SEUL média du site qui n'empruntait pas ce chemin : le logo et les
+ * couvertures d'articles passent par `<Image>` et sortent en
+ * `/_image?href=…`, donc sur notre origine. L'icône, elle, arrivait
+ * directement sur l'origine du déploiement Convex — et un
+ * `<link rel="icon">` est arbitré par `img-src`, qui la refusait. La panne
+ * était latente : elle ne se déclenchait qu'au premier téléversement
+ * d'icône, et silencieusement.
+ *
+ * `getImage` rend un `/_image?href=…` : proxifiée, l'icône devient `'self'`
+ * et ne dépend plus d'aucune origine autorisée. La CSP autorise en plus
+ * l'origine Convex — ceinture et bretelles, et la bretelle sert le jour où
+ * quelqu'un resserrera `img-src`.
+ *
+ * Le repli sur l'URL brute couvre le cas où le domaine n'est pas dans
+ * `image.remotePatterns` : mieux vaut un favicon non optimisé qu'aucun.
+ */
+async function proxifier(url: string): Promise<string> {
+  try {
+    // 64 px et non 32 : un onglet sur écran à haute densité affiche le
+    // favicon en 32 points, donc 64 pixels réels.
+    return (await getImage({ src: url, width: 64, height: 64, format: "png" })).src
+  } catch {
+    return url
+  }
+}
+
+const faviconUrl = iconDistante ? await proxifier(iconDistante) : siteIcon.src
 
 // `noai` suppresses every structured block, not just the robots hint. An
 // extract built to be quoted, published on a page whose operator asked not

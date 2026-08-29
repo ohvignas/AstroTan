@@ -40,7 +40,11 @@ export function enTetesSecurite(
   env: SecurityEnv,
   https = false,
 ): Record<string, string> {
-  const convex = env.PUBLIC_CONVEX_URL ?? ""
+  // Normalisée comme Umami, et pas concaténée telle quelle : un slash final
+  // sur `PUBLIC_CONVEX_URL` produirait une source de *chemin* là où une CSP
+  // attend une origine. La faute de frappe est la même des deux côtés, elle
+  // mérite le même traitement.
+  const convex = origine(env.PUBLIC_CONVEX_URL)
 
   // Umami n'est PAS `'self'` : le script vient de son propre domaine et y
   // reposte chaque vue. Le brief n'en parlait pas, et c'est exactement le
@@ -70,15 +74,38 @@ export function enTetesSecurite(
       // navigateurs restés en CSP niveau 2, où seule cette liste répond.
       `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${umami ? ` ${umami}` : ""}`,
       "style-src 'self' 'unsafe-inline'",
-      // Le point de la tâche : pas d'image distante.
-      "img-src 'self' data: blob:",
+      // Le point de la tâche : pas d'image distante — sauf notre propre
+      // stockage.
+      //
+      // Convex n'est pas un tiers, c'est le backend de ce site. Deux médias
+      // ne traversent PAS le proxy `/_image` d'`astro:assets` et arrivent
+      // donc au navigateur sur l'origine du déploiement :
+      //
+      //  - le favicon téléversé depuis Réglages → Identité, servi par un
+      //    `<link rel="icon">` dont la destination de fetch est `image` ;
+      //  - une image de la médiathèque collée dans le corps d'un article,
+      //    rendu par `<Fragment set:html>` et jamais par `astro:assets`.
+      //
+      // Sans cette origine, les deux disparaissaient en silence. Ce qui reste
+      // refusé est exactement ce que la tâche visait : un
+      // `https://traqueur.exemple/pixel.gif` collé dans un article ne se
+      // charge pas.
+      //
+      // L'origine est celle de `PUBLIC_CONVEX_URL` parce qu'elle a été
+      // RELEVÉE, pas déduite : `ctx.storage.getUrl` rend
+      // `http://127.0.0.1:3210/api/storage/<uuid>` — l'origine de l'API, et
+      // non celle du site d'actions HTTP (`CONVEX_SITE_URL`, port 3211
+      // en local, `*.convex.site` en nuage). Si un déploiement venait à
+      // servir ses fichiers depuis le second, cette ligne serait fausse et il
+      // faudrait une variable à elle.
+      `img-src 'self' data: blob:${convex ? ` ${convex}` : ""}`,
       // `data:` n'est pas une largesse : au build, Vite inline les petites
       // polices en `data:font/woff2;base64,…`. Sans lui, la production perd
       // ses polices là où le serveur de développement, qui les sert en
       // fichiers, n'en montrait rien. C'est la violation que seul un build
       // réel fait apparaître.
       "font-src 'self' data:",
-      `connect-src 'self' ${convex}${umami ? ` ${umami}` : ""}`.trim(),
+      `connect-src 'self'${convex ? ` ${convex}` : ""}${umami ? ` ${umami}` : ""}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

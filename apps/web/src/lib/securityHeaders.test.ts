@@ -110,3 +110,46 @@ describe("la mesure d'audience survit à la CSP", () => {
     expect(csp).toContain("connect-src 'self' https://exemple.convex.cloud;")
   })
 })
+
+// ---------------------------------------------------------------------
+// La médiathèque — le second cas où « pas d'image distante » allait trop loin
+// ---------------------------------------------------------------------
+// Deux médias n'empruntent pas le proxy `/_image` d'`astro:assets` et
+// arrivent au navigateur sur l'origine du déploiement Convex : le favicon
+// téléversé depuis les réglages, et une image collée dans le corps d'un
+// article. `img-src 'self' data: blob:` les refusait tous les deux.
+describe("les médias servis par Convex", () => {
+  test("l'origine Convex est autorisée en image", () => {
+    const csp = enTetesSecurite("abc123", ENV)["Content-Security-Policy"]
+    expect(csp).toContain("img-src 'self' data: blob: https://exemple.convex.cloud")
+  })
+
+  test("une origine tierce reste refusée en image", () => {
+    // Toute la tâche tient dans cette assertion : ouvrir NOTRE stockage
+    // n'ouvre pas le traqueur collé dans un article.
+    const csp = enTetesSecurite("abc123", ENV)["Content-Security-Policy"]!
+    const img = csp.split("; ").find((d) => d.startsWith("img-src"))
+    expect(img).toBe("img-src 'self' data: blob: https://exemple.convex.cloud")
+    expect(img).not.toContain("https://traqueur.exemple")
+  })
+
+  test("le slash final d'une URL Convex ne produit pas une origine invalide", () => {
+    // Même normalisation que pour Umami : la relecture a relevé qu'un seul
+    // des deux la recevait, et que le test du slash final était donc vrai
+    // pour une variable et faux pour l'autre.
+    const csp = enTetesSecurite("a", {
+      PUBLIC_CONVEX_URL: "https://exemple.convex.cloud/",
+    })["Content-Security-Policy"]!
+    expect(csp).not.toContain("https://exemple.convex.cloud/ ")
+    expect(csp).toContain("connect-src 'self' https://exemple.convex.cloud;")
+    expect(csp).toContain("img-src 'self' data: blob: https://exemple.convex.cloud;")
+  })
+
+  test("sans Convex configuré, aucune origine vide n'est écrite", () => {
+    // `connect-src 'self' ` suivi de rien autoriserait la directive à se
+    // lire de travers ; `img-src` doit retomber sur la politique stricte.
+    const csp = enTetesSecurite("a", {})["Content-Security-Policy"]!
+    expect(csp).toContain("connect-src 'self';")
+    expect(csp).toContain("img-src 'self' data: blob:;")
+  })
+})
