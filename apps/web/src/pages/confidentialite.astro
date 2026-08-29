@@ -4,10 +4,14 @@
 // sur quelle base, combien de temps, vers qui, et quels droits.
 //
 // Le tableau des traitements vient de `src/config/legal.ts`. Il décrit ce
-// que ce dépôt fait réellement — formulaire de contact, mesure d'audience,
-// mémoire du choix de cookies. Un adoptant qui ajoute un traitement ajoute
-// une ligne ; en garder une pour faire sérieux serait une déclaration
-// fausse, ce qui est exactement ce que le règlement sanctionne.
+// que ce dépôt fait réellement — ce que le visiteur déclenche (contact,
+// audience, choix de cookies) ET ce que l'administration stocke sans qu'il
+// le voie (comptes, sessions avec leur adresse IP, invitations, auteurs des
+// contenus). Un adoptant qui ajoute un traitement ajoute une ligne ; en
+// garder une pour faire sérieux serait une déclaration fausse, ce qui est
+// exactement ce que le règlement sanctionne — et en OUBLIER une, qui est le
+// défaut qu'un audit a relevé ici, l'est tout autant : une donnée stockée
+// et non déclarée rend cette page fausse au sens des articles 13 et 30.
 //
 // Sa ligne doit exister dans le dashboard avec le slug `confidentialite`,
 // et être publiée — sinon cette route répond 404, délibérément.
@@ -76,8 +80,32 @@ const { page } = await loadPage(Astro)
 
       <h2>Où sont les données</h2>
       <p>
-        La base de données est hébergée par Convex. La mesure d'audience
-        tourne sur notre propre serveur, en Europe. Si des traceurs
+        La base de données est hébergée par <b>Convex, Inc.</b>, société
+        américaine : tout ce que le tableau ci-dessus désigne comme stocké en
+        base — votre message y compris — est donc transféré aux États-Unis.
+        Convex encadre ce transfert par les <i>clauses contractuelles types</i>{" "}
+        de la Commission européenne (module 2 de la décision d'exécution (UE)
+        2021/914), et non par le <i>Data Privacy Framework</i> ; son contrat de
+        sous-traitance et la liste de ses propres sous-traitants sont publiés
+        sur{" "}
+        <a
+          href="https://www.convex.dev/legal/dpa"
+          target="_blank"
+          rel="noopener noreferrer">convex.dev/legal/dpa</a
+        >.
+      </p>
+      <p>
+        Convex peut aussi s'installer sur un serveur qu'on héberge soi-même,
+        auquel cas il n'y a pas de transfert du tout. Si vous reprenez ce
+        template : vérifiez lequel des deux décrit <i>votre</i> déploiement
+        avant de publier ce paragraphe. La réponse est dans votre{" "}
+        <code>PUBLIC_CONVEX_URL</code> — une adresse en{" "}
+        <code>convex.cloud</code> désigne le service américain.
+      </p>
+      <p>
+        La mesure d'audience tourne sur notre propre serveur, en Europe. Les
+        e-mails d'invitation à l'administration, lorsqu'ils sont activés,
+        passent par Resend, également aux États-Unis. Si des traceurs
         publicitaires sont activés — et seulement si vous les avez acceptés —
         les données correspondantes partent vers Google et Meta, y compris
         aux États-Unis, dans le cadre du <i>Data Privacy Framework</i>.

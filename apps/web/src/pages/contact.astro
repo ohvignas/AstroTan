@@ -125,6 +125,19 @@ const MESSAGES_ERREUR: Record<string, string> = {
           </div>
 
           <button type="submit" class="contact__submit">Contacter maintenant</button>
+
+          {/* L'information due AU MOMENT de la collecte (RGPD, article 13),
+              pas seulement sur une page qu'il faudrait aller chercher. Deux
+              phrases : à quoi ça sert, combien de temps ça reste, et où lire
+              le reste. Plus long, personne ne le lit ; absent, c'est le
+              manquement le plus souvent relevé sur un formulaire public. */}
+          <p class="contact__legal">
+            Votre nom, votre adresse email et votre message ne servent qu'à
+            vous répondre : ni prospection, ni revente. Ils restent dans notre
+            base jusqu'à ce que nous les supprimions — ce qui est conservé, et
+            comment nous demander de l'effacer, sont dans la{" "}
+            <a href="/confidentialite">politique de confidentialité</a>.
+          </p>
         </form>
 
 
@@ -262,6 +275,22 @@ const MESSAGES_ERREUR: Record<string, string> = {
 
   .contact__submit:hover {
     opacity: 0.9;
+  }
+
+  /* Sous le bouton, dans le même cadre que les champs : l'information n'a
+     de valeur que là où la saisie se fait. Discrète, jamais masquée — une
+     mention qu'on rend illisible ne vaut pas mieux que pas de mention. */
+  .contact__legal {
+    margin: 0;
+    max-width: 44rem;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: var(--color-text-secondary);
+  }
+
+  .contact__legal a {
+    color: inherit;
+    text-decoration: underline;
   }
 
   .contact__flash {
