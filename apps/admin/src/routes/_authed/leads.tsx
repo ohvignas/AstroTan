@@ -42,6 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { GripVerticalIcon, Trash2Icon } from "lucide-react"
+import { evenementAnnulationDnd } from "@/lib/dragRescue"
 
 export const Route = createFileRoute("/_authed/leads")({
   component: LeadsPage,
@@ -217,6 +218,76 @@ function LeadsPage() {
 
   // Supprimer est réservé : un éditeur classe, il n'efface pas ce qu'un
   // visiteur a écrit. L'interface masque, et la mutation revérifie.
+  // Le filet.
+  //
+  // Ce qui suit ne corrige aucune cause : il rend l'état bloqué impossible
+  // à conserver. Le défaut signalé — « quand j'attrape un élément il reste
+  // collé à ma souris, obligé de relancer la page » — est celui d'un
+  // `pointerup` qui n'atteint jamais dnd-kit : capture perdue quand le nœud
+  // est démonté par un re-rendu de la query réactive, relâchement hors de
+  // la fenêtre, onglet masqué en plein geste. Le glissement ne se termine
+  // alors jamais, et rien ne le rattrape.
+  //
+  // Une correction qui vise une cause a déjà été tentée ici et n'a pas
+  // suffi. Celle-ci part de l'autre bout : quel que soit le chemin, si le
+  // bouton est relâché — ou la fenêtre perdue — et qu'un glissement est
+  // encore en cours un tour de boucle plus tard, on envoie à dnd-kit la
+  // touche par laquelle il annule lui-même, puis on remet notre propre
+  // état à zéro.
+  //
+  // Le `setTimeout(…, 0)` n'est pas une temporisation prudente : dans un
+  // dépôt NORMAL, `pointerup` précède `onDragEnd`. Sans ce tour de boucle,
+  // le filet couperait chaque dépôt réussi juste avant qu'il n'écrive.
+  // Après, `saisie` est déjà `null` et le filet ne fait rien — il ne se
+  // déclenche que sur le cas anormal.
+  // Miroir de `saisie` lisible depuis un `setTimeout` sans le refermer dans
+  // la valeur du rendu où il a été posé.
+  const saisieRef = useRef<Doc<"leads"> | null>(null)
+  saisieRef.current = saisie
+
+  useEffect(() => {
+    if (saisie === null) return
+
+    function rattraper() {
+      window.setTimeout(() => {
+        if (saisieRef.current === null) return
+        // La touche par laquelle dnd-kit annule un glissement. La
+        // synthétiser plutôt que de simplement vider notre état : sans
+        // elle, le calque disparaîtrait mais dnd-kit se croirait encore en
+        // train de glisser, et avalerait le clic suivant.
+        //
+        // Sur `document` parce que c'est là que le capteur pose cet
+        // écouteur — et l'événement lui-même est construit dans
+        // `lib/dragRescue.ts`, où un test vise le champ qui a été oublié la
+        // première fois.
+        document.dispatchEvent(evenementAnnulationDnd())
+        setSaisie(null)
+        setSurvolee(null)
+      }, 0)
+    }
+
+    function surVisibilite() {
+      if (document.visibilityState === "hidden") rattraper()
+    }
+
+    // `mouseup` en plus de `pointerup`, et ce n'est pas une ceinture de
+    // plus : `MouseSensor` n'a AUCUN événement d'annulation — sa table
+    // d'événements est `mousemove` + `mouseup`, là où `PointerSensor` et
+    // `TouchSensor` écoutent en plus `pointercancel` et `touchcancel`.
+    // Le chemin souris est donc le seul qui n'a pas de filet interne, et
+    // c'est précisément celui où le blocage a été constaté.
+    for (const nom of ["pointerup", "pointercancel", "mouseup", "blur"]) {
+      window.addEventListener(nom, rattraper)
+    }
+    document.addEventListener("visibilitychange", surVisibilite)
+    return () => {
+      for (const nom of ["pointerup", "pointercancel", "mouseup", "blur"]) {
+        window.removeEventListener(nom, rattraper)
+      }
+      document.removeEventListener("visibilitychange", surVisibilite)
+    }
+  }, [saisie])
+
   const canDelete = profile?.role === "owner" || profile?.role === "admin"
 
   if (board === undefined) {
@@ -277,65 +348,6 @@ function LeadsPage() {
     setSaisie(null)
     setSurvolee(null)
   }
-
-  // Le filet.
-  //
-  // Ce qui suit ne corrige aucune cause : il rend l'état bloqué impossible
-  // à conserver. Le défaut signalé — « quand j'attrape un élément il reste
-  // collé à ma souris, obligé de relancer la page » — est celui d'un
-  // `pointerup` qui n'atteint jamais dnd-kit : capture perdue quand le nœud
-  // est démonté par un re-rendu de la query réactive, relâchement hors de
-  // la fenêtre, onglet masqué en plein geste. Le glissement ne se termine
-  // alors jamais, et rien ne le rattrape.
-  //
-  // Une correction qui vise une cause a déjà été tentée ici et n'a pas
-  // suffi. Celle-ci part de l'autre bout : quel que soit le chemin, si le
-  // bouton est relâché — ou la fenêtre perdue — et qu'un glissement est
-  // encore en cours un tour de boucle plus tard, on envoie à dnd-kit la
-  // touche par laquelle il annule lui-même, puis on remet notre propre
-  // état à zéro.
-  //
-  // Le `setTimeout(…, 0)` n'est pas une temporisation prudente : dans un
-  // dépôt NORMAL, `pointerup` précède `onDragEnd`. Sans ce tour de boucle,
-  // le filet couperait chaque dépôt réussi juste avant qu'il n'écrive.
-  // Après, `saisie` est déjà `null` et le filet ne fait rien — il ne se
-  // déclenche que sur le cas anormal.
-  // Miroir de `saisie` lisible depuis un `setTimeout` sans le refermer dans
-  // la valeur du rendu où il a été posé.
-  const saisieRef = useRef<Doc<"leads"> | null>(null)
-  saisieRef.current = saisie
-
-  useEffect(() => {
-    if (saisie === null) return
-
-    function rattraper() {
-      window.setTimeout(() => {
-        if (saisieRef.current === null) return
-        // La touche par laquelle dnd-kit annule un glissement. La
-        // synthétiser plutôt que de simplement vider notre état : sans
-        // elle, le calque disparaîtrait mais dnd-kit se croirait encore en
-        // train de glisser, et avalerait le clic suivant.
-        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
-        setSaisie(null)
-        setSurvolee(null)
-      }, 0)
-    }
-
-    function surVisibilite() {
-      if (document.visibilityState === "hidden") rattraper()
-    }
-
-    window.addEventListener("pointerup", rattraper)
-    window.addEventListener("pointercancel", rattraper)
-    window.addEventListener("blur", rattraper)
-    document.addEventListener("visibilitychange", surVisibilite)
-    return () => {
-      window.removeEventListener("pointerup", rattraper)
-      window.removeEventListener("pointercancel", rattraper)
-      window.removeEventListener("blur", rattraper)
-      document.removeEventListener("visibilitychange", surVisibilite)
-    }
-  }, [saisie])
 
   return (
     <div className="flex flex-col gap-4">

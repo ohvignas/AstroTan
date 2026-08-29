@@ -14,6 +14,7 @@ import { normalizeSlug } from "./lib/slug"
 import { RESERVED_PAGE_SLUGS } from "./posts"
 import { mintRenameRedirect } from "./redirects"
 import { isServedByRoute } from "./lib/servedPaths"
+import { publicPath } from "./lib/publicPath"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // This task's own brief, verbatim: "the security-critical task of the
@@ -181,12 +182,11 @@ export const list = query({
     const homeSlug = settings?.homePageSlug
 
     return pages.map((page) => {
-      const isHome = page.slug === homeSlug
-      // Le chemin réel, calculé ICI et pas dans l'écran : l'accueil répond
-      // à `/`, et afficher `/accueil` donnait une adresse qui rend 404.
-      // Deux endroits qui dérivent l'un de l'autre finissent par ne plus
-      // être d'accord — c'est déjà arrivé trois fois sur ce sujet.
-      const path = isHome ? "/" : `/${page.slug}`
+      // Le chemin réel vient de `lib/publicPath`, jamais recalculé ici :
+      // l'exception de l'accueil a déjà été oubliée quatre fois, à quatre
+      // endroits, et la recopier une cinquième aurait produit une cinquième
+      // occasion de l'oublier.
+      const path = publicPath(page.slug, homeSlug)
       return {
         ...page,
         path,

@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import { publicPath, publicUrl } from "@astrotan/backend/convex/lib/publicPath"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import {
   MAX_CANONICAL_URL_LENGTH,
@@ -218,7 +219,18 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
       }
       // The page's own URL, not a parallel preview route: what is checked
       // before publishing is literally the page that will go live.
-      const url = `${base}/${slug}?t=${encodeURIComponent(token)}`
+      //
+      // `page.slug`, pas le `slug` en cours d'édition : le jeton est signé
+      // pour la ligne ENREGISTRÉE, et une adresse construite sur un slug
+      // non encore sauvegardé ouvrait une page qui n'existe pas, avec un
+      // jeton qui ne correspond à rien.
+      //
+      // `publicUrl` et non une concaténation : la page d'accueil répond à
+      // `/`, et `${base}/${page.slug}` ouvrait `/accueil?t=…`, une route
+      // inexistante — l'aperçu montrait une 404 au lieu de la page qu'on
+      // s'apprêtait à publier. Voir `convex/lib/publicPath.ts`, qui porte
+      // l'exception et son test.
+      const url = `${publicUrl(base, page.slug, homePageSlug)}?t=${encodeURIComponent(token)}`
       setPreviewUrl(url)
       window.open(url, "_blank", "noopener,noreferrer")
     } catch (err) {
@@ -252,10 +264,16 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Désactivé tant que les réglages ne sont pas chargés.
+              `homePageSlug` vaut `undefined` pendant ce temps, et
+              `publicPath` répond alors « cette page n'est pas l'accueil » —
+              ce qui est faux pour l'accueil et rouvrirait exactement le
+              bug qu'on vient de fermer, dans une fenêtre de quelques
+              centaines de millisecondes que personne ne reproduirait. */}
           <Button
             variant="outline"
             size="sm"
-            disabled={busy}
+            disabled={busy || homePageSlug === undefined}
             onClick={handlePreview}
           >
             <ExternalLinkIcon data-icon="inline-start" />
@@ -323,7 +341,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
           enregistré, pas celui en cours d'édition — la mesure porte sur ce
           qui est en ligne. */}
       <PageAnalytics
-        path={homePageSlug === page.slug ? "/" : `/${page.slug}`}
+        path={publicPath(page.slug, homePageSlug)}
       />
 
       <Card>
