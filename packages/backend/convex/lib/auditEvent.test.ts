@@ -19,12 +19,19 @@ describe("decrireAction", () => {
   // les cinq de la relecture finale (correctif 2) : `invitation.create` —
   // l'autre chemin, outre `users.setRole`, par lequel un rôle s'accorde —
   // et la parité page/article pour publier, dépublier et supprimer.
+  // S'y ajoutent les trois gestes de l'écran d'envoi des emails : modifier
+  // le texte d'un email, couper ou rétablir son envoi, revenir au texte du
+  // code. Trois et non un seul — voir `auditEvent.ts` pour pourquoi les
+  // confondre rendrait le journal muet sur la question qu'on lui pose.
   // La liste est fermée, et ce test est ce qui empêche d'en retirer un en
   // silence : supprimer une action de `AUDIT_ACTIONS` fait disparaître ses
   // lignes de journal sans rien casser d'autre.
-  test("la liste couvre exactement les treize gestes instrumentés", () => {
+  test("la liste couvre exactement les seize gestes instrumentés", () => {
     expect([...AUDIT_ACTIONS].sort()).toEqual(
       [
+        "emailTemplate.reset",
+        "emailTemplate.set",
+        "emailTemplate.toggle",
         "invitation.create",
         "lead.remove",
         "page.publish",

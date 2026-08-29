@@ -64,6 +64,12 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
   // `majPar` désigne l'administrateur qui a enregistré le jeton. La valeur,
   // elle, est chiffrée et n'a rien de personnel.
   secrets: { declaredAs: "Savoir qui a publié, modifié ou téléversé quoi" },
+  // `majPar` désigne l'administrateur qui a réécrit le texte d'un email ou
+  // coupé son envoi. Le TEXTE, lui, n'est pas une donnée personnelle : il
+  // est écrit par le déploiement, pas par la personne qui le recevra —
+  // c'est `leads` qui porte ce qu'un visiteur a écrit. Déclarée, donc, et
+  // jamais exemptée : un champ qui désigne quelqu'un suffit.
+  emailTemplates: { declaredAs: "Savoir qui a publié, modifié ou téléversé quoi" },
   auditLog: { declaredAs: "Savoir qui a changé un rôle, un accès ou un réglage" },
 
   // ── Exemptées, et pourquoi ───────────────────────────────────────────

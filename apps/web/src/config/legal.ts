@@ -327,17 +327,20 @@ export const processings: Processing[] = [
       "configurée",
   },
   // Champs `createdBy`/`updatedBy` de `pages`, `posts`, `redirects`, la table
-  // `media`, et le champ `majPar` de `secrets`. Rien de tout cela n'est une
-  // table « de personnes », mais chacun de ces champs désigne quelqu'un — ce
-  // qui suffit. `secrets.majPar` a été ajouté ici parce que le garde-fou de
-  // `legal.test.ts` a refusé de le laisser non classé : la table existait
-  // depuis le lot des réglages sans qu'aucune ligne ne la couvre.
+  // `media`, et le champ `majPar` de `secrets` et d'`emailTemplates`. Rien de
+  // tout cela n'est une table « de personnes », mais chacun de ces champs
+  // désigne quelqu'un — ce qui suffit. `secrets.majPar` a été ajouté ici parce
+  // que le garde-fou de `legal.test.ts` a refusé de le laisser non classé : la
+  // table existait depuis le lot des réglages sans qu'aucune ligne ne la
+  // couvre. `emailTemplates.majPar` a suivi le même chemin, cette fois avant
+  // que la table n'existe.
   {
     purpose: "Savoir qui a publié, modifié ou téléversé quoi",
     data:
       "Identifiant de l'administrateur qui a créé ou modifié une page, un " +
-      "article, une redirection ou un fichier de la médiathèque, ou qui a " +
-      "enregistré un jeton d'accès à un service tiers, et le nom du fichier " +
+      "article, une redirection ou un fichier de la médiathèque, qui a " +
+      "enregistré un jeton d'accès à un service tiers, ou qui a réécrit le " +
+      "texte d'un e-mail envoyé par le site — et le nom du fichier " +
       "téléversé",
     basis:
       "Intérêt légitime — rattacher une modification à son auteur, ce sans " +

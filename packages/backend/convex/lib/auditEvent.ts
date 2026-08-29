@@ -69,6 +69,21 @@ export const AUDIT_ACTIONS = [
   // destructeur que dépublier (déjà journalisé), et ne l'était pas.
   "page.remove",
   "post.remove",
+  // `emailTemplate.*` : l'écran d'envoi des emails décide ce que le site
+  // écrit à des gens qui ne le liront jamais depuis l'administration — le
+  // texte d'une invitation, ou le fait qu'une notification ne parte plus
+  // du tout. Trois gestes distincts et non un seul : « a rétabli le texte
+  // par défaut » et « a modifié le texte » ne se relisent pas de la même
+  // façon six mois plus tard, et un journal qui les confond ne répond pas
+  // à la question qu'on lui pose.
+  //
+  // Le CONTENU n'entre jamais dans la ligne, seulement le titre de
+  // l'email visé : un gabarit peut porter la signature de l'entreprise ou
+  // un lien interne, et `auditLog` n'est balayée par aucune purge de
+  // `retention.ts`. `emails.test.ts` l'atteste plutôt que de le promettre.
+  "emailTemplate.set",
+  "emailTemplate.toggle",
+  "emailTemplate.reset",
 ] as const
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
@@ -128,6 +143,15 @@ export function decrireAction(
       return `${acteurNom} a supprimé la page ${quoi}${suffixe}`
     case "post.remove":
       return `${acteurNom} a supprimé l'article ${quoi}${suffixe}`
+    case "emailTemplate.set":
+      return `${acteurNom} a modifié le texte de l'email « ${quoi} »`
+    // `detail` porte « désactivé » ou « réactivé », composé par
+    // `emails.setActif` : le sens du geste tient dans ce mot, et le mettre
+    // entre parenthèses en bout de phrase l'enterrerait.
+    case "emailTemplate.toggle":
+      return `${acteurNom} a ${detail ?? "modifié l'envoi de"} l'email « ${quoi} »`
+    case "emailTemplate.reset":
+      return `${acteurNom} a rétabli le texte par défaut de l'email « ${quoi} »`
   }
 }
 

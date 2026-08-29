@@ -373,6 +373,61 @@ export default defineSchema({
     majPar: v.string(),
   }).index("by_nom", ["nom"]),
 
+  // Ce que l'adoptant a changé aux emails que ce dépôt envoie — et RIEN
+  // d'autre. Le texte de référence, lui, vit dans le code
+  // (`lib/catalogueEmails.ts`), et l'absence de ligne ici est le cas
+  // NORMAL : c'est l'état de tout déploiement neuf. Même forme que
+  // `choisirExpediteur` (`lib/expediteur.ts`), qui replie déjà sur une
+  // valeur du code quand le réglage manque.
+  //
+  // Une ligne n'existe donc que si quelqu'un a touché quelque chose, et
+  // `emails.gabaritPour` sait toujours répondre sans elle.
+  emailTemplates: defineTable({
+    /**
+     * Une clé du catalogue (`CleEmail`). Pas d'index unique en base :
+     * c'est la mutation qui garantit l'unicité, et un index le dirait
+     * mieux — à revoir si un jour le catalogue dépasse la dizaine.
+     */
+    cle: v.string(),
+    /**
+     * Le texte réécrit depuis l'administration — OPTIONNEL, et c'est
+     * structurel, pas une commodité.
+     *
+     * Le brief de cette tâche les voulait obligatoires. Deux conséquences
+     * l'ont fait changer, toutes deux silencieuses :
+     *
+     *   1. Couper un email (`setActif`) devait alors matérialiser le
+     *      texte par défaut dans la ligne. Une version ultérieure du
+     *      catalogue qui améliore ce texte ne serait jamais appliquée
+     *      chez qui n'a fait que basculer un interrupteur — un gel du
+     *      texte que personne n'a demandé et que rien n'affiche.
+     *   2. « Personnalisé » ou « par défaut », la seule chose que l'écran
+     *      doit pouvoir dire sans deviner, deviendrait indécidable : une
+     *      ligne existerait aussi pour qui n'a jamais touché au texte.
+     *
+     * Ici, `objet === undefined` veut dire exactement « le littéral du
+     * code », et rien d'autre.
+     */
+    objet: v.optional(v.string()),
+    corps: v.optional(v.string()),
+    /** Faux = cet email ne part plus. Refusé sur les emails non désactivables. */
+    actif: v.boolean(),
+    /**
+     * L'identifiant Better Auth de qui a écrit cette ligne — la même
+     * forme que `secrets.majPar`, et pour la même raison : c'est ce que
+     * rend `requireRole`, qui ne connaît pas la table `profiles`.
+     *
+     * Un `v.id("profiles")` (ce que demandait le brief) aurait obligé
+     * chaque écriture à résoudre un profil qui peut légitimement manquer
+     * le temps qu'`auth.onUpdate` le crée — une mutation qui échoue pour
+     * une raison sans rapport avec le geste. Le classement RGPD est le
+     * même dans les deux cas : `_dataRegistry.ts` déclare cette table
+     * sous « Savoir qui a publié, modifié ou téléversé quoi ».
+     */
+    majPar: v.string(),
+    majAt: v.number(),
+  }).index("by_cle", ["cle"]),
+
   // Deux chaînes pour une idée : le `name` qu'un humain a tapé, gardé tel
   // quel pour l'affichage, et le `slug` qui en est dérivé — c'est lui qui
   // décide de l'URL et de l'unicité. « Astro » et « astro » sont le même
