@@ -13,16 +13,16 @@
 // une garantie — et le dire ici évite qu'on la prenne pour ce qu'elle n'est
 // pas.
 //
-// Une autre limite, plus étroite, est fermée ici plutôt que documentée :
-// une IPv4 écrite en notation non pointée (décimale pure, octale ou
-// hexadécimale — `2130706433`, `0177.0.0.1`, `0x7f000001`, tous 127.0.0.1)
-// est acceptée par `new URL()` au même titre qu'une IPv4 pointée classique.
-// Un contrôle qui se contente de `split(".")` sur le hostname la laisse
-// passer telle quelle. On ne peut pas non plus compter sur le hostname
-// d'être déjà canonicalisé en notation pointée avant d'arriver ici : cela
-// dépend de l'implémentation d'URL du runtime, et rien ne garantit qu'elle
-// se comporte comme celle de Node. `isPrivateIpv4` reparse donc elle-même
-// ces formes plutôt que de supposer qu'elles ont déjà été normalisées.
+// Une IPv4 écrite en notation non pointée — décimale pure (`2130706433`),
+// octale (`0177.0.0.1`), hexadécimale (`0x7f000001`), ou compressée
+// (`127.1`) — n'a pas besoin d'un parsing dédié ici : le parseur d'hôte de
+// la spec WHATWG URL la canonicalise en notation pointée classique avant
+// que `url.hostname` ne soit lu plus bas. Ce n'est pas une particularité
+// de Node : c'est l'algorithme de parsing lui-même, et il a été vérifié
+// tel quel sous `edge-runtime` (l'environnement de test de ce projet,
+// voir `vitest.config.ts`), pas seulement supposé. `isPrivateIpv4` ne voit
+// donc jamais ces formes-là — elle voit déjà `127.0.0.1`, et un parseur
+// dédié ici serait du code mort, inatteignable via `refuseWebhookUrl`.
 
 export type WebhookUrlRefusal =
   | "NOT_A_URL"
@@ -45,51 +45,6 @@ const INTERNAL_HOSTNAMES = new Set([
   "metadata.google.internal",
 ])
 
-/**
- * Interprète un hostname qui code une IPv4 sous une forme quelconque —
- * pointée classique (`127.0.0.1`), compressée (`127.1`), décimale pure
- * (`2130706433`), octale (`0177.0.0.1`) ou hexadécimale (`0x7f000001`),
- * y compris mélangée entre segments. Reproduit (en simplifié) l'algorithme
- * de parsing IPv4 de la spec WHATWG URL. `null` si `hostname` n'a pas cette
- * forme — auquel cas ce n'est très probablement pas une adresse IP.
- */
-function parseNumericIpv4(hostname: string): [number, number, number, number] | null {
-  const parts = hostname.split(".")
-  if (parts.length === 0 || parts.length > 4) return null
-
-  const numbers: number[] = []
-  for (const part of parts) {
-    if (part === "") return null
-    let n: number
-    if (/^0x[0-9a-f]+$/i.test(part)) {
-      n = Number.parseInt(part.slice(2), 16)
-    } else if (/^0[0-7]+$/.test(part)) {
-      n = Number.parseInt(part, 8)
-    } else if (/^(0|[1-9][0-9]*)$/.test(part)) {
-      n = Number.parseInt(part, 10)
-    } else {
-      return null
-    }
-    if (!Number.isSafeInteger(n) || n < 0) return null
-    numbers.push(n)
-  }
-
-  // Seul le dernier segment peut porter plusieurs octets (notation
-  // compressée) ; les précédents doivent chacun tenir sur un octet.
-  for (let i = 0; i < numbers.length - 1; i++) {
-    if ((numbers[i] as number) > 255) return null
-  }
-  const last = numbers[numbers.length - 1] as number
-  const maxLast = 256 ** (5 - numbers.length) - 1
-  if (last > maxLast) return null
-
-  const octets = numbers.slice(0, -1)
-  for (let i = numbers.length - 1; i < 4; i++) {
-    octets.push(Math.floor(last / 256 ** (3 - i)) % 256)
-  }
-  return octets as [number, number, number, number]
-}
-
 /** Les octets d'une IPv4 déjà résolue appartiennent-ils à une plage interne ? */
 function isPrivateOctets([a, b]: [number, number, number, number]): boolean {
   return (
@@ -101,10 +56,15 @@ function isPrivateOctets([a, b]: [number, number, number, number]): boolean {
   )
 }
 
+// `hostname` est déjà en notation pointée classique à ce stade (voir le
+// commentaire d'en-tête) : un simple split(".") suffit, pas besoin de
+// gérer les formes décimale/octale/hexadécimale.
 function isPrivateIpv4(hostname: string): boolean {
-  const octets = parseNumericIpv4(hostname)
-  if (!octets) return false
-  return isPrivateOctets(octets)
+  const parts = hostname.split(".")
+  if (parts.length !== 4) return false
+  const octets = parts.map((part) => Number(part))
+  if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false
+  return isPrivateOctets(octets as [number, number, number, number])
 }
 
 /**
@@ -150,7 +110,12 @@ export function refuseWebhookUrl(value: string): WebhookUrlRefusal | null {
   // connexion sortante), ou une IPv4 mappée en IPv6 est refusée.
   if (host.startsWith("[")) {
     const inner = host.slice(1, -1)
-    if (inner === "::" || inner.includes("::1") || inner.startsWith("fc") || inner.startsWith("fd")) {
+    // `inner === "::1"` (égalité, pas sous-chaîne) : la boucle locale
+    // IPv6 n'a qu'une forme compressée canonique. Un `.includes("::1")`
+    // aurait aussi refusé `2001:db8::1` ou `2606:4700:4700::1111` (le
+    // résolveur DNS public de Cloudflare) — des adresses publiques qui
+    // se terminent par ces chiffres sans être la boucle locale.
+    if (inner === "::" || inner === "::1" || inner.startsWith("fc") || inner.startsWith("fd")) {
       return "INTERNAL_ADDRESS"
     }
     if (isMappedIpv4Internal(inner)) return "INTERNAL_ADDRESS"
