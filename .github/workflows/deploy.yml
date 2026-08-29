@@ -83,9 +83,17 @@ jobs:
       # vérifié en CI par `node scripts/check-env-wiring.mjs`.
       #
       # Un secret GitHub absent n'est PAS une erreur ici : il rend la chaîne
-      # vide, et le build reste vert. C'est ce qui rend ces quatre dernières
-      # variables réellement facultatives pour un adoptant qui ne veut ni
-      # mesure d'audience ni traceur publicitaire.
+      # vide, et le build reste vert. C'est ce qui rend les quatre variables
+      # de mesure et de traceurs réellement facultatives pour un adoptant qui
+      # ne veut ni mesure d'audience ni traceur publicitaire.
+      #
+      # `WEB_DOMAIN` est la seule exception, et `web.Dockerfile` la fait
+      # échouer explicitement quand elle est vide. La raison tient à ce que
+      # son absence produit : pas une fonctionnalité éteinte, mais une
+      # protection cassée qui ne se voit nulle part — `clientAddress` vaut
+      # alors l'adresse de Traefik, et les deux limiteurs de débit du site
+      # comptent tous les visiteurs dans un seul seau (voir
+      # `apps/web/src/lib/allowedDomains.ts`).
       - name: Build and push the web image
         uses: docker/build-push-action@v6
         with:
@@ -99,6 +107,7 @@ jobs:
             PUBLIC_UMAMI_RECORDER=${{ secrets.PUBLIC_UMAMI_RECORDER }}
             PUBLIC_META_PIXEL_ID=${{ secrets.PUBLIC_META_PIXEL_ID }}
             PUBLIC_GOOGLE_TAG_ID=${{ secrets.PUBLIC_GOOGLE_TAG_ID }}
+            WEB_DOMAIN=${{ secrets.WEB_DOMAIN }}
           tags: |
             ${{ steps.img.outputs.prefix }}/astrotan-web:${{ github.sha }}
             ${{ steps.img.outputs.prefix }}/astrotan-web:latest

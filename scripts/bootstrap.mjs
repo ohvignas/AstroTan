@@ -482,6 +482,13 @@ const GITHUB_SECRETS = [
   { name: "VITE_CONVEX_URL", value: g("CONVEX_CLOUD_URL") },
   { name: "VITE_CONVEX_SITE_URL", value: g("CONVEX_SITE_URL") },
   { name: "VITE_WEB_SITE_URL", value: WEB_ORIGIN },
+  // Le domaine du site, figé dans l'image `web` AU BUILD pour
+  // `security.allowedDomains` (apps/web/astro.config.ts). Sans elle, le
+  // build de l'image échoue — délibérément : son absence ne coupe aucune
+  // fonctionnalité visible, elle fait seulement que `clientAddress` vaut
+  // l'adresse de Traefik, donc que les deux limiteurs de débit du site
+  // comptent tous les visiteurs ensemble.
+  { name: "WEB_DOMAIN", value: g("WEB_DOMAIN") },
   { name: "VPS_HOST", value: g("VPS_HOST") },
   { name: "VPS_USER", value: g("VPS_USER") },
   { name: "VPS_SSH_KEY", source: "fichier", secret: true },

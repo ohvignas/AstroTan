@@ -1,6 +1,27 @@
 import { defineConfig, memoryCache } from "astro/config"
 import node from "@astrojs/node"
 import tailwindcss from "@tailwindcss/vite"
+import { domainesAutorises } from "./src/lib/allowedDomains"
+
+// `WEB_DOMAIN` est lue ICI, dans la configuration, et pas dans `src/` : elle
+// est figée AU BUILD comme une `PUBLIC_*`, et une lecture dans `src/` la
+// ferait passer pour une variable de runtime — celle que le conteneur lit au
+// démarrage — qui est précisément la confusion que
+// `scripts/check-env-wiring.mjs` existe pour attraper.
+const allowedDomains = domainesAutorises(process.env.WEB_DOMAIN)
+if (allowedDomains.length === 0) {
+  // Pas une erreur : en développement il n'y a pas de proxy, et
+  // `clientAddress` est déjà l'adresse réelle du visiteur. En revanche
+  // l'image de production refuse de se construire sans cette variable
+  // (`RUN test -n "$WEB_DOMAIN"`, docker/web.Dockerfile) — la panne qu'elle
+  // cause ne se voit pas, elle doit donc s'annoncer.
+  console.warn(
+    "[astrotan] WEB_DOMAIN absente : `x-forwarded-for` sera ignoré et " +
+      "`clientAddress` vaudra l'adresse du reverse proxy — donc la MÊME pour " +
+      "tous les visiteurs. Sans conséquence en local, inacceptable derrière " +
+      "Traefik (voir src/lib/allowedDomains.ts).",
+  )
+}
 
 // Spec §6.1 — the exact configuration the publication loop (Task 6/7) depends
 // on. `output: 'static'` prerenders everything by default; individual CMS
@@ -12,6 +33,14 @@ import tailwindcss from "@tailwindcss/vite"
 export default defineConfig({
   output: "static",
   adapter: node({ mode: "standalone" }),
+
+  // Les hôtes que ce déploiement reconnaît comme les siens. C'est la
+  // condition — et la seule — pour qu'Astro honore `x-forwarded-for` et que
+  // `clientAddress` soit l'adresse du VISITEUR plutôt que celle de Traefik.
+  // Les deux limiteurs de débit du site (`/api/contact`, `/api/consent`) en
+  // dépendent entièrement : le raisonnement complet est dans
+  // `src/lib/allowedDomains.ts`.
+  security: { allowedDomains },
 
   // Astro's Cache API (stable as of Astro 7). `memoryCache()` is per-process
   // — the spec's assumed debt (§6.2/§7 "Rollback et migrations"): an

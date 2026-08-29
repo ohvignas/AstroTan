@@ -43,6 +43,21 @@
 //      être documentée dans docker/.env.example ET écrite par
 //      `pnpm bootstrap` dans `.env.vps`, sans quoi le premier `compose up`
 //      d'un adoptant échoue.
+//   4. CONFIG DE BUILD — tout `process.env.X` lu par le fichier de
+//      configuration d'une app (`astro.config.ts`, `vite.config.ts`) doit
+//      être un `ARG` du Dockerfile ET un `build-args` de deploy.yml, comme
+//      en 2. Ces fichiers-là ne tournent PAS dans le conteneur : ils sont
+//      lus pendant le build, et leur `process.env` n'a donc rien à voir
+//      avec l'`environment:` du compose. C'est le troisième écart, et il
+//      est le plus trompeur des trois : la variable ressemble à une
+//      variable de runtime, se pose comme une variable de build, et son
+//      absence ne produit ni erreur ni fonctionnalité muette — seulement un
+//      réglage qui reprend sa valeur par défaut.
+//        · `WEB_DOMAIN` lue par `apps/web/astro.config.ts` pour
+//          `security.allowedDomains` : sans elle, Astro ignore
+//          `x-forwarded-for`, `clientAddress` vaut l'adresse de Traefik, et
+//          les deux limiteurs de débit du site comptent TOUS les visiteurs
+//          dans un seul seau (apps/web/src/lib/allowedDomains.ts).
 //
 // CE QU'IL NE VÉRIFIE PAS, et qu'il ne faut donc pas croire vérifié :
 //
@@ -88,9 +103,12 @@ const DEPLOY_WORKFLOW = join(ROOT, ".github", "workflows", "deploy.yml");
 const APPS = [
   {
     name: "apps/web",
-    // `src/` seulement : `astro.config.mjs` et les scripts de build tournent
+    // `src/` seulement : `astro.config.ts` et les scripts de build tournent
     // sur le runner ou le poste de dev, pas dans le conteneur.
     sources: ["apps/web/src"],
+    // Lus PENDANT le build, jamais au démarrage du conteneur. Leurs
+    // `process.env` sont donc des variables de build — écart n° 4.
+    buildConfigs: ["apps/web/astro.config.ts"],
     dockerfile: "docker/web.Dockerfile",
     service: "web",
   },
@@ -100,6 +118,7 @@ const APPS = [
     // docker/admin.Dockerfile) : ses `process.env` sont des lectures runtime
     // au même titre que celles de `src/`.
     sources: ["apps/admin/src", "apps/admin/serve.mjs"],
+    buildConfigs: ["apps/admin/vite.config.ts"],
     dockerfile: "docker/admin.Dockerfile",
     service: "admin",
   },
@@ -169,6 +188,33 @@ function readsOf(app) {
     }
   }
   return { runtime, build };
+}
+
+/**
+ * Les `process.env` lus par les fichiers de CONFIGURATION d'une app.
+ *
+ * Le même littéral que dans `readsOf`, sur d'autres fichiers, pour une
+ * conclusion opposée : ces fichiers-là ne tournent pas dans le conteneur,
+ * ils sont exécutés par le bundler pendant le build. Leur variable se pose
+ * donc en `ARG`/`build-args`, jamais dans l'`environment:` du compose — et
+ * les confondre donne une variable posée à l'endroit où personne ne la lit.
+ */
+function configReadsOf(app) {
+  const reads = new Map();
+  for (const rel of app.buildConfigs ?? []) {
+    const abs = join(ROOT, rel);
+    if (!existsSync(abs)) continue;
+    read(abs)
+      .split("\n")
+      .forEach((line, i) => {
+        for (const m of line.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) {
+          if (PLATFORM.has(m[1])) continue;
+          if (!reads.has(m[1])) reads.set(m[1], []);
+          reads.get(m[1]).push(`${rel}:${i + 1}`);
+        }
+      });
+  }
+  return reads;
 }
 
 /**
@@ -351,9 +397,19 @@ if (vpsVars === null) problems.push(["parseur", "gabarit `.env.vps` introuvable 
 
 for (const app of APPS) {
   const { runtime, build } = readsOf(app);
+  const config = configReadsOf(app);
   const { args, envs } = dockerfileDecls(app.dockerfile);
   const serviceEnv = services.get(app.service) ?? new Set();
   const buildArgs = workflowArgs.get(app.dockerfile) ?? new Set();
+
+  // Le garde-fou du garde-fou, comme ailleurs : un fichier de configuration
+  // déclaré mais introuvable rendrait un ensemble vide, et l'écart n° 4
+  // cesserait d'être vérifié sans que rien ne le dise.
+  for (const rel of app.buildConfigs ?? []) {
+    if (!existsSync(join(ROOT, rel))) {
+      problems.push(["parseur", `${rel} déclaré dans \`APPS\` mais introuvable — le fichier a-t-il été renommé ?`]);
+    }
+  }
 
   if (runtime.size === 0 && build.size === 0) {
     problems.push(["parseur", `aucune lecture d'environnement trouvée dans ${app.name} — les chemins de \`APPS\` sont-ils encore justes ?`]);
@@ -381,10 +437,22 @@ for (const app of APPS) {
     ]);
   }
 
+  // 4. CONFIG DE BUILD
+  for (const [name, where] of config) {
+    const missing = [];
+    if (!args.has(name)) missing.push(`\`ARG\` dans ${app.dockerfile}`);
+    if (!buildArgs.has(name)) missing.push("`build-args` de deploy.yml");
+    if (missing.length === 0) continue;
+    problems.push([
+      "config",
+      `${name} — lue par ${where[0]}${where.length > 1 ? ` (+${where.length - 1})` : ""}, manque : ${missing.join(" et ")}. La configuration est lue AU BUILD : la poser dans le \`.env\` du VPS ne ferait rien, et sans elle le réglage qu'elle commande reprend sa valeur par défaut, sans erreur.`,
+    ]);
+  }
+
   // Sens inverse : déclarée, jamais lue. Sans danger, donc pas un échec —
   // mais c'est de la configuration morte, et personne ne la retrouve seul.
   for (const name of buildArgs) {
-    if (build.has(name) || runtime.has(name)) continue;
+    if (build.has(name) || runtime.has(name) || config.has(name)) continue;
     notes.push(`${name} passée en build-arg à ${app.dockerfile}, lue nulle part dans ${app.name}`);
   }
 }
@@ -404,7 +472,8 @@ for (const name of required) {
 if (problems.length === 0) {
   const counted = APPS.map((a) => {
     const { runtime, build } = readsOf(a);
-    return `${a.name} : ${runtime.size} runtime, ${[...build.keys()].filter((n) => /^(PUBLIC_|VITE_)/.test(n)).length} build`;
+    const config = configReadsOf(a);
+    return `${a.name} : ${runtime.size} runtime, ${[...build.keys()].filter((n) => /^(PUBLIC_|VITE_)/.test(n)).length} build${config.size > 0 ? `, ${config.size} config` : ""}`;
   });
   process.stdout.write(`${C.grn}✓${C.r} branchement des variables cohérent — ${counted.join(" · ")} · ${required.length} exigées par le compose\n`);
   for (const n of notes) process.stdout.write(`  ${C.dim}note : ${n}${C.r}\n`);

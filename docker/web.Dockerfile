@@ -67,7 +67,28 @@ ARG PUBLIC_META_PIXEL_ID
 ENV PUBLIC_META_PIXEL_ID=$PUBLIC_META_PIXEL_ID
 ARG PUBLIC_GOOGLE_TAG_ID
 ENV PUBLIC_GOOGLE_TAG_ID=$PUBLIC_GOOGLE_TAG_ID
+
+# Le domaine servi par ce déploiement, lu par `apps/web/astro.config.ts` pour
+# `security.allowedDomains`. Sans elle, Astro n'a aucun hôte à reconnaître,
+# ignore `x-forwarded-for`, et `clientAddress` vaut l'adresse du conteneur
+# Traefik — la MÊME pour tous les visiteurs. Les deux limiteurs de débit du
+# site (`/api/contact`, `/api/consent`) partagent alors un seul seau pour
+# tout Internet : le formulaire de contact tombe à cinq envois par heure
+# pour l'ensemble des visiteurs, et le journal de consentement cesse d'écrire
+# au vingt-et-unième enregistrement, en répondant 204. Voir
+# `apps/web/src/lib/allowedDomains.ts`.
+#
+# Pas `PUBLIC_`, et c'est exact : elle ne part pas dans le bundle du
+# navigateur. Elle n'en est pas moins figée AU BUILD — `astro.config.ts` est
+# lu pendant `astro build`, la poser dans le `.env` du VPS ne ferait rien.
+ARG WEB_DOMAIN
+ENV WEB_DOMAIN=$WEB_DOMAIN
 RUN test -n "$PUBLIC_CONVEX_URL" || (echo "PUBLIC_CONVEX_URL build-arg is required" && exit 1)
+# Obligatoire, contrairement aux variables facultatives ci-dessus : leur
+# absence éteint une fonctionnalité, celle-ci CASSE une protection sans rien
+# éteindre de visible. Un défaut qui ne se voit pas doit être refusé au
+# build, faute de quoi il n'est jamais refusé du tout.
+RUN test -n "$WEB_DOMAIN" || (echo "WEB_DOMAIN build-arg is required — see apps/web/src/lib/allowedDomains.ts" && exit 1)
 RUN pnpm --filter @astrotan/web build
 
 # `pnpm deploy` reconstruit un arbre autonome avec les seules dépendances
