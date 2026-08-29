@@ -11,6 +11,7 @@ import {
 import type { TestConvex } from "convex-test"
 import type { LeadTimelineEntry } from "./leads"
 import type schema from "./schema"
+import { SECRETS_KEY_VAR } from "./lib/secretsCrypto"
 
 const SECRET = "un-secret-partage-de-plus-de-32-caracteres"
 
@@ -416,6 +417,28 @@ test("sans RESEND_API_KEY, rien ne part et rien ne lève", async () => {
 
   const admin = await seedActor(t, "admin")
   expect((await admin.query(api.leads.board, {})).new).toHaveLength(1)
+})
+
+test("une clé Resend posée en base fait partir la notification de lead", async () => {
+  // Le défaut corrigé ici : la garde de `notifyStaff` ne regardait que
+  // `process.env.RESEND_API_KEY`, alors que `makeResend` lit d'abord
+  // l'environnement PUIS la base via `lireSecret`. Une clé saisie depuis
+  // l'écran des réglages faisait donc partir les invitations et pas les
+  // notifications de leads — le même jeton, deux comportements.
+  const t = makeTestConvex()
+  delete process.env.RESEND_API_KEY
+  process.env[SECRETS_KEY_VAR] = Buffer.alloc(32, 7).toString("base64")
+  // `owner` sert deux fois : c'est l'acteur qui saisit la clé depuis
+  // l'écran, et c'est aussi un destinataire légitime de la notification —
+  // exactement le scénario réel.
+  const owner = await seedActor(t, "owner")
+  await owner.action(api.secrets.set, { nom: "RESEND_API_KEY", valeur: "re_cle_saisie_a_lecran" })
+
+  const envoyes = capturerLesEnvois()
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(envoyes).toHaveLength(1)
 })
 
 test("un scénario supprimé est expliqué, pas codé en chiffres", async () => {

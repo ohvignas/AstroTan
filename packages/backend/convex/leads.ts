@@ -13,6 +13,7 @@ import { MUTATION_REGISTRY } from "./_registry"
 import { isCurrentlyBanned, requireRole } from "./lib/authz"
 import { makeResend } from "./lib/resend"
 import { resoudreExpediteur } from "./lib/expediteur"
+import { lireSecret } from "./secrets"
 import { listUsersWithRole } from "./users"
 import { assertSharedSecret } from "./lib/sharedSecret"
 import { journaliser, nomDeLAuteur } from "./lib/auditEvent"
@@ -721,7 +722,13 @@ export const notifyStaff = internalAction({
     messageCount: v.number(),
   },
   handler: async (ctx, args): Promise<null> => {
-    if (!process.env.RESEND_API_KEY) return null
+    // `lireSecret` et non `process.env` : c'est LE point de lecture des
+    // jetons (`secrets.ts`), et il connaît la précédence environnement →
+    // base. La garde précédente ne voyait que l'environnement, si bien
+    // qu'une clé saisie depuis l'administration envoyait les invitations
+    // (qui passent déjà par `lireSecret`) et pas ceci.
+    const cleResend = await lireSecret(ctx, "RESEND_API_KEY")
+    if (!cleResend) return null
 
     const recipients = await ctx.runQuery(internal.leads.staffRecipients, {})
     if (recipients.length === 0) return null
