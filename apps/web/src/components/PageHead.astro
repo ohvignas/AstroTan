@@ -104,6 +104,13 @@ const structured = noai
           ])
         : null,
     ].filter((block) => block !== null)
+
+// Le nonce de la CSP, lu ici plutôt que directement dans la balise.
+//
+// Le compilateur Astro ne lie l'objet global du composant que s'il apparaît
+// dans le frontmatter. Le lire uniquement depuis un attribut du gabarit lève
+// « Astro is not defined » AU RENDU — le typecheck, lui, ne voit rien.
+const nonce = Astro.locals.nonce
 ---
 
 {/* L'ICÔNE, jamais le logo large : un favicon de 32 px rendrait le nom
@@ -144,6 +151,16 @@ const structured = noai
 {description && <meta name="twitter:description" content={description} />}
 {ogImageUrl && <meta name="twitter:image" content={ogImageUrl} />}
 
+{/* Le nonce sur un bloc JSON-LD n'est pas de la superstition : ce n'est pas
+    du code exécutable, mais plusieurs navigateurs appliquent quand même
+    `script-src` à tout élément `<script>`, quel que soit son `type`. Sans
+    lui, les données structurées disparaissent du document — et un site qui
+    perd son balisage sémantique ne le voit nulle part. */}
 {structured.map((block) => (
-  <script type="application/ld+json" set:html={serializeJsonLd(block)} />
+  <script
+    is:inline
+    type="application/ld+json"
+    nonce={nonce}
+    set:html={serializeJsonLd(block)}
+  />
 ))}

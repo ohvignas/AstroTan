@@ -18,3 +18,21 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+declare namespace App {
+  interface Locals {
+    /**
+     * Le nonce de la CSP pour CETTE requête, posé par `src/middleware.ts`.
+     *
+     * Le contrat tient en une phrase : le middleware le pose, les composants
+     * le lisent par `Astro.locals.nonce` et l'écrivent sur leurs `<script>`
+     * en ligne. Sans lui, un `<script is:inline>` ne s'exécute pas — la CSP
+     * n'autorise aucun script en ligne autrement.
+     *
+     * Optionnel parce qu'il l'est réellement : un composant peut être rendu
+     * hors du pipeline HTTP (un test, un rendu de composant isolé), et
+     * `nonce={undefined}` n'écrit simplement pas l'attribut.
+     */
+    nonce?: string
+  }
+}

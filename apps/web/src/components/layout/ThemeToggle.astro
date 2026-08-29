@@ -11,6 +11,13 @@
 // `is:inline` : sans lui, Astro sortirait ce script dans un module chargé
 // après le rendu, et l'icône afficherait un instant le mauvais état.
 import Icon from "../ui/primitives/Icon/Icon.astro"
+
+// Le nonce de la CSP, lu ici plutôt que directement dans la balise.
+//
+// Le compilateur Astro ne lie l'objet global du composant que s'il apparaît
+// dans le frontmatter. Le lire uniquement depuis un attribut du gabarit lève
+// « Astro is not defined » AU RENDU — le typecheck, lui, ne voit rien.
+const nonce = Astro.locals.nonce
 ---
 
 <button
@@ -25,7 +32,7 @@ import Icon from "../ui/primitives/Icon/Icon.astro"
   <Icon name="lucide:moon" class="theme-toggle__icon theme-toggle__icon--dark" />
 </button>
 
-<script is:inline>
+<script is:inline nonce={nonce}>
   ;(() => {
     const root = document.documentElement
     const button = document.querySelector("[data-theme-toggle]")

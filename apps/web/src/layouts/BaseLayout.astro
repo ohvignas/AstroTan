@@ -43,6 +43,13 @@ export interface Props {
 }
 
 const { page, fallbackTitle, article } = Astro.props as Props
+
+// Le nonce de la CSP, lu ici plutôt que directement dans la balise.
+//
+// Le compilateur Astro ne lie l'objet global du composant que s'il apparaît
+// dans le frontmatter. Le lire uniquement depuis un attribut du gabarit lève
+// « Astro is not defined » AU RENDU — le typecheck, lui, ne voit rien.
+const nonce = Astro.locals.nonce
 ---
 
 <!doctype html>
@@ -79,7 +86,7 @@ const { page, fallbackTitle, article } = Astro.props as Props
         reconnaît. C'est aussi pourquoi il ne fait qu'AJOUTER une classe :
         ne rien faire est déjà le mode clair, donc le cas courant ne coûte
         aucune écriture dans le DOM. */}
-    <script is:inline>
+    <script is:inline nonce={nonce}>
       try {
         if (localStorage.getItem("theme") === "dark") {
           document.documentElement.classList.add("dark")
