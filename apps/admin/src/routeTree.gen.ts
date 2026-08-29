@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
-import { Route as DndTestRouteImport } from './routes/dnd-test'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as AuthedCompteRouteImport } from './routes/_authed/compte'
@@ -43,11 +42,6 @@ const AuthedRoute = AuthedRouteImport.update({
 const AcceptInviteRoute = AcceptInviteRouteImport.update({
   id: '/accept-invite',
   path: '/accept-invite',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DndTestRoute = DndTestRouteImport.update({
-  id: '/dnd-test',
-  path: '/dnd-test',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -170,7 +164,6 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AuthedIndexRoute
   '/accept-invite': typeof AcceptInviteRoute
-  '/dnd-test': typeof DndTestRoute
   '/login': typeof LoginRoute
   '/compte': typeof AuthedCompteRoute
   '/leads': typeof AuthedLeadsRoute
@@ -196,7 +189,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/accept-invite': typeof AcceptInviteRoute
-  '/dnd-test': typeof DndTestRoute
   '/login': typeof LoginRoute
   '/compte': typeof AuthedCompteRoute
   '/leads': typeof AuthedLeadsRoute
@@ -224,7 +216,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authed': typeof AuthedRouteWithChildren
   '/accept-invite': typeof AcceptInviteRoute
-  '/dnd-test': typeof DndTestRoute
   '/login': typeof LoginRoute
   '/_authed/compte': typeof AuthedCompteRoute
   '/_authed/leads': typeof AuthedLeadsRoute
@@ -254,7 +245,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/accept-invite'
-    | '/dnd-test'
     | '/login'
     | '/compte'
     | '/leads'
@@ -280,7 +270,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/accept-invite'
-    | '/dnd-test'
     | '/login'
     | '/compte'
     | '/leads'
@@ -307,7 +296,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_authed'
     | '/accept-invite'
-    | '/dnd-test'
     | '/login'
     | '/_authed/compte'
     | '/_authed/leads'
@@ -336,7 +324,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AuthedRoute: typeof AuthedRouteWithChildren
   AcceptInviteRoute: typeof AcceptInviteRoute
-  DndTestRoute: typeof DndTestRoute
   LoginRoute: typeof LoginRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -356,13 +343,6 @@ declare module '@tanstack/react-router' {
       path: '/accept-invite'
       fullPath: '/accept-invite'
       preLoaderRoute: typeof AcceptInviteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dnd-test': {
-      id: '/dnd-test'
-      path: '/dnd-test'
-      fullPath: '/dnd-test'
-      preLoaderRoute: typeof DndTestRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -591,7 +571,6 @@ const AuthedRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   AuthedRoute: AuthedRouteWithChildren,
   AcceptInviteRoute: AcceptInviteRoute,
-  DndTestRoute: DndTestRoute,
   LoginRoute: LoginRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
