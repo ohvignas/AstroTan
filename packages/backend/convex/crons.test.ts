@@ -12,11 +12,33 @@ import { internal } from "./_generated/api"
 // page stuck exactly as long as its outbox row sits unclaimed.
 
 test("un unique cron 'revalidate-sweep' tourne toutes les 60 secondes et appelle internal.revalidate.drain", () => {
-  const jobs = Object.entries(crons.crons)
-  expect(jobs).toHaveLength(1)
+  const job = crons.crons["revalidate-sweep"]
+  expect(job).toBeDefined()
+  expect(job!.schedule).toEqual({ type: "interval", seconds: 60 })
+  expect(job!.name).toBe(getFunctionName(internal.revalidate.drain))
+})
 
-  const [identifier, job] = jobs[0] as [string, (typeof crons.crons)[string]]
-  expect(identifier).toBe("revalidate-sweep")
-  expect(job.schedule).toEqual({ type: "interval", seconds: 60 })
-  expect(job.name).toBe(getFunctionName(internal.revalidate.drain))
+// La purge est le SEUL endroit du dépôt où une durée de conservation est
+// appliquée. Ce test est ce qui empêche qu'elle disparaisse du planning
+// sans que personne ne le voie : une durée annoncée sur
+// `/confidentialite` que rien n'exécute est le premier point qu'un
+// contrôle vérifie, et il se vérifie en une requête.
+test("un cron mensuel 'retention-purge' appelle internal.retention.purge", () => {
+  const job = crons.crons["retention-purge"]
+  expect(job).toBeDefined()
+  expect(job!.schedule).toEqual({
+    type: "monthly",
+    day: 1,
+    hourUTC: 3,
+    minuteUTC: 15,
+  })
+  expect(job!.name).toBe(getFunctionName(internal.retention.purge))
+})
+
+test("le planning ne contient que ces deux tâches", () => {
+  // Une tâche ajoutée sans test est une tâche que personne ne relit.
+  expect(Object.keys(crons.crons).sort()).toEqual([
+    "retention-purge",
+    "revalidate-sweep",
+  ])
 })
