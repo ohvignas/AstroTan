@@ -163,10 +163,6 @@ function IdentiteForm({
 
         <Field>
           <FieldLabel>Logo</FieldLabel>
-          <FieldDescription>
-            Large, avec le nom écrit. C'est lui dans la barre de menu du
-            site.
-          </FieldDescription>
           <ImageField
             value={logoId}
             disabled={!canWrite}
@@ -178,11 +174,6 @@ function IdentiteForm({
 
         <Field>
           <FieldLabel>Icône</FieldLabel>
-          <FieldDescription>
-            Carrée. Elle sert de favicon, dans l'onglet du navigateur et
-            partout où la place est contrainte — un logo large y serait
-            illisible.
-          </FieldDescription>
           <ImageField
             value={iconId}
             disabled={!canWrite}
@@ -315,48 +306,6 @@ function HomePageField({
   )
 }
 
-/**
- * Ce que l'écran dit de l'image en cours, selon son état.
- *
- * Trois états et non deux : « aucun réglage » et « le fichier réglé a
- * disparu » demandent le même geste mais ne se sont pas produits pour la
- * même raison, et seule la seconde mérite d'être expliquée.
- *
- * Dans les DEUX cas, le site sert l'image du dépôt. C'est ce qui manquait :
- * un message rouge occupant la place de l'image laissait croire qu'aucun
- * logo n'était en ligne, alors qu'il y en a toujours un.
- */
-export function EtatImage({
-  etat,
-  noun,
-}: {
-  etat: "defaut" | "introuvable"
-  /** « logo » ou « icône » — au singulier, sans article. */
-  noun: string
-}) {
-  // Même dérivation que dans `ImageField` : « icône » est le seul nom
-  // féminin du lot. En devenant un composant, ce texte avait perdu l'accord
-  // que la version en ligne portait (« choisissez-en une autre ») et disait
-  // « un autre » y compris pour l'icône.
-  const feminin = noun === "icône"
-  if (etat === "defaut") {
-    return (
-      <span className="text-sm text-muted-foreground">
-        Aucun{feminin ? "e" : ""} {noun} choisi{feminin ? "e" : ""} : le site
-        sert {feminin ? "celle" : "celui"} du dépôt.
-      </span>
-    )
-  }
-  return (
-    <span className="text-sm text-muted-foreground">
-      Le fichier choisi n’existe plus dans le stockage — supprimé ou remplacé
-      depuis. Le site sert l{feminin ? "’" : "e "}
-      {noun} du dépôt en attendant ; choisissez-en un
-      {feminin ? "e" : ""} autre, ou retirez le réglage.
-    </span>
-  )
-}
-
 function ImageField({
   value,
   disabled,
@@ -404,35 +353,22 @@ function ImageField({
 
   return (
     <div className="flex flex-col gap-3">
-      {value === null ? (
+      {value === null || introuvable ? (
         <div className="flex items-center gap-3">
-          {/* Montrer le fichier du dépôt, et pas seulement écrire
-              « aucun » : il y a bien une image en ligne sur le site, et un
-              écran qui l'ignore laisse croire à un réglage cassé. */}
+          {/* Une seule branche pour « aucun réglage » et « la référence a
+              disparu » : depuis que les deux messages ont été retirés, elles
+              rendaient exactement la même chose. Dans les deux cas le site
+              sert le fichier du dépôt, et montrer ce fichier — plutôt que
+              d'écrire « aucun » — évite de laisser croire qu'il n'y a plus
+              d'image en ligne.
+
+              Ce que l'écran ne distingue plus : un fichier supprimé du
+              stockage ressemble maintenant à un réglage jamais posé. */}
           <img
             src={feminin ? defaultIcon : defaultLogo}
             alt=""
             className="h-10 w-auto max-w-32 rounded border border-border bg-muted object-contain p-1"
           />
-          {/* Le même composant que la branche « référence morte » plus bas,
-              et non un texte en ligne de plus : `EtatImage` était exporté et
-              testé pour ses DEUX états, mais celui-ci n'était rendu nulle
-              part — deux formulations du même message, dont une seule sous
-              test. */}
-          <EtatImage etat="defaut" noun={noun} />
-        </div>
-      ) : introuvable ? (
-        <div className="flex items-center gap-3">
-          {/* Même image de repli que la branche « aucun réglage » : dans
-              les deux cas, le site sert le fichier du dépôt, et l'écran ne
-              doit jamais laisser croire qu'il n'y a plus de logo en
-              ligne. */}
-          <img
-            src={feminin ? defaultIcon : defaultLogo}
-            alt=""
-            className="h-10 w-auto max-w-32 rounded border border-border bg-muted object-contain p-1"
-          />
-          <EtatImage etat="introuvable" noun={noun} />
         </div>
       ) : (
         <div className="flex items-center gap-3">
