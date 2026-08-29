@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values"
-import { internalMutation } from "./_generated/server"
+import { internalMutation, internalQuery } from "./_generated/server"
 import { roleValidator } from "./validators"
 import { generateToken } from "./lib/token"
+import { listUsersWithRole } from "./users"
 
 // The operator's way back in.
 //
@@ -20,11 +21,25 @@ import { generateToken } from "./lib/token"
 // requires the deployment's own credentials. Someone holding those can do
 // anything to this deployment regardless; this does not widen that.
 //
-//     npx convex run bootstrap:createInvitation '{"email":"…","role":"admin"}'
+//     npx convex run bootstrap:createInvitation '{"email":"…","role":"owner"}'
 //
 // It returns a link. The account is then created through the ordinary
 // accept-invite page, by a human choosing their own password — so no
 // password ever passes through a shell, a history file, or a log.
+//
+// `role: "owner"`, and not `"admin"`. This is the one argument worth
+// getting right, because the wrong value produces a deployment that
+// *looks* fine and is permanently capped:
+//
+//   - `invitations.create` refuses `role: "owner"` for every actor, so no
+//     account created later can ever be an owner;
+//   - an `admin` may not invite another `admin` (`invitations.create`), nor
+//     promote, demote or remove one (`users.setRole`, `users.remove`).
+//
+// A deployment whose first account is an `admin` therefore has exactly one
+// administrator, forever, with no way out through the interface — the very
+// lockout this file exists to end. `scripts/bootstrap.mjs` passes `owner`
+// and `convex/bootstrap.test.ts` pins both halves of the reasoning.
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -78,3 +93,25 @@ export const createInvitation = internalMutation({
  * exactly the lockout this file exists to end.
  */
 export const BOOTSTRAP_ISSUER = "bootstrap:operator"
+
+/**
+ * Les adresses des comptes `owner`, pour `scripts/bootstrap.mjs`.
+ *
+ * `pnpm bootstrap` est rejouable, et `createInvitation` ne l'est pas :
+ * relancé après qu'un owner a accepté son invitation, il émettrait un
+ * SECOND lien, parfaitement valide en apparence, que le garde-fou
+ * `owners > 0` d'`auth.ts` refusera au moment de l'acceptation. Le script
+ * lit donc cette query d'abord et saute l'étape — plutôt que de distribuer
+ * un lien mort à chaque exécution.
+ *
+ * Rend les adresses et rien d'autre : c'est ce qui permet au script de
+ * nommer le compte existant. `internalQuery`, donc inatteignable depuis un
+ * client, exactement comme `createInvitation` juste au-dessus.
+ */
+export const owners = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const found = await listUsersWithRole(ctx, "owner")
+    return found.map((user) => user.email)
+  },
+})

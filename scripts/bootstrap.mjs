@@ -21,7 +21,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, writeFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -116,6 +116,64 @@ function writeBackGenerated(path, generated) {
   writeFileSync(path, lines.join("\n"), { mode: 0o600 });
 }
 
+/**
+ * Réécrit UNE valeur dans `.env.deploy`, seulement si sa ligne existe déjà.
+ *
+ * Distinct de `writeBackGenerated` : cette fonction-ci sert à mémoriser une
+ * réponse donnée au terminal, et une réponse n'a rien à faire sous l'en-tête
+ * « Généré par pnpm bootstrap — ne pas modifier à la main » que l'autre
+ * ajoute. Rend `false` quand la clé est absente du fichier (un `.env.deploy`
+ * créé avant que cette variable existe) : l'appelant le dit alors, plutôt
+ * que d'écrire au mauvais endroit.
+ */
+function writeBackAnswer(path, key, value) {
+  const lines = readFileSync(path, "utf8").split("\n");
+  const i = lines.findIndex((l) => new RegExp(`^\\s*(export\\s+)?${key}\\s*=`).test(l));
+  if (i < 0) return false;
+  lines[i] = `${key}=${value}`;
+  writeFileSync(path, lines.join("\n"), { mode: 0o600 });
+  return true;
+}
+
+/**
+ * Une question posée au terminal — et JAMAIS un blocage.
+ *
+ * Ce script est lancé par des humains, mais aussi par des agents de code et
+ * par des scripts (AGENTS.md le dit explicitement). Une question qui attend
+ * sur stdin y serait une régression : elle bloquerait pour toujours, sans
+ * rien afficher qui l'explique. D'où les trois portes de sortie —
+ * `--dry-run`, pas de terminal, pas de `/dev/tty` — qui rendent `null`,
+ * c'est-à-dire « garde le défaut, et dis-le ».
+ *
+ * Lit sur `/dev/tty` plutôt que sur le descripteur 0 : stdin peut être une
+ * redirection (`< /dev/null`, un pipe) alors qu'un terminal reste attaché,
+ * et c'est le terminal qu'on veut interroger, pas l'entrée du script.
+ */
+function demanderAuTerminal(question, defaut) {
+  if (DRY || !process.stdin.isTTY) return null;
+  let fd;
+  try {
+    fd = openSync("/dev/tty", "r");
+  } catch {
+    return null;
+  }
+  try {
+    out(`  ${C.cyn}?${C.r} ${question}`);
+    process.stdout.write(`    ${C.dim}[Entrée = ${defaut}]${C.r} `);
+    const buffer = Buffer.alloc(512);
+    let lu = "";
+    while (!lu.includes("\n")) {
+      const n = readSync(fd, buffer, 0, buffer.length, null);
+      if (n === 0) break;
+      lu += buffer.toString("utf8", 0, n);
+    }
+    const reponse = (lu.split("\n")[0] ?? "").trim();
+    return reponse === "" ? null : reponse;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 // ─── Validation ─────────────────────────────────────────────────────────────
 
 // Les placeholders des `.env.example` du dépôt, « manifestement faux, exprès »
@@ -152,6 +210,19 @@ const INPUT = [
     check: (v) =>
       !v.includes("@") || v.startsWith("@") || v.endsWith("@")
         ? "adresse email invalide — Let's Encrypt refuse l'enregistrement du compte, donc TOUS les certificats"
+        : null,
+  },
+  {
+    // Le compte `owner` du dashboard. Facultative : à défaut, `ACME_EMAIL`
+    // sert, et le script demande confirmation quand il tourne dans un
+    // terminal. Séparée d'`ACME_EMAIL` parce que ce sont deux rôles
+    // différents — l'un reçoit les avis d'expiration de certificat, l'autre
+    // détient le seul compte capable d'en créer d'autres.
+    key: "ADMIN_EMAIL",
+    optional: true,
+    check: (v) =>
+      !v.includes("@") || v.startsWith("@") || v.endsWith("@")
+        ? "adresse email invalide — c'est elle qui recevra le lien du premier compte"
         : null,
   },
   {
@@ -297,6 +368,9 @@ les secrets GitHub, les \`.env\` locaux, et produit \`.env.vps\`.
   --skip-seed      saute la création du contenu initial. À n'utiliser que
                    sur un déploiement dont les lignes \`pages\` existent
                    déjà : sans elles, TOUTES les URL du site répondent 404.
+  --skip-invite    saute l'invitation du premier compte. Sans elle, et sur
+                   un déploiement neuf, PERSONNE ne peut entrer dans le
+                   dashboard : l'accès est sur invitation seule.
   --help
 
 Le fichier d'autorité sur l'exploitation reste \`docker/README.md\`.
@@ -307,8 +381,9 @@ const DRY = argv.includes("--dry-run");
 const SKIP_CONVEX = argv.includes("--skip-convex");
 const SKIP_GITHUB = argv.includes("--skip-github");
 const SKIP_SEED = argv.includes("--skip-seed");
+const SKIP_INVITE = argv.includes("--skip-invite");
 for (const a of argv) {
-  if (!["--dry-run", "--skip-convex", "--skip-github", "--skip-seed"].includes(a)) {
+  if (!["--dry-run", "--skip-convex", "--skip-github", "--skip-seed", "--skip-invite"].includes(a)) {
     bad(`option inconnue : ${a} — voir \`pnpm bootstrap --help\``);
     process.exit(2);
   }
@@ -806,9 +881,9 @@ out(`
     ${C.cyn}ssh ${g("VPS_USER")}@${g("VPS_HOST")} 'chmod 600 ~/astrotan/.env'${C.r}
 `);
 
-// ── 7. Contenu initial ──────────────────────────────────────────────────────
+// ── 7. Contenu initial et premier accès ─────────────────────────────────────
 
-title("7 · Contenu initial — `convex run seed:demoContent`");
+title("7 · Contenu initial et premier accès — `convex run`");
 
 // Malgré son nom, `seed:demoContent` n'est pas de la décoration. C'est le
 // SEUL code du dépôt qui crée des lignes `pages` — les sept slugs du
@@ -869,6 +944,112 @@ if (SKIP_CONVEX || SKIP_SEED) {
   }
 }
 
+// L'accès au dashboard est sur INVITATION SEULE : `disableSignUp: true`,
+// pas d'OAuth, et émettre une invitation exige d'être déjà owner ou admin.
+// Sur un déploiement neuf, personne ne peut donc entrer — pas même celui
+// qui vient de tout installer. `bootstrap:createInvitation` est la seule
+// issue, et elle n'existait que dans une ligne de CLAUDE.md.
+//
+// `role: "owner"`, jamais `"admin"`, et ce n'est pas un détail de goût :
+// `invitations.create` refuse `role: "owner"` à TOUT LE MONDE, et un admin
+// ne peut ni inviter un autre admin, ni promouvoir, ni rétrograder, ni
+// supprimer un admin. Un déploiement dont le premier compte est admin n'a
+// donc jamais d'owner et reste plafonné à un seul administrateur, sans
+// issue par l'interface. `convex/bootstrap.test.ts` épingle les deux
+// moitiés du raisonnement.
+//
+// Aucun mot de passe ne transite : le script rend un lien, la personne
+// choisit son mot de passe sur la page d'acceptation normale.
+
+const ADMIN_EMAIL_DEFAUT = g("ADMIN_EMAIL") || g("ACME_EMAIL");
+
+if (SKIP_CONVEX || SKIP_INVITE) {
+  skip(`sauté (${SKIP_CONVEX ? "--skip-convex" : "--skip-invite"}) — sur un déploiement neuf, personne ne peut alors entrer dans le dashboard`);
+  summary.push(["Accès", "sauté"]);
+} else if (!existsSync(CONVEX_BIN)) {
+  skip("binaire convex absent — voir ci-dessus");
+  summary.push(["Accès", "sauté — dépendances non installées"]);
+} else if (DRY) {
+  skip(`bootstrap:owners       ${C.dim}(y a-t-il déjà un owner ? si oui, l'invitation est sautée)${C.r}`);
+  skip(`bootstrap:createInvitation  {"email":"${ADMIN_EMAIL_DEFAUT}","role":"owner"}`);
+  info(`l'adresse serait confirmée au terminal ; \`ADMIN_EMAIL\` dans .env.deploy la fige sans question`);
+  summary.push(["Accès", "invitation owner (dry-run)"]);
+} else {
+  const dejaOwners = convexRun("bootstrap:owners");
+  let owners = null;
+  if (!dejaOwners.failed) {
+    try {
+      owners = JSON.parse(dejaOwners.stdout);
+    } catch {
+      /* Sortie inattendue : on retombe sur « je ne sais pas », traité plus bas. */
+    }
+  }
+
+  if (dejaOwners.failed && functionsNotDeployed(dejaOwners)) {
+    skip("bootstrap:createInvitation n'est pas encore sur le déploiement — même raison qu'au-dessus");
+    summary.push(["Accès", "à refaire après le premier déploiement"]);
+  } else if (Array.isArray(owners) && owners.length > 0) {
+    // Le cas de la SECONDE exécution, et la raison pour laquelle il est
+    // traité : `createInvitation` n'est pas idempotent. Relancé après
+    // qu'un owner a accepté, il émettrait un lien de plus, valide en
+    // apparence, que le garde-fou `owners > 0` d'`auth.ts` refusera au
+    // moment de l'acceptation. Un lien mort distribué à chaque exécution
+    // est pire que pas de lien du tout.
+    ok(`un owner existe déjà (${owners.join(", ")}) — aucune invitation émise`);
+    info("les comptes suivants s'invitent depuis le dashboard, plus jamais par cette commande");
+    summary.push(["Accès", "déjà en place"]);
+  } else {
+    const saisie = demanderAuTerminal(
+      "Adresse email du premier compte (rôle owner, le seul qui pourra en créer d'autres) :",
+      ADMIN_EMAIL_DEFAUT,
+    );
+    const email = saisie ?? ADMIN_EMAIL_DEFAUT;
+    if (saisie === null) {
+      info(`adresse retenue : ${email}${g("ADMIN_EMAIL") ? " (ADMIN_EMAIL)" : " (ACME_EMAIL, faute d'ADMIN_EMAIL)"}`);
+    } else if (!writeBackAnswer(DEPLOY_FILE, "ADMIN_EMAIL", email)) {
+      info(`ajoutez \`ADMIN_EMAIL=${email}\` à .env.deploy pour ne plus avoir la question`);
+    }
+
+    const res = convexRun("bootstrap:createInvitation", { email, role: "owner" });
+    if (res.failed && /ALREADY_INVITED/.test(res.stderr)) {
+      // Refus délibéré de `createInvitation` : deux liens vivants pour un
+      // même compte est une question à laquelle personne ne veut répondre
+      // plus tard. Le jeton précédent n'est pas réaffichable — la base n'en
+      // porte que le hash — et c'est la bonne propriété.
+      ok(`une invitation est déjà en attente pour ${email} — le lien précédent reste valable 7 jours`);
+      info("le jeton n'est pas réaffichable (seul son hash est stocké) : le récupérer demande de laisser expirer l'invitation, ou de l'accepter");
+      summary.push(["Accès", "invitation déjà en attente"]);
+    } else if (res.failed) {
+      bad(`bootstrap:createInvitation a échoué — ${res.stderr.split("\n").at(-1) || `code ${res.code}`}`);
+      summary.push(["Accès", "échec"]);
+    } else {
+      let invitation = null;
+      try {
+        invitation = JSON.parse(res.stdout);
+      } catch {
+        /* idem */
+      }
+      if (invitation?.token) {
+        ok(`invitation owner émise pour ${email}`);
+        // LA SEULE VALEUR SENSIBLE QUE CE SCRIPT AFFICHE, et l'exception
+        // est assumée : un lien à usage unique, valable 7 jours, qui n'a
+        // aucune utilité s'il n'atteint pas un humain. Il ne donne rien
+        // de plus que ce que la clé de déploiement déjà en main permet.
+        out(`
+    ${C.cyn}${ADMIN_ORIGIN}/accept-invite?token=${invitation.token}${C.r}
+
+    Ouvrez ce lien et choisissez votre mot de passe sur la page normale.
+    ${C.dim}Aucun mot de passe ne passe par ce script ni par votre historique.${C.r}
+`);
+        summary.push(["Accès", `invitation owner pour ${email}`]);
+      } else {
+        bad("bootstrap:createInvitation n'a pas rendu de jeton — sortie inattendue de la CLI");
+        summary.push(["Accès", "échec"]);
+      }
+    }
+  }
+}
+
 // ── Récapitulatif ───────────────────────────────────────────────────────────
 
 title(DRY ? "Récapitulatif — RIEN N'A ÉTÉ FAIT (--dry-run)" : "Récapitulatif");
@@ -894,6 +1075,7 @@ ${C.b}Ce qui reste à votre charge${C.r} — le script ne peut pas le faire pour
      déploiement. C'est \`convex deploy\` qui met les functions sur le
      déploiement ; avant lui, l'étape 7 ci-dessus n'a rien à appeler. Ce
      second passage ne repose aucun secret : il crée les lignes \`pages\`
-     sans lesquelles TOUTES les URL du site répondent 404.
+     sans lesquelles TOUTES les URL du site répondent 404, et rend le lien
+     du premier compte — sans lui, personne n'entre dans le dashboard.
                                                      ${C.dim}docker/README.md §8${C.r}
 ${DRY ? `\n${C.ylw}Relancez sans --dry-run pour appliquer.${C.r}` : ""}`);

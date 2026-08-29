@@ -176,14 +176,29 @@ d'OAuth), et émettre une invitation exige d'être déjà owner ou admin. Deux
 situations n'ont donc pas d'issue par l'interface : un déploiement neuf sans
 aucun compte, et la perte de tous les accès owner/admin.
 
+**`pnpm bootstrap` le fait** — étape 7, une fois les functions déployées :
+il lit `bootstrap:owners`, saute si un owner existe déjà, et rend sinon le
+lien du premier compte. C'est le chemin normal, et le seul qui reste
+rejouable. La commande n'est utile qu'à la main, pour le second cas (tous
+les accès owner/admin perdus) :
+
 ```bash
 cd packages/backend
-npx convex run bootstrap:createInvitation '{"email":"vous@exemple.com","role":"admin"}'
+npx convex run bootstrap:createInvitation '{"email":"vous@exemple.com","role":"owner"}'
 ```
 
 Rend un jeton ; ouvrir `<admin>/accept-invite?token=<jeton>` et choisir son
 mot de passe sur la page normale. **Aucun mot de passe ne transite par le
 shell ni par un historique.**
+
+**`"role":"owner"`, jamais `"admin"`.** `invitations.create` refuse
+`role: "owner"` à *tout le monde* : un déploiement dont le premier compte
+est `admin` n'aura donc **jamais** d'owner. Et un admin ne peut ni inviter
+un autre admin, ni promouvoir, ni rétrograder, ni supprimer un admin
+(`invitations.ts`, `users.setRole`, `users.remove`) — le déploiement reste
+plafonné à un seul administrateur, sans issue par l'interface. Le
+garde-fou `owners > 0` d'`auth.ts` n'autorise la création d'un owner que
+tant qu'il n'en existe aucun : cette fenêtre-là ne se rouvre pas.
 
 C'est un `internalMutation` : inatteignable depuis un client, seulement via
 `npx convex run`, qui exige déjà les identifiants du déploiement. Quelqu'un
