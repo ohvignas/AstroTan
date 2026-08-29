@@ -32,6 +32,7 @@ import {
   ListeEmails,
   OrigineDesLiens,
   SectionCleResend,
+  gabaritEnCoursModifie,
   validationLocale,
 } from "./email-templates"
 import type { EmailAffiche } from "./email-templates"
@@ -314,6 +315,78 @@ describe("validationLocale", () => {
   test("un gabarit vide est refusé des deux côtés", () => {
     expect(validationLocale(NOTIFICATION, "", "corps")).toMatch(/objet/i)
     expect(validationLocale(NOTIFICATION, "objet", "   ")).toMatch(/corps/i)
+  })
+})
+
+// ---------------------------------------------------------------------
+// Le garde-fou de sortie de l'éditeur — voir le commentaire de
+// `ListeEmailsConnectee` dans `routes/_authed/settings/emails.tsx` : c'est
+// CETTE fonction qui nourrit à la fois « Modifications non enregistrées »
+// sous l'éditeur et le `dirty` du garde-fou de navigation
+// (`useUnsavedChangesGuard`). Si elle cesse de détecter une frappe non
+// enregistrée, quitter la page ne prévient plus de rien — d'où des tests
+// sur le COMPORTEMENT (des textes qui divergent, ou pas), pas sur son
+// existence.
+// ---------------------------------------------------------------------
+
+describe("gabaritEnCoursModifie", () => {
+  test("aucun éditeur ouvert : rien n'est en cours, rien n'est modifié", () => {
+    expect(gabaritEnCoursModifie(null, "peu importe", "peu importe")).toBe(false)
+  })
+
+  test("le texte affiché à l'ouverture n'est pas déjà une modification", () => {
+    // `EditeurGabarit` s'ouvre sur `enregistre ?? défaut` — si cette
+    // même valeur ressortait « modifiée », le garde-fou s'armerait sans
+    // qu'on ait tapé un seul caractère.
+    expect(
+      gabaritEnCoursModifie(INVITATION, INVITATION.objet, INVITATION.corps)
+    ).toBe(false)
+  })
+
+  test("un objet retouché arme le garde-fou", () => {
+    expect(
+      gabaritEnCoursModifie(INVITATION, "Un nouvel objet", INVITATION.corps)
+    ).toBe(true)
+  })
+
+  test("un corps retouché arme le garde-fou", () => {
+    expect(
+      gabaritEnCoursModifie(INVITATION, INVITATION.objet, "Un nouveau corps")
+    ).toBe(true)
+  })
+
+  test("un texte tapé puis reproduit à l'identique désarme le garde-fou", () => {
+    // Le scénario qui compte le plus : écrire, se raviser, retaper
+    // exactement le texte de départ. Rien à perdre — la sortie ne doit
+    // plus être bloquée.
+    const objetInitial = INVITATION.objet
+    const corpsInitial = INVITATION.corps
+    expect(gabaritEnCoursModifie(INVITATION, "Brouillon", corpsInitial)).toBe(
+      true
+    )
+    expect(
+      gabaritEnCoursModifie(INVITATION, objetInitial, corpsInitial)
+    ).toBe(false)
+  })
+
+  test("un gabarit déjà personnalisé compare au texte ENREGISTRÉ, pas au défaut du code", () => {
+    // `enregistre` porte ce qui est en base ; `objetParDefaut`/`corpsParDefaut`
+    // ne sont que le repli du code. Comparer au mauvais des deux armerait
+    // le garde-fou sur un écran qu'on vient d'ouvrir sans y toucher.
+    const personnalise = ligne("invitation", {
+      personnalise: true,
+      enregistre: { objet: "Objet personnalisé", corps: "Corps personnalisé" },
+    })
+    expect(
+      gabaritEnCoursModifie(personnalise, "Objet personnalisé", "Corps personnalisé")
+    ).toBe(false)
+    expect(
+      gabaritEnCoursModifie(
+        personnalise,
+        personnalise.objetParDefaut,
+        personnalise.corpsParDefaut
+      )
+    ).toBe(true)
   })
 })
 

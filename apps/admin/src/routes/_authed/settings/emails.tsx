@@ -12,6 +12,7 @@ import {
   ListeEmails,
   OrigineDesLiens,
   SectionCleResend,
+  gabaritEnCoursModifie,
   validationLocale,
 } from "@/components/email-templates"
 import type { EmailAffiche } from "@/components/email-templates"
@@ -22,6 +23,7 @@ import {
   SettingsLoading,
   useSecretsAccess,
 } from "@/components/settings-page"
+import { useUnsavedChangesGuard } from "@/components/unsaved-changes-guard"
 
 export const Route = createFileRoute("/_authed/settings/emails")({
   component: EmailsRoute,
@@ -192,6 +194,28 @@ function EmailsForm({
  * appelle `settings.update`, et un gabarit s'écrit par `emails.setTemplate`.
  * Les mêler ferait d'un clic sur « Enregistrer » deux mutations dont une
  * seule est visible dans le libellé.
+ *
+ * SON PROPRE GARDE-FOU DE SORTIE, ET NON UNE EXTENSION DE
+ * `SettingsFormShell`.
+ *
+ * `SettingsFormShell` calcule son `dirty` à partir d'un seul `autoSave`
+ * (ici celui d'`emailFrom`) : lui faire aussi surveiller le texte d'un
+ * gabarit demanderait de faire remonter `objet`/`corps` — un état qui n'a
+ * de sens QUE pendant que ce panneau précis est ouvert — jusqu'à un
+ * composant qui n'a par ailleurs aucune raison de connaître l'existence
+ * d'un éditeur de gabarit. Le shell aurait alors deux raisons de refuser
+ * de quitter, à fusionner dans une seule phrase (« quel `unsavedLabel »
+ * lire ? »), pour un couplage qui n'apporte rien : les deux formulaires
+ * s'enregistrent déjà par deux mutations distinctes et ne partagent aucun
+ * état.
+ *
+ * Un garde-fou LOCAL, posé ici où vit l'état `objet`/`corps`, colle au
+ * cycle de vie réel du panneau : `dirty` ne s'arme que pendant qu'un
+ * éditeur est ouvert ET modifié, et retombe tout seul à sa fermeture — pas
+ * de prop à faire voyager, pas de contrat à étendre. `useBlocker`
+ * (`unsaved-changes-guard.tsx`) accepte plusieurs blocages enregistrés en
+ * parallèle : celui-ci et celui de `SettingsFormShell` coexistent sans se
+ * marcher dessus, chacun avec sa propre phrase.
  */
 function ListeEmailsConnectee({ emails }: { emails: readonly EmailAffiche[] }) {
   const setActif = useMutation(api.emails.setActif)
@@ -204,6 +228,17 @@ function ListeEmailsConnectee({ emails }: { emails: readonly EmailAffiche[] }) {
   const [enregistrement, setEnregistrement] = useState<"repos" | "envoi">("repos")
   const [erreurServeur, setErreurServeur] = useState<string | null>(null)
   const [erreurListe, setErreurListe] = useState<string | null>(null)
+
+  const emailOuvert =
+    ouverte === null ? null : (emails.find((e) => e.cle === ouverte) ?? null)
+  const gabaritModifie = gabaritEnCoursModifie(emailOuvert, objet, corps)
+  const guardDialog = useUnsavedChangesGuard({
+    dirty: gabaritModifie,
+    what:
+      emailOuvert === null
+        ? "Le texte du gabarit"
+        : `Le texte de « ${emailOuvert.titre} »`,
+  })
 
   /**
    * Ce que l'éditeur montre à l'ouverture.
@@ -285,10 +320,11 @@ function ListeEmailsConnectee({ emails }: { emails: readonly EmailAffiche[] }) {
             // affiché à côté du champ, pas découvert après le clic.
             erreur={validationLocale(email, objet, corps)}
             erreurServeur={erreurServeur}
-            modifie={
-              objet !== (email.enregistre?.objet ?? email.objet) ||
-              corps !== (email.enregistre?.corps ?? email.corps)
-            }
+            // `email` ici est toujours l'email ouvert : `ListeEmails` n'appelle
+            // ce callback que pour la carte dont `cleOuverte === email.cle`,
+            // donc `gabaritModifie` (calculé plus haut depuis `emailOuvert`)
+            // porte exactement la même valeur.
+            modifie={gabaritModifie}
             enregistrement={enregistrement}
             onObjet={setObjet}
             onCorps={setCorps}
@@ -331,6 +367,7 @@ function ListeEmailsConnectee({ emails }: { emails: readonly EmailAffiche[] }) {
           />
         )}
       />
+      {guardDialog}
     </div>
   )
 }

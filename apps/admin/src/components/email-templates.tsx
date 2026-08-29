@@ -90,6 +90,38 @@ export function validationLocale(
   return validerGabarit(description, objet, corps)
 }
 
+/**
+ * Le texte en cours d'édition diverge-t-il de ce qui est enregistré ?
+ *
+ * C'EST le signal qui manquait : la barre d'enregistrement de la page
+ * (`SettingsFormShell`) ne surveille que `emailFrom`, jamais ce champ-ci —
+ * les deux vivent dans des composants différents et s'écrivent par deux
+ * mutations différentes (`settings.update` contre `emails.setTemplate`).
+ * Sans lui, fermer l'éditeur ou cliquer ailleurs dans le menu perdait un
+ * texte tout juste tapé, en silence.
+ *
+ * Extraite ici plutôt que recalculée à chaque appelant, pour la même
+ * raison que `validationLocale` juste au-dessus : c'est la valeur qui nourrit
+ * à la fois la mention « Modifications non enregistrées » sous l'éditeur ET
+ * le garde-fou de sortie (`useUnsavedChangesGuard`, câblé dans
+ * `routes/_authed/settings/emails.tsx`) — une seule règle, jamais deux qui
+ * pourraient diverger.
+ *
+ * `email` à `null` quand aucun éditeur n'est ouvert : rien n'est en cours
+ * d'édition, donc rien n'est modifié.
+ */
+export function gabaritEnCoursModifie(
+  email: EmailAffiche | null,
+  objet: string,
+  corps: string,
+): boolean {
+  if (email === null) return false
+  return (
+    objet !== (email.enregistre?.objet ?? email.objet) ||
+    corps !== (email.enregistre?.corps ?? email.corps)
+  )
+}
+
 // ---------------------------------------------------------------------
 // Le bandeau du mode d'essai
 // ---------------------------------------------------------------------
