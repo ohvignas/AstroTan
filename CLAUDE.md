@@ -12,6 +12,43 @@ lisent pas ce fichier (Cursor, Codex, Copilot, Gemini CLI, Zed…) : commandes,
 mise en service pas à pas, pièges d'environnement. Ce fichier-ci reste la
 référence détaillée — modifier l'un sans l'autre les fait diverger.
 
+## Ce dépôt est un template, pas une application
+
+**Personne ne « déploie AstroTan ». Des gens l'installent, chacun chez eux** —
+leur déploiement Convex, leur dépôt GitHub, leurs domaines, leur VPS. Ce
+cadrage prime sur le reste de ce fichier : il change ce qu'« avoir fini »
+veut dire.
+
+Sur une application, un geste manuel se fait une fois. Ici, **chaque geste
+manuel non guidé sera refait par chaque installateur — et raté par
+plusieurs**. Une fonctionnalité livrée avec « il suffit de lancer telle
+commande » n'est pas livrée : elle est en attente, et elle attendra chez
+tout le monde en même temps.
+
+Une tâche n'est donc close que si le câblage vit à l'un de ces endroits :
+
+| Mécanisme | Quand c'est le bon |
+|---|---|
+| `scripts/bootstrap.mjs` | la valeur peut être **générée** (`openssl rand`) ou **demandée** une fois |
+| `scripts/check-env-wiring.mjs` | le câblage a plusieurs maillons et l'un peut disparaître |
+| un échec de build | la valeur est figée AU BUILD et une valeur absente ou malformée doit arrêter là |
+| un refus au démarrage du conteneur | la divergence n'apparaît qu'au runtime — l'échec tombe pendant le déploiement, où le rollback existe |
+| un écran d'administration | la valeur est propre à l'installateur et se change après coup |
+
+Une ligne de README n'est dans aucune de ces cases. Elle documente un
+câblage ; elle n'en est pas un.
+
+**Le cas qui reste manuel par nature** — les mentions légales, le registre
+des traitements, la raison sociale — n'échappe pas à la règle, il la
+déplace : ce n'est pas une page de documentation qui le tient, c'est un
+garde-fou qui **empêche de publier les valeurs d'exemple**. Un site mis en
+ligne avec AstroTan comme responsable de traitement est un défaut du
+template, pas une erreur de l'installateur.
+
+Corollaire pour les relectures : une liste de « ce qu'il reste à faire à la
+main » adressée à l'humain est presque toujours le symptôme d'un défaut de
+câblage, pas d'une documentation à écrire.
+
 ## Structure
 
 ```

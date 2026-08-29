@@ -9,6 +9,28 @@ An adopter clones it, points it at their own Convex deployment, GitHub
 repository, domains and VPS, then writes pages as `.astro` files. The
 dashboard controls publication, SEO and access — never page content.
 
+**This is a template, and that changes what "done" means.** Nobody deploys
+AstroTan; people install it, each on their own infrastructure. Every
+unguided manual step is a step *every* adopter repeats — and several get
+wrong. A feature shipped with "just run this command" is not shipped: it is
+pending, and it will be pending for everyone at once.
+
+So a task is only finished when the wiring lives somewhere that acts on its
+own: generated or asked for in `scripts/bootstrap.mjs`; guarded by
+`scripts/check-env-wiring.mjs` when the wiring has several links and one can
+go missing; a build that fails when a build-time value is absent or
+malformed; a container that refuses to start when a runtime value diverges
+from the one frozen at build (the failure then lands during deploy, where
+rollback exists); or a dashboard screen when the value is the adopter's own
+and changes later. A README line is none of these — it describes wiring
+without being any.
+
+What stays manual by nature — legal notices, the processing registry, the
+company identity — does not escape the rule, it moves it: what holds it is a
+guard that refuses to publish the example values, not a documentation page.
+A site that goes live with AstroTan named as data controller is a defect of
+the template, not a mistake by the adopter.
+
 Companion files: [`CLAUDE.md`](CLAUDE.md) (project conventions and
 invariants, in French), [`docker/README.md`](docker/README.md) (the operations
 runbook — the authority on everything VPS, DNS, certificates and rollback),
