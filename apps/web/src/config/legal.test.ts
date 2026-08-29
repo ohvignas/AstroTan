@@ -101,6 +101,21 @@ test("la durée de purge Umami écrite dans le SQL est celle publiée sur /confi
     .join("\n")
   const durees = [...lignesDeCode.matchAll(/interval '(\d+) months?'/g)].map((m) => Number(m[1]))
 
+  // Le nombre seul ne dit pas ce que la requête FAIT. Une comparaison
+  // inversée — `created_at > now() - interval '13 months'` — purgerait les
+  // mesures récentes en gardant les anciennes, et ne changerait pas d'un
+  // chiffre le compte ci-dessus. On exige donc que CHAQUE occurrence de la
+  // durée vive dans la comparaison attendue, sur la colonne attendue.
+  const comparaisons = [
+    ...lignesDeCode.matchAll(/created_at\s*<\s*now\(\)\s*-\s*interval '\d+ months?'/g),
+  ]
+  expect(
+    comparaisons.length,
+    "chaque durée de docker/umami-purge.sql doit apparaître dans un " +
+      "`created_at < now() - interval …` : une comparaison inversée ou une " +
+      "autre colonne purgerait autre chose que ce que la page annonce",
+  ).toBe(durees.length)
+
   expect(durees.length, "aucune durée trouvée dans docker/umami-purge.sql").toBeGreaterThan(0)
   expect(
     new Set(durees).size,

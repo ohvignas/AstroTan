@@ -146,8 +146,10 @@ export const processings: Processing[] = [
     basis: "Intérêt légitime — une mesure anonyme, exemptée de consentement",
     retention:
       "13 mois : une purge mensuelle supprime, sur notre instance Umami, " +
-      "toute ligne plus ancienne — pages vues, sessions, et tout ce qui " +
-      "s'y rattache.",
+      "toute mesure plus ancienne — pages vues, replays, données " +
+      "d'événement. Une session n'est retirée qu'une fois disparue la " +
+      "dernière mesure qui s'y rattache, ce qui peut la conserver quelques " +
+      "semaines de plus.",
     recipients: "Umami, auto-hébergé sur notre propre serveur",
   },
   // Table : `consentRecords` — écrite seulement si `traceability` est
