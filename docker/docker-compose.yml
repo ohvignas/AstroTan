@@ -253,6 +253,66 @@ services:
       traefik.http.routers.umami.tls.certresolver: letsencrypt
       traefik.http.services.umami.loadbalancer.server.port: "3000"
 
+  # ── Purge de rétention Umami (lot 6, tâche 6) ────────────────────────────
+  #
+  # `/confidentialite` promet 13 mois de conservation pour les statistiques
+  # d'audience. C'est ce service qui rend la promesse vraie : `retention.ts`
+  # (Convex) purge déjà `leads` et `consentRecords` sur un cron mensuel
+  # (`crons.ts`), mais Umami vit dans son propre PostgreSQL, hors de portée
+  # de ce cron — aucun code Convex ne peut l'atteindre. La requête exécutée
+  # est `docker/umami-purge.sql` (lu, en détail : elle purge sept tables,
+  # pas seulement `website_event`, parce qu'Umami n'a aucune contrainte de
+  # clé étrangère et qu'une purge partielle laisserait des lignes
+  # orphelines).
+  #
+  # `profiles: [purge]` : absent de tout `docker compose up` ordinaire, en
+  # développement comme en production — le workflow `Deploy` (README §8)
+  # lance `docker compose up -d --wait` sans jamais passer `--profile`, donc
+  # ce service n'est ni démarré ni recréé par un déploiement normal.
+  # Démarrage volontaire, une seule fois, après le premier déploiement :
+  #
+  #   docker compose --profile purge up -d umami-purge
+  #
+  # `restart: unless-stopped` le fait ensuite survivre aux redémarrages de
+  # l'hôte. Il ne survit PAS à un `docker compose down` explicite ni à un
+  # changement de service qui le recréerait — dans ces cas, le relancer avec
+  # la même commande `--profile purge`.
+  #
+  # Boucle interne plutôt que cron de l'hôte ou service planifié tiers : ce
+  # VPS n'a aucune tâche planifiée ailleurs (le seul cron du projet est
+  # celui de Convex, ci-dessus), et une boucle `sleep` dans un conteneur déjà
+  # présent évite d'ajouter un mécanisme de plus à documenter. Elle purge
+  # une fois au démarrage (utile juste après `--profile purge up`, pour ne
+  # pas attendre 30 jours avant la première preuve que ça marche), puis tous
+  # les 30 jours.
+  #
+  # Même image que `umami-db` : pas de troisième binaire `psql` à faire
+  # confiance, seulement celui déjà vérifié pour parler à cette base.
+  umami-purge:
+    image: postgres:17.11-alpine
+    restart: unless-stopped
+    profiles: [purge]
+    depends_on:
+      umami-db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${UMAMI_DB_PASSWORD:?UMAMI_DB_PASSWORD is required}
+    volumes:
+      - ./umami-purge.sql:/umami-purge.sql:ro
+    # Réseau `analytics` uniquement, comme `umami-db` : ce service n'a rien
+    # à faire sur `edge`, il ne sert jamais de requête entrante.
+    networks: [analytics]
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -eu
+        while true; do
+          echo "[umami-purge] $(date -Iseconds) purge des lignes de plus de 13 mois"
+          psql -h umami-db -U umami -d umami -v ON_ERROR_STOP=1 -f /umami-purge.sql
+          sleep 2592000
+        done
+
   umami-db:
     # Version majeure ET mineure épinglées. La majeure surtout : un
     # `postgres:17` qui passerait tout seul en 18 refuserait de démarrer sur

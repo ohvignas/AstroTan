@@ -1058,6 +1058,66 @@ redéployer. Un retour arrière se fait par restauration du dump, pas par un
 retour au tag précédent — une base déjà migrée n'est plus lisible par
 l'ancienne version.
 
+### 13.10 Rétention — la purge des 13 mois
+
+`/confidentialite` annonce 13 mois de conservation pour les statistiques
+d'audience. Côté Convex, `retention.ts` purge déjà `leads` (3 ans) et
+`consentRecords` (365 jours) sur un cron mensuel (`crons.ts`) — mais Umami
+vit dans son propre PostgreSQL, hors de portée de ce cron : aucun code
+Convex ne peut l'atteindre. C'est le rôle du service `umami-purge` du
+compose.
+
+**Ce qui est purgé, et pourquoi ce n'est pas qu'une table.** Umami n'a
+aucune contrainte de clé étrangère sur cette base — vérifié en interrogeant
+`information_schema.table_constraints` : zéro ligne `FOREIGN KEY`. Purger
+seulement `website_event` et `session` laisserait donc des lignes
+orphelines dans tout ce qui pend de l'un ou de l'autre. La requête
+(`docker/umami-purge.sql`) purge sept tables sur leur propre `created_at` :
+`event_data`, `session_data`, `session_link`, `heatmap_event`,
+`session_replay`, `session_replay_saved`, `revenue`, en plus de
+`website_event` et `session` eux-mêmes — le tout dans une seule transaction.
+Volontairement absentes : `website`, `user`, `team`, `team_user`,
+`app_setting`, `board`, `link`, `pixel`, `report`, `segment`, `share`,
+`two_factor_*` — des comptes, des réglages ou des définitions (tableaux de
+bord, segments, rapports), pas de la donnée d'audience horodatée par
+visite.
+
+**Démarrage, volontaire et unique.** Le service porte `profiles: [purge]` :
+un `docker compose up` ordinaire, en développement comme sur le VPS
+(y compris celui du workflow `Deploy`, section 8), ne le démarre jamais. Le
+lancer une fois, après le premier déploiement :
+
+```bash
+ssh <user>@<host> 'cd ~/astrotan && docker compose --profile purge up -d umami-purge'
+```
+
+Il tourne ensuite en boucle interne — une purge immédiate, puis une par
+mois — et `restart: unless-stopped` le fait survivre aux redémarrages de
+l'hôte. Vérifier qu'il tourne et lire son dernier passage :
+
+```bash
+ssh <user>@<host> 'cd ~/astrotan && docker compose ps umami-purge && docker compose logs --tail 20 umami-purge'
+```
+
+**Compter avant de croire qu'il ne fait rien.** Un site jeune n'a par
+construction aucune ligne de plus de 13 mois : le service tourne, ne
+supprime rien, et c'est le comportement correct. Pour vérifier le mécanisme
+sans rien supprimer, exécuter la requête dans une transaction annulée :
+
+```bash
+docker compose exec umami-db psql -U umami -d umami -c \
+  "BEGIN; DELETE FROM website_event WHERE created_at < now() - interval '30 seconds'; ROLLBACK;"
+```
+
+Le nombre de lignes annoncé par `DELETE` est celui qu'une vraie purge aurait
+supprimé sur cette fenêtre ; `ROLLBACK` garantit que rien ne l'est
+réellement.
+
+**Sauvegarder avant la première purge.** Cette purge est irréversible sur
+des données que la 13.8 est seule à couvrir : faire un dump avant de lancer
+`umami-purge` pour la première fois sur une base qui contient déjà de la
+donnée ancienne.
+
 ---
 
 ## 14. Mise à jour depuis une version antérieure du template

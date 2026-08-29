@@ -81,11 +81,16 @@ export const legalHost: LegalHost = {
  *     `createdBy`/`updatedBy` qui désignent un administrateur, couverts par
  *     la dernière ligne.
  *
- * Sur les durées : n'écrire ici que ce que le code applique. Aucune purge
- * automatique n'existe aujourd'hui dans ce dépôt (`convex/crons.ts` ne
- * planifie que la relance du cache), et « 3 ans » écrit en face d'une table
- * que rien ne balaie est un engagement que personne ne tient. Le jour où une
- * purge est ajoutée, c'est ici que sa durée réelle vient s'écrire.
+ * Sur les durées : n'écrire ici que ce que le code applique. Une durée
+ * écrite en face d'une table que rien ne balaie est un engagement que
+ * personne ne tient. `retention.ts` (Convex) tient cette promesse pour les
+ * tables Convex — `leads`, `consentRecords` — sur un cron mensuel
+ * (`convex/crons.ts`). Umami échappe à ce cron : il vit dans son propre
+ * PostgreSQL, hors de portée de tout code Convex, et sa purge est un
+ * service Docker à part (`docker/docker-compose.yml`, service
+ * `umami-purge` ; détail dans `docker/README.md` §13.10). Le jour où une
+ * durée change d'un côté ou de l'autre, c'est ici que sa valeur réelle
+ * vient s'écrire.
  */
 export interface Processing {
   purpose: string
@@ -140,8 +145,9 @@ export const processings: Processing[] = [
       "puis n'est pas conservée.",
     basis: "Intérêt légitime — une mesure anonyme, exemptée de consentement",
     retention:
-      "Aucune purge n'est configurée sur notre instance Umami : les " +
-      "statistiques y restent tant que personne ne les supprime.",
+      "13 mois : une purge mensuelle supprime, sur notre instance Umami, " +
+      "toute ligne plus ancienne — pages vues, sessions, et tout ce qui " +
+      "s'y rattache.",
     recipients: "Umami, auto-hébergé sur notre propre serveur",
   },
   // Table : `consentRecords` — écrite seulement si `traceability` est
