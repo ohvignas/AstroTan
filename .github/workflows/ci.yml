@@ -39,6 +39,17 @@ jobs:
       - name: Check environment-variable wiring
         run: node scripts/check-env-wiring.mjs
 
+      # Nothing in this workflow ever checked a dependency for a known
+      # vulnerability — a `pnpm add` (or a routine bump) could quietly bring
+      # one in and nobody would notice until an advisory got read by hand.
+      # `--prod` matches the workflow's own security posture: a
+      # `devDependency` never ships, so a finding there would fail the build
+      # for a risk nobody runs. One advisory is deliberately excluded — see
+      # `pnpm-workspace.yaml`'s `auditConfig` for which one and why; this
+      # step is expected to run clean, not to carry a standing red X.
+      - name: Audit des dépendances de production
+        run: corepack pnpm@10 audit --prod --audit-level high
+
       - name: Typecheck
         run: pnpm typecheck
 

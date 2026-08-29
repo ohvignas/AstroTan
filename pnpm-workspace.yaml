@@ -1,3 +1,18 @@
 packages:
   - "apps/*"
   - "packages/*"
+# GHSA-qq9h-g4jm-xgf3 (better-auth, high) : pré-détournement de compte via
+# magic-link ou email-OTP combiné à une inscription email+mot de passe
+# ouverte. Ce dépôt n'active ni magic-link ni email-OTP (convex/auth.ts ne
+# monte que admin() et convex()) et l'inscription est fermée
+# (disableSignUp: true) — non exploitable ici. Le correctif exige
+# better-auth >=1.6.22, incompatible en l'état avec le typage de
+# @convex-dev/better-auth@0.12.5 (dernière version publiée) : la montée
+# casse le typecheck de apps/admin (ConvexBetterAuthProvider.authClient
+# devient un type "never" à la compilation, sans casser le comportement à
+# l'exécution — voir task-7-report.md). Coût d'une authentification cassée
+# > bénéfice d'une CVE non exploitable ici ; réévaluer dès qu'une version
+# de @convex-dev/better-auth compatible avec better-auth >=1.6.22 sort.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-qq9h-g4jm-xgf3
