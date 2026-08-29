@@ -1,6 +1,78 @@
+import type { TestConvex } from "convex-test"
 import { afterEach, beforeEach, expect, test } from "vitest"
 import { api } from "./_generated/api"
+import appSchema from "./schema"
 import { ORIGIN, identityFor, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
+
+// Les champs autorisés dans la projection PUBLIQUE, en un seul endroit :
+// les deux tests ci-dessous s'en servent, et deux copies auraient dérivé.
+const AUTORISES = [
+  "siteName",
+  "logoId",
+  "iconId",
+  "homePageSlug",
+  "defaultSeo",
+  "socials",
+]
+
+// Les champs autorisés dans la projection du DASHBOARD. Les deux champs
+// système en tête : `getPrivate` rend `_id` et `_creationTime`, que
+// l'écran utilise, et qui ne sont pas dans le validateur de la table.
+const AUTORISES_PRIVE = [
+  "_id",
+  "_creationTime",
+  "siteName",
+  "logoId",
+  "iconId",
+  "homePageSlug",
+  "defaultSeo",
+  "socials",
+  "leadWebhookUrl",
+  "leadWebhookLastStatus",
+  "leadWebhookLastAt",
+  "emailFrom",
+]
+
+// Toute la table, LUE DU SCHÉMA et non recopiée à la main — même motif que
+// `_dataRegistry.test.ts`, qui dérive sa liste de `Object.keys(appSchema.tables)`
+// pour la même raison : une liste recopiée reste vraie le jour où on l'écrit
+// et fausse le lendemain, en silence.
+const CHAMPS_DE_LA_TABLE = Object.keys(appSchema.tables.settings.validator.fields).sort()
+
+// Une valeur non-`undefined` pour CHAQUE champ de la table.
+//
+// C'est le cœur de ce garde-fou, et la raison pour laquelle il est passé
+// à côté de sa cible pendant un temps : Convex RETIRE les champs
+// `undefined` avant l'envoi, donc un champ recopié par erreur dans une
+// projection n'apparaît dans la réponse que s'il a une valeur en base.
+// Une fixture qui ne posait que 4 des 11 champs laissait donc les sept
+// autres entrer dans `settings.get` sans un seul test rouge — mesuré :
+// ajouter `leadWebhookLastStatus` à la projection publique passait au
+// vert. La ligne est semée par `ctx.db.insert` et non par
+// `settings.update`, parce que la mutation n'expose pas
+// `leadWebhookLastStatus` ni `leadWebhookLastAt` : les poser est
+// justement ce qui manquait.
+async function semerLaLigneEntiere(t: TestConvex<typeof appSchema>) {
+  return t.run(async (ctx) => {
+    const logoId = await ctx.storage.store(new Blob(["logo"]))
+    const iconId = await ctx.storage.store(new Blob(["icone"]))
+    const ligne = {
+      siteName: "AstroTan",
+      logoId,
+      iconId,
+      homePageSlug: "accueil",
+      defaultSeo: { title: "Titre par défaut", description: "Description par défaut" },
+      socials: [{ label: "Mastodon", url: "https://social.exemple/@astrotan" }],
+      leadWebhookUrl: "https://hook.exemple.fr/leads",
+      leadWebhookSecret: "sentinelle-secret-de-signature",
+      leadWebhookLastStatus: "sentinelle-dernier-statut",
+      leadWebhookLastAt: 1_700_000_000_000,
+      emailFrom: "AstroTan <bonjour@astrotan.exemple>",
+    }
+    await ctx.db.insert("settings", ligne)
+    return ligne
+  })
+}
 
 let originalEnv: NodeJS.ProcessEnv
 
@@ -49,18 +121,18 @@ test("la projection publique ne rend aucun secret", async () => {
   // table et recopié par inadvertance dans la projection échouerait ici,
   // même si sa valeur était vide au moment du test.
   //
-  // Un SOUS-ENSEMBLE et non une égalité : Convex retire les champs
-  // `undefined` avant l'envoi, donc un réglage facultatif non renseigné
-  // n'apparaît pas du tout. Exiger la liste exacte ferait échouer ce test
-  // sur une base neuve, pour une raison sans rapport avec ce qu'il garde.
-  const AUTORISES = [
-    "siteName",
-    "logoId",
-    "iconId",
-    "homePageSlug",
-    "defaultSeo",
-    "socials",
-  ]
+  // Un SOUS-ENSEMBLE et non une égalité : `settings.update` ne pose que
+  // ce que ce test lui soumet, Convex retire les champs `undefined` avant
+  // l'envoi, et exiger la liste exacte ferait donc échouer ce test-ci pour
+  // une raison sans rapport avec ce qu'il garde.
+  //
+  // C'est aussi sa LIMITE, et elle a été mesurée : ce test ne voit que les
+  // champs qu'il a lui-même semés. Les sept autres champs de la table
+  // pouvaient entrer dans la projection publique sans le faire rougir.
+  // C'est le dernier test du fichier qui ferme ce trou, en semant la ligne
+  // ENTIÈRE et en exigeant l'égalité ; celui-ci garde ce qu'il sait bien
+  // garder — le chemin d'écriture réel, par la mutation, avec des valeurs
+  // sentinelles.
   const interdits = champs.filter((champ) => !AUTORISES.includes(champ))
   expect(interdits).toEqual([])
   expect(JSON.stringify(publique)).not.toContain("le-secret-qui-signe-nos-appels")
@@ -206,4 +278,96 @@ test("une adresse d'expédition malformée est refusée à l'écriture, pas à l
   expect((await owner.query(api.settings.getPrivate, {}))?.emailFrom).toBe(
     "AstroTan <bonjour@astrotan.exemple>"
   )
+})
+
+// ---------------------------------------------------------------------
+// Le garde-fou TOTAL : toute la table, pas seulement ce qu'un test a semé.
+//
+// Les tests ci-dessus passent par `settings.update`, donc ne posent que
+// les champs que la mutation accepte et qu'ils lui soumettent. Convex
+// retirant les champs `undefined`, un champ recopié par erreur dans une
+// projection restait alors INVISIBLE dans la réponse — et le garde-fou
+// vert. Mesuré, pas supposé : ajouter `leadWebhookLastStatus` à
+// `settings.get` laissait les six tests précédents au vert.
+//
+// Les trois tests qui suivent sèment la ligne ENTIÈRE : le premier
+// vérifie qu'elle couvre bien toute la table — sans quoi les deux autres
+// sont aveugles pour la même raison —, les deux autres exigent
+// l'ÉGALITÉ. Ce qu'ils ferment est la CLASSE, pas l'instance : le
+// prochain champ sensible ajouté à `settings` — une clé d'API, un jeton,
+// une adresse — n'entrera dans aucune des deux projections sans faire
+// rougir la suite, sans que personne n'ait à penser à revenir ici.
+// ---------------------------------------------------------------------
+
+// La condition de validité des deux tests suivants, énoncée à part parce
+// qu'elle est la seule chose qui puisse les rendre aveugles à nouveau :
+// une ligne qui ne couvre pas toute la table les ramène exactement au
+// défaut qu'ils corrigent. Elle est vérifiée contre le SCHÉMA, donc un
+// douzième champ ajouté à `settings` fait échouer ce test tant qu'il
+// n'est pas semé — et le fait échouer ICI, avec ce message, plutôt que
+// dans une assertion d'égalité qui ne dirait pas pourquoi.
+test("la ligne semée couvre toute la table — sans quoi les deux tests suivants sont aveugles", async () => {
+  const t = makeTestConvex()
+  const ligne = await semerLaLigneEntiere(t)
+  expect(
+    Object.keys(ligne).sort(),
+    "Un champ a été ajouté à la table `settings` sans être semé dans " +
+      "`semerLaLigneEntiere` (convex/settings.publicProjection.test.ts). " +
+      "Donnez-lui une valeur non-`undefined` : Convex retire les champs " +
+      "`undefined` avant l'envoi, donc un champ non semé peut entrer dans " +
+      "`settings.get` — publique et non authentifiée — sans qu'aucun test " +
+      "ne rougisse. C'est exactement la fuite que `leadWebhookSecret` a " +
+      "déjà coûtée à cette table.",
+  ).toEqual(CHAMPS_DE_LA_TABLE)
+})
+
+test("aucun champ de la table n'entre dans la projection publique sans être autorisé", async () => {
+  const t = makeTestConvex()
+  await semerLaLigneEntiere(t)
+
+  // Sans session : exactement ce qu'un inconnu obtient.
+  const publique = await t.query(api.settings.get, {})
+
+  // Une ÉGALITÉ, possible ici et seulement ici parce que les onze champs
+  // ont une valeur : aucun n'est absent pour la mauvaise raison.
+  expect(
+    Object.keys(publique ?? {}).sort(),
+    "`settings.get` est publique et non authentifiée : ce qu'elle rend est " +
+      "lisible par quiconque connaît l'URL Convex, qui est dans le bundle du " +
+      "site. Un champ de plus dans cette réponse est une fuite, un champ de " +
+      "moins casse le site public.",
+  ).toEqual([...AUTORISES].sort())
+
+  // Les valeurs, en plus des noms : la projection échouerait aussi si elle
+  // rendait un secret sous un autre nom de clé.
+  const rendu = JSON.stringify(publique)
+  expect(rendu).not.toContain("sentinelle-secret-de-signature")
+  expect(rendu).not.toContain("sentinelle-dernier-statut")
+  expect(rendu).not.toContain("hook.exemple.fr")
+  expect(rendu).not.toContain("astrotan.exemple")
+})
+
+// La même totalité côté dashboard. Le rôle y limite déjà les dégâts —
+// owner, admin, editor —, mais c'est la projection qui a réellement fui
+// `leadWebhookSecret` à un editor, et rien n'énumérait la table de ce
+// côté-là non plus.
+test("aucun champ de la table n'entre dans la projection du dashboard sans être autorisé", async () => {
+  const t = makeTestConvex()
+  const email = `settings-total-${Date.now()}@example.com`
+  const password = "correct horse battery staple settings total"
+  const user = await seedUser(t, { email, password, name: "Owner", role: "owner" })
+  await signIn(t, email, password)
+  const owner = await identityFor(t, user.id)
+  await semerLaLigneEntiere(t)
+
+  const privee = await owner.query(api.settings.getPrivate, {})
+  expect(
+    Object.keys(privee ?? {}).sort(),
+    "`settings.getPrivate` est lue par un editor. Le secret de signature " +
+      "du webhook y a déjà été rendu une fois : avec lui et " +
+      "`leadWebhookUrl`, un editor forge des appels signés vers le scénario " +
+      "de l'opérateur. Un jeton ajouté à cette table ne s'y invite pas.",
+  ).toEqual([...AUTORISES_PRIVE].sort())
+
+  expect(JSON.stringify(privee)).not.toContain("sentinelle-secret-de-signature")
 })
