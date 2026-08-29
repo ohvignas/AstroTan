@@ -26,9 +26,14 @@ describe("decrireAction", () => {
   // La liste est fermée, et ce test est ce qui empêche d'en retirer un en
   // silence : supprimer une action de `AUDIT_ACTIONS` fait disparaître ses
   // lignes de journal sans rien casser d'autre.
-  test("la liste couvre exactement les seize gestes instrumentés", () => {
+  // S'y ajoute `password.reset` : le seul geste de la liste dont l'auteur
+  // n'est pas une session authentifiée, et le seul qui modifie un accès
+  // sans qu'aucune connexion ne l'ait demandé — donc le seul qu'aucune
+  // autre donnée conservée ne permettrait de reconstituer après coup.
+  test("la liste couvre exactement les dix-sept gestes instrumentés", () => {
     expect([...AUDIT_ACTIONS].sort()).toEqual(
       [
+        "password.reset",
         "emailTemplate.reset",
         "emailTemplate.set",
         "emailTemplate.toggle",

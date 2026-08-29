@@ -138,8 +138,6 @@ export const legalHost: LegalHost = {
  * servent le même but se déclarent ensemble.
  *
  * Ce qui est délibérément absent, pour que l'absence se relise :
- *   - `verification` (Better Auth) — ni vérification d'email ni
- *     réinitialisation de mot de passe ne sont branchées, rien n'y écrit ;
  *   - `pages`, `posts`, `tags`, `settings`, `redirects`,
  *     `revalidationOutbox` — du contenu et de la mécanique, sauf les champs
  *     `createdBy`/`updatedBy` qui désignent un administrateur, couverts par
@@ -325,6 +323,27 @@ export const processings: Processing[] = [
       "Convex, Inc. (hébergement de la base, États-Unis), et Resend " +
       "(acheminement de l'e-mail d'invitation) lorsqu'une clé d'envoi est " +
       "configurée",
+  },
+  // Table : `verification` (Better Auth). Elle était déclarée absente de ce
+  // tableau tant que rien n'y écrivait ; `auth.ts` monte désormais
+  // `sendResetPassword`, et c'est là que le jeton de réinitialisation est
+  // rangé en face du compte qu'il ouvre.
+  {
+    purpose: "Réinitialiser le mot de passe d'un compte d'administration",
+    data:
+      "L'empreinte du lien de réinitialisation envoyé par e-mail — jamais le " +
+      "lien lui-même —, l'identifiant du compte qu'il ouvre, et sa date " +
+      "d'expiration",
+    basis:
+      "Intérêt légitime — l'accès étant sur invitation seule, c'est le seul " +
+      "moyen de reprendre la main sur un compte dont le mot de passe est perdu",
+    retention:
+      "Une heure au plus : le lien expire au bout d'une heure, et la ligne est " +
+      "supprimée dès qu'il est utilisé. Les liens expirés sans avoir servi sont " +
+      "effacés à la demande suivante, quelle qu'elle soit.",
+    recipients:
+      "Convex, Inc. (hébergement de la base, États-Unis), et Resend " +
+      "(acheminement de l'e-mail) lorsqu'une clé d'envoi est configurée",
   },
   // Champs `createdBy`/`updatedBy` de `pages`, `posts`, `redirects`, la table
   // `media`, et le champ `majPar` de `secrets` et d'`emailTemplates`. Rien de

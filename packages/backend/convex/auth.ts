@@ -370,6 +370,19 @@ const editorRole = ac.newRole({
 // module keeps working, against one definition instead of two.
 export { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH }
 
+/**
+ * Combien de temps un lien de réinitialisation reste utilisable, en
+ * secondes.
+ *
+ * Nommée plutôt qu'écrite en ligne dans les options : c'est la durée que
+ * `/confidentialite` publie pour la table `verification` (voir
+ * `_dataRegistry.ts` et `apps/web/src/config/legal.ts`), et une constante
+ * nommée est ce qui rend visible qu'il s'agit de la même valeur des deux
+ * côtés. Égale à la valeur de repli de Better Auth — le but n'est pas de
+ * la changer, c'est de cesser d'en hériter.
+ */
+export const RESET_PASSWORD_TOKEN_TTL_SECONDS = 60 * 60
+
 // Reads `secret`/`baseURL` plainly, with no guard: `createApi` (the
 // component-side adapter, see betterAuth/adapter.ts) calls this at module
 // load inside the betterAuth component's own isolated environment, which
@@ -395,7 +408,136 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       disableSignUp: true,
       minPasswordLength: MIN_PASSWORD_LENGTH,
       maxPasswordLength: MAX_PASSWORD_LENGTH,
+
+      // Faux par défaut chez Better Auth (vérifié dans
+      // `api/routes/password.mjs` de la version installée, 1.6.17 :
+      // `if (options.emailAndPassword?.revokeSessionsOnPasswordReset)
+      // await internalAdapter.deleteUserSessions(userId)` — sans l'option,
+      // rien), et c'est un défaut dangereux : la raison la plus fréquente
+      // de réinitialiser est le soupçon d'un vol, et ne pas révoquer
+      // laisse précisément le voleur connecté.
+      revokeSessionsOnPasswordReset: true,
+
+      // Écrite plutôt qu'héritée. Better Auth retombe sur `3600 * 1`
+      // secondes quand l'option est absente (même fichier, ligne
+      // `getDate(...resetPasswordTokenExpiresIn || 3600 * 1, "sec")`).
+      // Trois raisons de la poser explicitement, aucune cosmétique :
+      // c'est un jeton qui donne l'accès à l'administration ;
+      // `/confidentialite` publie cette durée comme celle de conservation
+      // de la table `verification` ; et une valeur héritée pourrait
+      // changer au prochain `pnpm update` sans que la page publiée ne
+      // bouge. Une heure est court, et c'est voulu — un lien reçu par
+      // email doit rester utilisable le temps qu'il arrive, pas la
+      // journée.
+      resetPasswordTokenExpiresIn: RESET_PASSWORD_TOKEN_TTL_SECONDS,
+
+      // Pas d'`await` sur l'ENVOI : la documentation Better Auth l'écrit
+      // noir sur blanc (« Avoid awaiting the email sending to prevent
+      // timing attacks »), et la raison est temporelle — attendre l'envoi
+      // allonge la réponse quand le compte existe, ce qui la transforme en
+      // oracle mesurable au chronomètre, quelle que soit la prudence du
+      // corps de réponse.
+      //
+      // Ce que ce `await` attend n'est donc PAS l'envoi : c'est
+      // l'inscription du job dans `_scheduled_functions`, une écriture
+      // constante qui est justement le mécanisme qui sort l'envoi du
+      // chemin de la requête. L'omettre (`void ctx.scheduler.runAfter(…)`)
+      // rendrait la planification elle-même incertaine — une promesse non
+      // attendue dans une action Convex n'a aucune garantie de survivre au
+      // retour du handler, et le job pourrait n'être jamais créé : l'email
+      // ne partirait pas du tout, en silence, sur le seul chemin de
+      // récupération du dépôt. C'est le mode d'échec le plus grave
+      // possible ici, et il coûterait bien plus que le delta d'une
+      // insertion de ligne — delta déjà noyé, sur les DEUX branches, par
+      // le `findVerificationValue` que la route exécute (et qui, par
+      // défaut, balaie au passage les lignes expirées).
+      sendResetPassword: async ({ user, token }) => {
+        // Même trou de typage que `guardSignInRateLimit` ci-dessus :
+        // `GenericCtx<DataModel>` est une union query/mutation/action, et
+        // seules les deux dernières portent `scheduler`. Cette route n'est
+        // atteignable que par l'action HTTP de `http.ts`, qui l'a toujours.
+        //
+        // Mais ici on ne LÈVE pas, contrairement à là-bas, et c'est la
+        // différence qui compte : `/request-password-reset` n'appelle
+        // cette fonction que lorsque le compte EXISTE (la route répond 200
+        // sans nous appeler quand il n'existe pas), donc toute erreur
+        // remontée d'ici deviendrait un 500 réservé aux adresses qui ont
+        // un compte — l'oracle exact que tout le reste de ce chemin évite.
+        // Le journal du déploiement est le seul endroit où cette panne
+        // peut se dire.
+        if (!("scheduler" in convexCtx)) {
+          console.error(
+            "PASSWORD_RESET_UNAVAILABLE: contexte sans planificateur, l'email de réinitialisation n'est pas parti",
+          )
+          return
+        }
+        const siteUrl = process.env.SITE_URL
+        if (!siteUrl) {
+          console.error(
+            "PASSWORD_RESET_UNAVAILABLE: SITE_URL absent, l'email de réinitialisation n'est pas parti",
+          )
+          return
+        }
+
+        // Le lien de ce dépôt, pas celui de Better Auth. Better Auth
+        // propose `url` = `<baseURL>/reset-password/<jeton>?callbackURL=…`,
+        // une route de REDIRECTION qui renvoie ensuite vers la vraie page
+        // avec `?token=`. On vise la page directement, exactement comme
+        // `sendInvitationEmail` vise `/accept-invite?token=` : un saut de
+        // moins, et surtout une seule origine à faire figurer dans un
+        // email — celle de l'administration, qui est ce que `SITE_URL`
+        // désigne, et non l'origine `*.convex.site` qui sert l'API.
+        const lien = `${siteUrl}/reset-password?token=${encodeURIComponent(token)}`
+        await convexCtx.scheduler.runAfter(0, internal.passwordReset.envoyer, {
+          email: user.email,
+          lien,
+        })
+      },
+
+      // Le journal dit QUE le mot de passe a changé, jamais lequel ni par
+      // quel jeton. C'est le seul événement d'authentification que rien
+      // d'autre ne reconstituerait a posteriori : aucune session n'a
+      // demandé ce changement, donc aucune trace n'en existe ailleurs.
+      //
+      // Ne lève JAMAIS, et ce n'est pas de la prudence décorative :
+      // `api/routes/password.mjs` appelle `onPasswordReset` AVANT
+      // `deleteUserSessions`. Une exception ici sauterait donc la
+      // révocation des sessions — c'est-à-dire précisément le défaut que
+      // `revokeSessionsOnPasswordReset` ci-dessus vient de fermer — tout
+      // en rendant un 500 sur un mot de passe déjà changé et un jeton déjà
+      // consommé. Entre « il manque une ligne au journal » et « le voleur
+      // est resté connecté », le second est le pire des deux.
+      onPasswordReset: async ({ user }) => {
+        if (!("runMutation" in convexCtx)) {
+          console.error("PASSWORD_RESET_UNLOGGED: contexte sans runMutation")
+          return
+        }
+        try {
+          await convexCtx.runMutation(internal.passwordReset.journaliserReinitialisation, {
+            authUserId: user.id,
+            email: user.email,
+          })
+        } catch (err) {
+          console.error("PASSWORD_RESET_UNLOGGED:", err)
+        }
+      },
     },
+    // `plain` par défaut (vérifié dans `db/verification-token-storage.mjs`
+    // de la version installée : sans `storeIdentifier`, `getStorageOption`
+    // rend `undefined` et `processIdentifier` renvoie l'identifiant tel
+    // quel). La table `verification` porterait alors
+    // `reset-password:<jeton>` EN CLAIR — un accès administrateur
+    // utilisable, lisible par quiconque exporte la base ou ouvre le
+    // tableau de bord Convex. `invitations` ne stocke déjà que
+    // `tokenHash` ; il n'y a aucune raison que ce jeton-ci soit moins bien
+    // traité.
+    //
+    // Transparent pour les appelants : `findVerificationValue` et
+    // `consumeVerificationValue` appliquent la même transformation à
+    // l'identifiant qu'on leur passe, et essaient en plus la forme en
+    // clair en repli — une ligne écrite avant ce changement reste donc
+    // consommable.
+    verification: { storeIdentifier: "hashed" },
     // Minor (Lot 1 final review): explicit rather than assumed. Better
     // Auth's own in-memory rate limiter (`storage: "memory"`, `enabled:
     // isProduction` by default) is inert in this runtime regardless of

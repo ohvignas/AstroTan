@@ -53,6 +53,7 @@ import type * as lib_webhookUrl from "../lib/webhookUrl.js";
 import type * as media from "../media.js";
 import type * as migrations from "../migrations.js";
 import type * as pages from "../pages.js";
+import type * as passwordReset from "../passwordReset.js";
 import type * as posts from "../posts.js";
 import type * as profiles from "../profiles.js";
 import type * as redirects from "../redirects.js";
@@ -117,6 +118,7 @@ declare const fullApi: ApiFromModules<{
   media: typeof media;
   migrations: typeof migrations;
   pages: typeof pages;
+  passwordReset: typeof passwordReset;
   posts: typeof posts;
   profiles: typeof profiles;
   redirects: typeof redirects;

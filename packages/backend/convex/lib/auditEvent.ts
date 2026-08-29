@@ -84,6 +84,16 @@ export const AUDIT_ACTIONS = [
   "emailTemplate.set",
   "emailTemplate.toggle",
   "emailTemplate.reset",
+  // `password.reset` : ajout PUR lui aussi (invariant 6). C'est le seul
+  // geste de cette liste dont l'auteur n'est pas une session authentifiée
+  // — la personne prouve son identité par un jeton reçu par email, pas par
+  // une connexion — et c'est exactement ce qui le rend nécessaire :
+  // réinitialiser change un accès, révoque toutes les sessions du compte,
+  // et ne laisse aucune autre trace ailleurs. Écrit par
+  // `passwordReset.journaliserReinitialisation`, appelé depuis
+  // `onPasswordReset` (`auth.ts`) une fois le mot de passe RÉELLEMENT
+  // changé — jamais sur une simple demande, qui est ouverte à Internet.
+  "password.reset",
 ] as const
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
@@ -152,6 +162,18 @@ export function decrireAction(
       return `${acteurNom} a ${detail ?? "modifié l'envoi de"} l'email « ${quoi} »`
     case "emailTemplate.reset":
       return `${acteurNom} a rétabli le texte par défaut de l'email « ${quoi} »`
+    // Le seul geste où l'acteur EST la cible : « son » plutôt que « le
+    // mot de passe de X », et l'adresse entre parenthèses plutôt qu'en
+    // objet de la phrase, parce que la répéter à la troisième personne
+    // laisserait croire que quelqu'un d'autre l'a fait — ce qui est
+    // justement le geste voisin (`/admin/set-user-password`), réservé à
+    // l'owner, et qui n'a pas encore de ligne à lui.
+    //
+    // Rien sur le MOYEN (« par lien reçu par email ») : le journal dit ce
+    // qui s'est passé, pas comment quelqu'un a prouvé son identité — ce
+    // serait affirmer plus que ce que la ligne sait.
+    case "password.reset":
+      return `${acteurNom} a réinitialisé son mot de passe${cible ? ` (${cible})` : ""}`
   }
 }
 

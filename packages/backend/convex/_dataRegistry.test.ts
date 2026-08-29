@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { expect, test } from "vitest"
 import appSchema from "./schema"
 import betterAuthSchema from "./betterAuth/schema"
@@ -61,6 +62,42 @@ test("aucune table classée n'a disparu du schéma", () => {
   const connues = new Set(toutesLesTables())
   const fantomes = Object.keys(TABLE_COVERAGE).filter((table) => !connues.has(table))
   expect(fantomes).toEqual([])
+})
+
+test("`verification` reste déclarée tant que la réinitialisation est montée", () => {
+  // Le trou que les trois tests ci-dessus ne voient pas : ils vérifient
+  // qu'une table est CLASSÉE, jamais que la raison de son exemption est
+  // encore vraie. `verification` a longtemps porté « rien n'y écrit
+  // jamais » — exact le jour où c'était écrit, faux depuis que `auth.ts`
+  // monte `sendResetPassword` : c'est là que Better Auth range le jeton de
+  // réinitialisation, en face de l'identifiant du compte qu'il ouvre.
+  //
+  // Ce test lit le SOURCE d'`auth.ts` plutôt que ses options : construire
+  // les options demande un contexte Convex et un secret, et le fait qu'on
+  // cherche à établir — « ce dépôt envoie des réinitialisations » — est
+  // une propriété du code, pas d'une exécution. Il échoue donc dans les
+  // deux sens : reclasser `verification` en exempte pendant que l'envoi
+  // est monté, ou retirer l'envoi sans reclasser la table.
+  const source = readFileSync(new URL("./auth.ts", import.meta.url), "utf8")
+  const envoiMonte = /^\s*sendResetPassword:/m.test(source)
+  const couverture = TABLE_COVERAGE.verification
+
+  if (envoiMonte) {
+    expect(
+      couverture,
+      "`auth.ts` monte `sendResetPassword`, donc la table `verification` porte " +
+        "un jeton et l'identifiant du compte qu'il ouvre : une donnée qui " +
+        "désigne quelqu'un. Elle doit être `declaredAs` une finalité publiée " +
+        "dans `apps/web/src/config/legal.ts`, jamais `exempt`.",
+    ).toEqual({ declaredAs: expect.any(String) })
+  } else {
+    expect(
+      couverture,
+      "`sendResetPassword` n'est plus monté : la ligne de registre qui " +
+        "déclare `verification` décrit un traitement que le site ne fait " +
+        "plus. La reclasser en `exempt`, avec sa raison.",
+    ).toEqual({ exempt: expect.any(String) })
+  }
 })
 
 test("une exemption sans raison n'est pas une exemption", () => {

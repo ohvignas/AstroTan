@@ -55,6 +55,20 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
   profiles: { declaredAs: "Gérer les comptes de l'administration" },
   session: { declaredAs: "Ouvrir une session d'administration, et protéger cet accès" },
   invitations: { declaredAs: "Inviter une personne à rejoindre l'administration" },
+  // Était exemptée, au motif que « rien n'y écrit jamais ». Ce motif est
+  // devenu FAUX le jour où `auth.ts` a monté `sendResetPassword` : c'est
+  // désormais là que Better Auth range le jeton de réinitialisation (son
+  // empreinte, voir `verification.storeIdentifier` dans `auth.ts`) en face
+  // de l'identifiant du compte concerné. Une ligne de cette table désigne
+  // donc quelqu'un, et un champ qui désigne quelqu'un suffit.
+  //
+  // Ce n'est PAS `_dataRegistry.test.ts` qui l'aurait attrapé : il vérifie
+  // qu'une table est classée, jamais que la raison de son exemption est
+  // encore vraie. Une raison écrite un jour vieillit en silence — c'est le
+  // mode d'échec propre à ce fichier, et le test ajouté à côté
+  // (« `verification` reste déclarée tant que `sendResetPassword` est
+  // monté ») est ce qui le ferme pour cette table-ci.
+  verification: { declaredAs: "Réinitialiser le mot de passe d'un compte d'administration" },
 
   // ── Les gestes rattachés à leur auteur ───────────────────────────────
   pages: { declaredAs: "Savoir qui a publié, modifié ou téléversé quoi" },
@@ -88,12 +102,6 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
     exempt:
       "De la mécanique de cache : des pointeurs vers des pages à réinvalider " +
       "et un compteur de tentatives. Aucun auteur, aucun destinataire.",
-  },
-  verification: {
-    exempt:
-      "Table Better Auth pour la vérification d'e-mail et la réinitialisation " +
-      "de mot de passe. Ni l'une ni l'autre n'est branchée dans ce dépôt : " +
-      "rien n'y écrit jamais.",
   },
   jwks: {
     exempt:
