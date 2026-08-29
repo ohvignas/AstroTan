@@ -350,7 +350,8 @@ export function EtatImage({
   return (
     <span className="text-sm text-muted-foreground">
       Le fichier choisi n’existe plus dans le stockage — supprimé ou remplacé
-      depuis. Le site sert le {noun} du dépôt en attendant ; choisissez-en un
+      depuis. Le site sert l{feminin ? "’" : "e "}
+      {noun} du dépôt en attendant ; choisissez-en un
       {feminin ? "e" : ""} autre, ou retirez le réglage.
     </span>
   )

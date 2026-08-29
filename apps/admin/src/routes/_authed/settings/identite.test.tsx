@@ -38,6 +38,19 @@ describe("EtatImage — l'accord de genre", () => {
     ).toContain("un autre")
   })
 
+  // Le même défaut, une phrase plus loin et resté deux relectures de plus :
+  // « Le site sert le icône du dépôt en attendant ». Il ne se voyait pas
+  // tant que la phrase voisine était fausse elle aussi ; la corriger a
+  // rendu celui-ci voyant.
+  test("l'article s'élide devant « icône » — référence morte", () => {
+    expect(
+      renderToStaticMarkup(<EtatImage etat="introuvable" noun="icône" />),
+    ).toContain("sert l’icône du dépôt")
+    expect(
+      renderToStaticMarkup(<EtatImage etat="introuvable" noun="logo" />),
+    ).toContain("sert le logo du dépôt")
+  })
+
   test("l'icône est féminine, le logo masculin — aucun réglage", () => {
     const icone = renderToStaticMarkup(<EtatImage etat="defaut" noun="icône" />)
     expect(icone).toContain("Aucune icône choisie")
