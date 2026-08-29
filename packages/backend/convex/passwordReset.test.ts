@@ -92,21 +92,29 @@ async function seedActeur(
     name: "Quelqu'un",
     role: "editor",
   })
-  if (options.banned) {
-    // Écrit directement dans la table du composant : le chemin du ban
-    // (`auth.api.banUser`, ses permissions, sa frontière de rôles) n'est
-    // pas le sujet ici — l'ÉTAT « suspendu » l'est.
-    await t.run(async (ctx) =>
-      ctx.runMutation(components.betterAuth.adapter.updateOne, {
-        input: {
-          model: "user",
-          where: [{ field: "email", operator: "eq", value: email }],
-          update: { banned: true },
-        },
-      }),
-    )
-  }
+  if (options.banned) await definirSuspension(t, email, true)
   return user
+}
+
+/**
+ * Écrit directement dans la table du composant : le chemin du ban
+ * (`auth.api.banUser`, ses permissions, sa frontière de rôles) n'est pas le
+ * sujet ici — l'ÉTAT « suspendu » l'est.
+ */
+async function definirSuspension(
+  t: ReturnType<typeof makeTestConvex>,
+  email: string,
+  banned: boolean,
+) {
+  await t.run(async (ctx) =>
+    ctx.runMutation(components.betterAuth.adapter.updateOne, {
+      input: {
+        model: "user",
+        where: [{ field: "email", operator: "eq", value: email }],
+        update: { banned },
+      },
+    }),
+  )
 }
 
 /** Ce qu'un navigateur reçoit : le code HTTP et le corps, rien d'autre. */
@@ -371,4 +379,117 @@ test("une demande qui n'aboutit jamais ne journalise rien", async () => {
 
   const journal = await t.run(async (ctx) => ctx.db.query("auditLog").collect())
   expect(journal).toEqual([])
+})
+
+// --- Les trois trous fermés sur `/reset-password` et sa demande -----------
+//
+// `/request-password-reset` et `/reset-password` sont ACTIVES dès que
+// `sendResetPassword` existe, indépendamment de tout écran. Les trois
+// tests ci-dessous portent chacun sur un trou atteignable aujourd'hui, et
+// chacun est écrit pour DEVENIR ROUGE si la protection correspondante
+// disparaît — jamais pour passer par ailleurs.
+
+/** Long (11 caractères, au-dessus du minimum) et pourtant au sol : « motdepasse » est dans la liste. */
+const MOT_DE_PASSE_FAIBLE = "motdepasse1"
+
+/** Le témoin d'`passwordStrength.test.ts` : quatre classes, quatorze caractères, aucun défaut. */
+const MOT_DE_PASSE_ROBUSTE = "Marmotte#V3rte"
+
+// --- Trou 1 : la robustesse, la même qu'à l'inscription -------------------
+
+test("réinitialiser refuse un mot de passe que l'invitation refuserait", async () => {
+  // Better Auth ne vérifie que la LONGUEUR sur ce chemin (vérifié dans
+  // `api/routes/password.mjs` de la version installée : `PASSWORD_TOO_SHORT`
+  // / `PASSWORD_TOO_LONG`, rien d'autre). `invitations.accept` applique en
+  // plus `MIN_PASSWORD_SCORE`. Un chemin de récupération plus permissif que
+  // l'inscription est une porte dérobée involontaire — et c'est celle qu'un
+  // attaquant choisira.
+  const t = makeTestConvex()
+  await seedActeur(t, "actif@exemple.fr")
+  const token = await obtenirUnJeton(t, "actif@exemple.fr")
+
+  const refus = await reinitialiser(t, token, MOT_DE_PASSE_FAIBLE)
+  expect(refus.status).toBe(400)
+  // Le même code que `invitations.accept` : l'écran qui soumet ce
+  // formulaire branche sur un seul vocabulaire, pas sur deux.
+  expect(await refus.text()).toContain("WEAK_PASSWORD")
+
+  // Pas seulement un code d'erreur poli : le mot de passe n'a pas bougé.
+  await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE)).resolves.toBeTruthy()
+
+  // Et le jeton n'a pas été consommé au passage. Refuser ne doit pas coûter
+  // à la personne le seul lien qu'elle ait reçu : elle doit pouvoir
+  // recommencer avec un mot de passe correct, sans redemander un email —
+  // sans quoi la protection deviendrait elle-même un moyen de la bloquer.
+  expect((await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE)).status).toBe(200)
+})
+
+test("réinitialiser accepte encore un mot de passe robuste", async () => {
+  // Le contre-test du précédent : une garde qui refuserait TOUT passerait
+  // le test ci-dessus tout en fermant le seul chemin de récupération du
+  // dépôt.
+  const t = makeTestConvex()
+  await seedActeur(t, "actif@exemple.fr")
+  const token = await obtenirUnJeton(t, "actif@exemple.fr")
+
+  expect((await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE)).status).toBe(200)
+  await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE_ROBUSTE)).resolves.toBeTruthy()
+})
+
+// --- Trou 2 : la suspension vaut aussi à la CONSOMMATION ------------------
+
+test("un compte suspendu après l'envoi ne peut plus consommer son jeton", async () => {
+  // Le refus de `sendResetPassword` est à l'ÉMISSION. Quelqu'un qui demande
+  // une réinitialisation puis est suspendu dans l'heure gardait un jeton
+  // valide — et donc un retour dans l'administration. La suspension doit
+  // valoir au moment où le jeton est CONSOMMÉ.
+  const t = makeTestConvex()
+  await seedActeur(t, "actif@exemple.fr")
+  const token = await obtenirUnJeton(t, "actif@exemple.fr")
+
+  await definirSuspension(t, "actif@exemple.fr", true)
+
+  const refus = await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE)
+  const jetonBidon = await reinitialiser(t, "un-jeton-qui-n-existe-pas", MOT_DE_PASSE_ROBUSTE)
+
+  // Indistinguable d'un jeton inconnu, au code ET au corps. Sinon la
+  // réponse devient un oracle qui dit « ce compte existe, et il est
+  // suspendu » — le même piège que la demande évite déjà plus haut.
+  // Cette comparaison est aussi ce qui rattrape une divergence future :
+  // le message d'`INVALID_TOKEN` est recopié depuis Better Auth (il n'est
+  // pas exporté), et s'il changeait de leur côté, ce test virerait au
+  // rouge au lieu de laisser un oracle s'installer en silence.
+  expect(refus.status).toBe(jetonBidon.status)
+  expect(await refus.text()).toBe(await jetonBidon.text())
+
+  // Et le mot de passe n'a pas changé. On lève la suspension pour le
+  // prouver par la seule voie qui le prouve vraiment — un compte suspendu
+  // ne peut de toute façon pas se connecter.
+  await definirSuspension(t, "actif@exemple.fr", false)
+  await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE_ROBUSTE)).rejects.toThrow()
+  await expect(signIn(t, "actif@exemple.fr", MOT_DE_PASSE)).resolves.toBeTruthy()
+})
+
+test("un ban EXPIRÉ ne bloque pas non plus la consommation du jeton", async () => {
+  // Même raison qu'à l'émission : `isCurrentlyBanned` est la SEULE
+  // définition de « suspendu » du dépôt, et un `banExpires` déjà passé est
+  // un ban LEVÉ. Refuser ici enfermerait quelqu'un dont la sanction est
+  // terminée — hors de son compte, et hors du seul chemin qui l'y
+  // ramènerait.
+  const t = makeTestConvex()
+  await seedActeur(t, "actif@exemple.fr")
+  const token = await obtenirUnJeton(t, "actif@exemple.fr")
+
+  await definirSuspension(t, "actif@exemple.fr", true)
+  await t.run(async (ctx) =>
+    ctx.runMutation(components.betterAuth.adapter.updateOne, {
+      input: {
+        model: "user",
+        where: [{ field: "email", operator: "eq", value: "actif@exemple.fr" }],
+        update: { banExpires: Date.now() - 60_000 },
+      },
+    }),
+  )
+
+  expect((await reinitialiser(t, token, MOT_DE_PASSE_ROBUSTE)).status).toBe(200)
 })

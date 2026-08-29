@@ -12,7 +12,12 @@ import authSchema from "./betterAuth/schema"
 import authConfig from "./auth.config"
 import { parseRole, type Role } from "./validators"
 import { assertOwnerInvariant, OwnerInvariantError } from "./lib/ownerGuard"
-import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/passwordStrength"
+import {
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  MIN_PASSWORD_SCORE,
+  scorePassword,
+} from "./lib/passwordStrength"
 import {
   SIGN_IN_EMAIL_RATE_LIMIT_CONFIG,
   SIGN_IN_EMAIL_RATE_LIMIT_NAME,
@@ -248,6 +253,178 @@ async function guardSignInRateLimit(
 // merging the two sets would make a future edit to one silently affect the
 // other's matching.
 const SIGN_IN_PATHS = new Set(["/sign-in/email"])
+
+// La consommation d'un jeton de réinitialisation. Son propre `Set`, pour
+// la même raison que `SIGN_IN_PATHS` ci-dessus : une autre préoccupation,
+// un autre cycle de vie, et fusionner les ensembles ferait qu'une
+// modification de l'un changerait silencieusement ce que l'autre attrape.
+const RESET_PASSWORD_PATHS = new Set(["/reset-password"])
+
+// Les deux pièces que `guardPasswordReset` lit sur le contexte de
+// l'endpoint. Type étroit et séparé de `OwnerHookEndpointContext` plus
+// bas, exactement comme les `Set` de chemins sont séparés : les deux
+// gardes lisent `internalAdapter`, mais pas les mêmes méthodes ni pour la
+// même décision, et un type partagé ferait qu'élargir l'un élargirait
+// l'autre sans que personne ne l'ait voulu.
+type PasswordResetEndpointContext = {
+  context?: {
+    internalAdapter?: {
+      findVerificationValue: (identifier: string) => Promise<{ value: string } | null>
+      findUserById: (id: string) => Promise<{ id: string; email: string } | null>
+    }
+  }
+}
+
+/**
+ * Le refus qu'un jeton inconnu reçoit déjà, reproduit à l'identique.
+ *
+ * `BASE_ERROR_CODES` n'est exporté par aucune entrée publique de
+ * `better-auth` (vérifié : ni `better-auth`, ni `better-auth/minimal`, ni
+ * `better-auth/api` ne le ré-exportent ; il vit dans
+ * `@better-auth/core/error`, une dépendance transitive qu'on ne déclare
+ * pas). Le littéral est donc recopié depuis
+ * `@better-auth/core@1.6.17`'s `dist/error/codes.mjs`
+ * (`INVALID_TOKEN: "Invalid token"`), et `api/routes/password.mjs` le lève
+ * sous `APIError.from("BAD_REQUEST", …)`.
+ *
+ * Une copie peut diverger, et une divergence ici serait précisément
+ * l'oracle qu'on veut éviter. C'est le test qui la rattrape, pas ce
+ * commentaire : `passwordReset.test.ts` compare le corps de ce refus à
+ * celui d'un jeton réellement inconnu, octet pour octet — si Better Auth
+ * changeait ce message, le test virerait au rouge.
+ */
+function refuserCommeJetonInvalide(): never {
+  throw APIError.from("BAD_REQUEST", { code: "INVALID_TOKEN", message: "Invalid token" })
+}
+
+/**
+ * Les deux choses que `/reset-password` ne vérifie pas, et que ce dépôt
+ * vérifie ailleurs.
+ *
+ * **1. La robustesse.** Better Auth ne contrôle que la LONGUEUR sur ce
+ * chemin (`api/routes/password.mjs` de la version installée :
+ * `PASSWORD_TOO_SHORT` / `PASSWORD_TOO_LONG`, rien d'autre), là où
+ * `invitations.accept` applique en plus `MIN_PASSWORD_SCORE`. Un chemin de
+ * récupération plus permissif que l'inscription est une porte dérobée
+ * involontaire — et c'est celle qu'un attaquant choisira.
+ *
+ * **2. La suspension, à la CONSOMMATION.** `sendResetPassword` refuse déjà
+ * d'ÉMETTRE vers un compte suspendu, mais quelqu'un suspendu dans l'heure
+ * qui suit sa demande gardait un jeton valide, donc un retour dans
+ * l'administration.
+ *
+ * Les deux vivent dans la même fonction parce qu'elles ont besoin de la
+ * même chose — le compte que ce jeton désigne — et que la résoudre deux
+ * fois serait deux occasions de la résoudre différemment.
+ *
+ * Ne consomme jamais le jeton : `findVerificationValue` lit (elle balaie
+ * au passage les lignes expirées, ce que l'endpoint fait de toute façon
+ * juste après), là où `consumeVerificationValue` — celle que l'endpoint
+ * appelle — le détruit. Refuser ne doit pas coûter à la personne le seul
+ * lien qu'elle ait reçu.
+ */
+async function guardPasswordReset(
+  convexCtx: GenericCtx<DataModel>,
+  authCtx: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0],
+): Promise<void> {
+  const body = authCtx.body as { newPassword?: unknown; token?: unknown } | undefined
+
+  // `hooks.before` s'exécute AVANT la validation zod du corps par
+  // l'endpoint (voir le grand commentaire de `hooks.before` plus bas,
+  // round 2 / C3) : rien ici ne peut supposer une forme. Tout ce qui n'est
+  // pas déjà une chaîne simple est laissé à l'endpoint, dont c'est le
+  // travail de le refuser — et qui rendra son propre `INVALID_TOKEN`.
+  //
+  // Le jeton se lit dans le corps OU dans la query, dans cet ordre :
+  // `const token = ctx.body.token || ctx.query?.token` dans
+  // `api/routes/password.mjs`. Lire une seule des deux sources laisserait
+  // l'autre contourner ces deux gardes.
+  const query = authCtx.query as { token?: unknown } | undefined
+  const jeton =
+    typeof body?.token === "string"
+      ? body.token
+      : typeof query?.token === "string"
+        ? query.token
+        : null
+  if (jeton === null || typeof body?.newPassword !== "string") return
+  const nouveauMotDePasse = body.newPassword
+
+  const internalAdapter = (authCtx.context as PasswordResetEndpointContext["context"])
+    ?.internalAdapter
+  if (!internalAdapter) {
+    throw APIError.from("INTERNAL_SERVER_ERROR", {
+      code: "PASSWORD_RESET_GUARD_UNAVAILABLE",
+      message:
+        "PASSWORD_RESET_GUARD_UNAVAILABLE: contexte insuffisant pour vérifier le compte visé, réinitialisation refusée par prudence",
+    })
+  }
+
+  // Le préfixe est celui de Better Auth (`reset-password:${token}` dans
+  // `api/routes/password.mjs`, aux deux extrémités : à l'écriture ligne 68
+  // et à la consommation ligne 147). Le recopier est le seul moyen de
+  // retrouver la ligne, et s'il changeait de leur côté cette garde
+  // deviendrait un no-op silencieux — d'où le test de `passwordReset
+  // .test.ts` qui suspend un compte détenteur d'un VRAI jeton et exige le
+  // refus : il vire au rouge dans ce cas-là.
+  //
+  // L'expiration n'est pas vérifiée ici, et ce n'est pas un oubli : un
+  // jeton expiré est refusé par l'endpoint lui-même (`consume
+  // VerificationValue` rend `null` au-delà de `expiresAt`) avec exactement
+  // le refus que cette fonction rendrait. Le vérifier deux fois n'aurait
+  // aucun effet observable, et donnerait une seconde lecture de
+  // `expiresAt` capable de diverger de la première.
+  const verification = await internalAdapter.findVerificationValue(`reset-password:${jeton}`)
+  if (!verification) return // jeton inconnu : l'endpoint rend SON propre refus
+  const cible = await internalAdapter.findUserById(verification.value)
+  if (!cible) return
+
+  if (!("runQuery" in convexCtx)) {
+    throw APIError.from("INTERNAL_SERVER_ERROR", {
+      code: "PASSWORD_RESET_GUARD_UNAVAILABLE",
+      message:
+        "PASSWORD_RESET_GUARD_UNAVAILABLE: contexte sans runQuery, réinitialisation refusée par prudence",
+    })
+  }
+
+  // La MÊME décision que celle de l'émission, pas une seconde. On rappelle
+  // `passwordReset.envoiInterditPour`, dont la question est exactement
+  // celle-ci — « ce compte est-il suspendu, ou n'existe-t-il plus ? » —
+  // et qui la pose par le chemin brut du composant (donc `banExpires` en
+  // nombre, comme le schéma le stocke) plutôt qu'à travers l'adaptateur.
+  // Son nom parle d'ENVOI parce que c'est là qu'elle est née ; en écrire
+  // une seconde ici, ne serait-ce qu'un `doc.banned === true`, ferait
+  // diverger les deux bouts du même parcours — et un ban EXPIRÉ est un ban
+  // levé, qui doit laisser passer aux deux bouts.
+  const suspendu = await convexCtx.runQuery(internal.passwordReset.envoiInterditPour, {
+    email: cible.email,
+  })
+  if (suspendu) refuserCommeJetonInvalide()
+
+  // La longueur est laissée à l'endpoint, qui la vérifie contre les mêmes
+  // `MIN_PASSWORD_LENGTH`/`MAX_PASSWORD_LENGTH` posés plus bas et rend un
+  // refus plus précis (`PASSWORD_TOO_SHORT`/`PASSWORD_TOO_LONG`) que le
+  // `WEAK_PASSWORD` générique ci-dessous. Deux bornes identiques, une
+  // seule qui répond.
+  if (
+    nouveauMotDePasse.length < MIN_PASSWORD_LENGTH ||
+    nouveauMotDePasse.length > MAX_PASSWORD_LENGTH
+  ) {
+    return
+  }
+
+  // Scoré contre l'adresse du compte que le JETON désigne, jamais contre
+  // une adresse fournie par l'appelant — même règle que
+  // `invitations.accept`, qui score contre l'email lu dans la ligne
+  // d'invitation. `WEAK_PASSWORD` est aussi le code qu'elle lève : l'écran
+  // qui soumet ce formulaire branche sur un seul vocabulaire.
+  if (scorePassword(nouveauMotDePasse, { email: cible.email }).score < MIN_PASSWORD_SCORE) {
+    throw APIError.from("BAD_REQUEST", {
+      code: "WEAK_PASSWORD",
+      message:
+        "WEAK_PASSWORD: ce mot de passe est trop faible, choisissez-en un plus robuste — la même exigence qu'à la création du compte",
+    })
+  }
+}
 
 // `defaultStatements` (from better-auth@1.6.17's admin plugin):
 //   user: ["create", "list", "set-role", "ban", "impersonate",
@@ -1000,6 +1177,19 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         // when exceeded, same control-flow shape as every refusal below.
         if (SIGN_IN_PATHS.has(ctx.path)) {
           await guardSignInRateLimit(convexCtx, ctx)
+        }
+
+        // La consommation d'un jeton de réinitialisation, vérifiée ici
+        // pour la même raison que la connexion juste au-dessus : c'est une
+        // route de Better Auth, servie par `http.ts`, qu'aucune mutation
+        // de ce dépôt n'enveloppe — `hooks.before` est le seul endroit du
+        // code applicatif qui la voie passer.
+        //
+        // Retourne tôt (rien à faire) ou lève, jamais autre chose : elle
+        // ne modifie pas le contexte, donc elle n'interfère pas avec les
+        // gardes de l'invariant owner plus bas.
+        if (RESET_PASSWORD_PATHS.has(ctx.path)) {
+          await guardPasswordReset(convexCtx, ctx)
         }
 
         const isRevokeSingle = ctx.path === "/admin/revoke-user-session"
