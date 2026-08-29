@@ -22,7 +22,7 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core"
-import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core"
+import type { CollisionDetection, DragEndEvent, DragStartEvent } from "@dnd-kit/core"
 import { ColonneLeads, colonneVisee, colonneVoisine } from "./_authed/leads"
 import { LEAD_STATUSES  } from "@astrotan/backend/convex/content"
 import type {LeadStatus} from "@astrotan/backend/convex/content";
@@ -31,6 +31,32 @@ import type { Doc, Id } from "@astrotan/backend/convex/_generated/dataModel"
 export const Route = createFileRoute("/dnd-test")({
   component: DndTest,
 })
+
+/**
+ * Ce que dnd-kit MESURE, écrit à côté de ce qu'il DÉCIDE.
+ *
+ * Le symptôme rapporté est précis : le bloc suit bien le curseur, mais
+ * aucune colonne n'est reconnue comme cible. `pointerWithin` compare la
+ * position du pointeur aux rectangles des zones de dépôt ; si ces
+ * rectangles sont vides, nuls ou hors écran, il ne rend rien — et
+ * `closestCorners`, le repli, ne rend rien non plus s'il n'a aucun
+ * rectangle à comparer. Cette sonde montre les deux moitiés du calcul.
+ */
+let sonde: (ligne: string) => void = () => {}
+
+const colonneViseeTracee: CollisionDetection = (args) => {
+  const p = args.pointerCoordinates
+  const rects = [...args.droppableRects.entries()].map(
+    ([id, r]) =>
+      `${String(id)}:${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}`,
+  )
+  const resultat = colonneVisee(args)
+  sonde(
+    `pointeur=${p ? `${Math.round(p.x)},${Math.round(p.y)}` : "AUCUN"} · zones=${args.droppableRects.size} · ` +
+      `visée=${resultat[0]?.id ?? "AUCUNE"} · ${rects.join(" | ") || "aucun rectangle"}`,
+  )
+  return resultat
+}
 
 function DndTest() {
   // De fausses fiches, mais du VRAI composant de colonne et de carte —
@@ -67,12 +93,14 @@ function DndTest() {
   // différence entre ce bac à sable qui marche et l'écran qui ne marche pas.
   const saisieRef = useRef<string | null>(null)
   saisieRef.current = saisie
+  // Le drapeau synchrone, identique à celui de l'écran réel.
+  const enCoursRef = useRef(false)
 
   useEffect(() => {
     if (saisie === null) return
     function rattraper() {
       window.setTimeout(() => {
-        if (saisieRef.current === null) return
+        if (!enCoursRef.current) return
         noter("FILET → Échap")
         document.dispatchEvent(
           new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }),
@@ -102,6 +130,8 @@ function DndTest() {
   // quels événements arrivent — et lesquels n'arrivent pas.
   const [bruts, setBruts] = useState<Record<string, number>>({})
   const [dernier, setDernier] = useState("")
+  const [mesure, setMesure] = useState("—")
+  sonde = setMesure
 
   useEffect(() => {
     const compte: Record<string, number> = {}
@@ -111,7 +141,8 @@ function DndTest() {
       compte[type] = (compte[type] ?? 0) + 1
       setBruts({ ...compte })
       if (e.type !== "mousemove" && e.type !== "pointermove") {
-        setDernier(`${type} · bouton=${(pe as MouseEvent).button ?? "?"} · cible=${(e.target as HTMLElement)?.tagName ?? "?"}`)
+        const cible = e.target instanceof HTMLElement ? e.target.tagName : "?"
+        setDernier(`${type} · bouton=${(pe as MouseEvent).button} · cible=${cible}`)
       }
     }
     const types = [
@@ -139,19 +170,22 @@ function DndTest() {
       <h1>Diagnostic dnd-kit</h1>
       <DndContext
         sensors={sensors}
-        collisionDetection={colonneVisee}
+        collisionDetection={colonneViseeTracee}
         onDragStart={(e: DragStartEvent) => {
+          enCoursRef.current = true
           setSaisie(String(e.active.id))
           noter(`START ${String(e.active.id)}`)
         }}
         onDragOver={(e) => noter(`OVER ${String(e.over?.id ?? "AUCUNE")}`)}
         onDragEnd={(e: DragEndEvent) => {
+          enCoursRef.current = false
           setSaisie(null)
           const cible = e.over?.id as LeadStatus | undefined
           noter(`END active=${String(e.active.id)} over=${String(cible ?? "AUCUNE")}`)
           if (cible) setCartes((c) => ({ ...c, [String(e.active.id)]: cible }))
         }}
         onDragCancel={() => {
+          enCoursRef.current = false
           setSaisie(null)
           noter("CANCEL")
         }}
@@ -178,6 +212,9 @@ function DndTest() {
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      <h2 style={{ marginTop: 24, fontSize: 14 }}>Ce que dnd-kit mesure (pendant le glissement)</h2>
+      <p style={{ fontFamily: "monospace", fontSize: 12, wordBreak: "break-all" }}>{mesure}</p>
 
       <h2 style={{ marginTop: 24, fontSize: 14 }}>Événements bruts du navigateur</h2>
       <p style={{ fontFamily: "monospace", fontSize: 13 }}>

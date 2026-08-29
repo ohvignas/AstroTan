@@ -271,12 +271,33 @@ function LeadsPage() {
   const saisieRef = useRef<Doc<"leads"> | null>(null)
   saisieRef.current = saisie
 
+  /**
+   * Un glissement est-il encore en cours ? Un `ref`, posé et retiré DANS les
+   * gestionnaires de dnd-kit, et surtout pas l'état React.
+   *
+   * C'est le défaut que ce drapeau corrige, et il était de mon fait :
+   * `saisieRef.current` était affecté PENDANT LE RENDU, donc il ne redevient
+   * `null` qu'une fois que React a re-rendu. Or `setSaisie(null)` appelé
+   * depuis un écouteur natif de dnd-kit n'est pas vidé de façon synchrone —
+   * React planifie ce rendu. Le `setTimeout(…, 0)` du filet pouvait donc
+   * s'exécuter AVANT, lire « un glissement est en cours » alors qu'il venait
+   * de se terminer, et envoyer l'Échap d'annulation sur un dépôt réussi.
+   *
+   * Symptôme exact rapporté : la colonne se grise pendant le geste — donc
+   * `onDragOver` recevait bien sa cible — puis la carte revient à sa place
+   * au relâchement. C'est une annulation, pas une non-détection.
+   *
+   * Une course qui dépend de la vitesse de la machine : elle ne se
+   * reproduisait pas chez moi, et se reproduisait à chaque fois chez lui.
+   */
+  const enCoursRef = useRef(false)
+
   useEffect(() => {
     if (saisie === null) return
 
     function rattraper() {
       window.setTimeout(() => {
-        if (saisieRef.current === null) return
+        if (!enCoursRef.current) return
         // La touche par laquelle dnd-kit annule un glissement. La
         // synthétiser plutôt que de simplement vider notre état : sans
         // elle, le calque disparaîtrait mais dnd-kit se croirait encore en
@@ -365,6 +386,7 @@ function LeadsPage() {
   }
 
   function onDragStart(event: DragStartEvent) {
+    enCoursRef.current = true
     setSaisie(litCarte(event.active.data.current))
     setARefocaliser(null)
   }
@@ -374,6 +396,9 @@ function LeadsPage() {
   }
 
   function onDragEnd(event: DragEndEvent) {
+    // Première ligne, avant tout `setState` : c'est ce qui ferme la fenêtre
+    // pendant laquelle le filet pouvait annuler un dépôt réussi.
+    enCoursRef.current = false
     setSaisie(null)
     setSurvolee(null)
     const lead = litCarte(event.active.data.current)
@@ -416,6 +441,7 @@ function LeadsPage() {
   }
 
   function onDragCancel() {
+    enCoursRef.current = false
     setSaisie(null)
     setSurvolee(null)
   }
