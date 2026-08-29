@@ -1,0 +1,30 @@
+---
+// Le point de contact du site (`legalEntity.email`), utilisé partout où une
+// page réglementaire propose d'écrire — y compris pour exercer ses droits
+// RGPD (`confidentialite.astro`, section « Vos droits »).
+//
+// Tant que l'identité n'est pas renseignée, cette adresse est celle du
+// template (`contact@exemple.fr`) : un lien `mailto:` vers une adresse qui
+// n'existe pas est PIRE qu'une absence de lien — il laisse croire qu'un
+// message envoyé a une chance d'arriver, ce qu'aucun visiteur ne peut
+// vérifier avant d'avoir déjà écrit. D'où un texte explicite plutôt qu'un
+// lien mort. Voir `ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED` dans
+// `src/config/legal.ts`.
+export interface Props {
+  unconfigured: boolean
+  email: string
+}
+
+const { unconfigured, email } = Astro.props
+---
+
+{
+  unconfigured ? (
+    <em data-testid="legal-contact-email-unconfigured">
+      aucune adresse n'est encore configurée (voir{" "}
+      <code>apps/web/src/config/legal.ts</code>)
+    </em>
+  ) : (
+    <a href={`mailto:${email}`}>{email}</a>
+  )
+}

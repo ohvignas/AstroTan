@@ -55,27 +55,47 @@ export interface LegalHost {
  * Marqueur explicite : ce dépôt tourne encore avec l'identité d'exemple
  * d'AstroTan (raison sociale, adresse, hébergeur…), pas la vôtre.
  *
- * Pourquoi un booléen plutôt qu'un commentaire : un commentaire ne bloque
- * rien, et « lire la doc avant de déployer » est précisément la discipline
- * qui a laissé passer les mentions légales fausses que ce fichier corrige.
- * `legal.test.ts` refuse les valeurs d'exemple ci-dessous dès que ce
- * marqueur vaut `false` — donc dès que vous déclarez avoir personnalisé le
- * site. Tant qu'il reste à `true`, le test les tolère : c'est l'état normal
- * du dépôt AstroTan lui-même, qui n'est le site de personne.
+ * Deux garde-fous distincts en dépendent, et ils ne protègent pas la même
+ * chose — les confondre a produit une première version de ce garde-fou qui
+ * n'en tenait qu'un :
+ *
+ *   1. AU RENDU (le vrai verrou). Tant que ce marqueur vaut `true`,
+ *      `/mentions-legales`, `/confidentialite` et `/cookies` ne publient
+ *      JAMAIS `legalEntity` ni `legalHost` : `MentionsLegalesBody.astro`,
+ *      `ConfidentialiteBody.astro` et `CookiesBody.astro` les remplacent
+ *      par un avis explicite (`components/legal/LegalIdentityNotice.astro`,
+ *      `LegalContactEmail.astro`) et les trois pages forcent `noindex`.
+ *      C'est ce qui rend sûr de NE JAMAIS toucher ce fichier : un adoptant
+ *      qui oublie qu'il existe ne publie pas pour autant une fausse
+ *      identité — le site le lui dit, sur la page elle-même, sans qu'il
+ *      ait besoin d'ouvrir une console ou ce fichier.
+ *   2. AUX TESTS (le filet, une fois qu'on a commencé). `legal.test.ts`
+ *      refuse les valeurs d'exemple dès que ce marqueur vaut `false` — donc
+ *      dès que vous déclarez avoir personnalisé le site. Tant qu'il reste à
+ *      `true`, ce test les tolère : c'est l'état normal du dépôt AstroTan
+ *      lui-même, qui n'est le site de personne. Sans le (1), un marqueur
+ *      resté à `true` par oubli aurait laissé les VRAIES pages publier
+ *      « AstroTan » comme responsable de traitement — tests verts, CI
+ *      verte, site en ligne avec une identité fausse. C'est exactement ce
+ *      qu'un audit a trouvé dans la première version de ce fichier.
  *
  * Ce que ça veut dire pour vous, concrètement :
  *   1. Remplissez `legalEntity`, `legalHost`, et vérifiez `facts.ts` /
- *      `nav.ts` (repérés par le même garde-fou).
- *   2. Passez cette valeur à `false`.
+ *      `nav.ts` (repérés par le même garde-fou côté tests).
+ *   2. Passez cette valeur à `false` — c'est ce qui fait apparaître votre
+ *      identité sur les trois pages À LA PLACE de l'avis, et qui lève le
+ *      `noindex` forcé.
  *   3. Lancez `pnpm test` : s'il reste une valeur d'exemple oubliée, le
  *      test échoue et la nomme. Continuez jusqu'au vert.
  *
  * Ne passez PAS ce marqueur à `false` avant l'étape 1 — le mettre à `false`
  * en premier est un moyen valide de s'en servir comme liste de tâches (le
- * test rougit et énumère ce qu'il reste à faire), mais un `false` qui reste
- * accompagné de valeurs d'exemple est un échec du test, pas un contournement
- * possible : il n'existe aucune combinaison des deux qui passe au vert sans
- * que les valeurs d'exemple aient réellement disparu.
+ * test rougit et énumère ce qu'il reste à faire, ET les pages se mettent à
+ * afficher les avis « non renseigné » à la place des valeurs d'exemple),
+ * mais un `false` qui reste accompagné de valeurs d'exemple est un échec du
+ * test, pas un contournement possible : il n'existe aucune combinaison des
+ * deux qui passe au vert sans que les valeurs d'exemple aient réellement
+ * disparu.
  */
 export const ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED = true
 

@@ -1,0 +1,99 @@
+---
+// Le contenu de `/mentions-legales`, en dehors de tout appel Convex — pour
+// que `legal.test.ts` puisse le rendre et lire le HTML qui en sort sans
+// avoir à simuler un backend. La page elle-même (`../../pages/mentions-legales.astro`)
+// reste responsable de `loadPage` et de `BaseLayout` ; ce composant ne
+// reçoit que des données déjà résolues, en props.
+import type { LegalEntity, LegalHost } from "../../config/legal"
+import LegalContactEmail from "./LegalContactEmail.astro"
+import LegalIdentityNotice from "./LegalIdentityNotice.astro"
+
+export interface Props {
+  entity: LegalEntity
+  host: LegalHost
+  /** Voir `ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED` dans `../../config/legal`. */
+  unconfigured: boolean
+}
+
+const { entity, host, unconfigured } = Astro.props
+---
+
+<section class="legal container">
+  <h1>Mentions légales</h1>
+
+  <div class="prose">
+    <h2>Éditeur du site</h2>
+    <LegalIdentityNotice unconfigured={unconfigured}>
+      <p>
+        {entity.name}<br />
+        {entity.form}<br />
+        {entity.address}<br />
+        {entity.registration && (
+          <>
+            Immatriculation : {entity.registration}<br />
+          </>
+        )}
+        {entity.vat && (
+          <>
+            TVA intracommunautaire : {entity.vat}<br />
+          </>
+        )}
+        Courriel : <a href={`mailto:${entity.email}`}>{entity.email}</a>
+        {entity.phone && (
+          <>
+            <br />Téléphone : {entity.phone}
+          </>
+        )}
+      </p>
+    </LegalIdentityNotice>
+
+    <h2>Directeur de la publication</h2>
+    <LegalIdentityNotice unconfigured={unconfigured}>
+      <p>{entity.publicationDirector}</p>
+    </LegalIdentityNotice>
+
+    <h2>Hébergement</h2>
+    <LegalIdentityNotice unconfigured={unconfigured}>
+      <p>
+        {host.name}<br />
+        {host.address}<br />
+        {host.contact}
+      </p>
+    </LegalIdentityNotice>
+
+    <h2>Propriété intellectuelle</h2>
+    <p>
+      Les textes, images et éléments graphiques de ce site sont protégés.
+      Leur reproduction, même partielle, demande un accord écrit — à
+      l'exception du code source, publié sous licence libre, dont les
+      conditions sont celles de sa licence.
+    </p>
+
+    <h2>Données personnelles et cookies</h2>
+    <p>
+      Ce que ce site collecte, pourquoi, et pendant combien de temps est
+      décrit dans la <a href="/confidentialite">politique de confidentialité</a>.
+      Les traceurs déposés, et le moyen de revenir sur votre choix, sont
+      dans la <a href="/cookies">politique de cookies</a>.
+    </p>
+
+    <h2>Signaler un contenu</h2>
+    <p>
+      Un contenu vous paraît illicite ? Écrivez à{" "}
+      <LegalContactEmail unconfigured={unconfigured} email={entity.email} /> en
+      indiquant l'adresse exacte de la page. Nous répondons à chaque
+      signalement.
+    </p>
+  </div>
+</section>
+
+<style>
+  .legal {
+    padding-block: var(--space-3xl);
+    max-width: 48rem;
+  }
+
+  .legal h1 {
+    margin: 0 0 var(--space-lg);
+  }
+</style>

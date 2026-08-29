@@ -1,0 +1,48 @@
+---
+// Remplace un bloc d'identité légale (raison sociale, adresse, hébergeur,
+// « qui est responsable »…) par un avis explicite tant que le site tourne
+// encore avec l'identité d'exemple du template — voir
+// `ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED` dans `src/config/legal.ts` pour le
+// raisonnement complet (pourquoi un marqueur, pourquoi pas un échec de
+// build).
+//
+// Le vrai contenu passe par le <slot> par défaut, et il n'est JAMAIS rendu
+// quand `unconfigured` est vrai — ce n'est pas un habillage visuel posé
+// par-dessus les valeurs d'exemple : celles-ci n'atteignent jamais le HTML
+// envoyé au navigateur ni aux moteurs de recherche. C'est la moitié que le
+// garde-fou de `legal.test.ts` (marqueur + tests de durées) ne couvrait
+// pas : un marqueur resté à `true` parce que personne n'a ouvert
+// `legal.ts` laissait jusqu'ici les VRAIES pages publier « AstroTan »
+// comme responsable de traitement, tests verts, CI verte.
+export interface Props {
+  unconfigured: boolean
+}
+
+const { unconfigured } = Astro.props
+---
+
+{
+  unconfigured ? (
+    <p class="legal-identity-notice" data-testid="legal-identity-notice">
+      <strong>Identité non renseignée.</strong> Ce site tourne encore avec
+      l'identité d'exemple du template AstroTan, pas la vôtre. Configurez{" "}
+      <code>apps/web/src/config/legal.ts</code> pour publier la vôtre ici.
+    </p>
+  ) : (
+    <slot />
+  )
+}
+
+<style>
+  .legal-identity-notice {
+    margin-block: var(--space-md);
+    padding: var(--space-md);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-lg);
+    color: var(--color-text-secondary);
+  }
+
+  .legal-identity-notice code {
+    font-size: 0.875em;
+  }
+</style>

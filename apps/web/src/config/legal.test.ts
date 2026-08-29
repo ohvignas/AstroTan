@@ -1,10 +1,24 @@
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { experimental_AstroContainer as AstroContainer } from "astro/container"
 import { expect, test } from "vitest"
+import ConfidentialiteBody from "../components/legal/ConfidentialiteBody.astro"
+import CookiesBody from "../components/legal/CookiesBody.astro"
+import MentionsLegalesBody from "../components/legal/MentionsLegalesBody.astro"
 import { consentConfig } from "./consent"
 import { FIGURES } from "./facts"
-import { ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED, legalEntity, legalHost, processings, TABLE_COVERAGE } from "./legal"
+import {
+  ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED,
+  dpo,
+  legalEntity,
+  legalHost,
+  processings,
+  TABLE_COVERAGE,
+  type LegalEntity,
+  type LegalHost,
+  type Processing,
+} from "./legal"
 import { REPO_URL } from "./nav"
 
 // ---------------------------------------------------------------------
@@ -304,16 +318,44 @@ test("la preuve n'est pas purgée avant que le bandeau ne redemande son avis", (
 // Alternatives envisagées et écartées :
 //   - Un avertissement en sortie de console : personne ne les lit, et
 //     c'est très exactement le reproche fait au défaut d'origine.
-//   - Un garde-fou au build (`astro build` qui échoue) : plus fort dans
-//     l'absolu, mais hors de portée d'ici — ce fichier ne touche que
-//     `apps/web/src/config/`, pas la configuration de build. Rien
-//     n'empêche de l'ajouter en complément un jour ; ça n'annule pas
-//     l'utilité de celui-ci, qui s'exécute plus tôt (à chaque `pnpm test`,
-//     donc en CI, avant tout déploiement qui en dépend).
+//   - Un garde-fou au build (`astro build` qui échoue) : REFUSÉ, et pas
+//     seulement pour une raison de périmètre de fichiers. Ce dépôt EST le
+//     template non personnalisé — faire échouer son propre build dessus
+//     bloquerait ce dépôt lui-même et quiconque vérifie « le site se
+//     construit », en punissant l'auteur du template plutôt que l'adoptant
+//     qui publie une fausse identité. Voir plus bas ce qui a pris la place
+//     de cette idée.
 //   - Faire échouer le test dès que les valeurs d'exemple sont présentes,
 //     sans marqueur : casse la CI de ce dépôt en permanence, pour un signal
 //     qu'un adoptant ne verrait alors jamais différemment de son propre
 //     échec normal en cours de personnalisation.
+//
+// CE QUE CE BLOC NE COUVRAIT PAS, ET QU'UNE RELECTURE A TROUVÉ : le cas
+// réel n'est pas « l'adoptant retire le marqueur trop tôt » (couvert
+// ci-dessus), c'est « l'adoptant n'ouvre jamais `legal.ts` ». Marqueur resté
+// à `true`, valeurs d'exemple intactes, ce test vert, CI verte — et rien
+// ici n'empêchait `/mentions-legales` de publier « AstroTan » comme
+// responsable de traitement et `/confidentialite` de proposer
+// `mailto:contact@exemple.fr` pour exercer ses droits RGPD. Un test qui ne
+// regarde QUE `legal.ts`, `facts.ts` et `nav.ts` ne peut structurellement
+// pas voir ça : le défaut n'est pas dans ces fichiers, il est dans ce que
+// les PAGES en font.
+//
+// La correction n'est donc pas ici, mais dans les pages elles-mêmes :
+// `mentions-legales.astro`, `confidentialite.astro` et `cookies.astro`
+// délèguent maintenant leur contenu à `MentionsLegalesBody.astro`,
+// `ConfidentialiteBody.astro` et `CookiesBody.astro`
+// (`src/components/legal/`), qui remplacent `legalEntity` / `legalHost` par
+// un avis explicite — jamais un échec de build, une page qui dit
+// honnêtement « non renseigné » — tant que le marqueur vaut `true`. C'est
+// CE mécanisme qui rend sûr de ne jamais toucher `legal.ts` : ce test
+// (qui suppose qu'on a déjà ouvert ce fichier) reste un filet utile une
+// fois la personnalisation commencée, mais il n'est plus, à lui seul, ce
+// qui empêche une identité fausse d'être publiée. Les tests plus bas
+// (« publication : ») rendent le corps des trois pages et vérifient le
+// nouveau mécanisme dans les deux sens — voir leur en-tête pour le détail,
+// et `ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED` dans `legal.ts` pour le
+// raisonnement complet des deux couches ensemble.
 
 /** Recopie littérale des valeurs livrées par défaut — voir `legal.ts` et `facts.ts`. */
 const VALEURS_EXEMPLE = {
@@ -399,4 +441,236 @@ test("aucune valeur d'exemple ne peut atteindre la production sans refus explici
       "à `false` dès maintenant et utilisez cette liste comme votre feuille de route.",
     ].join("\n"),
   ).toBe(true)
+})
+
+// ---------------------------------------------------------------------
+// Publication : les trois pages ne publient jamais l'identité d'exemple
+// ---------------------------------------------------------------------
+//
+// Le bloc au-dessus (`ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED`) ne regarde que
+// `legal.ts`, `facts.ts` et `nav.ts` — pas ce que les PAGES en font avec ces
+// valeurs. Une relecture a trouvé le trou exact que ça laissait : marqueur
+// resté à `true` parce que personne n'a ouvert `legal.ts`, valeurs
+// d'exemple intactes, le test au-dessus vert, CI verte — et rien n'empêchait
+// `/mentions-legales` de publier « AstroTan » comme responsable de
+// traitement, ni `/confidentialite` de proposer `mailto:contact@exemple.fr`
+// pour exercer ses droits RGPD. Un test qui ne lit QUE de la config ne peut
+// structurellement pas voir un défaut qui vit dans ce que les pages en
+// FONT.
+//
+// La correction vit dans les pages elles-mêmes : `mentions-legales.astro`,
+// `confidentialite.astro` et `cookies.astro` délèguent maintenant leur
+// contenu à `MentionsLegalesBody`, `ConfidentialiteBody` et `CookiesBody`
+// (`src/components/legal/`), qui remplacent `legalEntity` / `legalHost` par
+// un avis explicite — jamais un échec de build — tant que le marqueur vaut
+// `true`. Explicitement écarté : faire échouer `astro build` sur ce
+// marqueur bloquerait ce dépôt LUI-MÊME, qui est le template non
+// personnalisé, et punirait l'auteur du template plutôt que l'adoptant qui
+// publierait une fausse identité.
+//
+// Les tests ci-dessous rendent le HTML réel de ces trois composants via le
+// Container API d'Astro (`astro/container`, déjà utilisé par
+// `src/pages/api/_tests/revalidate.test.ts`), avec une identité fictive
+// « adoptant » — pas celle, réelle et actuellement encore d'exemple, de ce
+// dépôt — pour que ces tests ne dépendent pas de la valeur courante de
+// `legalEntity`. Chaque section est vérifiée dans les DEUX sens : masquée
+// quand le marqueur vaut `true`, publiée quand il vaut `false`. Le second
+// sens n'est pas optionnel — un garde-fou qui masquerait tout, tout le
+// temps, indépendamment du marqueur, passerait le premier test sans rien
+// prouver. Un dernier test, en fin de bloc, rejoue la même vérification
+// avec les valeurs RÉELLEMENT exportées par `legal.ts` aujourd'hui.
+
+const IDENTITE_ADOPTANT: LegalEntity = {
+  name: "Exemple Test SARL",
+  form: "SARL au capital de 1 000 €",
+  address: "1 rue de Test, 75000 Paris",
+  email: "contact@exemple-test.fr",
+  publicationDirector: "Jane Test",
+}
+
+const HEBERGEUR_ADOPTANT: LegalHost = {
+  name: "Test Hosting SAS",
+  address: "2 rue du Cloud, 75000 Paris",
+  contact: "https://test-hosting.example",
+}
+
+const TRAITEMENT_FICTIF: Processing[] = [
+  {
+    purpose: "Traitement fictif pour le test",
+    data: "Aucune",
+    basis: "Test",
+    retention: "Test",
+    recipients: "Test",
+  },
+]
+
+/**
+ * Chaque valeur de `IDENTITE_ADOPTANT` / `HEBERGEUR_ADOPTANT`, à chercher
+ * dans le HTML rendu. Choisies distinctes du texte des avis eux-mêmes (qui
+ * nomme « AstroTan » légitimement) pour qu'un `.not.toContain` ne puisse
+ * jamais donner un faux vert par recoupement accidentel avec la prose du
+ * garde-fou.
+ */
+const MARQUEURS_IDENTITE_ADOPTANT = [
+  IDENTITE_ADOPTANT.name,
+  IDENTITE_ADOPTANT.address,
+  IDENTITE_ADOPTANT.email,
+  `mailto:${IDENTITE_ADOPTANT.email}`,
+  IDENTITE_ADOPTANT.publicationDirector,
+  HEBERGEUR_ADOPTANT.name,
+  HEBERGEUR_ADOPTANT.address,
+]
+
+test("mentions légales : masque l'identité tant que le marqueur vaut true", async () => {
+  const container = await AstroContainer.create()
+  const html = await container.renderToString(MentionsLegalesBody, {
+    props: { entity: IDENTITE_ADOPTANT, host: HEBERGEUR_ADOPTANT, unconfigured: true },
+  })
+  for (const marqueur of MARQUEURS_IDENTITE_ADOPTANT) {
+    expect(
+      html,
+      `« ${marqueur} » ne doit pas apparaître tant que l'identité n'est pas configurée`,
+    ).not.toContain(marqueur)
+  }
+  expect(html).toContain("Identité non renseignée")
+})
+
+test("mentions légales : publie la vraie identité une fois le marqueur à false", async () => {
+  const container = await AstroContainer.create()
+  const html = await container.renderToString(MentionsLegalesBody, {
+    props: { entity: IDENTITE_ADOPTANT, host: HEBERGEUR_ADOPTANT, unconfigured: false },
+  })
+  for (const marqueur of MARQUEURS_IDENTITE_ADOPTANT) {
+    expect(html, `« ${marqueur} » doit apparaître une fois l'identité configurée`).toContain(marqueur)
+  }
+  expect(html).not.toContain("Identité non renseignée")
+})
+
+test("confidentialité : masque l'identité et l'adresse d'exercice des droits RGPD tant que le marqueur vaut true", async () => {
+  const container = await AstroContainer.create()
+  const html = await container.renderToString(ConfidentialiteBody, {
+    props: {
+      entity: IDENTITE_ADOPTANT,
+      dpo: null,
+      processings: TRAITEMENT_FICTIF,
+      unconfigured: true,
+      consentVersion: "1",
+    },
+  })
+  expect(html).not.toContain(IDENTITE_ADOPTANT.name)
+  expect(html).not.toContain(IDENTITE_ADOPTANT.address)
+  expect(html).not.toContain(`mailto:${IDENTITE_ADOPTANT.email}`)
+  // Le point précis relevé en relecture : une adresse RGPD qui n'existe pas
+  // est PIRE qu'une absence d'adresse — elle laisse croire qu'une demande a
+  // une chance d'arriver. Ce test échoue si un `mailto:` apparaît n'importe
+  // où dans « Vos droits » tant que le marqueur vaut `true`.
+  expect(html).toContain("Ce site n'a pas encore renseigné d'adresse pour exercer ces droits")
+  // Le registre des traitements, lui, est réel et reste publié même non
+  // configuré : ce n'est pas une valeur d'exemple, il ne doit jamais être
+  // caché par ce mécanisme.
+  expect(html).toContain("Traitement fictif pour le test")
+})
+
+test("confidentialité : publie la vraie identité et une vraie adresse de contact une fois le marqueur à false", async () => {
+  const container = await AstroContainer.create()
+  const html = await container.renderToString(ConfidentialiteBody, {
+    props: {
+      entity: IDENTITE_ADOPTANT,
+      dpo: null,
+      processings: TRAITEMENT_FICTIF,
+      unconfigured: false,
+      consentVersion: "1",
+    },
+  })
+  expect(html).toContain(IDENTITE_ADOPTANT.name)
+  expect(html).toContain(`mailto:${IDENTITE_ADOPTANT.email}`)
+  expect(html).not.toContain("Ce site n'a pas encore renseigné d'adresse pour exercer ces droits")
+  expect(html).toContain("Traitement fictif pour le test")
+})
+
+test("cookies : masque l'adresse de contact tant que le marqueur vaut true", async () => {
+  const container = await AstroContainer.create()
+  const html = await container.renderToString(CookiesBody, {
+    props: {
+      entity: IDENTITE_ADOPTANT,
+      unconfigured: true,
+      tags: [],
+      ask: false,
+      umami: false,
+      expirationDays: 180,
+    },
+  })
+  expect(html).not.toContain(`mailto:${IDENTITE_ADOPTANT.email}`)
+  expect(html).toContain("aucune adresse n'est encore configurée")
+})
+
+test("cookies : publie une vraie adresse de contact une fois le marqueur à false", async () => {
+  const container = await AstroContainer.create()
+  const html = await container.renderToString(CookiesBody, {
+    props: {
+      entity: IDENTITE_ADOPTANT,
+      unconfigured: false,
+      tags: [],
+      ask: false,
+      umami: false,
+      expirationDays: 180,
+    },
+  })
+  expect(html).toContain(`mailto:${IDENTITE_ADOPTANT.email}`)
+})
+
+test("le dépôt réel (marqueur et identité tels que committés) ne publie aucune des valeurs d'exemple sur les trois pages", async () => {
+  // Le test qui referme la boucle : pas une identité fictive, celle
+  // RÉELLEMENT exportée par `legal.ts` aujourd'hui, avec le marqueur RÉEL.
+  // S'il devait un jour valoir `false` sans que les valeurs aient
+  // vraiment changé, c'est CE test qui le remarquerait le premier — les
+  // deux tests « masque » ci-dessus, avec leur identité fictive, ne
+  // pourraient pas.
+  const container = await AstroContainer.create()
+  const [mentionsHtml, confidentialiteHtml, cookiesHtml] = await Promise.all([
+    container.renderToString(MentionsLegalesBody, {
+      props: {
+        entity: legalEntity,
+        host: legalHost,
+        unconfigured: ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED,
+      },
+    }),
+    container.renderToString(ConfidentialiteBody, {
+      props: {
+        entity: legalEntity,
+        dpo,
+        processings,
+        unconfigured: ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED,
+        consentVersion: "1",
+      },
+    }),
+    container.renderToString(CookiesBody, {
+      props: {
+        entity: legalEntity,
+        unconfigured: ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED,
+        tags: [],
+        ask: false,
+        umami: false,
+        expirationDays: 180,
+      },
+    }),
+  ])
+
+  // Comparées littéralement, jamais via le seul mot « AstroTan » : il
+  // apparaît aussi, légitimement, dans le texte de l'avis lui-même
+  // (« … template AstroTan, pas la vôtre »).
+  const interdits = [
+    legalEntity.form,
+    legalEntity.address,
+    legalEntity.email,
+    `mailto:${legalEntity.email}`,
+    legalEntity.publicationDirector,
+    legalHost.name,
+    legalHost.address,
+  ]
+  for (const html of [mentionsHtml, confidentialiteHtml, cookiesHtml]) {
+    for (const valeur of interdits) {
+      expect(html, `« ${valeur} » ne doit apparaître sur aucune des trois pages`).not.toContain(valeur)
+    }
+  }
 })

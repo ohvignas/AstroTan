@@ -9,230 +9,43 @@
 // `PUBLIC_META_PIXEL_ID` fait apparaître Meta sur cette page le même jour
 // que dans le bandeau.
 //
+// Le balisage lui-même vit dans `CookiesBody.astro` — voir
+// `mentions-legales.astro` pour la raison du découpage (rendre le corps
+// testable sans simuler Convex).
+//
 // Sa ligne doit exister dans le dashboard avec le slug `cookies`, et être
 // publiée — sinon cette route répond 404, délibérément.
 export const prerender = false
 
 import { loadPage } from "../lib/loadPage"
 import BaseLayout from "../layouts/BaseLayout.astro"
-import { CATEGORY_LABELS, consentTags, shouldAskConsent } from "../lib/consent"
+import CookiesBody from "../components/legal/CookiesBody.astro"
+import { consentTags, shouldAskConsent } from "../lib/consent"
 import { consentConfig } from "../config/consent"
-import { legalEntity } from "../config/legal"
+import { ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED, legalEntity } from "../config/legal"
 
-const { page } = await loadPage(Astro)
+const { page: loadedPage } = await loadPage(Astro)
+
+// Voir `mentions-legales.astro` pour la raison de ce `noindex` forcé.
+const page =
+  loadedPage && ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED
+    ? { ...loadedPage, seo: { ...loadedPage.seo, noindex: true } }
+    : loadedPage
 
 const tags = consentTags(import.meta.env, consentConfig.googleConsentMode.enabled)
 const ask = shouldAskConsent(import.meta.env, consentConfig.googleConsentMode.enabled)
 const umami = Boolean(
   import.meta.env.PUBLIC_UMAMI_URL && import.meta.env.PUBLIC_UMAMI_WEBSITE_ID,
 )
-
-// Ce que chaque balise dépose, en français. La clé est l'`id` défini dans
-// `lib/consent.ts`, pour que les deux listes ne puissent pas diverger.
-const DEPOSITS: Record<string, { host: string; cookies: string; duration: string }> = {
-  "umami-recorder": {
-    host: "Notre propre serveur Umami",
-    cookies: "Aucun cookie — l'enregistrement est rattaché à une session en mémoire",
-    duration: "La visite",
-  },
-  "meta-pixel": {
-    host: "Meta Platforms Ireland Ltd.",
-    cookies: "_fbp, _fbc",
-    duration: "3 mois",
-  },
-  "google-tag": {
-    host: "Google Ireland Ltd.",
-    cookies: "_ga, _gid, _gcl_au",
-    duration: "13 mois au plus",
-  },
-}
 ---
 
 <BaseLayout page={page} fallbackTitle="Politique de cookies">
-  <section class="legal container">
-    <h1>Cookies et traceurs</h1>
-    <p class="legal__lede">
-      Ce que ce site dépose sur votre appareil. La liste ci-dessous est
-      produite à partir de la configuration réelle du site — elle ne peut pas
-      décrire autre chose que ce qui tourne.
-    </p>
-
-    <div class="prose">
-      <h2>Ce qui ne demande rien</h2>
-      <p>
-        <strong>Votre choix sur cette page.</strong> Il est gardé dans le
-        stockage local de votre navigateur, sous la clé <code>astrotan.consent</code>,
-        pendant {consentConfig.expirationDays} jours. Sans lui, la question
-        vous serait reposée à chaque page. Rien n'est envoyé nulle part.
-      </p>
-      <p>
-        <strong>Le thème clair ou sombre</strong>, si vous en changez. Même
-        stockage, même absence d'envoi.
-      </p>
-      {umami && (
-        <p>
-          <strong>La mesure d'audience.</strong> Elle tourne sur notre propre
-          serveur, ne dépose aucun cookie, ne conserve pas votre adresse IP et
-          ne vous suit pas d'un site à l'autre. Elle compte des pages vues,
-          pas des personnes — c'est ce qui la dispense de consentement.
-          L'enregistrement de session, lui, est une autre affaire : il est
-          dans le tableau ci-dessous s'il est activé.
-        </p>
-      )}
-
-      <h2>Ce qui demande votre accord</h2>
-    </div>
-
-    {
-      tags.length === 0 ? (
-        <p class="legal__empty">
-          Aucun. Ce site ne charge actuellement aucun traceur soumis à
-          consentement — c'est pourquoi aucun bandeau ne s'affiche.
-        </p>
-      ) : (
-        <div class="legal__table-wrap">
-          <table class="legal__table">
-            <thead>
-              <tr>
-                <th scope="col">Traceur</th>
-                <th scope="col">Catégorie</th>
-                <th scope="col">Destinataire</th>
-                <th scope="col">Dépose</th>
-                <th scope="col">Durée</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tags
-                .filter((tag) => DEPOSITS[tag.id])
-                .map((tag) => (
-                  <tr>
-                    <th scope="row">{tag.id}</th>
-                    <td>{CATEGORY_LABELS[tag.category].title}</td>
-                    <td>{DEPOSITS[tag.id]!.host}</td>
-                    <td>{DEPOSITS[tag.id]!.cookies}</td>
-                    <td>{DEPOSITS[tag.id]!.duration}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      )
-    }
-
-    <div class="prose">
-      <h2>Revenir sur votre choix</h2>
-      {
-        ask ? (
-          <p>
-            À tout moment, et sans justification. Refuser après avoir accepté
-            efface aussi les cookies déjà déposés par les traceurs concernés,
-            puis recharge la page — un script déjà chargé reste en mémoire
-            tant que la page vit, et prétendre le contraire serait faux.
-          </p>
-        ) : (
-          <p>
-            Il n'y a rien à régler tant qu'aucun traceur soumis à consentement
-            n'est configuré.
-          </p>
-        )
-      }
-    </div>
-
-    {
-      ask && (
-        <p>
-          <button type="button" class="legal__button" data-consent-trigger>
-            Gérer mes préférences
-          </button>
-        </p>
-      )
-    }
-
-    <div class="prose">
-      <h2>Refuser depuis votre navigateur</h2>
-      <p>
-        Chrome, Firefox, Safari et Edge permettent tous de bloquer les cookies
-        tiers pour l'ensemble des sites, indépendamment de ce bandeau. Le
-        réglage se trouve dans leurs préférences de confidentialité.
-      </p>
-
-      <h2>Une question</h2>
-      <p>
-        <a href={`mailto:${legalEntity.email}`}>{legalEntity.email}</a>. Le
-        reste de nos traitements est décrit dans la{" "}
-        <a href="/confidentialite">politique de confidentialité</a>.
-      </p>
-    </div>
-  </section>
+  <CookiesBody
+    entity={legalEntity}
+    unconfigured={ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED}
+    tags={tags}
+    ask={ask}
+    umami={umami}
+    expirationDays={consentConfig.expirationDays}
+  />
 </BaseLayout>
-
-<style>
-  .legal {
-    padding-block: var(--space-3xl);
-    max-width: 52rem;
-  }
-
-  .legal h1 {
-    margin: 0 0 var(--space-sm);
-  }
-
-  .legal__lede {
-    margin: 0 0 var(--space-xl);
-    color: var(--color-text-secondary);
-  }
-
-  .legal__empty {
-    margin-block: var(--space-lg);
-    padding: var(--space-md);
-    border: 1px dashed var(--color-border);
-    border-radius: var(--radius-lg);
-    color: var(--color-text-secondary);
-  }
-
-  .legal__table-wrap {
-    overflow-x: auto;
-    margin-block: var(--space-lg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-  }
-
-  .legal__table {
-    width: 100%;
-    min-width: 42rem;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-
-  .legal__table th,
-  .legal__table td {
-    padding: var(--space-sm) var(--space-md);
-    text-align: left;
-    vertical-align: top;
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .legal__table thead th {
-    background: var(--color-bg-secondary);
-    font-size: 0.8125rem;
-  }
-
-  .legal__table td {
-    color: var(--color-text-secondary);
-  }
-
-  .legal__table tbody tr:last-child th,
-  .legal__table tbody tr:last-child td {
-    border-bottom: 0;
-  }
-
-  .legal__button {
-    border-radius: var(--radius-md);
-    border: 1px solid var(--color-brand-primary);
-    background: var(--color-brand-primary);
-    color: #fff;
-    padding: 0.6rem 1rem;
-    font: inherit;
-    font-weight: var(--font-weight-medium);
-    cursor: pointer;
-  }
-</style>

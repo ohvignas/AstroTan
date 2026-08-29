@@ -13,194 +13,38 @@
 // défaut qu'un audit a relevé ici, l'est tout autant : une donnée stockée
 // et non déclarée rend cette page fausse au sens des articles 13 et 30.
 //
+// Le balisage lui-même vit dans `ConfidentialiteBody.astro` — voir
+// `mentions-legales.astro` pour la raison du découpage (rendre le corps
+// testable sans simuler Convex).
+//
 // Sa ligne doit exister dans le dashboard avec le slug `confidentialite`,
 // et être publiée — sinon cette route répond 404, délibérément.
 export const prerender = false
 
 import { loadPage } from "../lib/loadPage"
 import BaseLayout from "../layouts/BaseLayout.astro"
-import { dpo, legalEntity, processings } from "../config/legal"
+import ConfidentialiteBody from "../components/legal/ConfidentialiteBody.astro"
+import { ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED, dpo, legalEntity, processings } from "../config/legal"
 import { consentConfig } from "../config/consent"
 
-const { page } = await loadPage(Astro)
+const { page: loadedPage } = await loadPage(Astro)
+
+// Voir `mentions-legales.astro` pour la raison de ce `noindex` forcé : le
+// registre des traitements ci-dessous est vrai et reste publié tel quel,
+// mais tant que « qui est responsable » n'est pas renseigné, cette page ne
+// doit pas être la version que les moteurs de recherche indexent.
+const page =
+  loadedPage && ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED
+    ? { ...loadedPage, seo: { ...loadedPage.seo, noindex: true } }
+    : loadedPage
 ---
 
 <BaseLayout page={page} fallbackTitle="Politique de confidentialité">
-  <section class="legal container">
-    <h1>Politique de confidentialité</h1>
-    <p class="legal__lede">
-      Version {consentConfig.consentVersion}. Ce document dit ce que ce site
-      fait de vos données — pas ce qu'il pourrait faire un jour.
-    </p>
-
-    <div class="prose">
-      <h2>Qui est responsable</h2>
-      <p>
-        {legalEntity.name}, {legalEntity.address}. Pour toute question sur vos
-        données : <a href={`mailto:${legalEntity.email}`}>{legalEntity.email}</a>.
-        {dpo && <> Délégué à la protection des données : {dpo.name}, <a href={`mailto:${dpo.email}`}>{dpo.email}</a>.</>}
-      </p>
-
-      <h2>Ce qui est collecté, et pourquoi</h2>
-    </div>
-
-    <div class="legal__table-wrap">
-      <table class="legal__table">
-        <thead>
-          <tr>
-            <th scope="col">Finalité</th>
-            <th scope="col">Données</th>
-            <th scope="col">Base légale</th>
-            <th scope="col">Conservation</th>
-            <th scope="col">Destinataires</th>
-          </tr>
-        </thead>
-        <tbody>
-          {processings.map((processing) => (
-            <tr>
-              <th scope="row">{processing.purpose}</th>
-              <td>{processing.data}</td>
-              <td>{processing.basis}</td>
-              <td>{processing.retention}</td>
-              <td>{processing.recipients}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="prose">
-      <h2>Ce qui n'est pas fait</h2>
-      <p>
-        Aucune donnée n'est vendue, louée ou échangée. Aucun profilage
-        automatisé ne produit d'effet juridique à votre égard. Aucun compte
-        n'est créé à votre insu : l'accès à l'administration est sur
-        invitation, et l'inscription libre est désactivée.
-      </p>
-
-      <h2>Où sont les données</h2>
-      <p>
-        La base de données est hébergée par <b>Convex, Inc.</b>, société
-        américaine : tout ce que le tableau ci-dessus désigne comme stocké en
-        base — votre message y compris — est donc transféré aux États-Unis.
-        Convex encadre ce transfert par les <i>clauses contractuelles types</i>{" "}
-        de la Commission européenne (module 2 de la décision d'exécution (UE)
-        2021/914), et non par le <i>Data Privacy Framework</i> ; son contrat de
-        sous-traitance et la liste de ses propres sous-traitants sont publiés
-        sur{" "}
-        <a
-          href="https://www.convex.dev/legal/dpa"
-          target="_blank"
-          rel="noopener noreferrer">convex.dev/legal/dpa</a
-        >.
-      </p>
-      <p>
-        Convex peut aussi s'installer sur un serveur qu'on héberge soi-même,
-        auquel cas il n'y a pas de transfert du tout. Si vous reprenez ce
-        template : vérifiez lequel des deux décrit <i>votre</i> déploiement
-        avant de publier ce paragraphe. La réponse est dans votre{" "}
-        <code>PUBLIC_CONVEX_URL</code> — une adresse en{" "}
-        <code>convex.cloud</code> désigne le service américain.
-      </p>
-      <p>
-        La mesure d'audience tourne sur notre propre serveur, en Europe. Les
-        e-mails d'invitation à l'administration, lorsqu'ils sont activés,
-        passent par Resend, également aux États-Unis. Si des traceurs
-        publicitaires sont activés — et seulement si vous les avez acceptés —
-        les données correspondantes partent vers Google et Meta, y compris
-        aux États-Unis, dans le cadre du <i>Data Privacy Framework</i>.
-        C'est précisément ce que la case « Publicité » vous permet de refuser.
-      </p>
-
-      <h2>Vos droits</h2>
-      <p>
-        Vous pouvez demander l'accès à vos données, leur rectification, leur
-        effacement, la limitation de leur traitement, leur portabilité, et
-        vous opposer à un traitement fondé sur l'intérêt légitime. Écrivez à{" "}
-        <a href={`mailto:${legalEntity.email}`}>{legalEntity.email}</a> — nous
-        répondons sous un mois.
-      </p>
-      <p>
-        Une réponse qui ne vous satisfait pas se conteste auprès de la CNIL,
-        3 place de Fontenoy, 75007 Paris, <a
-          href="https://www.cnil.fr/fr/plaintes"
-          target="_blank"
-          rel="noopener noreferrer">cnil.fr/fr/plaintes</a
-        >.
-      </p>
-
-      <h2>Cookies</h2>
-      <p>
-        Le détail des traceurs, et le moyen de revenir sur votre choix à tout
-        moment, sont dans la <a href="/cookies">politique de cookies</a>.
-      </p>
-
-      <h2>Modifications</h2>
-      <p>
-        Une modification de fond change le numéro de version en tête de cette
-        page et vous est redemandée par le bandeau : un accord donné à une
-        version antérieure ne portait pas sur ce qui a été ajouté depuis.
-      </p>
-    </div>
-  </section>
+  <ConfidentialiteBody
+    entity={legalEntity}
+    dpo={dpo}
+    processings={processings}
+    unconfigured={ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED}
+    consentVersion={consentConfig.consentVersion}
+  />
 </BaseLayout>
-
-<style>
-  .legal {
-    padding-block: var(--space-3xl);
-    max-width: 52rem;
-  }
-
-  .legal h1 {
-    margin: 0 0 var(--space-sm);
-  }
-
-  .legal__lede {
-    margin: 0 0 var(--space-xl);
-    color: var(--color-text-secondary);
-  }
-
-  /* La largeur d'un tableau à cinq colonnes ne rentre pas sur un téléphone.
-     Le faire défiler dans son propre cadre garde la PAGE sans défilement
-     horizontal — le défaut le plus courant, et le plus vite reproché. */
-  .legal__table-wrap {
-    overflow-x: auto;
-    margin-block: var(--space-lg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-  }
-
-  .legal__table {
-    width: 100%;
-    min-width: 44rem;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-
-  .legal__table th,
-  .legal__table td {
-    padding: var(--space-sm) var(--space-md);
-    text-align: left;
-    vertical-align: top;
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .legal__table thead th {
-    background: var(--color-bg-secondary);
-    font-size: 0.8125rem;
-  }
-
-  .legal__table tbody th {
-    font-weight: var(--font-weight-medium);
-    color: var(--color-text-primary);
-  }
-
-  .legal__table td {
-    color: var(--color-text-secondary);
-  }
-
-  .legal__table tbody tr:last-child th,
-  .legal__table tbody tr:last-child td {
-    border-bottom: 0;
-  }
-</style>
