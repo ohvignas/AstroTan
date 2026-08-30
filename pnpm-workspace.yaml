@@ -1,6 +1,10 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # `services/*` — les processus qui ne servent ni page ni API, et qui ne
+  # sont donc ni une `app` ni une bibliothèque partagée : `routeur` suit le
+  # domaine déclaré et réécrit la configuration dynamique de Traefik.
+  - "services/*"
 # GHSA-qq9h-g4jm-xgf3 (better-auth, high) : pré-détournement de compte via
 # magic-link ou email-OTP combiné à une inscription email+mot de passe
 # ouverte. Ce dépôt n'active ni magic-link ni email-OTP (convex/auth.ts ne
