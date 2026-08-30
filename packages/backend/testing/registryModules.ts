@@ -54,3 +54,31 @@ import "../convex/secretCheck"
 // pour `resendDomain.declarer`, une action qui appelle un tiers avec la clé
 // du déploiement.
 import "../convex/resendDomain"
+// Les quatre lignes suivantes comblent un trou trouvé à la relecture
+// finale du lot : `leads.ts`, `consent.ts` et `analytics.ts` déclarent
+// chacun leurs entrées dans `MUTATION_REGISTRY` (avec les bons rôles —
+// vérifié en lisant le code, pas seulement le registre) depuis qu'ils
+// existent, mais aucun module de production ne les importe et ce barrel
+// ne les chargeait pas non plus. `_registry.test.ts` (qui découvre les
+// modules par `import.meta.glob`) les voyait très bien et passait — la
+// matrice de `lib/authz.test.ts`, qui lit `MUTATION_REGISTRY` à la
+// COLLECTE, n'exerçait aucune de leurs neuf entrées. Un `requireRole`
+// retiré de `leads.remove` ou de `dns.checkSite` serait passé inaperçu.
+//
+// `dns.ts` est un cas à part et non un oubli : il a été laissé dehors
+// intentionnellement lors d'un premier passage, parce que la matrice
+// APPELLE vraiment `checkSite`/`checkEmail` pour les rôles autorisés, et
+// ces actions font un vrai `fetch` vers le résolveur DNS de Cloudflare
+// (`lib/doh.ts`) — un domaine `exemple.invalid` (RFC 2606, voir le
+// commentaire au-dessus du `MUTATION_REGISTRY.push` dans `dns.ts`) évite
+// d'interroger un vrai domaine mais ne coupe pas la requête sortante
+// elle-même. Renoncer au test aurait laissé le module le plus récent sans
+// filet ; la correction retenue est plutôt de boucher `fetch` pour la
+// durée de la matrice, exactement comme `dns.test.ts` le fait déjà pour
+// ses propres tests (`vi.stubGlobal("fetch", …)`) — voir la matrice dans
+// `lib/authz.test.ts` pour le stub. `dns` s'importe donc ici comme les
+// trois autres, sans exception.
+import "../convex/leads"
+import "../convex/consent"
+import "../convex/analytics"
+import "../convex/dns"

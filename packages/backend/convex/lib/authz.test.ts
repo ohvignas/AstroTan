@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test"
-import { afterEach, beforeEach, describe, expect, test } from "vitest"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import schema from "../schema"
 import { MUTATION_REGISTRY } from "../_registry"
 // Import statique : garantit que `MUTATION_REGISTRY` est peuplé avant que
@@ -58,6 +58,12 @@ beforeEach(() => {
   // `leads.submit` du registre refuse tout quand ce secret manque — même
   // raison que la ligne au-dessus : la matrice appelle la vraie mutation.
   process.env.LEAD_SUBMIT_SECRET = "test-lead-secret-please-do-not-use-in-prod-x"
+  // `consent.record` (registre, ajouté au barrel dans le même correctif)
+  // suit la même construction que `leads.submit` : `assertSharedSecret`
+  // lève `NOT_CONFIGURED` — pas `FORBIDDEN` — quand ce secret est absent,
+  // ce qui ferait échouer le cas "autorisé" de la matrice pour une raison
+  // qui n'a rien à voir avec le rôle appelant.
+  process.env.CONSENT_LOG_SECRET = "test-consent-secret-please-do-not-use-in-prod-x"
 })
 
 afterEach(() => {
@@ -267,6 +273,41 @@ test("requireRole rejette un appel non authentifié avec le code UNAUTHENTICATED
 // profil existe déjà si la mutation en a besoin), session ouverte,
 // identité Convex qui pointe vers cette session.
 describe("matrice de permissions", () => {
+  // `dns.checkSite`/`checkEmail` (registre, ajouté au barrel dans le même
+  // correctif que `leads`/`consent`/`analytics`) font un vrai `fetch` vers
+  // le résolveur DNS de Cloudflare dès que le rôle appelant est autorisé —
+  // `dns.ts` documente pourquoi un domaine `exemple.invalid` (RFC 2606) ne
+  // suffit pas à lui seul à empêcher la requête sortante elle-même. Bouché
+  // ici pour toute la durée de la matrice, avec la même construction que
+  // chaque test de `dns.test.ts` (`vi.stubGlobal("fetch", …)`) : une
+  // réponse NXDOMAIN pour n'importe quel nom/type. La matrice ne vérifie
+  // que l'autorisation, jamais le contenu d'un verdict DNS — NXDOMAIN
+  // laisse `checkSite`/`checkEmail` se résoudre sans erreur pour un rôle
+  // autorisé, ce qui est tout ce qu'il faut ici.
+  //
+  // Aucune autre entrée du registre n'appelle `fetch` pendant cette
+  // matrice : `leads.submit` planifie son webhook et sa notification par
+  // `ctx.scheduler.runAfter`, que `convex-test` n'exécute pas tant que
+  // `t.finishInProgressScheduledFunctions()` n'est pas appelé (jamais ici) ;
+  // `analytics.forPath`/`siteSummary`/`ssoLink` renvoient `not-configured`
+  // sans réseau tant qu'aucune variable `UMAMI_API_*` n'est posée, ce que ce
+  // fichier ne fait pas. Le stub ci-dessous est donc sans effet sur eux.
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ Status: 3 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   test("chaque entrée du registre est bien formée", () => {
     for (const e of MUTATION_REGISTRY) {
       expect(typeof e.name).toBe("string")
