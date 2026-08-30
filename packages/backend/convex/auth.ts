@@ -32,6 +32,7 @@ import {
   buildSignInEmailRateLimitKey,
   buildSignInRateLimitKey,
 } from "./lib/signInRateLimit"
+import { deriverOrigines } from "./lib/origines"
 
 // La synchronisation `profiles` <-> utilisateur Better Auth passe par les
 // `triggers` du composant, pas par une mutation `ensure` appelée à la
@@ -663,7 +664,64 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   const convexCtx = ctx
   return {
     secret: process.env.BETTER_AUTH_SECRET,
+    // `baseURL` RESTE sur l'environnement, et ce n'est pas un oubli : la
+    // lire en base est IMPOSSIBLE ici, pour deux raisons vérifiées plutôt
+    // que supposées.
+    //
+    // 1. Le contrat du composant est SYNCHRONE. `CreateAuth` vaut
+    //    `(ctx: GenericCtx<DataModel>) => A` (@convex-dev/better-auth
+    //    0.12.5, `dist/utils/index.d.ts`), et `http.ts` passe `createAuth`
+    //    tel quel à `authComponent.registerRoutes`. Rendre une promesse
+    //    d'ici ne rend pas `baseURL` tardif : ça casse le montage des
+    //    routes, donc l'authentification entière.
+    // 2. `betterAuth/auth.ts` appelle `createAuth({} as any)` AU
+    //    CHARGEMENT DU MODULE, avec un contexte factice et dans
+    //    l'environnement isolé du composant. Il n'y a là ni base à lire ni
+    //    `await` où le faire.
+    //
+    // Ce que `baseURL` décide vraiment, c'est `trustedOrigins` : better
+    // -auth y pousse `new URL(baseURL).origin`
+    // (`dist/context/helpers.mjs`). Faux, il fait REFUSER des requêtes
+    // légitimes — le dashboard entier devient inutilisable, et personne ne
+    // peut plus revenir en arrière sans SSH. C'est exactement le
+    // verrouillage que ce lot existe pour éviter.
+    //
+    // D'où la forme retenue : `baseURL` figée par l'environnement, et
+    // `trustedOrigins` ci-dessous qui AJOUTE l'origine du domaine déclaré.
+    // L'ancienne origine reste donc acceptée pendant que la nouvelle le
+    // devient — le même « on ajoute, on vérifie, puis seulement on
+    // retire » que le service `routeur` applique au routage.
     baseURL: process.env.SITE_URL,
+    // Fonction, et asynchrone : better-auth accepte
+    // `(request?) => Awaitable<(string|null|undefined)[]>` et la rappelle
+    // À CHAQUE REQUÊTE (`dist/auth/base.mjs`, `getTrustedOrigins(...,
+    // request)`), pas une fois au démarrage. C'est le seul point de ces
+    // options où une lecture de la base est possible — et c'est ce qui
+    // fait suivre l'origine du dashboard quand le domaine change.
+    //
+    // Elle ne LÈVE JAMAIS, et c'est la propriété la plus importante de ce
+    // bloc : une exception ici casserait toute requête d'authentification,
+    // y compris celles qui n'ont rien à voir avec le domaine. Une base
+    // injoignable rend donc `[]` — la liste retombe sur `baseURL` seule,
+    // c'est-à-dire exactement le comportement d'avant ce changement.
+    //
+    // `deriverOrigines(..., {})` avec un environnement VIDE, exprès :
+    // l'origine de `SITE_URL` est déjà dans la liste par `baseURL`, et la
+    // repousser ici n'ajouterait qu'un doublon. Ce que cette fonction
+    // apporte, c'est l'origine du domaine déclaré, et rien d'autre.
+    trustedOrigins: async () => {
+      if (!("runQuery" in convexCtx)) return []
+      try {
+        const { admin } = deriverOrigines(
+          await convexCtx.runQuery(internal.settings.domaineDeclare, {}),
+          {},
+        )
+        return admin === null ? [] : [admin]
+      } catch (err) {
+        console.error("TRUSTED_ORIGINS_UNREAD:", err)
+        return []
+      }
+    },
     database: authComponent.adapter(ctx), // requis — omis, rien ne persiste
     emailAndPassword: {
       enabled: true,
@@ -733,7 +791,27 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
           )
           return
         }
-        const siteUrl = process.env.SITE_URL
+        // L'origine suit le domaine déclaré depuis `/settings/domaine`
+        // quand il est posé, et retombe sur `SITE_URL` sinon
+        // (`lib/origines.ts`). Ce lien-ci est le SEUL chemin de
+        // récupération du dépôt : pointé vers l'ancien domaine, il fait
+        // exactement ce qu'un lien de réinitialisation ne doit jamais
+        // faire — arriver, et ne mener nulle part.
+        //
+        // La lecture est enveloppée : `sendResetPassword` ne lève jamais
+        // (voir juste au-dessus — toute erreur remontée d'ici deviendrait
+        // un 500 réservé aux adresses qui ONT un compte, l'oracle exact
+        // que tout ce chemin évite). Une base injoignable retombe donc sur
+        // l'environnement plutôt que de faire échouer l'envoi.
+        let declare: string | null = null
+        if ("runQuery" in convexCtx) {
+          try {
+            declare = await convexCtx.runQuery(internal.settings.domaineDeclare, {})
+          } catch (err) {
+            console.error("PASSWORD_RESET_DOMAIN_UNREAD:", err)
+          }
+        }
+        const { admin: siteUrl } = deriverOrigines(declare)
         if (!siteUrl) {
           console.error(
             "PASSWORD_RESET_UNAVAILABLE: SITE_URL absent, l'email de réinitialisation n'est pas parti",

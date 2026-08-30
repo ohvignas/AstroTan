@@ -1657,3 +1657,83 @@ test("l'invitation part même quand la ligne dit `actif: false`", async () => {
 
   expect(envois).toHaveLength(1)
 })
+
+// --- L'origine du lien suit le domaine déclaré ---------------------------
+//
+// `SITE_URL` était une variable d'environnement Convex, donc figée jusqu'au
+// prochain `npx convex env set`. Le jour où l'adoptant change de domaine
+// depuis `/settings/domaine`, l'invitation continuait de pointer vers
+// l'ancien — une panne invisible tant que personne ne clique, et celui qui
+// clique est justement quelqu'un qui essaie d'entrer.
+//
+// Ces deux tests DISCRIMINENT, et c'est la seule chose qui compte ici :
+// `SITE_URL` vaut `http://localhost:3001` dans les deux (posé par le
+// `beforeEach` de ce fichier), et le domaine déclaré vaut `exemple.fr`
+// dans le premier seulement. Le lien attendu diffère donc entre les deux
+// pour la seule raison qu'on veut prouver. Retirer la dérivation fait
+// échouer le premier ; la coder en dur fait échouer le second.
+
+test("un domaine déclaré change l'origine du lien d'invitation", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  await t.run(async (ctx) => {
+    const ligne = await ctx.db.query("settings").first()
+    if (ligne) await ctx.db.patch(ligne._id, { declaredDomain: "exemple.fr" })
+    else await ctx.db.insert("settings", { siteName: "Acme", declaredDomain: "exemple.fr" })
+  })
+
+  const envois = capturerLesEnvois()
+  await asAdmin.mutation(api.invitations.create, {
+    email: "nouveau@exemple.fr",
+    role: "editor",
+  })
+  await runScheduledFunctions(t)
+
+  expect(envois).toHaveLength(1)
+  expect(envois[0]!.text).toContain("https://admin.exemple.fr/accept-invite?token=")
+  // Et surtout : l'origine de l'environnement n'apparaît NULLE PART. Un
+  // email qui porterait les deux liens serait aussi cassé qu'un email qui
+  // ne porte que le mauvais.
+  expect(envois[0]!.text).not.toContain(ORIGIN)
+  expect(envois[0]!.html).toContain("https://admin.exemple.fr/accept-invite?token=")
+})
+
+test("sans domaine déclaré, l'origine du lien reste celle de l'environnement", async () => {
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+
+  const envois = capturerLesEnvois()
+  await asAdmin.mutation(api.invitations.create, {
+    email: "nouveau@exemple.fr",
+    role: "editor",
+  })
+  await runScheduledFunctions(t)
+
+  expect(envois).toHaveLength(1)
+  expect(envois[0]!.text).toContain(`${ORIGIN}/accept-invite?token=`)
+})
+
+test("un domaine invalide en base ne sort jamais dans un lien d'invitation", async () => {
+  // `settings.update` refuse cette valeur, mais elle n'est pas le seul
+  // chemin d'écriture de cette table. Le repli est ce qui garde le lien
+  // utilisable au lieu de l'envoyer vers un hôte inexistant.
+  const t = makeTestConvex()
+  const asAdmin = await seedAdmin(t)
+  await t.run(async (ctx) => {
+    await ctx.db.insert("settings", {
+      siteName: "Acme",
+      declaredDomain: "exemple.fr/../pirate.fr",
+    })
+  })
+
+  const envois = capturerLesEnvois()
+  await asAdmin.mutation(api.invitations.create, {
+    email: "nouveau@exemple.fr",
+    role: "editor",
+  })
+  await runScheduledFunctions(t)
+
+  expect(envois).toHaveLength(1)
+  expect(envois[0]!.text).toContain(`${ORIGIN}/accept-invite?token=`)
+  expect(envois[0]!.text).not.toContain("pirate.fr")
+})

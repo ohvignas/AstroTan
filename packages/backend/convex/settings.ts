@@ -14,6 +14,7 @@ import { readUmamiConfig } from "./lib/umamiToken"
 import { refuseWebhookUrl } from "./lib/webhookUrl"
 import { estAdresseValide } from "./lib/expediteur"
 import { normaliserHote } from "./lib/hoteNu"
+import { deriverOrigines } from "./lib/origines"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // Site-wide settings: one row, or none.
@@ -222,6 +223,7 @@ export const environment = query({
   handler: async (ctx) => {
     await requireRole(ctx, ["owner", "admin", "editor"])
     const env = process.env
+    const origines = deriverOrigines((await ctx.db.query("settings").first())?.declaredDomain, env)
     return {
       // Aucune fonction de ce dépôt ne lit encore cette clé : l'écran le
       // dit, plutôt que d'afficher une pastille verte pour une
@@ -245,10 +247,16 @@ export const environment = query({
         shared: Boolean(env.UMAMI_API_SHARE_ID),
       },
       consentLog: { configured: Boolean(env.CONSENT_LOG_SECRET) },
+      // Les deux origines EFFECTIVES, pas les variables d'environnement.
+      // L'écran dit ce qui part réellement dans les emails : depuis que le
+      // domaine déclaré l'emporte sur l'environnement (`lib/origines.ts`),
+      // afficher `SITE_URL` telle quelle annoncerait une origine que plus
+      // aucun lien n'utilise — le pire des deux affichages, parce qu'il a
+      // l'air juste.
       /** L'origine du dashboard — celle des liens envoyés par email. */
-      adminUrl: env.SITE_URL ?? null,
+      adminUrl: origines.admin,
       /** L'origine du site public — celle qu'on appelle pour invalider son cache. */
-      webUrl: env.WEB_SITE_URL ?? null,
+      webUrl: origines.web,
     }
   },
 })
@@ -272,6 +280,23 @@ export const homePageSlug = query({
 export const expediteur = internalQuery({
   args: {},
   handler: async (ctx) => (await ctx.db.query("settings").first())?.emailFrom ?? null,
+})
+
+/**
+ * Le domaine déclaré, BRUT, pour les actions qui composent un lien.
+ *
+ * `internalQuery` et non un champ de plus dans `get` : cette query-là est
+ * publique et non authentifiée (invariant 1), et le domaine déclaré n'y
+ * entre pas — même règle que `routing.hotes`, qui le lit derrière un
+ * secret partagé.
+ *
+ * Rendue brute, non validée : la validation vit dans `deriverOrigines`
+ * (`lib/origines.ts`), un seul endroit, et c'est lui qui décide du repli.
+ * La normaliser ici ferait deux règles pour une seule question.
+ */
+export const domaineDeclare = internalQuery({
+  args: {},
+  handler: async (ctx) => (await ctx.db.query("settings").first())?.declaredDomain ?? null,
 })
 
 function assertLength(value: string, max: number, field: string): void {

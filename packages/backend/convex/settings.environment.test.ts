@@ -127,6 +127,25 @@ test("environment rend les origines du site et du dashboard, qui ne sont pas des
   expect(state.webUrl).toBe("https://exemple.fr")
 })
 
+test("environment annonce l'origine DÉRIVÉE du domaine déclaré, pas la variable", async () => {
+  // L'écran dit ce qui part réellement dans les emails. Depuis que le
+  // domaine déclaré l'emporte sur l'environnement (`lib/origines.ts`),
+  // afficher `SITE_URL` telle quelle annoncerait une origine que plus
+  // aucun lien n'utilise — le pire des deux affichages, parce qu'il a
+  // l'air juste. Les deux variables restent posées ici, exprès : c'est
+  // ce qui rend le test discriminant.
+  const { identity, t } = await seedActor("owner")
+  process.env.SITE_URL = "https://admin.ancien.fr"
+  process.env.WEB_SITE_URL = "https://ancien.fr"
+  await t.run(async (ctx) => {
+    await ctx.db.insert("settings", { siteName: "Acme", declaredDomain: "nouveau.fr" })
+  })
+
+  const state = await identity.query(api.settings.environment, {})
+  expect(state.adminUrl).toBe("https://admin.nouveau.fr")
+  expect(state.webUrl).toBe("https://nouveau.fr")
+})
+
 test("un editor peut lire l'état sans pouvoir rien changer", async () => {
   const { identity } = await seedActor("editor")
   // Des booléens et deux origines publiques : rien qu'un editor ne puisse

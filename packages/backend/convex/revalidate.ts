@@ -2,6 +2,7 @@ import { v } from "convex/values"
 import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
+import { deriverOrigines } from "./lib/origines"
 
 // Design spec §6.2 — the outbox drain loop. Convex does not retry
 // scheduled actions, so `publishPage` (`convex/pages.ts`) writes a
@@ -259,7 +260,14 @@ export const markAttemptFailed = internalMutation({
 export const drain = internalAction({
   args: {},
   handler: async (ctx) => {
-    const siteUrl = process.env.WEB_SITE_URL
+    // L'origine du site public suit le domaine déclaré depuis
+    // `/settings/domaine` quand il est posé (`lib/origines.ts`), et
+    // retombe sur `WEB_SITE_URL` sinon. Pointée vers l'ancien domaine,
+    // cette invalidation part sur un hôte que Traefik ne route plus : les
+    // pages du NOUVEAU domaine garderaient leur cache indéfiniment.
+    const { web: siteUrl } = deriverOrigines(
+      await ctx.runQuery(internal.settings.domaineDeclare, {}),
+    )
     if (!siteUrl) throw new Error("WEB_SITE_URL is not set on this Convex deployment")
     const secret = getRevalidateSecret()
 

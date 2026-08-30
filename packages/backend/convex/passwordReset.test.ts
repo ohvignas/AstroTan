@@ -636,3 +636,71 @@ test("la limite de débit ne dit pas si l'adresse a un compte", async () => {
   // un oracle.
   expect(connue).toEqual(inconnue)
 })
+
+// --- L'origine du lien suit le domaine déclaré ---------------------------
+//
+// `SITE_URL` était une variable d'environnement Convex, donc figée jusqu'au
+// prochain `npx convex env set`. Le lien de réinitialisation est le SEUL
+// chemin de retour d'un déploiement où l'inscription est fermée : pointé
+// vers l'ancien domaine après un changement, il arrive et ne mène nulle
+// part — et celui qui clique est précisément quelqu'un qui n'a plus d'autre
+// moyen d'entrer.
+//
+// Conduit par HTTP comme le reste du fichier, donc à travers `hooks.before`,
+// le routeur, `sendResetPassword` et l'ordonnanceur — pas en appelant la
+// dérivation à la main.
+//
+// Les deux tests DISCRIMINENT : `SITE_URL` vaut `ORIGIN` dans les deux (le
+// `beforeEach` la pose), et seul le premier déclare un domaine. Retirer la
+// dérivation fait échouer le premier ; la coder en dur fait échouer le
+// second.
+
+test("un domaine déclaré change l'origine du lien de réinitialisation", async () => {
+  const t = makeTestConvex()
+  await seedActeur(t, "actif@exemple.fr")
+  await t.run(async (ctx) => {
+    await ctx.db.insert("settings", { siteName: "Acme", declaredDomain: "exemple.fr" })
+  })
+
+  const envois = capturerLesEnvois()
+  expect((await demanderReinitialisation(t, "actif@exemple.fr")).status).toBe(200)
+  await runScheduledFunctions(t)
+
+  expect(envois).toHaveLength(1)
+  expect(envois[0]!.text).toContain("https://admin.exemple.fr/reset-password?token=")
+  expect(envois[0]!.text).not.toContain(ORIGIN)
+})
+
+test("sans domaine déclaré, l'origine du lien de réinitialisation reste celle de l'environnement", async () => {
+  const t = makeTestConvex()
+  await seedActeur(t, "actif@exemple.fr")
+
+  const envois = capturerLesEnvois()
+  expect((await demanderReinitialisation(t, "actif@exemple.fr")).status).toBe(200)
+  await runScheduledFunctions(t)
+
+  expect(envois).toHaveLength(1)
+  expect(envois[0]!.text).toContain(`${ORIGIN}/reset-password?token=`)
+})
+
+test("l'origine de l'environnement reste acceptée alors qu'un autre domaine est déclaré", async () => {
+  // C'est le verrouillage que ce lot existe pour éviter, et il se joue
+  // dans `trustedOrigins` : better-auth REFUSE une requête dont l'origine
+  // n'y figure pas. Si le domaine déclaré REMPLAÇAIT l'origine de
+  // `baseURL` au lieu de s'y ajouter, le dashboard encore servi sur
+  // l'ancien domaine — le temps que le DNS se propage et que le
+  // certificat s'émette — cesserait d'accepter la moindre requête, et
+  // plus personne ne pourrait revenir en arrière sans SSH.
+  //
+  // `demanderReinitialisation` envoie `origin: ORIGIN`, donc un 200 ici
+  // prouve que l'ancienne origine passe encore. Un 403 serait le
+  // verrouillage.
+  const t = makeTestConvex()
+  await seedActeur(t, "actif@exemple.fr")
+  await t.run(async (ctx) => {
+    await ctx.db.insert("settings", { siteName: "Acme", declaredDomain: "exemple.fr" })
+  })
+  capturerLesEnvois()
+
+  expect((await demanderReinitialisation(t, "actif@exemple.fr")).status).toBe(200)
+})

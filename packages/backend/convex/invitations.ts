@@ -13,6 +13,7 @@ import { makeResend } from "./lib/resend"
 import { resoudreExpediteur } from "./lib/expediteur"
 import { rendreHtml, rendreTexte, singleLine } from "./lib/gabarit"
 import { journaliser } from "./lib/auditEvent"
+import { deriverOrigines } from "./lib/origines"
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -254,7 +255,16 @@ export const sendInvitationEmail = internalAction({
     // already isolates this failure from `create` (see there), so a
     // failed job — visible in the dashboard, the same as any other
     // scheduled-function failure — is the right signal here, not silence.
-    const siteUrl = process.env.SITE_URL
+    //
+    // L'origine ne vient plus DIRECTEMENT de l'environnement : le domaine
+    // déclaré depuis `/settings/domaine` l'emporte quand il est posé
+    // (`lib/origines.ts`), et l'environnement reste le repli — le cas
+    // normal d'un déploiement neuf. Sans cela, changer de domaine laissait
+    // les invitations pointer vers l'ancien : une panne invisible tant que
+    // personne ne clique, et celui qui clique essaie justement d'entrer.
+    const { admin: siteUrl } = deriverOrigines(
+      await ctx.runQuery(internal.settings.domaineDeclare, {}),
+    )
     if (!siteUrl) throw new Error("SITE_URL is not set on this Convex deployment")
     const link = `${siteUrl}/accept-invite?token=${encodeURIComponent(claimed.token)}`
 

@@ -336,13 +336,23 @@ export default defineSchema({
     emailFrom: v.optional(v.string()),
 
     /**
-     * Le domaine que l'opérateur DIT avoir déployé.
+     * Le domaine que l'opérateur déclare depuis `/settings/domaine`.
      *
-     * Ne pilote rien : le domaine réel est figé au build
-     * (`security.allowedDomains`) et posé au runtime par Traefik. Cette
-     * valeur sert à deux choses, et à deux choses seulement — vérifier le
-     * DNS, et détecter que l'opérateur croit avoir déployé autre chose que
-     * ce que l'image contient.
+     * Il ne se contentait de rien piloter : le domaine réel était figé au
+     * build et dans les labels Docker, et ce champ ne servait qu'à
+     * vérifier le DNS et à signaler une divergence. Il PILOTE désormais,
+     * et c'est tout l'objet du lot « changer de domaine depuis le
+     * dashboard » : le routage Traefik (`convex/routing.ts` → le service
+     * `routeur`) et les deux origines des liens envoyés par email
+     * (`convex/lib/origines.ts`) en dérivent.
+     *
+     * Conséquence directe, et la raison pour laquelle chaque lecteur le
+     * revalide : cette chaîne devient une règle de routage et une origine
+     * d'URL. `settings.update` la valide à l'écriture, mais ce n'est pas
+     * le seul chemin qui écrit ici (migration, `npx convex run`,
+     * restauration de sauvegarde). `normaliserHote` repasse dessus à
+     * chaque lecture, et une valeur douteuse REPLIE sur l'environnement
+     * au lieu de sortir.
      */
     declaredDomain: v.optional(v.string()),
   }),

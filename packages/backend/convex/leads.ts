@@ -21,6 +21,7 @@ import { lireSecret } from "./secrets"
 import { listUsersWithRole } from "./users"
 import { assertSharedSecret } from "./lib/sharedSecret"
 import { journaliser, nomDeLAuteur } from "./lib/auditEvent"
+import { deriverOrigines } from "./lib/origines"
 import { RateLimiter } from "@convex-dev/rate-limiter"
 import { components } from "./_generated/api"
 import {
@@ -690,11 +691,11 @@ export const staffRecipients = internalQuery({
  * - **Aucun compte owner ni admin** : il n'y a personne à prévenir. C'est
  *   l'état normal d'un déploiement neuf, où un visiteur peut écrire avant
  *   que le premier compte n'existe.
- * - **`SITE_URL` absente** : là, on lève. La variable est censée être
- *   posée (c'est déjà ce que fait `sendInvitationEmail`), et un lien vers
- *   le dashboard ne se devine pas depuis Convex — un job en échec, visible
- *   dans le tableau de bord, vaut mieux qu'un email amputé de ce qui
- *   permet d'agir. Le lead, lui, est déjà en base.
+ * - **Aucune origine connue** : là, on lève. Ni domaine déclaré ni
+ *   `SITE_URL` posée, et un lien vers le dashboard ne se devine pas depuis
+ *   Convex — un job en échec, visible dans le tableau de bord, vaut mieux
+ *   qu'un email amputé de ce qui permet d'agir. Le lead, lui, est déjà en
+ *   base.
  */
 export const notifyStaff = internalAction({
   args: {
@@ -726,7 +727,14 @@ export const notifyStaff = internalAction({
     const recipients = await ctx.runQuery(internal.leads.staffRecipients, {})
     if (recipients.length === 0) return null
 
-    const siteUrl = process.env.SITE_URL
+    // Le domaine déclaré depuis `/settings/domaine` l'emporte sur
+    // l'environnement quand il est posé (`lib/origines.ts`) ; sinon
+    // l'environnement vaut, comme avant. Le lien de cette notification est
+    // le seul chemin d'action qu'elle propose : pointé vers l'ancien
+    // domaine, l'email arrive et ne mène nulle part.
+    const { admin: siteUrl } = deriverOrigines(
+      await ctx.runQuery(internal.settings.domaineDeclare, {}),
+    )
     if (!siteUrl) throw new Error("SITE_URL is not set on this Convex deployment")
     const link = `${siteUrl}/leads`
 

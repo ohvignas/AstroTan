@@ -35,6 +35,7 @@ import type * as lib_hoteNu from "../lib/hoteNu.js";
 import type * as lib_leadCascade from "../lib/leadCascade.js";
 import type * as lib_leadRateLimit from "../lib/leadRateLimit.js";
 import type * as lib_originFingerprint from "../lib/originFingerprint.js";
+import type * as lib_origines from "../lib/origines.js";
 import type * as lib_ownerGuard from "../lib/ownerGuard.js";
 import type * as lib_passwordResetRateLimit from "../lib/passwordResetRateLimit.js";
 import type * as lib_passwordStrength from "../lib/passwordStrength.js";
@@ -103,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   "lib/leadCascade": typeof lib_leadCascade;
   "lib/leadRateLimit": typeof lib_leadRateLimit;
   "lib/originFingerprint": typeof lib_originFingerprint;
+  "lib/origines": typeof lib_origines;
   "lib/ownerGuard": typeof lib_ownerGuard;
   "lib/passwordResetRateLimit": typeof lib_passwordResetRateLimit;
   "lib/passwordStrength": typeof lib_passwordStrength;
