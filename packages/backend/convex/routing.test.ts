@@ -1,6 +1,9 @@
-import { afterEach, beforeEach, expect, test } from "vitest"
+import type { TestConvex } from "convex-test"
+import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { api } from "./_generated/api"
-import { makeTestConvex } from "../testing/betterAuthFixture"
+import schema from "./schema"
+import { FENETRE_SORTANTE_MS } from "./lib/hotesSortants"
+import { ORIGIN, identityFor, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
 
 const SECRET = "r".repeat(64)
 
@@ -18,9 +21,45 @@ beforeEach(() => {
   oublierLesVariables()
   process.env.ROUTING_SECRET = SECRET
   process.env.WEB_DOMAIN = "exemple.fr"
+  // Les tests de bout en bout ci-dessous passent par `settings.update`,
+  // donc par une session Better Auth.
+  process.env.BETTER_AUTH_SECRET = "test-secret-please-do-not-use-in-prod-x"
+  process.env.SITE_URL = ORIGIN
 })
 
-afterEach(oublierLesVariables)
+afterEach(() => {
+  oublierLesVariables()
+  vi.useRealTimers()
+})
+
+/**
+ * Un owner, pour les tests qui passent par la vraie mutation.
+ *
+ * Les hôtes sortants n'existent que si quelqu'un les a NOTÉS, et le seul
+ * qui les note est `settings.update`. Poser `previousDomains` à la main
+ * dans la base testerait la lecture en supposant l'écriture — c'est-à-dire
+ * en supposant précisément la moitié qui peut manquer.
+ */
+async function seedOwner(t: TestConvex<typeof schema>) {
+  const email = `routing-owner-${Date.now()}-${Math.random()}@example.com`
+  const password = "correct horse battery staple routing"
+  const user = await seedUser(t, { email, password, name: "Owner", role: "owner" })
+  await signIn(t, email, password)
+  return identityFor(t, user.id)
+}
+
+/**
+ * Seul `Date` est simulé.
+ *
+ * Simuler les minuteries entières ferait pendre `convex-test`, qui attend
+ * de vraies promesses ; et c'est bien `Date.now()` — lu par
+ * `settings.update` à l'écriture et par `routing.hotes` à la lecture — qui
+ * décide de la fenêtre.
+ */
+function figerLHorloge(instant: number) {
+  vi.useFakeTimers({ toFake: ["Date"] })
+  vi.setSystemTime(instant)
+}
 
 test("sans secret valide, la query refuse — et ne dit pas pourquoi", async () => {
   const t = makeTestConvex()
@@ -48,6 +87,9 @@ test("sans domaine déclaré, les hôtes viennent de l'environnement", async () 
     web: "exemple.fr",
     admin: "admin.exemple.fr",
     umami: null,
+    // Aucun changement de domaine n'a eu lieu : rien à reconnaître en plus
+    // des hôtes courants.
+    sortants: [],
   })
 })
 
@@ -87,6 +129,9 @@ test("un domaine déclaré l'emporte, et entraîne ses sous-domaines", async () 
     web: "nouveau.fr",
     admin: "admin.nouveau.fr",
     umami: "stats.nouveau.fr",
+    // La ligne a été posée directement, sans passer par `settings.update` :
+    // personne n'a noté de sortant, et la query n'en invente pas.
+    sortants: [],
   })
 })
 
@@ -101,6 +146,7 @@ test("un domaine déclaré n'invente pas un umami absent", async () => {
     web: "nouveau.fr",
     admin: "admin.nouveau.fr",
     umami: null,
+    sortants: [],
   })
 })
 
@@ -147,4 +193,205 @@ test("sans domaine nulle part, la query refuse plutôt que de rendre un hôte vi
   delete process.env.WEB_DOMAIN
   const t = makeTestConvex()
   await expect(t.query(api.routing.hotes, { secret: SECRET })).rejects.toThrow()
+})
+
+// ---------------------------------------------------------------------
+// Les hôtes SORTANTS.
+//
+// Tout ce lot applique le même principe : ajouter, vérifier, puis
+// seulement retirer. Le service `routeur` garde les anciens hôtes routés
+// jusqu'à ce que le nouveau serve un certificat valide ; `trustedOrigins`
+// ajoute la nouvelle origine sans retirer l'ancienne. Cette query ne
+// rendait, elle, que les hôtes COURANTS — si bien qu'un visiteur arrivant
+// encore sur l'ancien domaine n'était pas reconnu, que son
+// `x-forwarded-for` n'était pas honoré, et qu'il partageait un seau de
+// limitation de débit avec tous les autres retardataires.
+//
+// Les deux tests qui comptent sont les deux premiers : dans la fenêtre,
+// l'ancien hôte est rendu ; passé la fenêtre, il ne l'est plus.
+// ---------------------------------------------------------------------
+
+const DEBUT = 1_800_000_000_000
+const HEURE = 60 * 60 * 1000
+
+test("PENDANT la fenêtre, l'ancien domaine est encore rendu comme sortant", async () => {
+  // L'horloge est figée AVANT la session : sauter cinq mois en avant la
+  // ferait expirer, et le test échouerait sur `UNAUTHENTICATED` plutôt que
+  // sur ce qu'il garde.
+  figerLHorloge(DEBUT)
+  const t = makeTestConvex()
+  const owner = await seedOwner(t)
+
+  await owner.mutation(api.settings.update, { declaredDomain: "nouveau.fr" })
+
+  // Vingt-quatre heures plus tard : le DNS peut ne pas être propagé
+  // partout, et le routeur garde `exemple.fr` routé tant que `nouveau.fr`
+  // ne sert pas un certificat valide.
+  figerLHorloge(DEBUT + 24 * HEURE)
+  expect(await t.query(api.routing.hotes, { secret: SECRET })).toEqual({
+    web: "nouveau.fr",
+    admin: "admin.nouveau.fr",
+    umami: null,
+    sortants: ["exemple.fr"],
+  })
+})
+
+test("PASSÉ la fenêtre, il ne l'est plus", async () => {
+  // La moitié qui BORNE. Un hôte reconnu pour toujours le resterait après
+  // que l'adoptant a laissé le domaine expirer et que quelqu'un d'autre
+  // l'a racheté.
+  // L'horloge est figée AVANT la session : sauter cinq mois en avant la
+  // ferait expirer, et le test échouerait sur `UNAUTHENTICATED` plutôt que
+  // sur ce qu'il garde.
+  figerLHorloge(DEBUT)
+  const t = makeTestConvex()
+  const owner = await seedOwner(t)
+
+  await owner.mutation(api.settings.update, { declaredDomain: "nouveau.fr" })
+
+  figerLHorloge(DEBUT + FENETRE_SORTANTE_MS + 1)
+  expect(await t.query(api.routing.hotes, { secret: SECRET })).toMatchObject({
+    web: "nouveau.fr",
+    sortants: [],
+  })
+})
+
+test("la PREMIÈRE déclaration compte comme un changement", async () => {
+  // Le cas de l'adoptant qui arrive, et celui que « ne noter que les
+  // `declaredDomain` remplacés » laisserait sans filet : avant sa première
+  // déclaration, l'hôte en vigueur est `WEB_DOMAIN`, et c'est lui qui
+  // reçoit encore tout le trafic pendant la bascule.
+  // L'horloge est figée AVANT la session : sauter cinq mois en avant la
+  // ferait expirer, et le test échouerait sur `UNAUTHENTICATED` plutôt que
+  // sur ce qu'il garde.
+  figerLHorloge(DEBUT)
+  const t = makeTestConvex()
+  const owner = await seedOwner(t)
+
+  await owner.mutation(api.settings.update, { declaredDomain: "nouveau.fr" })
+
+  expect(await t.query(api.routing.hotes, { secret: SECRET })).toMatchObject({
+    sortants: ["exemple.fr"],
+  })
+})
+
+test("effacer le domaine déclaré est le mouvement inverse, et se note pareil", async () => {
+  // L'horloge est figée AVANT la session : sauter cinq mois en avant la
+  // ferait expirer, et le test échouerait sur `UNAUTHENTICATED` plutôt que
+  // sur ce qu'il garde.
+  figerLHorloge(DEBUT)
+  const t = makeTestConvex()
+  const owner = await seedOwner(t)
+
+  await owner.mutation(api.settings.update, { declaredDomain: "nouveau.fr" })
+  figerLHorloge(DEBUT + HEURE)
+  await owner.mutation(api.settings.update, { declaredDomain: null })
+
+  // On repart sur `WEB_DOMAIN`, et c'est `nouveau.fr` qui devient sortant.
+  expect(await t.query(api.routing.hotes, { secret: SECRET })).toMatchObject({
+    web: "exemple.fr",
+    sortants: ["nouveau.fr"],
+  })
+})
+
+test("deux changements de suite gardent la CHAÎNE, pas seulement le précédent", async () => {
+  // Le cas qui tranche la question : l'adoptant se trompe de domaine et
+  // corrige trois minutes plus tard. Ne garder que le précédent oublierait
+  // `exemple.fr` — celui qui reçoit encore tout le trafic, et le seul que
+  // le routeur route encore, puisque `faute.fr` n'a jamais obtenu de
+  // certificat.
+  // L'horloge est figée AVANT la session : sauter cinq mois en avant la
+  // ferait expirer, et le test échouerait sur `UNAUTHENTICATED` plutôt que
+  // sur ce qu'il garde.
+  figerLHorloge(DEBUT)
+  const t = makeTestConvex()
+  const owner = await seedOwner(t)
+
+  await owner.mutation(api.settings.update, { declaredDomain: "faute.fr" })
+  figerLHorloge(DEBUT + 3 * 60_000)
+  await owner.mutation(api.settings.update, { declaredDomain: "correct.fr" })
+
+  expect(await t.query(api.routing.hotes, { secret: SECRET })).toMatchObject({
+    web: "correct.fr",
+    sortants: ["faute.fr", "exemple.fr"],
+  })
+})
+
+test("un domaine repris ne figure pas à la fois en courant et en sortant", async () => {
+  // L'horloge est figée AVANT la session : sauter cinq mois en avant la
+  // ferait expirer, et le test échouerait sur `UNAUTHENTICATED` plutôt que
+  // sur ce qu'il garde.
+  figerLHorloge(DEBUT)
+  const t = makeTestConvex()
+  const owner = await seedOwner(t)
+
+  await owner.mutation(api.settings.update, { declaredDomain: "nouveau.fr" })
+  figerLHorloge(DEBUT + HEURE)
+  await owner.mutation(api.settings.update, { declaredDomain: "exemple.fr" })
+
+  expect(await t.query(api.routing.hotes, { secret: SECRET })).toMatchObject({
+    web: "exemple.fr",
+    sortants: ["nouveau.fr"],
+  })
+})
+
+test("un enregistrement qui ne touche pas au domaine ne note rien", async () => {
+  // `/settings/identite` sauvegarde automatiquement à chaque pause de
+  // frappe. Si chacune de ces écritures touchait aux sortants, la moindre
+  // correction du nom du site en ferait expirer un en avance.
+  // L'horloge est figée AVANT la session : sauter cinq mois en avant la
+  // ferait expirer, et le test échouerait sur `UNAUTHENTICATED` plutôt que
+  // sur ce qu'il garde.
+  figerLHorloge(DEBUT)
+  const t = makeTestConvex()
+  const owner = await seedOwner(t)
+
+  await owner.mutation(api.settings.update, { declaredDomain: "nouveau.fr" })
+  figerLHorloge(DEBUT + HEURE)
+  await owner.mutation(api.settings.update, { siteName: "Un autre nom" })
+
+  const ligne = await t.run((ctx) => ctx.db.query("settings").first())
+  expect(ligne?.previousDomains).toEqual([{ host: "exemple.fr", since: DEBUT }])
+})
+
+test("un sortant douteux posé DIRECTEMENT en base ne sort jamais", async () => {
+  // `settings.update` valide à l'écriture, mais ce n'est pas le seul
+  // chemin (migration, `npx convex run`, restauration de sauvegarde), et
+  // cette liste décide quel `Host` fait honorer un `x-forwarded-for`.
+  const t = makeTestConvex()
+  await t.run((ctx) =>
+    ctx.db.insert("settings", {
+      siteName: "Mon site",
+      declaredDomain: "nouveau.fr",
+      previousDomains: [
+        { host: "exemple.fr`) || Host(`pirate.fr", since: Date.now() },
+        { host: "bon.fr", since: Date.now() },
+      ],
+    }),
+  )
+  expect(await t.query(api.routing.hotes, { secret: SECRET })).toMatchObject({
+    sortants: ["bon.fr"],
+  })
+})
+
+test("un sortant n'est PAS une origine de confiance pour l'authentification", async () => {
+  // La borne de tout ce mécanisme : un hôte sortant est reconnu pour
+  // honorer `x-forwarded-for`, rien de plus. `settings.environment` rend
+  // les deux origines EFFECTIVES — celles des liens d'invitation et de
+  // réinitialisation de mot de passe —, et elles ne suivent que le domaine
+  // COURANT. Un sortant qui s'y glisserait ferait pointer un lien d'accès
+  // vers un domaine qu'on est en train de quitter.
+  // L'horloge est figée AVANT la session : sauter cinq mois en avant la
+  // ferait expirer, et le test échouerait sur `UNAUTHENTICATED` plutôt que
+  // sur ce qu'il garde.
+  figerLHorloge(DEBUT)
+  const t = makeTestConvex()
+  const owner = await seedOwner(t)
+
+  await owner.mutation(api.settings.update, { declaredDomain: "nouveau.fr" })
+
+  const env = await owner.query(api.settings.environment, {})
+  expect(env.adminUrl).toBe("https://admin.nouveau.fr")
+  expect(env.webUrl).toBe("https://nouveau.fr")
+  expect(JSON.stringify(env)).not.toContain("exemple.fr")
 })

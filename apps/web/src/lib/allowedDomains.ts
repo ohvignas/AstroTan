@@ -153,6 +153,18 @@ function premierMaillon(entete: string | null): string | null {
  * conteneur. Reconnaître `admin.<domaine>` ici ne servirait rien et
  * élargirait la surface pour une commodité imaginaire.
  *
+ * **Et les hôtes SORTANTS avec lui.** Pendant une bascule de domaine, le
+ * service `routeur` garde l'ancien hôte routé jusqu'à ce que le nouveau
+ * serve un certificat valide, et des visiteurs continuent d'arriver dessus
+ * tant que leur résolveur garde l'ancien enregistrement. Ne reconnaître
+ * que l'hôte courant les faisait tous retomber sur l'adresse de la socket
+ * — donc dans un seul seau de limitation de débit — pendant exactement la
+ * fenêtre où l'adoptant est le plus fragile. `routing.hotes` les rend
+ * (`convex/lib/hotesSortants.ts` porte la fenêtre de 72 h et sa
+ * justification), et ils ne servent QU'À ÇA : honorer `x-forwarded-for`.
+ * Rien ici n'accorde un accès — Traefik décide seul de ce qu'il route — ni
+ * ne fabrique une origine de confiance.
+ *
  * `ROUTING_SECRET` est un `process.env` du conteneur (invariant 7), la
  * même valeur que celle posée sur le déploiement Convex. Son absence n'est
  * pas rattrapée ici : le compose la déclare en `${ROUTING_SECRET:?…}`, si
@@ -163,7 +175,7 @@ async function lireHotesDepuisConvex(): Promise<string[]> {
   const secret = process.env.ROUTING_SECRET
   if (!secret) throw new Error("ROUTING_SECRET absente — voir docker/.env.example")
   const hotes = await getConvexClient().query(api.routing.hotes, { secret })
-  return [hotes.web]
+  return [hotes.web, ...hotes.sortants]
 }
 
 /**

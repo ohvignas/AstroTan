@@ -70,6 +70,13 @@ async function semerLaLigneEntiere(t: TestConvex<typeof appSchema>) {
       leadWebhookLastAt: 1_700_000_000_000,
       emailFrom: "AstroTan <bonjour@astrotan.exemple>",
       declaredDomain: "sentinelle.exemple.fr",
+      // Les hôtes web sortants. Ils n'entrent dans AUCUNE des deux
+      // projections — ni la publique ni celle du dashboard : ce champ ne
+      // sert qu'à `routing.hotes`, gardée par le secret partagé, et rien
+      // dans les écrans ne l'affiche. Semé ici pour que les deux tests
+      // d'égalité ci-dessous le voient réellement (Convex retire les
+      // champs `undefined` avant l'envoi).
+      previousDomains: [{ host: "sentinelle-sortant.exemple.fr", since: 1_700_000_000_000 }],
     }
     await ctx.db.insert("settings", ligne)
     return ligne

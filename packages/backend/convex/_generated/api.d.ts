@@ -32,6 +32,7 @@ import type * as lib_doh from "../lib/doh.js";
 import type * as lib_expediteur from "../lib/expediteur.js";
 import type * as lib_gabarit from "../lib/gabarit.js";
 import type * as lib_hoteNu from "../lib/hoteNu.js";
+import type * as lib_hotesSortants from "../lib/hotesSortants.js";
 import type * as lib_leadCascade from "../lib/leadCascade.js";
 import type * as lib_leadRateLimit from "../lib/leadRateLimit.js";
 import type * as lib_originFingerprint from "../lib/originFingerprint.js";
@@ -102,6 +103,7 @@ declare const fullApi: ApiFromModules<{
   "lib/expediteur": typeof lib_expediteur;
   "lib/gabarit": typeof lib_gabarit;
   "lib/hoteNu": typeof lib_hoteNu;
+  "lib/hotesSortants": typeof lib_hotesSortants;
   "lib/leadCascade": typeof lib_leadCascade;
   "lib/leadRateLimit": typeof lib_leadRateLimit;
   "lib/originFingerprint": typeof lib_originFingerprint;

@@ -14,6 +14,7 @@ import { readUmamiConfig } from "./lib/umamiToken"
 import { refuseWebhookUrl } from "./lib/webhookUrl"
 import { estAdresseValide } from "./lib/expediteur"
 import { normaliserHote } from "./lib/hoteNu"
+import { noterSortie, type HoteSortant } from "./lib/hotesSortants"
 import { deriverOrigines } from "./lib/origines"
 import { MUTATION_REGISTRY } from "./_registry"
 
@@ -508,15 +509,71 @@ export const update = mutation({
         detail: champsModifies.join(", "),
       })
     }
+    // L'hôte web qui vient de cesser d'être le courant — noté à part du
+    // patch, et volontairement APRÈS `champsModifies`.
+    //
+    // Hors du journal parce que ce n'est pas un geste : personne ne
+    // « modifie les hôtes sortants », c'est une conséquence mécanique du
+    // changement de domaine, que la ligne `declaredDomain` du journal dit
+    // déjà. L'y ajouter ferait dire au journal deux fois la même chose,
+    // dont une fois avec un nom que l'opérateur ne reconnaîtrait pas.
+    const patchSortants = sortantsApresChangement(existing, declaredDomain)
+
     if (existing) {
-      await ctx.db.patch(existing._id, patch)
+      await ctx.db.patch(existing._id, { ...patch, ...patchSortants })
       return existing._id
     }
     // Upsert rather than requiring a separate "initialise" step: a freshly
     // cloned template has no row, and the first save should just work.
-    return ctx.db.insert("settings", { siteName: "Mon site", ...patch })
+    return ctx.db.insert("settings", { siteName: "Mon site", ...patch, ...patchSortants })
   },
 })
+
+/**
+ * Ce que devient `previousDomains` quand le domaine déclaré change.
+ *
+ * Le raisonnement, la fenêtre et le plafond vivent dans
+ * `lib/hotesSortants.ts` ; ici il n'y a que la question « quel hôte web
+ * était en vigueur juste avant, et est-il différent de celui d'après ».
+ *
+ * Deux points décident de la forme :
+ *
+ * 1. **On note l'hôte EFFECTIF, pas le domaine déclaré.** La première
+ *    déclaration d'un domaine sur un déploiement neuf est un changement
+ *    comme un autre : l'hôte en vigueur était `WEB_DOMAIN`, et c'est lui
+ *    qui reçoit encore le trafic pendant la bascule. Ne noter que les
+ *    `declaredDomain` remplacés laisserait précisément le premier
+ *    changement — celui de l'adoptant qui arrive — sans filet. Effacer le
+ *    domaine déclaré (`null`) est le mouvement inverse et se note de la
+ *    même façon.
+ *
+ * 2. **C'est un « au mieux », et il faut le savoir.** `settings.update`
+ *    n'est pas le seul chemin d'écriture de `declaredDomain` (migration,
+ *    `npx convex run`, restauration de sauvegarde) : un domaine changé
+ *    par l'un d'eux ne laisse aucun sortant derrière lui. L'échec reste
+ *    FERMÉ — pas de sortant veut dire « on n'honore pas l'en-tête »,
+ *    c'est-à-dire le comportement d'avant ce champ.
+ *
+ * `WEB_DOMAIN` est lu ici en toutes lettres : `scripts/check-env-wiring.mjs`
+ * ne reconnaît qu'un accès littéral, et un accès calculé lui échapperait.
+ */
+function sortantsApresChangement(
+  existing: { declaredDomain?: string; previousDomains?: HoteSortant[] } | null,
+  declaredDomain: string | null | undefined,
+): { previousDomains?: HoteSortant[] } {
+  // `undefined` veut dire « le formulaire ne parlait pas du domaine ». Rien
+  // n'a bougé, donc rien à noter — et surtout pas d'élagage opportuniste :
+  // une sauvegarde automatique de `/settings/identite` ne doit pas faire
+  // expirer un sortant en avance.
+  if (declaredDomain === undefined) return {}
+
+  const repli = normaliserHote(process.env.WEB_DOMAIN ?? "")
+  const avant = normaliserHote(existing?.declaredDomain ?? "") ?? repli
+  const apres = declaredDomain === null ? repli : normaliserHote(declaredDomain)
+  if (avant === null || avant === apres) return {}
+
+  return { previousDomains: noterSortie(existing?.previousDomains, avant, Date.now()) }
+}
 
 /**
  * Choose which page answers at `/`.

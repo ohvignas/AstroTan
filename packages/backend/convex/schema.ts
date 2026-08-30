@@ -355,6 +355,39 @@ export default defineSchema({
      * au lieu de sortir.
      */
     declaredDomain: v.optional(v.string()),
+
+    /**
+     * Les hôtes web SORTANTS : ceux d'avant le dernier changement de
+     * domaine, avec la date à laquelle chacun a cessé d'être le courant.
+     *
+     * Tout ce lot applique le même principe — ajouter, vérifier, puis
+     * seulement retirer. Le service `routeur` garde les anciens hôtes
+     * routés jusqu'à ce que le nouveau serve un certificat valide ;
+     * `trustedOrigins` ajoute la nouvelle origine sans retirer l'ancienne.
+     * Ce champ est ce qui manquait pour que la validation d'hôte du site
+     * public l'applique aussi : sans lui, un visiteur qui arrive encore
+     * sur l'ancien domaine — DNS pas propagé, résolveur qui garde son
+     * cache — n'est pas reconnu, son `x-forwarded-for` n'est pas honoré,
+     * et il partage un seau de limitation de débit avec tous les autres
+     * retardataires.
+     *
+     * `settings.update` les note, `routing.hotes` les filtre à la lecture,
+     * et les deux passent par `lib/hotesSortants.ts` — c'est là que vivent
+     * la fenêtre (72 h) et le plafond (5 entrées), avec leur justification.
+     *
+     * **Ce qu'un hôte sortant autorise, et rien de plus** : honorer
+     * `x-forwarded-for`. Pas un accès, pas une origine de confiance pour
+     * l'authentification (`lib/origines.ts` ne lit jamais ce champ), pas
+     * une origine de lien d'email.
+     *
+     * `v.optional()` (invariant 6) : le champ se déploie seul, et son
+     * absence est l'état de tout déploiement qui n'a jamais changé de
+     * domaine. Il n'entre dans AUCUNE projection de `settings.ts` —
+     * `settings.publicProjection.test.ts` le vérifie.
+     */
+    previousDomains: v.optional(
+      v.array(v.object({ host: v.string(), since: v.number() })),
+    ),
   }),
 
   // Les jetons saisis depuis l'écran des réglages — CHIFFRÉS, jamais en

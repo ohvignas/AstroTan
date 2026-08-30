@@ -8,6 +8,24 @@ import {
   purgerHotesConnus,
 } from "./allowedDomains"
 
+/**
+ * Le client Convex que `lireHotesDepuisConvex` obtient, remplaçable par un
+ * test.
+ *
+ * Presque tous les tests de ce fichier injectent leur lecteur et ne
+ * touchent donc jamais à ce client. Deux ne le font pas, exprès : ils
+ * exercent le CHEMIN DE PRODUCTION, celui qui décide de ce qui entre
+ * réellement dans la liste des hôtes reconnus.
+ */
+let clientFactice: { query: (...args: unknown[]) => Promise<unknown> } | null = null
+
+vi.mock("./convexClient", () => ({
+  getConvexClient: () => {
+    if (clientFactice === null) throw new Error("aucun client factice posé pour ce test")
+    return clientFactice
+  },
+}))
+
 // ---------------------------------------------------------------------
 // Ce que ce fichier prouve, et pourquoi il ne suffisait pas de le lire.
 //
@@ -78,6 +96,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+  clientFactice = null
+  delete process.env.ROUTING_SECRET
 })
 
 describe("adresseDuVisiteur", () => {
@@ -241,5 +261,91 @@ describe("l'hypothèse sur laquelle tout repose", () => {
       { skipBody: true, allowedDomains: [] },
     )
     expect(Reflect.get(requete, Symbol.for("astro.clientAddress"))).toBe(SOCKET)
+  })
+})
+
+// ---------------------------------------------------------------------
+// Les hôtes SORTANTS — ceux d'avant le dernier changement de domaine.
+//
+// Le reste de ce lot applique partout le même principe : ajouter,
+// vérifier, puis seulement retirer. Le service `routeur` garde les anciens
+// hôtes ROUTÉS jusqu'à ce que le nouveau serve un certificat valide, et
+// `trustedOrigins` ajoute la nouvelle origine sans retirer l'ancienne.
+// Cette reconnaissance-ci ne l'appliquait qu'à moitié : elle ne connaissait
+// que l'hôte COURANT, si bien qu'un visiteur arrivant encore sur l'ancien
+// domaine — DNS pas propagé, résolveur qui garde son cache — retombait sur
+// l'adresse de la socket et partageait un seau avec tous les autres
+// retardataires.
+//
+// La fenêtre (72 h) et le plafond (5 entrées) vivent côté Convex, dans
+// `packages/backend/convex/lib/hotesSortants.ts`, avec leur justification.
+// Ce qui se joue ICI est plus étroit et se dit en une phrase : un hôte
+// sortant se reconnaît EXACTEMENT comme un hôte courant, ni plus ni moins.
+// ---------------------------------------------------------------------
+
+describe("les hôtes sortants", () => {
+  test("un visiteur arrivant sur l'ANCIEN domaine voit son `x-forwarded-for` honoré", async () => {
+    // Le test qui compte. `nouveau.fr` est le domaine courant, `ancien.fr`
+    // est encore dans sa fenêtre : les deux se reconnaissent.
+    const lire = lecteur("nouveau.fr", "ancien.fr")
+    expect(await adresseDuVisiteur(derriere("ancien.fr"), lire)).toBe(VISITEUR)
+    expect(await adresseDuVisiteur(derriere("nouveau.fr"), lire)).toBe(VISITEUR)
+  })
+
+  test("passé la fenêtre, il ne l'est plus", async () => {
+    // Son pendant, et la moitié qui BORNE : quand Convex cesse de rendre
+    // `ancien.fr`, ce module cesse de le reconnaître — sans redéploiement,
+    // à l'expiration du cache.
+    const lire = vi
+      .fn<() => Promise<string[]>>()
+      .mockResolvedValueOnce(["nouveau.fr", "ancien.fr"])
+      .mockResolvedValue(["nouveau.fr"])
+
+    expect(await adresseDuVisiteur(derriere("ancien.fr"), lire)).toBe(VISITEUR)
+    vi.advanceTimersByTime(TTL_SUCCES_MS + 1)
+    expect(await adresseDuVisiteur(derriere("ancien.fr"), lire)).toBe(SOCKET)
+  })
+
+  test("un hôte qui n'a JAMAIS été le nôtre n'est pas reconnu pour autant", async () => {
+    // La reconnaissance s'élargit aux sortants, à rien d'autre : le reste
+    // d'Internet reste inconnu.
+    const lire = lecteur("nouveau.fr", "ancien.fr")
+    expect(await adresseDuVisiteur(derriere("pirate.fr"), lire)).toBe(SOCKET)
+  })
+})
+
+describe("ce que la lecture réelle demande à Convex", () => {
+  // Les tests ci-dessus injectent le lecteur, donc aucun ne traverse le
+  // vrai `lireHotesDepuisConvex` — c'est-à-dire l'endroit précis où les
+  // sortants entrent dans la liste. Sans ce test, retirer `...sortants` de
+  // cette ligne laisserait toute la suite au vert.
+  test("la liste retenue est l'hôte courant PLUS les sortants", async () => {
+    const query = vi.fn(async () => ({
+      web: "nouveau.fr",
+      admin: "admin.nouveau.fr",
+      umami: null,
+      sortants: ["ancien.fr"],
+    }))
+    clientFactice = { query }
+    process.env.ROUTING_SECRET = "secret-de-test"
+
+    // Sans lecteur injecté : c'est le chemin de production.
+    expect(await adresseDuVisiteur(derriere("ancien.fr"))).toBe(VISITEUR)
+    expect(query).toHaveBeenCalledTimes(1)
+  })
+
+  test("l'hôte `admin` n'est PAS retenu", async () => {
+    // Traefik ne route pas cet hôte vers ce conteneur ; le reconnaître
+    // élargirait la surface pour une commodité imaginaire.
+    clientFactice = {
+      query: vi.fn(async () => ({
+        web: "nouveau.fr",
+        admin: "admin.nouveau.fr",
+        umami: null,
+        sortants: [],
+      })),
+    }
+    process.env.ROUTING_SECRET = "secret-de-test"
+    expect(await adresseDuVisiteur(derriere("admin.nouveau.fr"))).toBe(SOCKET)
   })
 })
