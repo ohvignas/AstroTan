@@ -6,13 +6,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build": "esbuild index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/routeur.mjs"
   },
   "dependencies": {
     "@astrotan/backend": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.20.1",
+    "esbuild": "0.28.2",
     "eslint": "9.39.5",
     "typescript": "6.0.3",
     "typescript-eslint": "8.68.0",
