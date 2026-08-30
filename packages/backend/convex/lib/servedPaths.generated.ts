@@ -7,6 +7,7 @@
 /** Paths a route file serves exactly. */
 export const SERVED_PATHS: readonly string[] = [
   "/",
+  "/404",
   "/blog",
   "/confidentialite",
   "/contact",

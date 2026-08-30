@@ -1,0 +1,107 @@
+---
+// La page servie pour toute URL que ce site ne connaît pas.
+//
+// Elle n'existait pas, et l'absence ne se voyait pas : Astro a son propre
+// 404 de secours — `<html lang="en">`, « 404: Not Found », fond sombre —
+// qui s'affiche à la place, sans en-tête, sans pied de page, sans rien du
+// site. Il ne casse rien chez l'auteur du template, qui ne se trompe pas
+// d'URL sur son propre site ; il atteint en revanche CHAQUE adoptant, sur
+// chaque lien mort, chaque ancienne URL, chaque faute de frappe.
+//
+// ---------------------------------------------------------------------
+// Pourquoi cette page NE recopie PAS les quatre lignes des autres
+// ---------------------------------------------------------------------
+// Toutes les autres pages commencent par `loadPage(Astro)`, qui va chercher
+// la ligne `pages` du slug et pose le statut 404 quand elle n'est pas
+// publiée. Ici il n'y a rien à aller chercher : `/404` n'est pas une page
+// de l'administration, personne ne la publie ni ne la dépublie, et créer sa
+// ligne pour qu'elle s'affiche voudrait dire qu'un adoptant peut mettre son
+// propre 404 en brouillon — c'est-à-dire retomber sur celui d'Astro sans
+// comprendre pourquoi. C'est la seule page du site dont l'existence ne se
+// décide pas depuis le dashboard, et c'est délibéré.
+//
+// `page={null}` est donc la valeur juste, pas un repli : `PageHead` sait
+// déjà rendre ce cas — c'est très exactement ce à quoi sert son
+// `fallbackTitle` —, et le corps 404 des autres pages est ce même corps.
+//
+// `prerender = false` pour deux raisons, dont la seconde est silencieuse :
+//   1. le middleware ne s'exécute que sur les routes rendues à la demande.
+//      Prérendue, cette page serait servie comme un fichier statique : sans
+//      nonce, donc avec une CSP qui bloque le script de thème, et sans
+//      aucun des en-têtes de sécurité que `middleware.ts` pose ;
+//   2. `PageHead` interroge Convex (nom du site, favicon, image de
+//      partage). Prérendue, elle figerait ces valeurs AU BUILD — dans une
+//      CI qui n'a pas de déploiement Convex à interroger, et pour toujours.
+//
+// Le statut : 404, écrit ici. Une page d'erreur qui répond 200 se fait
+// indexer — le moteur croit avoir trouvé une page, et c'est elle qui
+// remonte à la place de celle qui a disparu.
+//
+// Pas de `noindex` : le statut 404 EST le signal, et il est plus fort
+// qu'une balise. Les corps 404 des autres pages (`contact.astro`,
+// `tarifs.astro`, `index.astro`) ne posent rien d'autre non plus — un
+// `<meta robots>` de plus ne dirait pas autre chose, et le faire ici
+// seulement laisserait croire que les autres ont un trou.
+export const prerender = false
+
+import BaseLayout from "../layouts/BaseLayout.astro"
+import { mainNav } from "../config/nav"
+
+Astro.response.status = 404
+---
+
+<BaseLayout page={null} fallbackTitle="Page introuvable">
+  <section class="container not-found">
+    <p class="not-found__code">Erreur 404</p>
+    <h1>Cette page n'existe pas</h1>
+    <p class="not-found__lead">
+      L'adresse demandée ne correspond à aucune page de ce site. Elle a pu
+      être déplacée, ou ne jamais avoir existé.
+    </p>
+
+    <nav aria-label="Retour au site">
+      <ul class="not-found__links">
+        {
+          mainNav.map((item) => (
+            <li>
+              <a href={item.href}>{item.label}</a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+  </section>
+</BaseLayout>
+
+<style>
+  .not-found {
+    padding-block: var(--space-3xl);
+    max-width: 40rem;
+  }
+
+  .not-found__code {
+    margin: 0 0 var(--space-sm);
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .not-found h1 {
+    margin: 0 0 var(--space-md);
+  }
+
+  .not-found__lead {
+    margin: 0 0 var(--space-xl);
+    color: var(--color-text-secondary);
+  }
+
+  .not-found__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+</style>
