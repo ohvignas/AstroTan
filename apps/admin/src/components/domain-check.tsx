@@ -1,4 +1,5 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
+import type { ReactNode } from "react"
 import type { Enregistrement, EtatVerdict, Verdict } from "@astrotan/backend/convex/dns"
 import { Button } from "@/components/ui/button"
 import {
@@ -43,7 +44,7 @@ import {
 // qui veut savoir à quoi sert la ligne sans que ça coûte un mot à l'écran.
 // ---------------------------------------------------------------------
 
-type Signe = "ok" | "ko" | "inconnu"
+export type Signe = "ok" | "ko" | "inconnu"
 
 const SIGNES: Record<Signe, { glyphe: string; texte: string; classe: string }> =
   {
@@ -84,17 +85,42 @@ const SIGNE_DE: Record<EtatVerdict | "attente", Signe> = {
  * Le mot (« En place », « À poser », « Non lu ») vit dans `aria-label` :
  * un lecteur d'écran l'annonce, l'œil ne le lit pas. Une pastille de texte
  * remettrait à l'écran ce que la couleur dit déjà.
+ *
+ * `muet` retire ce `aria-label` — et lui seul. Il sert aux endroits où le
+ * mot est DÉJÀ écrit à côté (voir `Etiquette`) : l'annoncer deux fois
+ * ferait lire « En place, A en place » à un lecteur d'écran.
  */
-export function Signal({ signe }: { signe: Signe }) {
+export function Signal({ signe, muet = false }: { signe: Signe; muet?: boolean }) {
   const { glyphe, texte, classe } = SIGNES[signe]
   return (
     <span
-      role="img"
-      aria-label={texte}
+      {...(muet ? { "aria-hidden": true } : { role: "img", "aria-label": texte })}
       data-signe={signe}
       className={`inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[0.7rem] leading-none font-bold ${classe}`}
     >
       {glyphe}
+    </span>
+  )
+}
+
+/**
+ * Un signe et son mot — la forme des états qui ne tiennent pas dans une
+ * ligne de tableau.
+ *
+ * Le tableau se contente du signe parce que la ligne dit déjà de quoi il
+ * parle. Ailleurs — à côté du bouton, à côté d'un titre de tableau — un
+ * rond de couleur seul ne désigne rien : le mot est ce qui le rattache à
+ * quelque chose. Il reste un ÉTAT, jamais une consigne : « A à poser », pas
+ * « créez un enregistrement A chez votre hébergeur ».
+ */
+export function Etiquette({ signe, texte }: { signe: Signe; texte: string }) {
+  return (
+    <span
+      data-testid="etiquette"
+      className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+    >
+      <Signal signe={signe} muet />
+      <span className="min-w-0 wrap-anywhere">{texte}</span>
     </span>
   )
 }
@@ -136,19 +162,79 @@ export function fusionnerVerdicts(
 }
 
 // ---------------------------------------------------------------------
+// Les enregistrements que Resend demande — DANS LE MÊME TABLEAU.
+//
+// `resendDomain.declarer` rend ses lignes dans le type `Enregistrement` de
+// `convex/dns.ts`, exprès pour qu'elles n'aient besoin d'aucune traduction
+// ici. Elles décrivent la même chose que SPF, DKIM et DMARC — ce qu'il faut
+// créer chez l'hébergeur pour que les emails partent — et prennent donc des
+// lignes du tableau « Les emails », pas un second tableau : deux tableaux de
+// la même nature obligeraient à choisir lequel regarder pour une seule
+// question.
+// ---------------------------------------------------------------------
+
+/**
+ * Le plan des emails, complété par ce que Resend demande vraiment.
+ *
+ * Deux lignes se recouvrent presque toujours — le DKIM du plan
+ * (`resend._domainkey.exemple.fr`, TXT) et celui de Resend, qui porte la
+ * VRAIE clé publique là où le plan n'a qu'une description. Les afficher
+ * toutes les deux donnerait deux lignes pour un seul enregistrement, dont
+ * une qu'on ne peut pas copier.
+ *
+ * D'où la fusion par `nom` + `type` — ce qu'un formulaire de zone DNS
+ * identifie, et la seule chose que les deux sources nomment pareil. La
+ * valeur de Resend l'emporte ; `cle` et `libelle` restent ceux du plan, et
+ * ce n'est pas cosmétique : `fusionnerVerdicts` recolle les verdicts de
+ * `dns.checkEmail` PAR `cle`. Prendre la clé de Resend ferait perdre à cette
+ * ligne son état, définitivement.
+ *
+ * Les lignes de Resend qui ne recouvrent rien (le MX et le TXT de
+ * `send.<domaine>`) s'ajoutent à la suite. Aucune vérification ne les lit —
+ * `dns.checkEmail` n'interroge que les trois du plan —, elles restent donc à
+ * « Non lu », ce qui est exactement vrai : personne n'a regardé.
+ */
+export function fusionnerResend(
+  plan: Enregistrement[],
+  resend: Enregistrement[]
+): Enregistrement[] {
+  const repris = new Set<string>()
+  const fusionnees = plan.map((ligne) => {
+    const jumelle = resend.find((candidat) => memeEnregistrement(candidat, ligne))
+    if (jumelle === undefined) return ligne
+    repris.add(jumelle.cle)
+    return { ...ligne, attendu: jumelle.attendu }
+  })
+  return [...fusionnees, ...resend.filter((ligne) => !repris.has(ligne.cle))]
+}
+
+/** Le même enregistrement de zone : même nom, même type. */
+function memeEnregistrement(a: Enregistrement, b: Enregistrement): boolean {
+  return a.type === b.type && a.nom.toLowerCase() === b.nom.toLowerCase()
+}
+
+// ---------------------------------------------------------------------
 // Le tableau des enregistrements.
 // ---------------------------------------------------------------------
 
 export function TableauDns({
   titre,
   lignes,
+  etat = null,
 }: {
   titre: string
   lignes: LigneDns[]
+  /** L'état du groupe entier — celui de Resend, sur « Les emails ». */
+  etat?: ReactNode
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="font-heading text-sm font-medium">{titre}</h3>
+      {/* `flex-wrap` : à 390 px le titre et l'étiquette ne tiennent pas
+          côte à côte dès que l'état de Resend est un peu long. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <h3 className="font-heading text-sm font-medium">{titre}</h3>
+        {etat}
+      </div>
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
@@ -183,7 +269,7 @@ function LigneEnregistrement({ ligne }: { ligne: LigneDns }) {
         className="px-2 align-top text-xs whitespace-normal wrap-anywhere"
         title={ligne.libelle}
       >
-        {ligne.nom}
+        <NomDns nom={ligne.nom} />
       </TableCell>
       <TableCell className="px-2 align-top whitespace-normal">
         <div className="flex w-full min-w-0 flex-col items-start gap-1.5">
@@ -209,6 +295,47 @@ function LigneEnregistrement({ ligne }: { ligne: LigneDns }) {
         <Signal signe={SIGNE_DE[ligne.etat]} />
       </TableCell>
     </TableRow>
+  )
+}
+
+/**
+ * Le nom de l'enregistrement, cassable AUX POINTS.
+ *
+ * À 390 px la colonne « Nom » fait une centaine de pixels, et
+ * `wrap-anywhere` seul y brisait `resend._domainkey.illith.com` en
+ * `resend._dom` / `ainkey.illith.c` / `om` — trois morceaux dont aucun
+ * n'est une étiquette DNS, sur la valeur qu'on recopie chez l'hébergeur.
+ * Les noms du plan (`_dmarc.exemple.fr`) tenaient encore ; ceux de Resend,
+ * plus longs d'un cran, ne tenaient plus.
+ *
+ * Un `<wbr>` après les points de tête — jamais après celui du domaine
+ * enregistrable, qu'on garde d'un bloc — donne au navigateur des coupures
+ * qui tombent là où l'œil recompose : `resend.` / `_domainkey.` /
+ * `illith.com`. `wrap-anywhere` reste sur la cellule, en dernier recours,
+ * pour l'étiquette qui serait à elle seule plus large que la colonne.
+ *
+ * `<wbr>` est un élément SANS largeur : il ne met pas d'espace, ni à l'œil
+ * ni au copier-coller. Le helper `texte()` des tests le retire à vide pour
+ * la même raison.
+ */
+function NomDns({ nom }: { nom: string }) {
+  const etiquettes = nom.split(".")
+  // Les deux dernières étiquettes sont le domaine enregistrable
+  // (`illith.com`) : aucune coupure entre elles.
+  const coupures = Math.max(etiquettes.length - 2, 0)
+  return (
+    <>
+      {/* `Fragment` et non un `<span>` : un élément par étiquette
+          existerait dans le DOM, donc dans le texte que les tests lisent —
+          et un nom DNS ne se lit pas `_dmarc. exemple. fr`. */}
+      {etiquettes.map((etiquette, index) => (
+        <Fragment key={index}>
+          {etiquette}
+          {index === etiquettes.length - 1 ? "" : "."}
+          {index < coupures ? <wbr /> : null}
+        </Fragment>
+      ))}
+    </>
   )
 }
 
