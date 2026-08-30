@@ -58,6 +58,10 @@
 //          `/settings/ia` sont décoratifs sur un déploiement neuf.
 //        · les cinq `UMAMI_API_*` et `OPENROUTER_API_KEY` — même famille,
 //          même silence.
+//        · les lectures par ENVIRONNEMENT INJECTÉ — `env.NOM`, où `env`
+//          est un paramètre plutôt que `process.env`. Voir
+//          `convexEnvInjecte()` plus bas : c'est le motif qui a fait
+//          perdre prise à ce garde-fou une première fois, en silence.
 //   4. CONFIG DE BUILD — tout `process.env.X` lu par le fichier de
 //      configuration d'une app (`astro.config.ts`, `vite.config.ts`) doit
 //      être un `ARG` du Dockerfile ET un `build-args` de deploy.yml, comme
@@ -90,8 +94,15 @@
 //     documentation, pas d'état. Un secret partagé posé sur le VPS mais
 //     jamais sur Convex reste invisible ici, faute d'un fichier à
 //     interroger ;
-//   · les lectures dynamiques. Seul `process.env.NOM` littéral est reconnu ;
-//     un `process.env[nom]` calculé échappe à l'analyse ;
+//   · les lectures dynamiques. Dans `apps/` et `services/`, seul
+//     `process.env.NOM` littéral est reconnu — un `process.env[nom]`
+//     calculé échappe à l'analyse. Sous `packages/backend/convex/`, deux
+//     formes de plus le sont (`convexEnvInjecte()`), et il reste un trou
+//     nommé : un module qui reçoit l'environnement d'un AUTRE paramètre
+//     injecté, sans qu'aucun `process.env` littéral ne lui soit jamais
+//     passé, et dont la signature ne serait pas celle du dépôt. Rien
+//     alors ne le rattrape — mais il faudrait pour cela sortir des DEUX
+//     conventions à la fois ;
 //   · qu'un secret GitHub existe réellement dans les réglages du dépôt. Un
 //     `build-args: X=${{ secrets.X }}` avec un secret non posé vaut la
 //     chaîne vide et le build reste vert — c'est ce qui rend les variables
@@ -367,10 +378,194 @@ function bootstrapVpsVars() {
 }
 
 /**
+ * Le code de `convex/`, commentaires retirés, fichier par fichier.
+ *
+ * Le retrait est propre à cet arbre, à la différence de `readsOf` :
+ * `convex/` est le seul du dépôt où la PROSE parle des variables autant
+ * que le code (`secrets.ts` explique sa règle de précédence avec un
+ * `process.env.X` d'illustration). Sans ce retrait, ce garde-fou exigerait
+ * qu'on documente `X`.
+ *
+ * Un `//` précédé de `:` n'ouvre PAS un commentaire — c'est le milieu
+ * d'une URL, et `convex/` en écrit à la pelle (`https://admin.${hote}`).
+ * La distinction ne coûte qu'une alternative de plus dans la regex et
+ * elle compte : ce code nettoyé sert aussi à compter les parenthèses
+ * (`calleeEnglobant`), et tronquer une ligne sur son `https://` y
+ * laisserait une parenthèse ouverte qui déplacerait l'analyse d'une
+ * autre.
+ *
+ * `_generated/` et `betterAuth/_generated/` sont exclus : produits par la
+ * codegen Convex, ils exposent `process.env` en bloc (`export const env =
+ * process.env`) — rien à documenter là, et cet `env`-là serait justement
+ * un faux receveur au sens de `convexEnvInjecte()`.
+ */
+function convexSources() {
+  const out = [];
+  for (const file of walk(CONVEX_DIR)) {
+    const rel = relative(ROOT, file);
+    if (isTest(rel) || !/\.ts$/.test(rel)) continue;
+    if (/(^|\/)_generated\//.test(rel)) continue;
+    const code = read(file)
+      .split("\n")
+      .map((l) => l.replace(/^\s*\*.*$/, "").replace(/(^|[^:])\/\/.*$/, "$1"));
+    out.push({ rel, code });
+  }
+  return out;
+}
+
+/**
+ * La signature d'un paramètre qui REÇOIT l'environnement, et l'alias qui
+ * le rebaptise dans un fichier.
+ *
+ * Ces deux formes-là, et pas « n'importe quel `.NOM` sur n'importe quel
+ * identifiant » : la seconde ferait un faux positif sur chaque objet du
+ * dépôt, et un garde-fou qui crie pour rien finit désarmé.
+ */
+const SIGNATURE_ENV = /^\s*([A-Za-z_$][\w$]*)\s*:\s*Record<\s*string\s*,\s*string\s*\|\s*undefined\s*>/;
+const ALIAS_ENV = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*process\.env\s*(?:[;,)\]}]|$)/;
+/** `function f(` et `const f = (` / `const f = async (` — les deux façons
+ *  dont ce dépôt déclare une fonction nommée. */
+const NOM_FONCTION = /(?:\bfunction\s+([A-Za-z_$][\w$]*)\s*\(|\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?\()/;
+
+/**
+ * Le nom de la fonction dont l'argument commence à `index`, ou `null`.
+ *
+ * Remonte le texte en comptant les parenthèses jusqu'à la première qui
+ * reste ouverte, et lit l'identifiant qui la précède. Une parenthèse
+ * plutôt qu'une regex de ligne parce qu'un appel s'écrit souvent sur
+ * plusieurs lignes, et qu'on ne veut pas d'une forme d'écriture imposée.
+ * La fenêtre est bornée : au-delà, on rend `null`, ce qui fait tomber
+ * l'occurrence dans « non classée » — donc dans un échec bruyant, jamais
+ * dans un silence.
+ */
+function calleeEnglobant(texte, index) {
+  const min = Math.max(0, index - 2000);
+  let profondeur = 0;
+  for (let i = index - 1; i >= min; i -= 1) {
+    const c = texte[i];
+    if (c === ")" || c === "]" || c === "}") profondeur += 1;
+    else if (c === "[" || c === "{") {
+      if (profondeur === 0) return null;
+      profondeur -= 1;
+    } else if (c === "(") {
+      if (profondeur > 0) {
+        profondeur -= 1;
+        continue;
+      }
+      const avant = texte.slice(0, i).match(/([A-Za-z_$][\w$]*)\s*$/);
+      return avant ? avant[1] : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Les lectures d'environnement faites à travers un environnement INJECTÉ,
+ * sous `convex/`.
+ *
+ * ── LE DÉFAUT QU'ELLE RÉPARE ─────────────────────────────────────────
+ *
+ * `lib/origines.ts` lit `env.WEB_SITE_URL`, où `env` est un paramètre
+ * (`deriverOrigines(declare, process.env, sortants)`, appelée depuis
+ * `revalidate.ts`). Le littéral `process.env.WEB_SITE_URL` n'existe donc
+ * nulle part, et la recherche de littéraux a cessé de voir cette lecture
+ * — sans que rien n'échoue : `WEB_SITE_URL` est simplement passée en
+ * « documentée, lue nulle part ». Une note qui invite à SUPPRIMER la
+ * variable dont dépend toute l'invalidation de cache.
+ *
+ * Et le motif est BON : c'est ce qui rend `deriverOrigines` testable sans
+ * toucher à `process.env`. Il va donc se répandre.
+ *
+ * ── CE QU'ON RECONNAÎT, ET POURQUOI PAS UNE LISTE ────────────────────
+ *
+ * Deux formes, toutes deux DÉRIVÉES du code — jamais une liste de
+ * modules tenue à la main, qui serait un endroit de plus à oublier, et
+ * dont l'oubli serait exactement aussi silencieux que le défaut d'origine :
+ *
+ *   · un paramètre `nom: Record<string, string | undefined>` — la
+ *     signature qu'ont les trois receveurs du dépôt (`deriverOrigines`,
+ *     `readUmamiConfig`, `lireCleMaitresse`) ;
+ *   · un alias local `const nom = process.env` (`settings.ts`
+ *     `environment`).
+ *
+ * Puis, dans CE fichier-là et lui seul, les `nom.VARIABLE`. La liaison
+ * doit être déclarée dans le fichier qui lit : aucun `.NOM` sur un
+ * identifiant quelconque n'est jamais compté.
+ *
+ * ── LE GARDE-FOU DU GARDE-FOU : LES ÉCHAPPÉES ────────────────────────
+ *
+ * Reconnaître une signature, c'est parier qu'elle ne changera pas de
+ * forme. Ce pari-là se vérifie par l'autre bout : tout `process.env` NU —
+ * non suivi de `.NOM` ni de `[` — est un endroit où l'environnement
+ * entier s'échappe vers un nom que la recherche de littéraux ne suit plus.
+ * Chacun doit s'expliquer :
+ *
+ *   · un alias (`const env = process.env`) — la liaison est déjà comptée ;
+ *   · un argument passé à une fonction RECONNUE comme receveur — ses
+ *     lectures sont comptées chez elle.
+ *
+ * Toute autre échappée est rendue comme un échec, avec le nom de la
+ * fonction qui la reçoit. C'est ce qui rend l'oubli VISIBLE : le jour où
+ * quelqu'un écrit un receveur avec une autre signature, `f(process.env)`
+ * ne se classe plus et le garde-fou refuse — au lieu de rétrécir sans le
+ * dire. Aucun compteur minimum n'est donc nécessaire ici : si la
+ * reconnaissance des signatures cassait entièrement, les trois échappées
+ * existantes tomberaient toutes, bruyamment.
+ */
+function convexEnvInjecte(sources) {
+  const receveurs = new Set();
+  const liaisons = new Map(); // rel → Set(identifiants liés à l'environnement)
+
+  for (const { rel, code } of sources) {
+    let fonction = null;
+    const lies = new Set();
+    for (const line of code) {
+      const f = line.match(NOM_FONCTION);
+      if (f) fonction = f[1] ?? f[2];
+      const sig = line.match(SIGNATURE_ENV);
+      if (sig) {
+        lies.add(sig[1]);
+        if (fonction) receveurs.add(fonction);
+      }
+      const alias = line.match(ALIAS_ENV);
+      if (alias) lies.add(alias[1]);
+    }
+    if (lies.size > 0) liaisons.set(rel, lies);
+  }
+
+  const lectures = []; // [nom, "fichier:ligne"]
+  const echappees = []; // ["fichier:ligne", callee | null]
+
+  for (const { rel, code } of sources) {
+    const lies = liaisons.get(rel);
+    if (lies) {
+      code.forEach((line, i) => {
+        for (const ident of lies) {
+          const re = new RegExp(`\\b${ident.replace(/\$/g, "\\$")}\\.([A-Z][A-Z0-9_]*)\\b`, "g");
+          for (const m of line.matchAll(re)) lectures.push([m[1], `${rel}:${i + 1} (env injecté)`]);
+        }
+      });
+    }
+
+    const texte = code.join("\n");
+    for (const m of texte.matchAll(/process\.env(?![.[\w$])/g)) {
+      const ligne = texte.slice(0, m.index).split("\n").length;
+      const alias = (code[ligne - 1] ?? "").match(ALIAS_ENV);
+      if (alias && lies?.has(alias[1])) continue;
+      const callee = calleeEnglobant(texte, m.index);
+      if (callee && receveurs.has(callee)) continue;
+      echappees.push([`${rel}:${ligne}`, callee]);
+    }
+  }
+
+  return { receveurs, lectures, echappees };
+}
+
+/**
  * Les variables d'environnement que lit le backend Convex.
  *
- * Trois provenances, toutes DÉRIVÉES des fichiers — jamais une liste tenue
- * à la main, qui serait un quatrième endroit à oublier :
+ * Quatre provenances, toutes DÉRIVÉES des fichiers — jamais une liste tenue
+ * à la main, qui serait un cinquième endroit à oublier :
  *
  *   · les `process.env.NOM` littéraux de `convex/` ;
  *   · la liste close `SECRET_NOMS` de `convex/secrets.ts`, lue par
@@ -378,10 +573,13 @@ function bootstrapVpsVars() {
  *     invisible à la recherche de littéraux ;
  *   · `SECRETS_KEY_VAR` de `convex/lib/secretsCrypto.ts`, lue de la même
  *     façon indirecte. C'est la clé maîtresse : absente, toute la famille
- *     `secrets` est inerte.
+ *     `secrets` est inerte ;
+ *   · les lectures par environnement INJECTÉ (`convexEnvInjecte()`).
  *
- * Rend `null` si l'une des deux dernières ne se reconnaît plus, pour que le
- * garde-fou échoue bruyamment au lieu de rétrécir en silence.
+ * Rend `null` si `SECRET_NOMS` ou `SECRETS_KEY_VAR` ne se reconnaît plus,
+ * pour que le garde-fou échoue bruyamment au lieu de rétrécir en silence.
+ * Les échappées de `convexEnvInjecte()` remontent à part : elles nomment
+ * la fonction en cause, ce qu'un `null` ne saurait pas dire.
  */
 function convexEnvReads() {
   const reads = new Map();
@@ -391,25 +589,16 @@ function convexEnvReads() {
     reads.get(name).push(where);
   };
 
-  for (const file of walk(CONVEX_DIR)) {
-    const rel = relative(ROOT, file);
-    if (isTest(rel) || !/\.ts$/.test(rel)) continue;
-    // `_generated/` et `betterAuth/_generated/` sont produits par la
-    // codegen Convex et exposent `process.env` en bloc (`export const env
-    // = process.env`) : rien à documenter là.
-    if (/(^|\/)_generated\//.test(rel)) continue;
-    read(file)
-      .split("\n")
-      .forEach((line, i) => {
-        // Les commentaires sont retirés ici, à la différence de `readsOf`
-        // ci-dessus : `convex/` est le seul arbre du dépôt où la PROSE
-        // parle des variables autant que le code (secrets.ts explique sa
-        // règle de précédence avec un `process.env.X` d'illustration).
-        // Sans ce retrait, ce garde-fou exigerait qu'on documente `X`.
-        const code = line.replace(/^\s*\*.*$/, "").split("//")[0];
-        for (const m of code.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) add(m[1], `${rel}:${i + 1}`);
-      });
+  const sources = convexSources();
+
+  for (const { rel, code } of sources) {
+    code.forEach((line, i) => {
+      for (const m of line.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) add(m[1], `${rel}:${i + 1}`);
+    });
   }
+
+  const injecte = convexEnvInjecte(sources);
+  for (const [name, where] of injecte.lectures) add(name, where);
 
   const secretsSrc = read(join(CONVEX_DIR, "secrets.ts"));
   const bloc = secretsSrc.match(/export const SECRET_NOMS = \[([\s\S]*?)\] as const/);
@@ -441,7 +630,7 @@ function convexEnvReads() {
     }
   }
 
-  return reads;
+  return { reads, echappees: injecte.echappees };
 }
 
 /** Les variables documentées par un `.env.example`, commentées comprises. */
@@ -509,7 +698,8 @@ const workflowArgs = workflowBuildArgs(DEPLOY_WORKFLOW);
 const required = composeRequired();
 const vpsVars = bootstrapVpsVars();
 const exampleVars = envExampleVars();
-const convexReads = convexEnvReads();
+const convexAudit = convexEnvReads();
+const convexReads = convexAudit?.reads ?? null;
 const convexDocumented = exampleVarsOf(CONVEX_ENV_EXAMPLE);
 
 // Garde-fou du garde-fou : si l'un des parseurs ne reconnaît plus son
@@ -520,6 +710,18 @@ if (required.length === 0) problems.push(["parseur", "aucun `${VAR:?}` trouvé d
 if (workflowArgs.size === 0) problems.push(["parseur", "aucun `build-args:` trouvé dans deploy.yml — corriger `workflowBuildArgs()`"]);
 if (vpsVars === null) problems.push(["parseur", "gabarit `.env.vps` introuvable dans scripts/bootstrap.mjs — corriger `bootstrapVpsVars()`"]);
 if (convexReads === null || convexReads.size === 0) problems.push(["parseur", "lectures d'environnement du backend Convex introuvables — `SECRET_NOMS` ou `SECRETS_KEY_VAR` ont-ils changé de forme ? corriger `convexEnvReads()`"]);
+
+// Le garde-fou de la reconnaissance des environnements injectés : chaque
+// `process.env` NU doit s'expliquer, sans quoi l'environnement s'échappe
+// vers un nom que plus rien ne suit. Voir `convexEnvInjecte()`.
+for (const [ou, callee] of convexAudit?.echappees ?? []) {
+  problems.push([
+    "parseur",
+    callee === null
+      ? `${ou} — \`process.env\` passé en bloc à une expression que \`convexEnvInjecte()\` ne sait pas suivre. Lier l'environnement à un nom (\`const env = process.env\`) ou le passer à une fonction receveuse.`
+      : `${ou} — \`process.env\` passé en bloc à \`${callee}()\`, dont aucun paramètre n'a la signature \`Record<string, string | undefined>\`. Les \`env.NOM\` qu'elle lit sont invisibles : adopter cette signature, ou enseigner la nouvelle à \`convexEnvInjecte()\`.`,
+  ]);
+}
 
 for (const app of APPS) {
   const { runtime, build } = readsOf(app);
