@@ -21,8 +21,10 @@ import { SettingsGroup } from "@/components/settings-nav"
 //
 // Trois règles de construction, que `settings-secrets.test.tsx` tient :
 //
-//   1. le champ est en `type="password"` et n'est JAMAIS pré-rempli — une
-//      valeur pré-remplie part dans le HTML de la page ;
+//   1. le champ est en `type="password"` et n'est JAMAIS pré-rempli avec le
+//      jeton — une valeur pré-remplie part dans le HTML de la page. Un
+//      jeton posé se signale par un MASQUE (`MASQUE` ci-dessous), une
+//      suite de points de longueur fixe qui ne dit rien de la valeur ;
 //   2. vide veut dire « ne change rien », jamais « efface » : pour retirer,
 //      il y a un bouton qui le dit ;
 //   3. rien ne s'enregistre tout seul. Un jeton à demi tapé, envoyé à
@@ -49,6 +51,53 @@ export interface SecretEtat {
 }
 
 export type CleMaitresseEtat = "posee" | "absente" | "illisible"
+
+/**
+ * Ce qu'affiche le champ d'un jeton déjà posé.
+ *
+ * Un REMPLAÇANT, jamais la valeur : le jeton est chiffré en base sous une
+ * clé maîtresse qui vit dans l'environnement Convex, aucune query ne le
+ * rend, et il ne quitte donc jamais le serveur
+ * (`docs/superpowers/specs/2026-08-29-secrets-et-chiffrement.md`).
+ *
+ * Longueur FIXE, et c'est le point : un masque calé sur la longueur réelle
+ * serait déjà une fuite. Il dirait quel format de clé est posé — une clé
+ * Resend, un identifiant Umami, un mot de passe court — et rétrécirait
+ * d'autant ce qu'il reste à deviner. Douze points, quelle que soit la clé.
+ */
+export const MASQUE = "••••••••••••"
+
+/**
+ * Le masque est atomique : douze points ne sont pas douze caractères
+ * qu'on éditerait un à un.
+ *
+ * Toute frappe dans un champ masqué fait donc disparaître le masque
+ * ENTIER, et ce qui reste est ce que l'opérateur a tapé. Effacer un seul
+ * point vide le champ — visiblement, à l'écran — ce qui est exactement le
+ * geste qu'on veut rendre délibéré plutôt que subreptice.
+ *
+ * Le point médian est retiré sans hésiter : aucune clé d'API n'en
+ * contient, et le seul endroit d'où il puisse venir est le masque.
+ */
+export function sansMasque(valeur: string): string {
+  return valeur.replaceAll("•", "")
+}
+
+/** Ce qu'un clic sur le bouton ferait, vu l'état du champ. */
+export type Geste = "aucun" | "enregistrer"
+
+/**
+ * Le champ a plus d'états qu'il n'y paraît, et les confondre coûte cher.
+ *
+ *   • **intact** — le masque n'a pas bougé : il n'y a rien à faire ;
+ *   • **vide** — sans jeton posé, il n'y a toujours rien à faire ;
+ *   • **saisi** — une valeur a été tapée : elle remplace ce qui est là.
+ */
+export function gesteDuChamp(valeur: string, jetonPose: boolean): Geste {
+  if (jetonPose && valeur === MASQUE) return "aucun"
+  if (valeur.trim().length === 0) return "aucun"
+  return "enregistrer"
+}
 
 /** La commande à recopier dans un terminal, puisque l'écran ne peut pas la lancer. */
 export function Command({ children }: { children: string }) {
@@ -115,10 +164,12 @@ const BADGE: Record<SecretSource, { texte: string; variant: "secondary" | "destr
 /**
  * Une ligne : l'état d'un jeton, et de quoi le poser ou le retirer.
  *
- * `type="password"` et `value` toujours vide au départ. Un champ pré-rempli
- * avec la valeur existante mettrait le secret dans le HTML de la page, à un
- * clic droit de n'importe qui — et c'est précisément ce que tout le reste
- * du dispositif s'emploie à éviter.
+ * `type="password"`, et `value` ne porte jamais que deux choses : le
+ * MASQUE quand une ligne existe en base, ou ce que l'opérateur vient de
+ * taper. Pré-remplir avec la valeur existante mettrait le secret dans le
+ * HTML de la page, à un clic droit de n'importe qui — et c'est
+ * précisément ce que tout le reste du dispositif s'emploie à éviter. Le
+ * masque, lui, ne coûte rien : le composant ne l'a pas reçu, il l'a écrit.
  */
 export function SecretField({
   etat,
@@ -135,18 +186,23 @@ export function SecretField({
   onSave: (valeur: string) => Promise<void>
   onClear: () => Promise<void>
 }) {
-  const [valeur, setValeur] = useState("")
+  // Le masque au montage quand une ligne existe déjà en base. L'état des
+  // jetons est arrivé avant que cette page ne se rende (`useSecretsAccess`
+  // retient l'affichage tant que la query n'a pas répondu), donc `etat.base`
+  // est connu ici — il n'y a pas de second passage à rattraper.
+  const [valeur, setValeur] = useState(etat.base ? MASQUE : "")
   const [etatAppel, setEtatAppel] = useState<"repos" | "envoi" | "fait">("repos")
   const [erreur, setErreur] = useState<string | null>(null)
   const badge = BADGE[etat.source]
   const champId = `secret-${etat.nom}`
+  const geste = gesteDuChamp(valeur, etat.base)
 
-  async function lancer(action: () => Promise<void>, viderLeChamp: boolean) {
+  async function lancer(action: () => Promise<void>, apres: string) {
     setErreur(null)
     setEtatAppel("envoi")
     try {
       await action()
-      if (viderLeChamp) setValeur("")
+      setValeur(apres)
       setEtatAppel("fait")
     } catch (err) {
       setEtatAppel("repos")
@@ -204,14 +260,13 @@ export function SecretField({
             // une clé d'API dans son gestionnaire de mots de passe.
             autoComplete="off"
             aria-label={`Nouvelle valeur pour ${etat.nom}`}
-            placeholder={
-              etat.base || etat.environnement
-                ? "Laisser vide pour ne rien changer"
-                : "Coller la valeur"
-            }
+            // Rien à inviter quand le champ porte déjà le masque : une
+            // invite ne s'affiche que sur un champ vide, et celui-là ne
+            // l'est pas.
+            placeholder={etat.base ? undefined : "Coller la valeur"}
             value={valeur}
             onChange={(event) => {
-              setValeur(event.target.value)
+              setValeur(sansMasque(event.target.value))
               setEtatAppel("repos")
             }}
             className="max-w-xs"
@@ -220,10 +275,12 @@ export function SecretField({
             type="button"
             size="sm"
             className="cursor-pointer"
-            // Vide = « ne change rien ». Le bouton le dit en étant inerte,
-            // plutôt qu'en envoyant une chaîne vide que le serveur refuse.
-            disabled={valeur.trim().length === 0 || etatAppel === "envoi"}
-            onClick={() => lancer(() => onSave(valeur.trim()), true)}
+            // Le bouton dit en étant inerte qu'il n'y a rien à faire,
+            // plutôt qu'en envoyant au serveur une valeur qu'il refuse.
+            disabled={geste === "aucun" || etatAppel === "envoi"}
+            // Un jeton vient d'être rangé : le champ revient au masque, et
+            // non à vide, qui laisserait croire qu'il n'y a rien.
+            onClick={() => lancer(() => onSave(valeur.trim()), MASQUE)}
           >
             Enregistrer
           </Button>
@@ -234,7 +291,7 @@ export function SecretField({
               size="sm"
               className="cursor-pointer"
               disabled={etatAppel === "envoi"}
-              onClick={() => lancer(onClear, false)}
+              onClick={() => lancer(onClear, "")}
             >
               Retirer de la base
             </Button>
