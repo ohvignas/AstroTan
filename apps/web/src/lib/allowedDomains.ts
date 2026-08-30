@@ -64,6 +64,14 @@ import { getConvexClient } from "./convexClient"
  * `apps/web` n'importe pas de code du backend hors des types générés
  * (invariant 1), et une dépendance croisée pour une expression régulière
  * coûterait plus cher que la copie.
+ *
+ * PAS la même expression que celle du backend — plus permissive (pas de
+ * borne de longueur, accepte un hôte tout en chiffres). Sans conséquence
+ * ici : cette regex ne fait que normaliser un `Host`/`X-Forwarded-Host`
+ * avant un test d'appartenance à `hotesConnus()`, un ensemble déjà validé
+ * par l'expression du backend avant de nous être transmis. Le détail —
+ * et ce qui borne réellement ce sur quoi compter — est dans l'en-tête de
+ * `hoteNu.ts`.
  */
 const HOTE_NU = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/
 
