@@ -27,6 +27,7 @@ import {
   SecretHorsPortee,
   SecretsReserves,
   gesteDuChamp,
+  refusDuVerdict,
   sansMasque,
 } from "./settings-secrets"
 import type { Geste, SecretEtat } from "./settings-secrets"
@@ -314,6 +315,51 @@ describe("ConfirmationRetrait", () => {
     const html = confirmation(true)
     expect(html).toMatch(/continuera de servir/)
     expect(html).not.toMatch(/invitations comprises/)
+  })
+})
+
+describe("refusDuVerdict", () => {
+  test("une clé essayée avec succès s'enregistre — et une clé sans vérificateur aussi", () => {
+    expect(refusDuVerdict({ verdict: "valide", service: "Resend" })).toBeNull()
+    // `sans_verificateur` n'est pas un demi-refus : le jeton s'enregistre
+    // comme avant, sans prétendre avoir été validé. Le bloquer
+    // interdirait de saisir les cinq identifiants qu'on ne sait pas
+    // essayer.
+    expect(
+      refusDuVerdict({ verdict: "sans_verificateur", service: null })
+    ).toBeNull()
+  })
+
+  test("un refus dit QUE le service refuse la clé, jamais pourquoi", () => {
+    const message = refusDuVerdict({ verdict: "refuse", service: "Resend" })
+    expect(message).toContain("Resend")
+    expect(message).toMatch(/refuse/)
+    // Le message de l'API ne ressort pas. « This API key is restricted to
+    // only send emails » recopié à l'écran n'apprend rien à qui ne
+    // connaît pas Resend, et envoie chercher du côté des permissions une
+    // faute qui est presque toujours un caractère perdu au collage.
+    expect(message).not.toMatch(/API key|restricted|validation_error|401|400/)
+  })
+
+  test("« le service n'a pas répondu » ne se dit pas comme « le service a dit non »", () => {
+    const injoignable = refusDuVerdict({
+      verdict: "injoignable",
+      service: "Resend",
+    })
+    const refuse = refusDuVerdict({ verdict: "refuse", service: "Resend" })
+    // Les confondre ferait accuser l'opérateur pendant une panne Resend,
+    // et lui ferait changer une clé qui n'a rien.
+    expect(injoignable).not.toBe(refuse)
+    expect(injoignable).not.toMatch(/refuse/)
+    expect(injoignable).toMatch(/[Rr]éessay/)
+  })
+
+  test("aucun refus ne laisse croire que quelque chose a été enregistré", () => {
+    for (const verdict of ["refuse", "injoignable"] as const) {
+      expect(refusDuVerdict({ verdict, service: "Resend" })).toMatch(
+        /rien n'a été enregistré/i
+      )
+    }
   })
 })
 

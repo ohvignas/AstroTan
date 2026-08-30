@@ -4,6 +4,7 @@ import { useAction, useMutation, useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { describeSettingsError } from "@/lib/settingsErrors"
 import type { SecretsBloc } from "@/components/settings-environment"
+import { refusDuVerdict } from "@/components/settings-secrets"
 import { SaveBar } from "@/components/save-bar"
 import type { AutoSave } from "@/components/save-bar"
 import {
@@ -157,6 +158,10 @@ export function SettingsFormShell({
  * préférence : AES-GCM exige un IV aléatoire à chaque chiffrement, or
  * l'aléa d'une mutation Convex est ensemencé pour rester déterministe.
  * Voir `convex/secrets.ts`.
+ *
+ * L'enregistrement passe d'abord par `secretCheck.essayer`, qui présente
+ * la clé à son service — voir `onSave`. C'est le seul endroit à le faire,
+ * pour la même raison que les refus n'y sont traduits qu'une fois.
  */
 export function useSecretsAccess(): {
   loading: boolean
@@ -167,6 +172,7 @@ export function useSecretsAccess(): {
   const { loading, canWrite } = useSettingsAccess()
   const status = useQuery(api.secrets.status, canWrite ? {} : "skip")
   const setSecret = useAction(api.secrets.set)
+  const verifierSecret = useAction(api.secretCheck.essayer)
   const clearSecret = useMutation(api.secrets.clear)
 
   // Les refus serveur sont traduits ICI, une fois : le composant de champ
@@ -174,6 +180,23 @@ export function useSecretsAccess(): {
   // donc aucune raison de connaître les codes de `convex/secrets.ts`.
   const onSave = useCallback(
     async (nom: string, valeur: string) => {
+      // ESSAYER AVANT DE RANGER. `secrets.set` chiffre n'importe quelle
+      // chaîne : une clé fautive — une lettre perdue au collage, une clé
+      // révoquée, celle d'un autre compte — s'enregistre exactement comme
+      // une bonne, sous la même pastille. L'erreur ne se découvre alors
+      // qu'au premier envoi raté, le jour où quelqu'un attend une
+      // invitation qui n'arrivera pas, et personne ne fait le lien avec
+      // une saisie faite trois semaines plus tôt.
+      const verdict = await verifierSecret({ nom, valeur }).catch(
+        (err: unknown) => {
+          throw new Error(describeSettingsError(err))
+        }
+      )
+      const refus = refusDuVerdict(verdict)
+      // Un refus n'est PAS une erreur serveur : l'action a répondu, sa
+      // réponse est « ce service ne veut pas de cette clé », rien n'a été
+      // écrit, et le message est déjà celui que l'écran doit afficher.
+      if (refus !== null) throw new Error(refus)
       try {
         // `nom` traverse l'interface en `string` — la liste des noms est
         // celle du serveur, rendue par `status`, et non une seconde copie
@@ -185,7 +208,7 @@ export function useSecretsAccess(): {
         throw new Error(describeSettingsError(err))
       }
     },
-    [setSecret]
+    [setSecret, verifierSecret]
   )
 
   const onClear = useCallback(

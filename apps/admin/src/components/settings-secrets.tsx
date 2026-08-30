@@ -1,5 +1,6 @@
 import { useState } from "react"
 import type { ReactNode } from "react"
+import type { Verdict } from "@astrotan/backend/convex/secretCheck"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -196,6 +197,43 @@ const BADGE: Record<
 > = {
   environnement: { texte: "Environnement", variant: "secondary" },
   aucune: { texte: "Absent", variant: "destructive" },
+}
+
+/**
+ * Ce que l'écran dit d'un essai raté, et rien de plus.
+ *
+ * `secretCheck.essayer` présente le jeton à son service avant qu'il ne
+ * soit rangé (`packages/backend/convex/secretCheck.ts`). Il rend une
+ * DÉCISION, jamais le corps d'erreur du service — cette fonction fait le
+ * dernier pas : elle en tire une phrase pour l'opérateur.
+ *
+ * Trois issues, et il faut les tenir séparées :
+ *
+ *   • **valide** et **sans_verificateur** ne bloquent rien. Un jeton
+ *     qu'on ne sait pas essayer s'enregistre comme avant : refuser faute
+ *     de vérificateur interdirait de saisir les cinq identifiants Umami ;
+ *   • **refuse** — le service a jugé la clé et n'en veut pas. La phrase
+ *     dit QUE la clé est refusée, pas POURQUOI : « This API key is
+ *     restricted to only send emails » recopié à l'écran n'apprend rien à
+ *     qui ne connaît pas l'API, et envoie chercher du côté des
+ *     permissions une faute qui est presque toujours un caractère perdu
+ *     au collage ;
+ *   • **injoignable** — le service n'a pas répondu, donc il n'a rien
+ *     jugé. Le dire comme un refus reviendrait à accuser l'opérateur
+ *     d'une panne, et à lui faire changer une clé qui n'a rien.
+ *
+ * Rend `null` quand le jeton peut être rangé.
+ */
+export function refusDuVerdict(verdict: Verdict): string | null {
+  switch (verdict.verdict) {
+    case "valide":
+    case "sans_verificateur":
+      return null
+    case "refuse":
+      return `${verdict.service} refuse cette clé : rien n'a été enregistré. Vérifiez qu'elle a été collée en entier, et qu'elle est toujours active dans votre compte ${verdict.service}.`
+    case "injoignable":
+      return `${verdict.service} n'a pas répondu : la clé n'a pas pu être essayée, et rien n'a été enregistré. Réessayez dans un moment.`
+  }
 }
 
 /** Ce qu'un appel a fait, une fois qu'il est passé. */
