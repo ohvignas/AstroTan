@@ -121,9 +121,89 @@ export type HoteSortant = {
  * Le cas où les deux divergent le plus est connu et documenté : sur le CA
  * de STAGING de Let's Encrypt, aucun certificat n'est reconnu, donc le
  * routeur ne retire JAMAIS les anciens hôtes — ils resteront routés après
- * l'expiration de cette fenêtre, et cesseront alors d'être reconnus. La
- * dégradation retombe sur le comportement d'avant ce module, c'est-à-dire
- * fermée.
+ * l'expiration de cette fenêtre, et cesseront alors d'être reconnus.
+ *
+ * ── L'ASYMÉTRIE : « retomber sur le comportement d'avant » NE VEUT PAS
+ *    DIRE LA MÊME CHOSE AUX TROIS POINTS ────────────────────────────────
+ *
+ * La phrase précédente s'arrêtait ici sur « la dégradation retombe sur le
+ * comportement d'avant ce module, c'est-à-dire fermée ». C'est vrai du
+ * point 1 et du point 3 ; c'est FAUX du point 2, et c'est le point 2 qui
+ * coûte le plus cher.
+ *
+ *   - Point 1, `x-forwarded-for` : retomber sur l'adresse de la socket
+ *     est une dégradation. Le visiteur partage un seau de limitation de
+ *     débit avec les autres retardataires ; le site répond.
+ *   - Point 3, invalidation de cache : `drain` perd une cible de repli.
+ *     Des pages gardent leur cache jusqu'à sa propre expiration.
+ *   - Point 2, authentification : le comportement d'avant EST
+ *     l'enfermement. C'est la faille critique 2, et elle ne dégrade pas —
+ *     elle revient, entière, différée de trois jours.
+ *
+ * **La séquence, précisément.** Le nouveau domaine n'obtient jamais son
+ * certificat (une faute de frappe, un A jamais posé sur `admin.`, le CA
+ * de staging). Le routeur garde donc l'ancien hôte routé INDÉFINIMENT —
+ * `sertUnCertificatValide` ne rendra jamais `true`, et c'est son
+ * comportement voulu. Mais à T+72 h, cet hôte quitte `trustedOrigins` :
+ * le seul hôte encore joignable devient le seul depuis lequel on ne peut
+ * plus se connecter. La fenêtre du routeur et celle-ci ne se parlent pas,
+ * et le cas où elles divergent le plus est celui où l'adoptant est le
+ * plus fragile.
+ *
+ * **Ce n'est pas un oubli, c'est l'arbitrage** — l'enfermement à J+3
+ * contre un domaine revendu reconnu pour toujours, et un test l'assert.
+ * Ce qui manquait n'était pas la décision, c'était de l'écrire ici.
+ *
+ * **L'issue manuelle, et sa borne.** Avant T+72 h l'adoptant n'est pas
+ * enfermé, même si le lien qu'il reçoit par email est mort : ce lien
+ * pointe vers le domaine COURANT (`lib/origines.ts`, `Origines.admin` ne
+ * suit jamais un sortant), mais le JETON qu'il porte, lui, n'est lié à
+ * aucune origine. Recopié sur l'ancien hôte — même conteneur, donc même
+ * route `/reset-password` —, il fonctionne : le `POST` part alors d'une
+ * origine sortante, qui est de confiance. C'est ce qui fait la
+ * différence entre « à moitié rouvert » et « fermé ». Mais cette issue
+ * vit DANS la même fenêtre : à T+72 h, l'origine du `POST` cesse d'être
+ * de confiance et l'issue se ferme avec elle. Elle donne trois jours pour
+ * s'apercevoir de la panne, pas une sortie permanente.
+ *
+ * ── CE QU'ON A CHERCHÉ POUR FAIRE MIEUX, ET POURQUOI ON S'EST ARRÊTÉ ───
+ *
+ * L'information qui manque tient en une question : « le nouveau domaine
+ * sert-il vraiment ? ». Le routeur le sait (`sertUnCertificatValide`) ;
+ * Convex ne le sait pas. Trois voies ont été regardées.
+ *
+ *   1. **Une mutation appelée par le routeur.** C'est le second chemin
+ *      d'écriture sur `settings` refusé plus haut dans ce fichier, et le
+ *      refus tient : il faudrait le garder par le même secret partagé,
+ *      pour une information dont la base connaît déjà la moitié.
+ *   2. **Le signal que `drain` produit déjà.** Il poste sur l'origine
+ *      déclarée d'abord, et un `2xx` prouve que le nouveau domaine
+ *      atteint le conteneur `web` sur une connexion TLS valide. Le
+ *      signal existe, il est simplement jeté. Il ne suffit pourtant pas,
+ *      pour trois raisons distinctes : il est OPPORTUNISTE (aucune ligne
+ *      dans l'exutoire, aucune sonde — donc zéro mesure possible pendant
+ *      les 72 heures les plus fragiles) ; il porte sur le MAUVAIS HÔTE
+ *      (`web`, alors que l'enfermement est sur `admin.`, dont le
+ *      certificat est demandé séparément et peut échouer seul — c'est
+ *      pour ça que `dns.ts` vérifie les deux lignes A) ; et sa POLARITÉ
+ *      est inverse de celle qu'on veut. On voudrait prolonger la fenêtre
+ *      quand le domaine NE sert PAS ; `drain` ne témoigne que dans le
+ *      sens positif. Agir dessus obligerait à lire « pas de preuve »
+ *      comme « cassé », et une panne Convex, une action planifiée perdue
+ *      et un site simplement calme y sont indiscernables — la fenêtre
+ *      cesserait alors de se refermer en silence, c'est-à-dire
+ *      exactement le « toujours » que le paragraphe ci-dessus refuse.
+ *   3. **Un cron qui sonde `https://admin.<déclaré>`.** Il corrigerait
+ *      les deux premiers défauts, pas le troisième, et coûterait une
+ *      requête sortante périodique sur tout déploiement, pour toujours,
+ *      afin de répondre à une question qui ne se pose qu'après un
+ *      changement de domaine et qui a l'issue manuelle décrite plus haut.
+ *
+ * Aucune des trois n'est meilleure que ce commentaire aujourd'hui. Ce qui
+ * les débloquerait toutes est la même chose : savoir demander à un hôte
+ * s'il est bien CE déploiement — le même manque que `dns.ts` note sur le
+ * cas du proxy. Le jour où ce point de terminaison existe, la voie 3
+ * devient une sonde honnête, et c'est là qu'il faut revenir.
  */
 export const FENETRE_SORTANTE_MS = 72 * 60 * 60 * 1000
 

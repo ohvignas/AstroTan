@@ -736,6 +736,26 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     // L'origine courante d'abord : better-auth parcourt la liste jusqu'au
     // premier accord, et le cas de très loin le plus fréquent est celui où
     // aucun domaine n'est sortant.
+    //
+    // CETTE LISTE SE REFERME À T+72 h, ET LE ROUTEUR, LUI, NE SE REFERME
+    // PAS. Les deux fenêtres ne se parlent pas. Un nouveau domaine qui
+    // n'obtient JAMAIS son certificat laisse le routeur garder l'ancien
+    // hôte routé indéfiniment — `sertUnCertificatValide` ne rendra jamais
+    // `true` —, mais cet hôte quitte `adminSortantes` au bout de trois
+    // jours : le seul hôte encore joignable devient le seul depuis lequel
+    // on ne peut plus se connecter, et le 403 `INVALID_ORIGIN` que ce lot
+    // existe pour fermer revient entier, différé de trois jours.
+    //
+    // C'est un ARBITRAGE assumé, pas un oubli — l'enfermement à J+3 contre
+    // un domaine revendu reconnu pour toujours —, et l'asymétrie qui le
+    // rend piégeux est écrite là où on la cherche : la dégradation d'un
+    // hôte sortant retombe « sur le comportement d'avant » aux deux autres
+    // points d'usage, alors qu'ici le comportement d'avant EST
+    // l'enfermement. Le raisonnement, l'issue manuelle et les trois voies
+    // examinées pour faire mieux qu'un commentaire sont dans
+    // `lib/hotesSortants.ts`, au-dessus de `FENETRE_SORTANTE_MS`. Si vous
+    // arrivez ici en diagnostiquant un `INVALID_ORIGIN` après un
+    // changement de domaine, c'est là qu'il faut lire.
     trustedOrigins: async () => {
       if (!("runQuery" in convexCtx)) return []
       try {

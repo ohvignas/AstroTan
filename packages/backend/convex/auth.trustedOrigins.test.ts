@@ -198,6 +198,19 @@ test("l'origine d'origine, A, reste acceptée elle aussi — et pas par coïncid
   expect(res.status).toBe(401)
 })
 
+// CE TEST ASSERT UN ARBITRAGE, PAS UNE PROPRIÉTÉ SOUHAITABLE — et il faut
+// que quiconque touche à `FENETRE_SORTANTE_MS` sache ce qu'il échange.
+//
+// Le scénario du fichier est celui où C n'obtient JAMAIS son certificat :
+// le routeur garde donc `admin.B` routé indéfiniment (`sertUnCertificatValide`
+// ne rendra jamais `true`), pendant qu'ici il cesse d'être de confiance au
+// bout de trois jours. Le seul hôte encore joignable devient le seul depuis
+// lequel on ne peut plus entrer : c'est la faille critique 2, différée de
+// trois jours, et c'est le prix payé pour qu'un domaine revendu ne reste pas
+// reconnu pour toujours. L'asymétrie entre cette fenêtre-ci et celle du
+// routeur, l'issue manuelle qu'il reste avant T+72 h, et les trois voies
+// examinées pour faire mieux : `lib/hotesSortants.ts`, au-dessus de
+// `FENETRE_SORTANTE_MS`.
 test("passé la fenêtre, l'origine sortante est de nouveau refusée", async () => {
   const { t, email } = await jusquAuDeuxiemeChangement()
   figerLHorloge(CHANGE_VERS_C + FENETRE_SORTANTE_MS + HEURE)
@@ -210,6 +223,50 @@ test("passé la fenêtre, l'origine sortante est de nouveau refusée", async () 
   // tant qu'il est déclaré.
   const courant = await tenterConnexion(t, email, `https://admin.${C}`)
   expect(courant.status).toBe(401)
+})
+
+test("l'issue manuelle se referme avec la fenêtre, elle ne lui survit pas", async () => {
+  // L'issue que la relecture a établie : avant T+72 h, le lien reçu par
+  // email pointe vers `admin.C` — mort —, mais le JETON qu'il porte n'est
+  // lié à aucune origine, et recopié sur `admin.B` il fonctionne, parce
+  // que le `POST` part alors d'une origine sortante de confiance. C'est ce
+  // qui fait la différence entre « à moitié rouvert » et « fermé ».
+  //
+  // Ce test tient l'autre moitié de cette phrase, la seule qui puisse se
+  // périmer en silence : l'issue vit DANS la fenêtre. À T+72 h l'origine
+  // du `POST` cesse d'être de confiance, et le chemin de récupération se
+  // ferme avec elle. Écrire l'issue sans écrire sa borne serait laisser un
+  // commentaire rassurant sur une porte close.
+  //
+  // Les deux instants se repèrent à `FENETRE_SORTANTE_MS`, donc ce test
+  // tient la FORME (avant : ouvert ; après : fermé) et non la DURÉE — il
+  // resterait vert si quelqu'un multipliait la fenêtre par mille. C'est
+  // `lib/origines.test.ts` qui tient les 72 heures elles-mêmes, en heures
+  // écrites, et c'est là qu'il faut ajouter si la valeur doit être
+  // défendue plus fort.
+  const { t } = await jusquAuDeuxiemeChangement()
+  const demander = (origin: string) =>
+    t.fetch("/api/auth/reset-password", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin,
+        cookie: "better-auth.dummy=1",
+      },
+      body: JSON.stringify({ newPassword: "correct horse battery staple", token: "peu-importe" }),
+    })
+
+  // Dans la fenêtre : le contrôle d'origine laisse passer. Ce qui refuse
+  // ensuite est le jeton, pas l'origine — et c'est bien le point.
+  figerLHorloge(CHANGE_VERS_C + HEURE)
+  expect(await codeErreur(await demander(`https://admin.${B}`))).not.toBe("INVALID_ORIGIN")
+
+  // Passé la fenêtre : la même requête, le même hôte, toujours le seul
+  // routé — et le contrôle d'origine la refuse.
+  figerLHorloge(CHANGE_VERS_C + FENETRE_SORTANTE_MS + HEURE)
+  const apres = await demander(`https://admin.${B}`)
+  expect(apres.status).toBe(403)
+  expect(await codeErreur(apres)).toBe("INVALID_ORIGIN")
 })
 
 test("le chemin de RÉCUPÉRATION rouvre avec le reste", async () => {
