@@ -61,6 +61,7 @@ import type * as redirects from "../redirects.js";
 import type * as retention from "../retention.js";
 import type * as revalidate from "../revalidate.js";
 import type * as routing from "../routing.js";
+import type * as secretCheck from "../secretCheck.js";
 import type * as secrets from "../secrets.js";
 import type * as seed from "../seed.js";
 import type * as settings from "../settings.js";
@@ -128,6 +129,7 @@ declare const fullApi: ApiFromModules<{
   retention: typeof retention;
   revalidate: typeof revalidate;
   routing: typeof routing;
+  secretCheck: typeof secretCheck;
   secrets: typeof secrets;
   seed: typeof seed;
   settings: typeof settings;

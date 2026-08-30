@@ -183,6 +183,19 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
       // prochaine query gardée par secret ne tombe pas dans le `throw` du
       // bas sans que personne n'ait décidé.
       args = { secret: "ce-secret-est-faux-et-c-est-le-propos" }
+    } else if (q.argFields.length === 1 && q.argFields[0] === "domaine") {
+      // `dns.plan` : les enregistrements DNS à créer pour un domaine, que
+      // l'écran affiche AVANT toute vérification — d'où une query et non
+      // une action, puisqu'elle ne fait aucun appel sortant : elle dérive
+      // trois noms d'hôte du domaine saisi.
+      //
+      // Gardée par session (`requireRole(["owner","admin"])`), donc l'appel
+      // non authentifié de cette boucle lève avant que `args.domaine` ne
+      // soit lu : la valeur n'a pas d'importance, et cette query est exclue
+      // du contrôle de fuite plutôt que sautée en silence. Elle ne rend de
+      // toute façon aucune page — que des noms et des valeurs à recopier
+      // chez un registrar.
+      args = { domaine: "exemple.fr" }
     } else if (q.argFields.length === 1 && q.argFields[0] === "id") {
       // Task 8's `pages.get`/`pages.publicationStatus`: both session-gated
       // (`requireRole`), so calling them with no identity at all (this

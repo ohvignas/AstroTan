@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values"
-import { action } from "./_generated/server"
+import { action, query } from "./_generated/server"
 import { api } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
 import { requireRole } from "./lib/authz"
@@ -11,18 +11,27 @@ import { isPrivateIpv4 } from "./lib/webhookUrl"
 //
 // AstroTan est installé par des tiers, chez leur hébergeur, avec leur
 // domaine. Deux choses doivent tenir : que le site réponde (les A), et que
-// ses emails arrivent (SPF, DKIM, DMARC). Ces deux vérifications ne
-// changent rien nulle part — elles lisent le DNS public et rendent, pour
-// chaque enregistrement, ce qu'il faut faire.
+// ses emails arrivent (SPF, DKIM, DMARC).
 //
-// Des `action` et non des `query` : elles font des appels sortants, ce
-// qu'une query Convex ne peut pas. La distinction n'est pas qu'une
-// signature — une query est réactive et repartirait vers le résolveur à
-// chaque tick d'abonnement, pour une réponse qui met des minutes à changer.
+// DEUX QUESTIONS, ET NON UNE. « Qu'est-ce qu'il faut créer ? » ne dépend
+// que du domaine déclaré : `_dmarc.exemple.fr`, un TXT, telle valeur — ça
+// s'écrit sans demander l'avis de personne. « Qu'est-ce qui est déjà en
+// place ? » demande le réseau. Les fondre en une seule réponse faisait
+// naître la liste des enregistrements du bouton « Vérifier » : personne ne
+// savait quoi créer avant d'avoir lancé une lecture DNS qui ne le disait
+// pas mieux. D'où `plan` (une query, instantanée) d'un côté, `checkSite` et
+// `checkEmail` (des actions, lentes) de l'autre.
 //
-// `owner`/`admin` seulement. Un editor ne configure pas le domaine, et
-// chaque appel déclenche cinq requêtes sortantes depuis une route qu'un
-// compte du dashboard peut atteindre : ce n'est pas une lecture inoffensive.
+// Des `action` et non des `query` pour les deux vérifications : elles font
+// des appels sortants, ce qu'une query Convex ne peut pas. La distinction
+// n'est pas qu'une signature — une query est réactive et repartirait vers
+// le résolveur à chaque tick d'abonnement, pour une réponse qui met des
+// minutes à changer.
+//
+// `owner`/`admin` pour les trois. Un editor ne configure pas le domaine, et
+// chaque vérification déclenche cinq requêtes sortantes depuis une route
+// qu'un compte du dashboard peut atteindre : ce n'est pas une lecture
+// inoffensive.
 
 /**
  * Quatre états, pas deux — et surtout pas trois confondus en deux.
@@ -40,33 +49,60 @@ import { isPrivateIpv4 } from "./lib/webhookUrl"
  */
 export type EtatVerdict = "ok" | "manquant" | "different" | "indisponible"
 
-export type Verdict = {
+/**
+ * Un enregistrement à créer chez l'hébergeur — connu sans rien résoudre.
+ *
+ * `type`, `nom` et `attendu` sont TROIS CHAMPS et non une phrase. Un
+ * formulaire de zone DNS demande ces trois valeurs, dans cet ordre, et
+ * l'écran les met en colonnes. Ils vivaient jusqu'ici fondus dans une
+ * `instruction` composée ici (« Créez un enregistrement TXT sur “…”, de
+ * valeur : … ») : l'écran ne pouvait alors ni la découper en colonnes sans
+ * expression régulière, ni recalculer les mêmes noms de son côté sans
+ * dupliquer `controlesSite` / `controlesEmail`. La phrase a donc été
+ * retirée au profit des champs qu'elle contenait — rien d'autre ne la
+ * lisait.
+ */
+export type Enregistrement = {
   /** Stable, pour que l'écran s'y accroche : `site`, `admin`, `spf`, … */
   cle: string
+  /** À quoi sert cette ligne, en clair. L'écran en fait une infobulle. */
   libelle: string
+  /** `A`, `TXT`, … — la première colonne de tout formulaire de zone. */
+  type: TypeDns
+  /** L'hôte complet à créer : `_dmarc.exemple.fr`, jamais `_dmarc` seul. */
+  nom: string
   /** La valeur à saisir chez l'hébergeur, mot pour mot quand elle est connue. */
   attendu: string
+}
+
+/** L'enregistrement, plus ce que le résolveur en dit aujourd'hui. */
+export type Verdict = Enregistrement & {
   /** Ce que le résolveur a rendu — vide si absent ou indisponible. */
   trouve: string[]
   etat: EtatVerdict
-  /**
-   * La phrase à suivre, type + nom + valeur compris.
-   *
-   * Elle est composée ici et pas dans le composant : une instruction rendue
-   * à la main dans un JSX n'est vérifiée par rien. Ici, un test l'exige.
-   */
-  instruction: string
 }
 
-type Controle = {
-  cle: string
-  libelle: string
-  /** Le nom DNS interrogé, tel qu'il sera saisi chez l'hébergeur. */
-  nom: string
-  type: TypeDns
-  attendu: string
+type Controle = Enregistrement & {
   /** Une des valeurs trouvées convient-elle ? */
   accepte: (valeurs: string[]) => boolean
+}
+
+/**
+ * Le contrôle, moins son prédicat.
+ *
+ * Champ par champ et non `...controle` : `accepte` est une fonction, et un
+ * spread l'enverrait vers un client qui ne sait pas la porter. La liste
+ * explicite oblige aussi à choisir, le jour où `Enregistrement` gagne un
+ * champ, s'il doit sortir d'ici.
+ */
+function enregistrementDe(controle: Controle): Enregistrement {
+  return {
+    cle: controle.cle,
+    libelle: controle.libelle,
+    type: controle.type,
+    nom: controle.nom,
+    attendu: controle.attendu,
+  }
 }
 
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
@@ -175,20 +211,6 @@ function controlesEmail(hote: string): Controle[] {
   ]
 }
 
-function instruction(controle: Controle, etat: EtatVerdict): string {
-  const enregistrement = `un enregistrement ${controle.type} sur « ${controle.nom} », de valeur : ${controle.attendu}`
-  switch (etat) {
-    case "ok":
-      return `Rien à faire : ${enregistrement} — il est en place.`
-    case "manquant":
-      return `Créez ${enregistrement}`
-    case "different":
-      return `« ${controle.nom} » porte déjà un enregistrement ${controle.type}, mais aucun qui convienne. Remplacez sa valeur par : ${controle.attendu}`
-    case "indisponible":
-      return `Le résolveur DNS n'a pas répondu — réessayez dans un instant, ne créez rien pour l'instant. L'enregistrement attendu reste ${enregistrement}`
-  }
-}
-
 async function verifier(controles: Controle[]): Promise<Verdict[]> {
   // `Promise.all` : les requêtes sont indépendantes, et les enchaîner
   // ferait attendre l'adoptant cinq fois le délai d'attente quand le
@@ -206,12 +228,9 @@ async function verifier(controles: Controle[]): Promise<Verdict[]> {
               ? "ok"
               : "different"
       return {
-        cle: controle.cle,
-        libelle: controle.libelle,
-        attendu: controle.attendu,
+        ...enregistrementDe(controle),
         trouve: reponse.statut === "ok" ? reponse.valeurs : [],
         etat,
-        instruction: instruction(controle, etat),
       }
     }),
   )
@@ -229,6 +248,34 @@ function exigerHote(domaine: string): string {
   if (hote === null) throw new ConvexError({ code: "INVALID_DOMAIN", field: "domaine" })
   return hote
 }
+
+/**
+ * Ce qu'il faut créer, sans avoir rien vérifié.
+ *
+ * Le seul endroit d'où l'écran tire ses lignes tant que la vérification
+ * n'a pas répondu — et elle peut ne jamais répondre. Les deux groupes
+ * ensemble plutôt qu'une query chacun : ils s'affichent toujours l'un
+ * sous l'autre, et deux abonnements pour un seul argument coûteraient
+ * deux allers-retours pour la même réponse.
+ *
+ * Le domaine reçu est celui qu'a déjà normalisé `settings.update`, qui
+ * refuse tout le reste par `INVALID_DOMAIN` : `exigerHote` est ici une
+ * redite volontaire, pas le chemin normal.
+ */
+export const plan = query({
+  args: { domaine: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ site: Enregistrement[]; email: Enregistrement[] }> => {
+    await requireRole(ctx, ["owner", "admin"])
+    const hote = exigerHote(args.domaine)
+    return {
+      site: controlesSite(hote).map(enregistrementDe),
+      email: controlesEmail(hote).map(enregistrementDe),
+    }
+  },
+})
 
 export const checkSite = action({
   args: { domaine: v.string() },
