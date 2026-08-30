@@ -218,6 +218,16 @@ export const CIBLE_NATURES = {
   identifiantDeFiche: {
     publiee: "l'identifiant interne d'une fiche de contact",
   },
+  /**
+   * `resendDomain.declarer` — le nom de domaine d'expédition déclaré chez
+   * Resend. Il ne désigne personne : c'est le domaine du site, celui qui
+   * s'affiche déjà dans la barre d'adresse de chaque visiteur. Il
+   * s'énumère quand même, parce que le registre décrit ce que la table
+   * contient, pas seulement ce qu'elle contient de personnel.
+   */
+  nomDeDomaine: {
+    publiee: "le nom de domaine d'expédition des e-mails",
+  },
   /** `settings.update`. */
   aucune: {
     sansCible:
@@ -256,4 +266,5 @@ export const AUDIT_CIBLE_NATURE: Record<AuditAction, CibleNatureName> = {
   "emailTemplate.toggle": "titreDEmail",
   "emailTemplate.reset": "titreDEmail",
   "settings.update": "aucune",
+  "emailDomain.declare": "nomDeDomaine",
 }

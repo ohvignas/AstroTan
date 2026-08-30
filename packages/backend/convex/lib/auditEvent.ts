@@ -94,6 +94,18 @@ export const AUDIT_ACTIONS = [
   // `onPasswordReset` (`auth.ts`) une fois le mot de passe RÉELLEMENT
   // changé — jamais sur une simple demande, qui est ouverte à Internet.
   "password.reset",
+  // `emailDomain.declare` : la SEULE écriture de ce dépôt qui sorte du
+  // déploiement. Déclarer le domaine d'expédition chez Resend crée une
+  // ressource sur le compte de l'adoptant, avec sa clé, depuis un écran
+  // d'administration — et rien dans CETTE base n'en garde trace. Elle
+  // n'était pas journalisée tant qu'elle partait au montage de l'écran, où
+  // « une seconde ligne à chaque ouverture noierait la première » ; c'est
+  // aujourd'hui un geste explicite, et la raison est tombée avec le
+  // déclenchement.
+  //
+  // La cible est le NOM DE DOMAINE, jamais la clé ni l'identifiant Resend
+  // — règle 3.
+  "emailDomain.declare",
 ] as const
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
@@ -174,6 +186,11 @@ export function decrireAction(
     // serait affirmer plus que ce que la ligne sait.
     case "password.reset":
       return `${acteurNom} a réinitialisé son mot de passe${cible ? ` (${cible})` : ""}`
+    // « chez Resend » et non « le domaine d'expédition » seul : ce qui se
+    // relit six mois plus tard, c'est qu'une ressource a été créée chez un
+    // tiers, pas qu'un réglage a bougé ici.
+    case "emailDomain.declare":
+      return `${acteurNom} a déclaré ${quoi} comme domaine d'expédition chez Resend${suffixe}`
   }
 }
 

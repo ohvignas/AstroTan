@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values"
-import { action } from "./_generated/server"
-import { api } from "./_generated/api"
+import { action, internalMutation } from "./_generated/server"
+import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
+import { journaliser } from "./lib/auditEvent"
 import { requireRole } from "./lib/authz"
 import { lireSecret } from "./secrets"
 import type { Enregistrement } from "./dns"
@@ -25,12 +26,28 @@ import { normaliserHote } from "./lib/hoteNu"
 // les lignes de Resend prennent leur place dans ce tableau, à côté de SPF,
 // DKIM et DMARC, et non dans un second écran que personne n'irait voir.
 //
-// REGARDER AVANT D'ÉCRIRE. Déclarer un domaine est une écriture chez un
-// tiers, sous le compte de l'adoptant. Le cas le plus fréquent n'est pas la
-// première fois : c'est la deuxième visite de l'écran, où le domaine est
-// DÉJÀ déclaré. L'action liste donc d'abord (`GET /domains`), et ne poste
+// LIRE ET ÉCRIRE SONT DEUX FONCTIONS, ET C'EST LE POINT. Déclarer un
+// domaine est une écriture chez un tiers, sous le compte de l'adoptant.
+// Elle a longtemps vécu dans la MÊME action que la lecture : `declarer`
+// listait, et postait si le domaine manquait. L'écran appelait cette
+// action à son montage — si bien que le seul AFFICHAGE de `/settings/
+// domaine` créait un domaine chez Resend, sans qu'aucun clic ne l'ait
+// demandé. Le commentaire d'alors le savait sans le voir : il justifiait
+// l'absence de journal d'audit par « une seconde ligne à chaque ouverture
+// de l'écran noierait la première ».
+//
+// D'où deux actions :
+//
+//   • `etat` — LIT, et seulement. `GET /domains`, puis `GET /domains/{id}`
+//     si le domaine y est. Rend `absent` quand il n'y est pas, et n'écrit
+//     rien pour autant. C'est ce que l'ouverture de l'écran appelle.
+//   • `declarer` — ÉCRIT. `POST /domains`. Elle n'existe qu'au bout d'un
+//     geste explicite de l'adoptant, et elle est journalisée.
+//
+// Le cas le plus fréquent reste la deuxième visite, où le domaine est déjà
+// déclaré : `declarer` liste donc toujours avant de poster, et ne poste
 // que si le domaine manque. Une action qui échouerait sur un domaine déjà
-// présent serait inutilisable dès la seconde visite.
+// présent serait inutilisable dès qu'on la relance.
 //
 // ET ÉCRIRE QUAND MÊME SANS RIEN CASSER. Entre la lecture et l'écriture, le
 // domaine peut apparaître (un autre onglet, un collègue, le tableau de bord
@@ -60,7 +77,7 @@ const API = "https://api.resend.com"
 /**
  * Ce que l'écran reçoit.
  *
- * Six issues et non deux, pour la même raison que `dns.ts` en distingue
+ * Sept issues et non deux, pour la même raison que `dns.ts` en distingue
  * quatre : « le service a dit non » et « le service n'a pas répondu » ne se
  * réparent pas de la même façon, et afficher l'un pour l'autre envoie
  * l'adoptant chercher au mauvais endroit.
@@ -77,6 +94,15 @@ export type ResultatResend =
       /** Lignes rendues par Resend qu'on n'a pas su typer — voir `versEnregistrement`. */
       ignores: number
     }
+  /**
+   * Le domaine n'est pas déclaré chez Resend — et rien n'a été écrit pour
+   * le constater.
+   *
+   * L'issue que `etat` rend et que `declarer` ne rend jamais : c'est la
+   * frontière entre lire et écrire, dans le type. L'écran en fait une
+   * étiquette rouge et propose l'action qui la ferme.
+   */
+  | { etat: "absent" }
   /** Aucune clé Resend n'est configurée : rien à tenter, et on n'a rien tenté. */
   | { etat: "sans_cle" }
   /** La clé existe et n'a que le droit d'envoyer : elle ne peut pas déclarer. */
@@ -334,29 +360,35 @@ async function trouverDomaine(cle: string, hote: string): Promise<string | null>
 }
 
 /**
- * Déclarer le domaine d'expédition, et rendre ce qu'il reste à créer.
+ * Le domaine, normalisé — ou un refus, AVANT tout appel sortant.
  *
- * `owner`/`admin`, comme les trois fonctions de `dns.ts` et comme
- * `secrets.set` : cette action fait un appel sortant AUTHENTIFIÉ vers un
- * tiers, avec la clé du déploiement, et peut y écrire. Un editor n'a rien
- * à y faire.
- *
- * Aucune trace au journal : rien n'est écrit dans CETTE base, et le geste
- * qui compte — changer le domaine — est déjà journalisé par
- * `settings.update`. Une seconde ligne à chaque ouverture de l'écran
- * noierait la première.
+ * L'ordre est la garde : valider après le premier `fetch` ferait de ce
+ * champ de saisie un moyen de faire émettre des requêtes arbitraires
+ * depuis ce déploiement. Même mesure, même ordre, même code d'erreur que
+ * `dns.exigerHote`.
  */
-export const declarer = action({
+function exigerHote(domaine: string): string {
+  const hote = normaliserHote(domaine)
+  if (hote === null) throw new ConvexError({ code: "INVALID_DOMAIN", field: "domaine" })
+  return hote
+}
+
+/**
+ * L'état du domaine d'expédition chez Resend. LIT, et rien d'autre.
+ *
+ * C'est ce que l'ouverture de `/settings/domaine` appelle. Aucune méthode
+ * autre que `GET` ne part d'ici, et `absent` est une réponse — pas une
+ * invitation à réparer soi-même en postant. Le seul affichage d'un écran
+ * ne doit rien écrire chez un tiers, sous le compte de l'adoptant.
+ *
+ * `owner`/`admin` comme `declarer` : même clé de déploiement, même appel
+ * sortant authentifié, même écran.
+ */
+export const etat = action({
   args: { domaine: v.string() },
   handler: async (ctx, args): Promise<ResultatResend> => {
     await requireRole(ctx, ["owner", "admin"])
-
-    // Valider AVANT tout appel sortant : l'inverse ferait de ce champ de
-    // saisie un moyen de faire émettre des requêtes arbitraires depuis ce
-    // déploiement. Même mesure, même ordre que `dns.ts`.
-    const hote = normaliserHote(args.domaine)
-    if (hote === null) throw new ConvexError({ code: "INVALID_DOMAIN", field: "domaine" })
-
+    const hote = exigerHote(args.domaine)
     // `lireSecret` et non `process.env` : LE point de lecture, celui qui
     // porte la précédence environnement-puis-base. Lire l'environnement
     // ici ferait ignorer la clé saisie dans l'administration — un réglage
@@ -365,6 +397,46 @@ export const declarer = action({
     // Réponse ordinaire, pas une panne : un template qui s'installe sans
     // clé Resend ne doit pas avoir l'air cassé. Et surtout : on n'a rien
     // appelé.
+    if (cle === null) return { etat: "sans_cle" }
+    try {
+      const existant = await trouverDomaine(cle, hote)
+      // Le point exact où `declarer` posterait. Ici, on le dit.
+      if (existant === null) return { etat: "absent" }
+      return await relire(cle, existant, hote, true)
+    } catch (erreur) {
+      if (erreur instanceof ErreurResend) return { etat: erreur.issue }
+      throw erreur
+    }
+  },
+})
+
+/**
+ * Déclarer le domaine d'expédition, et rendre ce qu'il reste à créer.
+ *
+ * ÉCRIT chez un tiers. Elle n'est appelée que par un geste explicite de
+ * l'adoptant — le bouton « Déclarer … chez Resend » —, jamais par
+ * l'affichage d'un écran : c'est `etat` qui répond à l'ouverture.
+ *
+ * `owner`/`admin`, comme les trois fonctions de `dns.ts` et comme
+ * `secrets.set` : cette action fait un appel sortant AUTHENTIFIÉ vers un
+ * tiers, avec la clé du déploiement, et peut y écrire. Un editor n'a rien
+ * à y faire.
+ *
+ * JOURNALISÉE, désormais. L'ancienne raison de ne pas le faire — « une
+ * seconde ligne à chaque ouverture de l'écran noierait la première » —
+ * décrivait le défaut, pas une décision : elle tenait à un déclenchement
+ * qui ne devait pas exister. Une écriture chez un tiers, sous le compte de
+ * l'adoptant, faite exprès par quelqu'un, est exactement ce que
+ * `lib/auditEvent.ts` existe pour retenir — et c'est la seule de ce lot
+ * qui sorte du déploiement. La ligne ne s'écrit que si le domaine a
+ * RÉELLEMENT été créé : un domaine déjà présent n'est pas un geste.
+ */
+export const declarer = action({
+  args: { domaine: v.string() },
+  handler: async (ctx, args): Promise<ResultatResend> => {
+    const acteur = await requireRole(ctx, ["owner", "admin"])
+    const hote = exigerHote(args.domaine)
+    const cle = await lireSecret(ctx, "RESEND_API_KEY")
     if (cle === null) return { etat: "sans_cle" }
 
     try {
@@ -380,6 +452,13 @@ export const declarer = action({
       if (creation.ok) {
         const domaine = lireDomaine(creation.corps)
         if (domaine === null) throw new ErreurResend("injoignable")
+        // APRÈS l'écriture, et seulement si elle a eu lieu : un journal
+        // qui note des gestes qui n'ont pas abouti ne se relit pas.
+        await ctx.runMutation(internal.resendDomain.journaliserDeclaration, {
+          acteurId: acteur._id,
+          acteurEmail: acteur.email,
+          domaine: hote,
+        })
         return assembler(domaine, hote, false)
       }
 
@@ -429,6 +508,30 @@ function assembler(
   return { etat: "ok", dejaDeclare, statut: domaine.statut, enregistrements, ignores }
 }
 
+/**
+ * La ligne de journal, écrite depuis l'action.
+ *
+ * `internalMutation` parce qu'une action ne touche pas `ctx.db` : c'est le
+ * même détour que `passwordReset.journaliserReinitialisation`, et le seul
+ * disponible. La règle 1 de `lib/auditEvent.ts` — « la ligne s'écrit dans
+ * la même mutation que le geste » — ne peut pas s'appliquer ici : le geste
+ * est un `POST` chez un tiers, qu'aucune transaction Convex ne couvre. On
+ * écrit donc APRÈS lui, et jamais à sa place.
+ *
+ * Le domaine et rien d'autre : ni la clé, ni son préfixe, ni l'identifiant
+ * Resend du domaine — règle 3, aucune valeur de secret au journal.
+ */
+export const journaliserDeclaration = internalMutation({
+  args: { acteurId: v.string(), acteurEmail: v.string(), domaine: v.string() },
+  handler: async (ctx, args) => {
+    await journaliser(ctx, {
+      acteur: { _id: args.acteurId, email: args.acteurEmail },
+      action: "emailDomain.declare",
+      cible: args.domaine,
+    })
+  },
+})
+
 // Le garde-fou d'exhaustivité (`_registry.test.ts`) compte les ACTIONS
 // publiques au même titre que les mutations : sans cette entrée, il échoue.
 //
@@ -443,8 +546,15 @@ function assembler(
 // être délégué, et il passe `normaliserHote` — la validation doit réussir,
 // sinon un owner recevrait `INVALID_DOMAIN` là où la matrice attend un
 // succès.
-MUTATION_REGISTRY.push({
-  name: "resendDomain.declarer",
-  allowedRoles: ["owner", "admin"],
-  invoke: (t) => t.action(api.resendDomain.declarer, { domaine: "exemple.invalid" }),
-})
+MUTATION_REGISTRY.push(
+  {
+    name: "resendDomain.etat",
+    allowedRoles: ["owner", "admin"],
+    invoke: (t) => t.action(api.resendDomain.etat, { domaine: "exemple.invalid" }),
+  },
+  {
+    name: "resendDomain.declarer",
+    allowedRoles: ["owner", "admin"],
+    invoke: (t) => t.action(api.resendDomain.declarer, { domaine: "exemple.invalid" }),
+  },
+)

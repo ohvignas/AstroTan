@@ -603,3 +603,156 @@ test("declarer : un type DNS que Resend inventerait est compté, pas caché", as
   // visible. Le compte permet à l'écran de le dire.
   expect(resultat.ignores).toBe(1)
 })
+
+// ---------------------------------------------------------------------
+// LIRE N'EST PAS ÉCRIRE — la frontière, tenue par des tests.
+//
+// `declarer` était la seule fonction de ce module, et l'écran l'appelait à
+// son MONTAGE : le seul affichage de `/settings/domaine` créait un domaine
+// chez Resend, sous le compte de l'adoptant, sans qu'aucun clic ne l'ait
+// demandé. `etat` est la moitié qui lit.
+//
+// CE QUE CES TESTS DISCRIMINENT, vérifié en retirant la garde :
+//   - `etat` qui posterait quand le domaine manque (le code d'avant) →
+//     2 échecs.
+//   - la ligne de journal retirée de `declarer` → 1 échec.
+//   - la ligne de journal écrite même sur un domaine déjà déclaré →
+//     1 échec.
+// ---------------------------------------------------------------------
+
+test("etat : un domaine absent se dit, et rien n'est écrit chez Resend", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.RESEND_API_KEY = "re_test_env"
+  const compte = fauxCompte()
+  const appels = stubResend(compte.repondre)
+
+  const resultat = await admin.identity.action(api.resendDomain.etat, {
+    domaine: "exemple.fr",
+  })
+
+  expect(resultat).toEqual({ etat: "absent" })
+  // Le compte Resend est intact : c'est ce que « lire » veut dire.
+  expect(compte.domaines).toEqual([])
+  expect(appels.map((a) => a.methode)).toEqual(["GET"])
+})
+
+test("etat : aucune méthode autre que GET ne part de cette action", async () => {
+  // La règle en une ligne, indépendamment du cas : quel que soit l'état du
+  // compte, `etat` ne fait que lire.
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.RESEND_API_KEY = "re_test_env"
+  for (const initiaux of [[], ["exemple.fr"]]) {
+    const compte = fauxCompte(initiaux)
+    const appels = stubResend(compte.repondre)
+    await admin.identity.action(api.resendDomain.etat, { domaine: "exemple.fr" })
+    expect(appels.every((a) => a.methode === "GET")).toBe(true)
+    vi.unstubAllGlobals()
+  }
+})
+
+test("etat : un domaine déjà déclaré rend ses lignes, sans rien poster", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.RESEND_API_KEY = "re_test_env"
+  const compte = fauxCompte(["exemple.fr"])
+  const appels = stubResend(compte.repondre)
+
+  const resultat = await admin.identity.action(api.resendDomain.etat, {
+    domaine: "exemple.fr",
+  })
+
+  if (resultat.etat !== "ok") throw new Error(`attendu ok, reçu ${resultat.etat}`)
+  expect(resultat.dejaDeclare).toBe(true)
+  expect(resultat.enregistrements.length).toBe(3)
+  expect(appels.map((a) => a.methode)).toEqual(["GET", "GET"])
+})
+
+test("etat : sans clé Resend, on le dit — sans rien appeler", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  const appels = stubResend(() => ({ status: 200, body: {} }))
+  const resultat = await admin.identity.action(api.resendDomain.etat, {
+    domaine: "exemple.fr",
+  })
+  expect(resultat).toEqual({ etat: "sans_cle" })
+  expect(appels).toEqual([])
+})
+
+test("etat : un editor est refusé, avant tout appel sortant", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  process.env.RESEND_API_KEY = "re_test_env"
+  const appels = stubResend(() => ({ status: 200, body: {} }))
+  await expect(
+    editor.identity.action(api.resendDomain.etat, { domaine: "exemple.fr" }),
+  ).rejects.toThrow(/FORBIDDEN/)
+  expect(appels).toEqual([])
+})
+
+test("etat : un domaine qui n'est pas un hôte nu est refusé avant tout appel", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.RESEND_API_KEY = "re_test_env"
+  const appels = stubResend(() => ({ status: 200, body: {} }))
+  await expect(
+    admin.identity.action(api.resendDomain.etat, { domaine: "https://exemple.fr/x" }),
+  ).rejects.toThrow(/INVALID_DOMAIN/)
+  expect(appels).toEqual([])
+})
+
+// --- Le journal ----------------------------------------------------------
+
+/** Les lignes du journal d'audit, telles qu'elles sont en base. */
+async function journal(t: TestConvex<typeof schema>) {
+  return await t.run((ctx) => ctx.db.query("auditLog").collect())
+}
+
+test("declarer : créer le domaine laisse une ligne au journal", async () => {
+  // C'est la seule écriture de ce dépôt qui sorte du déploiement : une
+  // ressource créée chez un tiers, avec la clé de l'adoptant. Rien dans
+  // cette base n'en garderait trace autrement. L'ancienne raison de ne pas
+  // journaliser — « une seconde ligne à chaque ouverture de l'écran
+  // noierait la première » — décrivait le montage qui déclarait tout seul,
+  // et elle est tombée avec lui.
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.RESEND_API_KEY = "re_test_env"
+  stubResend(fauxCompte().repondre)
+
+  await admin.identity.action(api.resendDomain.declarer, { domaine: "Exemple.FR." })
+
+  const lignes = await journal(t)
+  expect(lignes.map((l) => l.action)).toEqual(["emailDomain.declare"])
+  // L'hôte NORMALISÉ, celui qui a réellement été déclaré — pas la saisie.
+  expect(lignes[0]!.cible).toBe("exemple.fr")
+  // Règle 3 : aucune valeur de secret au journal, même tronquée.
+  expect(JSON.stringify(lignes[0])).not.toContain("re_test_env")
+})
+
+test("declarer : un domaine déjà déclaré n'est pas un geste, et ne s'écrit pas", async () => {
+  // Sans quoi la ligne reviendrait à chaque clic sur un domaine qui n'a
+  // pas bougé, et le journal ne dirait plus quand la déclaration a eu lieu.
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.RESEND_API_KEY = "re_test_env"
+  stubResend(fauxCompte(["exemple.fr"]).repondre)
+
+  await admin.identity.action(api.resendDomain.declarer, { domaine: "exemple.fr" })
+
+  expect(await journal(t)).toEqual([])
+})
+
+test("etat : lire ne laisse aucune ligne au journal", async () => {
+  // Un journal qui note les lectures ne se relit plus : c'est exactement
+  // la crainte que l'ancien commentaire exprimait, et elle reste juste.
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.RESEND_API_KEY = "re_test_env"
+  stubResend(fauxCompte(["exemple.fr"]).repondre)
+
+  await admin.identity.action(api.resendDomain.etat, { domaine: "exemple.fr" })
+
+  expect(await journal(t)).toEqual([])
+})

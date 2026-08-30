@@ -31,9 +31,14 @@ describe("decrireAction", () => {
   // n'est pas une session authentifiée, et le seul qui modifie un accès
   // sans qu'aucune connexion ne l'ait demandé — donc le seul qu'aucune
   // autre donnée conservée ne permettrait de reconstituer après coup.
-  test("la liste couvre exactement les dix-sept gestes instrumentés", () => {
+  // S'y ajoute `emailDomain.declare` : la seule écriture de ce dépôt qui
+  // sorte du déploiement — une ressource créée chez Resend, sur le compte
+  // de l'adoptant, avec sa clé. Rien dans cette base n'en garde trace
+  // autrement.
+  test("la liste couvre exactement les dix-huit gestes instrumentés", () => {
     expect([...AUDIT_ACTIONS].sort()).toEqual(
       [
+        "emailDomain.declare",
         "password.reset",
         "emailTemplate.reset",
         "emailTemplate.set",

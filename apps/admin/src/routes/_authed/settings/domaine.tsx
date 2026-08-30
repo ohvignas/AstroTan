@@ -81,10 +81,25 @@ function DomaineRoute() {
 // La VÉRIFICATION suit le champ, elle, mais seulement là où c'est gratuit.
 // `dns.plan` est une query (aucun appel sortant) et prend le domaine tapé
 // dès qu'il est un hôte complet : le tableau se remplit pendant qu'on
-// tape. Les trois actions — deux lectures DNS et la déclaration chez
-// Resend — ne partent QUE d'un clic, ou une fois au montage pour le
+// tape. Les trois LECTURES — deux résolutions DNS et l'état du domaine
+// chez Resend — ne partent QUE d'un clic, ou une fois au montage pour le
 // domaine déjà enregistré. Les faire suivre la frappe enverrait cinq
 // requêtes sortantes par caractère.
+//
+// OUVRIR CET ÉCRAN NE DÉCLARE RIEN CHEZ PERSONNE
+//
+// Le montage appelait `resendDomain.declarer`, qui postait chez Resend
+// quand le domaine y manquait : le seul AFFICHAGE de cette page créait
+// donc une ressource chez un tiers, sous le compte de l'adoptant, sans
+// qu'aucun clic ne l'ait demandé. La réserve connue disait « cliquer
+// Vérifier déclare le domaine » — c'était plus large que ça.
+//
+// Lire et écrire sont maintenant deux gestes et deux fonctions. Le montage
+// et le bouton « Vérifier » appellent `resendDomain.etat`, qui ne fait que
+// des `GET`. Déclarer a son propre bouton, qui dit ce qu'il fait, et n'
+// apparaît que lorsqu'il y a quelque chose à déclarer. `lireLeDomaine`
+// plus bas est cette frontière, écrite une fois : elle reçoit les quatre
+// actions de l'écran et n'en appelle que trois.
 // ---------------------------------------------------------------------
 
 function DomaineForm({
@@ -187,8 +202,10 @@ function DomaineForm({
             lecture={lecture}
             etatA={etatA}
             enCours={verification.enCours}
+            declarationEnCours={verification.declarationEnCours}
             erreur={verification.erreur}
             onVerifier={verification.verifier}
+            onDeclarer={verification.declarer}
           />
         ) : null}
       </SettingsGroup>
@@ -286,7 +303,7 @@ export function domaineEnregistrable(
 /**
  * Ce que Resend a répondu, en un état et un mot.
  *
- * SIX ISSUES, PAS DEUX — et surtout `cle_restreinte` séparée du reste. Une
+ * SEPT ISSUES, PAS DEUX — et surtout `cle_restreinte` séparée du reste. Une
  * clé « Sending access » s'authentifie parfaitement et envoie les emails :
  * `secretCheck` l'accepte à raison. Elle ne peut simplement pas gérer les
  * domaines. La ranger sous « clé invalide » enverrait l'adoptant régénérer
@@ -300,6 +317,11 @@ export function etiquetteResend(resultat: ResultatResend): {
   texte: string
 } {
   switch (resultat.etat) {
+    // Rouge et non gris : le domaine N'EST PAS déclaré, et tant qu'il ne
+    // l'est pas Resend refuse les envois. Ce n'est pas « on ne sait pas »,
+    // c'est un manque, et l'écran propose l'action qui le comble.
+    case "absent":
+      return { signe: "ko", texte: "Resend · domaine non déclaré" }
     case "sans_cle":
       return { signe: "inconnu", texte: "Resend · clé absente" }
     case "cle_restreinte":
@@ -391,7 +413,55 @@ export function TableauxDns({
 }
 
 /**
- * Les trois appels sortants, leur état, et pour quel hôte.
+ * Les quatre appels distants de cet écran, en un seul objet.
+ *
+ * Groupés pour que la frontière entre lire et écrire soit VISIBLE : les
+ * deux opérations plus bas reçoivent les quatre, et c'est ce que chacune
+ * choisit d'appeler qui la définit. Passer à `lireLeDomaine` seulement les
+ * trois lectures rendrait son innocence vraie par signature, donc
+ * invérifiable — et c'est justement ce qui a manqué à la version où
+ * l'ouverture de l'écran déclarait un domaine chez un tiers.
+ */
+export type ActionsDomaine = {
+  checkSite: (args: { domaine: string }) => Promise<Verdict[]>
+  checkEmail: (args: { domaine: string }) => Promise<Verdict[]>
+  /** `resendDomain.etat` — des `GET`, et rien d'autre. */
+  etatResend: (args: { domaine: string }) => Promise<ResultatResend>
+  /** `resendDomain.declarer` — un `POST` chez un tiers. Un geste, jamais un rendu. */
+  declarerResend: (args: { domaine: string }) => Promise<ResultatResend>
+}
+
+/**
+ * CE QUE FAIT L'OUVERTURE DE L'ÉCRAN — trois lectures, aucune écriture.
+ *
+ * Les trois ensemble : elles sont indépendantes, et les enchaîner ferait
+ * attendre trois fois le délai d'attente.
+ *
+ * `declarerResend` est reçue et n'est pas appelée. C'est la garde, et
+ * `domain-check.test.tsx` la tient : la lui passer en la faisant lever
+ * rougirait le jour où quelqu'un la remettrait sur ce chemin.
+ */
+export async function lireLeDomaine(
+  actions: ActionsDomaine,
+  hote: string
+): Promise<Lecture> {
+  const [site, email, resend] = await Promise.all([
+    actions.checkSite({ domaine: hote }),
+    actions.checkEmail({ domaine: hote }),
+    // L'état chez Resend ne doit PAS pouvoir emporter la lecture DNS :
+    // c'est elle qui décide du bouton d'enregistrement, et une panne côté
+    // Resend n'a rien à dire sur les A. `etat` rend déjà ses propres refus
+    // comme des réponses ordinaires ; il ne reste ici que ce qui lève
+    // vraiment.
+    actions
+      .etatResend({ domaine: hote })
+      .catch((): ResultatResend => ({ etat: "injoignable" })),
+  ])
+  return { hote, site, email, resend }
+}
+
+/**
+ * Les lectures, leur état, et pour quel hôte — plus le geste qui écrit.
  *
  * Un hook plutôt qu'un état interne au composant d'affichage : le verrou du
  * bouton d'enregistrement vit dans `DomaineForm`, et il lui faut la même
@@ -399,10 +469,14 @@ export function TableauxDns({
  * tableau et le bouton parlent du même moment.
  */
 function useVerification(domaineEnregistre: string | null) {
-  const checkSite = useAction(api.dns.checkSite)
-  const checkEmail = useAction(api.dns.checkEmail)
-  const declarerChezResend = useAction(api.resendDomain.declarer)
+  const actions: ActionsDomaine = {
+    checkSite: useAction(api.dns.checkSite),
+    checkEmail: useAction(api.dns.checkEmail),
+    etatResend: useAction(api.resendDomain.etat),
+    declarerResend: useAction(api.resendDomain.declarer),
+  }
   const [enCours, setEnCours] = useState(false)
+  const [declarationEnCours, setDeclarationEnCours] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
   const [lecture, setLecture] = useState<Lecture | null>(null)
 
@@ -410,25 +484,31 @@ function useVerification(domaineEnregistre: string | null) {
     setEnCours(true)
     setErreur(null)
     try {
-      // Les trois ensemble : elles sont indépendantes, et les enchaîner
-      // ferait attendre trois fois le délai d'attente.
-      const [site, email, resend] = await Promise.all([
-        checkSite({ domaine: hote }),
-        checkEmail({ domaine: hote }),
-        // La déclaration chez Resend ne doit PAS pouvoir emporter la
-        // lecture DNS : c'est elle qui décide du bouton d'enregistrement,
-        // et une panne côté Resend n'a rien à dire sur les A. `declarer`
-        // rend déjà ses propres refus comme des réponses ordinaires ; il
-        // ne reste ici que ce qui lève vraiment.
-        declarerChezResend({ domaine: hote }).catch(
-          (): ResultatResend => ({ etat: "injoignable" })
-        ),
-      ])
-      setLecture({ hote, site, email, resend })
+      setLecture(await lireLeDomaine(actions, hote))
     } catch (err) {
       setErreur(describeSettingsError(err))
     } finally {
       setEnCours(false)
+    }
+  }
+
+  /**
+   * Le seul chemin qui écrive chez Resend, et il part d'un clic.
+   *
+   * On RELIT ensuite plutôt que d'afficher ce que l'écriture a rendu :
+   * l'état montré vient toujours d'une lecture, une seule fois, et il n'y
+   * a pas deux façons pour cet écran d'apprendre où en est le domaine.
+   */
+  async function declarer(hote: string) {
+    setDeclarationEnCours(true)
+    setErreur(null)
+    try {
+      await actions.declarerResend({ domaine: hote })
+      setLecture(await lireLeDomaine(actions, hote))
+    } catch (err) {
+      setErreur(describeSettingsError(err))
+    } finally {
+      setDeclarationEnCours(false)
     }
   }
 
@@ -438,13 +518,13 @@ function useVerification(domaineEnregistre: string | null) {
   // requêtes sortantes à chaque caractère tapé dans le champ.
   useEffect(() => {
     if (domaineEnregistre !== null) void verifier(domaineEnregistre)
-    // `verifier` ferme sur les trois actions, stables d'un rendu à l'autre
+    // `verifier` ferme sur les quatre actions, stables d'un rendu à l'autre
     // (`useAction` les mémoïse) : les lister ici ne changerait rien à quand
     // l'effet se relance, et les omettre est le point — seul le domaine
-    // enregistré doit déclencher une nouvelle vérification.
+    // enregistré doit déclencher une nouvelle lecture.
   }, [domaineEnregistre])
 
-  return { lecture, enCours, erreur, verifier }
+  return { lecture, enCours, declarationEnCours, erreur, verifier, declarer }
 }
 
 function VerificationDns({
@@ -452,15 +532,19 @@ function VerificationDns({
   lecture,
   etatA,
   enCours,
+  declarationEnCours,
   erreur,
   onVerifier,
+  onDeclarer,
 }: {
   cible: string | null
   lecture: Lecture | null
   etatA: { signe: Signe; texte: string } | null
   enCours: boolean
+  declarationEnCours: boolean
   erreur: string | null
   onVerifier: (hote: string) => void
+  onDeclarer: (hote: string) => void
 }) {
   // Le plan suit le CHAMP, pas le domaine enregistré : c'est une query,
   // elle ne sort pas du déploiement, et c'est ce qui fait que le tableau
@@ -492,6 +576,24 @@ function VerificationDns({
         </Button>
         {etatA !== null ? <Etiquette {...etatA} /> : null}
       </div>
+
+      {/* L'écriture chez un tiers, et son libellé dit ce qu'elle fait.
+          Elle n'apparaît que lorsqu'une lecture a montré qu'il y a
+          quelque chose à déclarer : une action proposée en permanence
+          serait à nouveau un bouton dont on ne sait pas s'il écrit. */}
+      {cible !== null && lecture?.resend.etat === "absent" ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-fit"
+          disabled={enCours || declarationEnCours}
+          onClick={() => onDeclarer(cible)}
+        >
+          {declarationEnCours
+            ? "Déclaration chez Resend…"
+            : `Déclarer ${cible} chez Resend`}
+        </Button>
+      ) : null}
 
       {erreur !== null ? (
         <p className="text-sm text-destructive">{erreur}</p>

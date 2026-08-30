@@ -9,13 +9,14 @@ import {
   fusionnerResend,
   fusionnerVerdicts,
 } from "./domain-check"
-import type { Lecture } from "@/routes/_authed/settings/domaine"
+import type { ActionsDomaine, Lecture } from "@/routes/_authed/settings/domaine"
 import {
   TableauxDns,
   domaineEnregistrable,
   etatDesA,
   etiquetteResend,
   lectureDe,
+  lireLeDomaine,
 } from "@/routes/_authed/settings/domaine"
 
 const PLAN_SITE: Enregistrement = {
@@ -692,5 +693,118 @@ describe("les enregistrements de Resend rejoignent le tableau", () => {
     )
     expect((html.match(/data-testid="verdict-/g) ?? []).length).toBe(2)
     expect(auRepos(html)).toContain("Resend · clé limitée à l'envoi")
+  })
+})
+
+// ---------------------------------------------------------------------
+// OUVRIR L'ÉCRAN NE DÉCLARE RIEN CHEZ RESEND.
+//
+// Le montage appelait `resendDomain.declarer`, qui postait chez Resend
+// quand le domaine y manquait : le seul AFFICHAGE de `/settings/domaine`
+// créait une ressource chez un tiers, sous le compte de l'adoptant, sans
+// qu'aucun clic ne l'ait demandé.
+//
+// `lireLeDomaine` est ce que le montage — et le bouton « Vérifier » —
+// appellent désormais. Elle reçoit LES QUATRE actions de l'écran, y
+// compris celle qui écrit, et n'en appelle que trois : ne lui passer que
+// les lectures rendrait son innocence vraie par signature, donc
+// invérifiable.
+//
+// CE QUE CES TESTS DISCRIMINENT, vérifié en retirant la garde :
+//   - `declarerResend` remise dans le `Promise.all` de `lireLeDomaine`
+//     (le code d'avant) → 2 échecs.
+//   - `etatResend` dont le refus ne serait plus rattrapé → 1 échec.
+// ---------------------------------------------------------------------
+
+describe("lireLeDomaine", () => {
+  /**
+   * Les quatre actions, tracées — et celle qui écrit LÈVE.
+   *
+   * Elle lève plutôt que de rendre une valeur : un appel oublié fait alors
+   * échouer le test par où il fait mal, sans dépendre de ce qu'on assure
+   * ensuite sur la liste.
+   */
+  function actionsTracees(resend: ResultatResend = { etat: "absent" }) {
+    const appels: string[] = []
+    const actions: ActionsDomaine = {
+      checkSite: async () => {
+        appels.push("checkSite")
+        return []
+      },
+      checkEmail: async () => {
+        appels.push("checkEmail")
+        return []
+      },
+      etatResend: async () => {
+        appels.push("etatResend")
+        return resend
+      },
+      declarerResend: async () => {
+        appels.push("declarerResend")
+        throw new Error("Ouvrir l'écran ne doit rien déclarer chez Resend.")
+      },
+    }
+    return { actions, appels }
+  }
+
+  test("ouvrir l'écran lit, et n'écrit pas chez Resend", async () => {
+    const { actions, appels } = actionsTracees()
+    const lecture = await lireLeDomaine(actions, "exemple.fr")
+    expect(appels).not.toContain("declarerResend")
+    expect([...appels].sort()).toEqual(["checkEmail", "checkSite", "etatResend"])
+    expect(lecture.hote).toBe("exemple.fr")
+    expect(lecture.resend).toEqual({ etat: "absent" })
+  })
+
+  test("l'hôte lu est celui qu'on a demandé, sur les trois appels", async () => {
+    const demandes: string[] = []
+    const actions: ActionsDomaine = {
+      checkSite: async ({ domaine }) => {
+        demandes.push(domaine)
+        return []
+      },
+      checkEmail: async ({ domaine }) => {
+        demandes.push(domaine)
+        return []
+      },
+      etatResend: async ({ domaine }) => {
+        demandes.push(domaine)
+        return { etat: "absent" }
+      },
+      declarerResend: async () => {
+        throw new Error("Ouvrir l'écran ne doit rien déclarer chez Resend.")
+      },
+    }
+    await lireLeDomaine(actions, "exemple.fr")
+    expect(demandes).toEqual(["exemple.fr", "exemple.fr", "exemple.fr"])
+  })
+
+  // Une panne côté Resend n'a rien à dire sur les enregistrements A, et ce
+  // sont eux qui décident du bouton d'enregistrement. La laisser emporter
+  // la lecture entière fermerait le verrou pour une raison sans rapport.
+  test("un refus de Resend n'emporte pas la lecture DNS", async () => {
+    const actions: ActionsDomaine = {
+      checkSite: async () => [A_SITE_OK],
+      checkEmail: async () => [],
+      etatResend: async () => {
+        throw new Error("api.resend.com injoignable")
+      },
+      declarerResend: async () => {
+        throw new Error("Ouvrir l'écran ne doit rien déclarer chez Resend.")
+      },
+    }
+    const lecture = await lireLeDomaine(actions, "exemple.fr")
+    expect(lecture.site).toEqual([A_SITE_OK])
+    expect(lecture.resend).toEqual({ etat: "injoignable" })
+  })
+
+  // L'étiquette de l'issue que seule la lecture rend : rouge, parce que
+  // Resend refuse les envois tant que le domaine n'est pas déclaré — et
+  // nommée, parce qu'un rond rouge seul ne désigne rien.
+  test("« absent » est une étiquette rouge et nommée", () => {
+    expect(etiquetteResend({ etat: "absent" })).toEqual({
+      signe: "ko",
+      texte: "Resend · domaine non déclaré",
+    })
   })
 })

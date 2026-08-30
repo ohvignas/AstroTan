@@ -403,7 +403,9 @@ export const processings: Processing[] = [
       "l'invitation et n'a donc jamais de compte ici ; le nom d'un jeton " +
       "d'accès (jamais sa valeur, pas même tronquée) ; l'adresse d'une page " +
       "ou d'un article publié, dépublié ou supprimé ; le titre d'un e-mail " +
-      "type dont le texte ou l'envoi a été modifié (jamais son contenu) ; ou " +
+      "type dont le texte ou l'envoi a été modifié (jamais son contenu) ; le " +
+      "nom de domaine d'expédition des e-mails déclaré chez le service " +
+      "d'envoi ; ou " +
       "l'identifiant interne d'une fiche de contact supprimée — jamais " +
       "l'adresse ni le nom de la personne qui l'avait écrite, pour que ce " +
       "journal ne défasse pas l'effacement de la fiche",
