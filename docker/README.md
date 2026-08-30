@@ -266,10 +266,12 @@ tour et brûle les 5 certificats/7 jours en quelques minutes.
 
 ## 6. Secrets partagés avec Convex
 
-`PREVIEW_SECRET`, `REVALIDATE_SECRET`, `LEAD_SUBMIT_SECRET` et
-`CONSENT_LOG_SECRET` ne sont pas des mots de passe : ce sont des clés HMAC,
-vérifiées des deux côtés d'une frontière. Elles n'ont de sens
-qu'**identiques** sur le déploiement Convex et dans le conteneur `web`.
+`PREVIEW_SECRET`, `REVALIDATE_SECRET`, `LEAD_SUBMIT_SECRET`,
+`CONSENT_LOG_SECRET` et `ROUTING_SECRET` ne sont pas des mots de passe : ce
+sont des clés HMAC, vérifiées des deux côtés d'une frontière. Elles n'ont de
+sens qu'**identiques** sur le déploiement Convex et dans les conteneurs du
+VPS — les quatre premières dans `web`, la cinquième dans `web` **et** dans
+`routeur`.
 
 **`pnpm bootstrap` est fait pour cette contrainte précise.** Il génère chaque
 clé une fois par `openssl rand -hex 32`, la réécrit dans `.env.deploy` pour ne
@@ -294,7 +296,8 @@ pnpm --filter @astrotan/backend exec convex env set PREVIEW_SECRET <valeur>
 pnpm --filter @astrotan/backend exec convex env set REVALIDATE_SECRET <valeur>
 pnpm --filter @astrotan/backend exec convex env set LEAD_SUBMIT_SECRET <valeur>
 pnpm --filter @astrotan/backend exec convex env set CONSENT_LOG_SECRET <valeur>
-# côté VPS — les quatre mêmes valeurs
+pnpm --filter @astrotan/backend exec convex env set ROUTING_SECRET <valeur>
+# côté VPS — les cinq mêmes valeurs
 $EDITOR ~/astrotan/.env
 ```
 
@@ -327,12 +330,57 @@ Ce qu'une divergence produit, précisément :
   navigateur POSTe pourtant à chaque choix — `apps/web/src/config/consent.ts`
   pose `traceability.enabled: true`. La preuve qu'on croit conserver n'existe
   alors nulle part.
+- **`ROUTING_SECRET` divergent ou absent** — c'est la plus lourde des cinq,
+  parce qu'elle décide du **routage**. Elle ouvre `routing.hotes`, la query
+  qui dit à Traefik quels hôtes servir : le service `routeur` l'interroge
+  toutes les trente secondes et en réécrit `/dynamique/routes.yml`, et le
+  conteneur `web` l'interroge pour savoir quels hôtes sont les siens — la
+  condition, et la seule, pour qu'il honore `x-forwarded-for`. Divergente,
+  la query refuse chaque appel. Les conséquences se lisent en deux temps :
+
+  - **Un routage est déjà en place** — le cas ordinaire d'un déploiement qui
+    tournait déjà. Il reste **figé** : le site continue de servir, mais
+    changer de domaine depuis `/settings/domaine` cesse d'avoir le moindre
+    effet, et rien ne le dit hors de `docker compose logs routeur`.
+  - **Aucun routage n'est encore en place** — le premier démarrage de la
+    version qui a retiré les labels `traefik.http.routers.*.rule`. Le
+    service compose alors un routage de **secours** à partir de
+    `WEB_DOMAIN` / `ADMIN_DOMAIN` / `UMAMI_DOMAIN` du `.env` du VPS, et le
+    site répond. **C'est un filet, pas un régime :** les hôtes servis sont
+    ceux du `.env`, pas ceux de l'administration. Le journal du conteneur
+    l'écrit en erreur, avec les hôtes retenus.
+
+  Côté `web`, une divergence dégrade en silence : les deux limiteurs de
+  débit (`/api/contact`, `/api/consent`) comptent alors tous les visiteurs
+  dans un seul seau, `clientAddress` valant l'adresse de Traefik.
 
 Le déploiement Convex a par ailleurs ses propres variables, qui ne
 transitent jamais par le VPS (`SITE_URL`, `WEB_SITE_URL`,
 `BETTER_AUTH_SECRET`, `SECRETS_KEY`, `RESEND_API_KEY`, `RESEND_TEST_MODE`,
 les six jetons de `secrets.ts`) : voir `packages/backend/.env.example`, où
 chacune est documentée.
+
+**Trois variables ont fait le chemin inverse et vivent désormais sur Convex
+alors qu'elles ressemblent à de la configuration de VPS :** `WEB_DOMAIN`,
+`ADMIN_DOMAIN` et `UMAMI_DOMAIN`. Elles ne sont plus interpolées dans les
+labels du compose — c'est `routing.hotes` qui les lit, **sur le déploiement
+Convex**, comme repli tant que rien n'a été déclaré depuis
+`/settings/domaine`. Elles restent aussi dans le `.env` du VPS, à un titre
+distinct et non redondant : le service `routeur` s'en sert comme routage de
+secours quand la query ne répond pas et qu'aucun routage n'existe.
+
+```bash
+pnpm --filter @astrotan/backend exec convex env set WEB_DOMAIN example.com
+pnpm --filter @astrotan/backend exec convex env set ADMIN_DOMAIN admin.example.com
+# facultative — sa PRÉSENCE est ce qui dit qu'un Umami est déployé
+pnpm --filter @astrotan/backend exec convex env set UMAMI_DOMAIN stats.example.com
+```
+
+`WEB_DOMAIN` absente de l'environnement **Convex** fait lever
+`routing.hotes` en `NOT_CONFIGURED` — exactement comme un `ROUTING_SECRET`
+divergent, avec les mêmes deux temps ci-dessus. `pnpm bootstrap` pose les
+deux côtés à partir de la même saisie ; le workflow `Deploy`, lui, **ne pose
+aucune variable Convex** (section 7).
 
 `SECRETS_KEY` mérite une phrase à elle, parce que son absence ne casse
 rien de visible. C'est la clé maîtresse qui chiffre les jetons saisis
@@ -393,6 +441,21 @@ valide — le site ne mesure alors rien et n'appelle aucun tiers.
 `GITHUB_TOKEN` apparaît aussi dans les workflows : il est fourni
 automatiquement par GitHub à chaque exécution et sert uniquement au `docker
 login ghcr.io`. Il n'y a rien à créer.
+
+**Aucun secret de ce tableau ne concerne le routage, et ce n'est pas un
+oubli.** Le service `routeur` (introduit avec le changement de domaine
+depuis le dashboard) ne lit rien du build : son image est construite et
+poussée par `deploy.yml` comme les deux autres, au même `IMAGE_TAG`, et
+tout ce qu'elle lui faut vient du `.env` du VPS et du déploiement Convex.
+
+**Corollaire à connaître avant de déployer : `deploy.yml` ne pose AUCUNE
+variable sur le déploiement Convex.** `CONVEX_DEPLOY_KEY` autorise
+`convex deploy` à remplacer schéma et functions ; elle ne pose pas
+d'environnement. Le seul outil qui pose `ROUTING_SECRET`, `WEB_DOMAIN`,
+`ADMIN_DOMAIN` et `UMAMI_DOMAIN` **côté Convex** est `pnpm bootstrap` — et
+il ne les pose que depuis qu'il a été enrichi pour cette fonctionnalité.
+Tout déploiement amorcé avant ne les a pas, et la section 14 dit quoi
+faire.
 
 **Toute variable `PUBLIC_*` ou `VITE_*` de ce tableau a trois moitiés, pas
 deux** : un `ARG` dans le Dockerfile de l'image, une ligne `build-args` dans
@@ -1205,6 +1268,113 @@ donnée ancienne.
 ---
 
 ## 14. Mise à jour depuis une version antérieure du template
+
+Les deux sections ci-dessous se lisent **avant** de déployer, dans l'ordre :
+14.1 est la plus récente et la seule qui puisse mettre le site entier hors
+ligne.
+
+### 14.1 Le routage a quitté les labels Docker
+
+Si votre VPS tourne avec une version antérieure au **changement de domaine
+depuis le dashboard**, cette mise à jour déplace le routage. Reconnaître la
+situation en une commande, sur le VPS :
+
+```bash
+grep -c 'routers\..*\.rule' ~/astrotan/docker-compose.yml   # > 0 = version antérieure
+```
+
+**Ce qui change.** Les labels `traefik.http.routers.{web,admin,umami}.rule`
+sont supprimés du compose. Un label ne change qu'en **recréant** le
+conteneur, donc en repassant par un déploiement et par SSH ; c'est ce qui
+rendait un changement de domaine impossible depuis l'interface. Les règles
+viennent désormais de `/dynamique/routes.yml`, écrit par un nouveau service
+— `routeur` — et relu **à chaud** par le provider fichier de Traefik. Deux
+nouveautés en découlent :
+
+- un service `routeur` de plus, tiré au même `IMAGE_TAG` que les autres ;
+- un volume `astrotan_dynamique`, monté en écriture par `routeur` et en
+  **lecture seule** par Traefik. Rien à créer : `compose up` s'en charge.
+
+**Les trois gestes à faire AVANT de déployer.** Ils sont à faire dans cet
+ordre, et le second est celui qu'on oublie.
+
+1. **`ROUTING_SECRET` dans le `.env` du VPS.** Le compose l'exige en
+   `${ROUTING_SECRET:?…}` : sans elle, `compose up` refuse de démarrer en la
+   nommant — panne franche, pendant le déploiement.
+
+   ```bash
+   ssh <user>@<host> "printf 'ROUTING_SECRET=%s\n' \"$(openssl rand -hex 32)\" >> ~/astrotan/.env"
+   ```
+
+2. **La MÊME valeur sur le déploiement Convex, plus les trois domaines.**
+   C'est la moitié qu'aucun workflow ne pose (section 7) : `deploy.yml` ne
+   touche jamais à l'environnement Convex. Reprendre la valeur exacte écrite
+   à l'étape 1 :
+
+   ```bash
+   cd packages/backend
+   npx convex env set ROUTING_SECRET <la même valeur qu'au 1>
+   npx convex env set WEB_DOMAIN   example.com
+   npx convex env set ADMIN_DOMAIN admin.example.com
+   npx convex env set UMAMI_DOMAIN stats.example.com   # seulement si Umami est déployé
+   ```
+
+   Vérifier avant de déployer : `npx convex env list` doit montrer les
+   quatre (trois sans Umami).
+
+3. **Ne retirez ni `WEB_DOMAIN`, ni `ADMIN_DOMAIN`, ni `UMAMI_DOMAIN` du
+   `.env` du VPS.** Elles ne sont plus interpolées dans les labels et
+   ressemblent donc à des lignes mortes : elles ne le sont pas. Le service
+   `routeur` s'en sert comme **routage de secours**, et `WEB_DOMAIN` y est
+   exigée en `${WEB_DOMAIN:?…}` — le `.env` d'une version antérieure la
+   porte déjà, il n'y a rien à ajouter, seulement à ne rien supprimer.
+
+**Pourquoi l'étape 2 n'est pas négociable, et ce qui arrive si on l'oublie.**
+Le `${ROUTING_SECRET:?}` du compose fait échouer franchement `compose up`,
+et la réparation évidente est de poser la ligne dans le `.env` — l'étape 1
+seule. Mais la query `routing.hotes` est gardée par la valeur posée **côté
+Convex** : sans l'étape 2, elle refuse chaque appel. Le service ne peut
+alors rien lire, et il n'existe encore aucun `/dynamique/routes.yml`
+puisque les labels viennent d'être retirés. **Avant que ce repli n'existe,
+c'était un 404 permanent sur le site comme sur l'administration**, sans
+issue par l'interface.
+
+Ce n'est plus le cas : quand la lecture échoue *et* qu'aucun routage n'est
+en place, `routeur` compose les routes depuis `WEB_DOMAIN` /
+`ADMIN_DOMAIN` / `UMAMI_DOMAIN` du `.env` du conteneur. Le site répond.
+Mais **le filet ne remplace pas les étapes 1 et 2** : tant que la query
+refuse, les hôtes servis sont ceux du `.env` et `/settings/domaine` reste
+sans effet. Le seul témoin est le journal :
+
+```bash
+ssh <user>@<host> "cd astrotan && docker compose logs --tail=50 routeur"
+```
+
+Ce qu'on veut y lire, en régime normal, est `routage écrit : …`. Un
+`routage de SECOURS écrit …` dit que l'étape 2 manque. Un
+`lecture des hôtes impossible` répété sans écriture dit la même chose sur
+un déploiement qui, lui, avait déjà un routage — il est **figé**.
+
+**Le premier déploiement coûte une fenêtre de quelques dizaines de
+secondes.** Deux lectures concordantes sont exigées avant la première
+écriture (l'anti-battement qui protège le quota Let's Encrypt), et le
+volume est encore vide pendant ce temps : Traefik ne connaît aucune route et
+le site répond 404. Les déploiements suivants ne repayent rien — le fichier
+persiste dans le volume et Traefik le lit dès son démarrage.
+
+**Les certificats déjà obtenus sont conservés** : ils vivent dans le volume
+`astrotan_acme`, que rien de tout ceci ne touche.
+
+**Si `astrotan_dynamique` a été créé à `root`** (cas d'un `up traefik` seul
+sur une pile antérieure), `routeur` échoue à chaque écriture en `EACCES`,
+bruyamment dans ses journaux. Le remède tient en deux lignes, et ne perd
+rien — la passe suivante réécrit tout :
+
+```bash
+docker compose down && docker volume rm astrotan_dynamique && docker compose up -d
+```
+
+### 14.2 Traefik est passé en configuration par variables d'environnement
 
 Si votre VPS tourne déjà avec une version de ce dépôt antérieure au passage
 de Traefik en configuration par variables d'environnement, **lisez ceci
