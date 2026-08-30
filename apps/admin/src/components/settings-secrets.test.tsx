@@ -123,10 +123,10 @@ describe("SecretField", () => {
   test("tant que rien n'a été tapé, le bouton est inerte", () => {
     // Masque intact : il n'y a aucun geste à faire, et un bouton actif
     // laisserait croire le contraire.
-    expect(boutonInerte(champ({ base: true, source: "base" }), "Enregistrer")).toBe(
-      true
-    )
-    expect(boutonInerte(champ(), "Enregistrer")).toBe(true)
+    expect(
+      boutonInerte(champ({ base: true, source: "base" }), "Vérifier et enregistrer")
+    ).toBe(true)
+    expect(boutonInerte(champ(), "Vérifier et enregistrer")).toBe(true)
   })
 
   test("la ligne ne porte plus ni pastille « saisi ici », ni fragment, ni date", () => {
@@ -199,7 +199,7 @@ describe("SecretField", () => {
     // sans clé maîtresse, il n'y a rien à taper.
     const html = champ({ base: true, source: "base" }, true)
     expect(html).not.toContain("<input")
-    expect(html).not.toContain("Enregistrer")
+    expect(html).not.toContain("Vérifier et enregistrer")
     // L'état, lui, reste lisible.
     expect(html).toContain("OPENROUTER_API_KEY")
   })
@@ -267,11 +267,11 @@ describe("ActionsDuChamp", () => {
   }
 
   test("le bouton dit lequel des deux gestes il fait", () => {
-    // Un bouton « Enregistrer » qui supprime serait le pire des deux
-    // mondes : le mot dit une chose, le clic en fait une autre.
-    expect(actions("enregistrer")).toContain("Enregistrer")
+    // Un bouton « Vérifier et enregistrer » qui supprime serait le pire des
+    // deux mondes : le mot dit une chose, le clic en fait une autre.
+    expect(actions("enregistrer")).toContain("Vérifier et enregistrer")
     expect(actions("supprimer")).toContain("Supprimer")
-    expect(actions("supprimer")).not.toContain("Enregistrer")
+    expect(actions("supprimer")).not.toContain("Vérifier et enregistrer")
   })
 
   test("aucun bouton de retrait ne double le bouton principal", () => {
@@ -281,9 +281,9 @@ describe("ActionsDuChamp", () => {
   })
 
   test("rien à faire : le bouton est inerte ; un retrait demandé : il ne l'est pas", () => {
-    expect(boutonInerte(actions("aucun"), "Enregistrer")).toBe(true)
+    expect(boutonInerte(actions("aucun"), "Vérifier et enregistrer")).toBe(true)
     expect(boutonInerte(actions("supprimer"), "Supprimer")).toBe(false)
-    expect(boutonInerte(actions("enregistrer"), "Enregistrer")).toBe(false)
+    expect(boutonInerte(actions("enregistrer"), "Vérifier et enregistrer")).toBe(false)
   })
 })
 

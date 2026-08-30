@@ -23,6 +23,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { PasswordStrengthMeter } from "@/components/password-strength-meter"
 import {
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
   MIN_PASSWORD_SCORE,
   scorePassword,
 } from "@astrotan/backend/convex/lib/passwordStrength"
@@ -422,8 +424,9 @@ function AcceptInviteCard({ token }: { token: string }) {
                 />
               ) : (
                 <FieldDescription id="accept-password-strength">
-                  Entre 8 et 128 caractères. Une phrase de quatre mots vaut
-                  mieux qu'un mot court et tarabiscoté.
+                  Entre {MIN_PASSWORD_LENGTH} et {MAX_PASSWORD_LENGTH}{" "}
+                  caractères. Une phrase de quatre mots vaut mieux qu'un mot
+                  court et tarabiscoté.
                 </FieldDescription>
               )}
             </Field>

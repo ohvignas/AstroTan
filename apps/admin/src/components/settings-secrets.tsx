@@ -246,6 +246,13 @@ export type Fait = "enregistre" | "supprime" | null
  * l'un est toujours là. Un « Enregistrer » qui supprimerait serait le pire
  * des deux mondes : le mot dit une chose, le clic en fait une autre.
  *
+ * « Vérifier et enregistrer », pas « Enregistrer » tout court : le clic
+ * présente d'abord la clé à son service (`secretCheck.essayer`, appelé par
+ * `onSave` — `settings-page.tsx` `useSecretsAccess`) AVANT de la chiffrer
+ * et de la ranger. La vérification est légitime au moment d'enregistrer ;
+ * c'est le libellé qui doit le dire, plutôt que de le découvrir après coup
+ * dans un refus.
+ *
  * Extrait de `SecretField` pour être rendu seul dans les tests : l'état
  * « champ vidé » naît d'une frappe, et le rendu statique
  * (`environment: "node"`) ne sait pas frapper.
@@ -275,7 +282,7 @@ export function ActionsDuChamp({
         disabled={geste === "aucun" || enCours}
         onClick={geste === "supprimer" ? onSupprimer : onEnregistrer}
       >
-        {geste === "supprimer" ? "Supprimer" : "Enregistrer"}
+        {geste === "supprimer" ? "Supprimer" : "Vérifier et enregistrer"}
       </Button>
       {fait !== null && (
         <span role="status" className="text-sm text-muted-foreground">

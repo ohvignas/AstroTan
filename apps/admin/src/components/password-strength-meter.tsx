@@ -1,4 +1,8 @@
-import { MIN_PASSWORD_SCORE } from "@astrotan/backend/convex/lib/passwordStrength"
+import {
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  MIN_PASSWORD_SCORE,
+} from "@astrotan/backend/convex/lib/passwordStrength"
 import type {
   PasswordIssue,
   PasswordStrength,
@@ -28,8 +32,8 @@ const SCORE_COLORS = [
 // `TOO_LONG` and `TOO_SHORT` name the actual bounds because those are the
 // only two the visitor can act on precisely.
 const ISSUE_MESSAGES: Record<PasswordIssue, string> = {
-  TOO_SHORT: "Il faut au moins 8 caractères.",
-  TOO_LONG: "128 caractères au maximum.",
+  TOO_SHORT: `Il faut au moins ${MIN_PASSWORD_LENGTH} caractères.`,
+  TOO_LONG: `${MAX_PASSWORD_LENGTH} caractères au maximum.`,
   COMMON:
     "Ce mot de passe figure parmi les plus courants — remplacer un « a » par « @ » ne le protège pas.",
   DERIVED_FROM_EMAIL:
