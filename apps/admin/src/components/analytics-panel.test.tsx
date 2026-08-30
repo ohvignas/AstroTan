@@ -29,6 +29,19 @@ describe("AnalyticsPanel", () => {
     expect(html).toContain("903")
   })
 
+  test("une page sans visite affiche zéro — zéro est une mesure", () => {
+    // La contrepartie exacte du test suivant : ici le service a répondu, et
+    // ne rien montrer serait perdre une information vraie.
+    const html = render({
+      last7: { pageviews: 0, visitors: 0 },
+      last30: { pageviews: 0, visitors: 0 },
+      status: "ok",
+    })
+    expect(html).toContain(">0<")
+    expect(html).toContain("7 derniers jours")
+    expect(html).not.toContain("injoignable")
+  })
+
   test.each([
     ["not-configured", "configurée"],
     ["unreachable", "injoignable"],

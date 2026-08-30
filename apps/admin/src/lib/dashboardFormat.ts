@@ -5,7 +5,7 @@
 // travers. Ces fonctions sont pures pour que chaque cas — le zéro, le
 // plafond, le singulier — soit vérifiable sans rendre un écran.
 
-import type { Periode } from "@astrotan/backend/convex/analytics"
+import type { AnalyticsResult, Periode } from "@astrotan/backend/convex/analytics"
 
 /**
  * Un nombre, en français.
@@ -90,3 +90,36 @@ export function etiquettePoint(dateISO: string, periode: Periode): string {
   }
   return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" })
 }
+
+/**
+ * Pourquoi il n'y a pas de chiffres, quand il n'y en a pas.
+ *
+ * Un seul exemplaire pour les deux écrans qui les affichent — l'accueil et
+ * le panneau d'une page. Ils en portaient chacun une copie, et deux copies
+ * d'une phrase divergent : celle de l'accueil promettait encore le retour
+ * des chiffres quand celle du panneau ne le faisait plus.
+ *
+ * Chacune est un ÉTAT du système, jamais une mesure. « Aucune visite » et
+ * « on ne sait pas » sont deux choses différentes, et seul le second cas
+ * est décrit ici : un zéro affiché sous ces états serait une affirmation
+ * que rien ne soutient.
+ */
+export const LIBELLES_ETAT: Record<
+  Exclude<AnalyticsResult["status"], "ok">,
+  string
+> = {
+  "not-configured": "Aucune mesure d'audience n'est configurée.",
+  unreachable: "Service de statistiques injoignable.",
+  // L'action est gardée, la phrase qui l'introduisait ne l'est pas : sans
+  // les deux noms de variables, personne ne sait où aller.
+  unauthorized:
+    "Identifiants de lecture refusés — vérifiez UMAMI_API_USERNAME et UMAMI_API_PASSWORD.",
+}
+
+/**
+ * Le même genre d'aveu, pour une partie seule.
+ *
+ * Umami peut rendre les totaux et rater la série : le service répond, donc
+ * aucun des états ci-dessus ne décrit ce qui s'est passé.
+ */
+export const COURBE_INDISPONIBLE = "Courbe indisponible pour le moment."

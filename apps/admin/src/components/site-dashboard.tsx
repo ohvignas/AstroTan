@@ -10,8 +10,17 @@ import type {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ExternalLinkIcon } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
-import { CourbeAudience, SelecteurPeriode } from "@/components/audience-chart"
-import { LIBELLES_PERIODE, nombre } from "@/lib/dashboardFormat"
+import {
+  CadreSansMesure,
+  CourbeAudience,
+  SelecteurPeriode,
+} from "@/components/audience-chart"
+import {
+  COURBE_INDISPONIBLE,
+  LIBELLES_ETAT,
+  LIBELLES_PERIODE,
+  nombre,
+} from "@/lib/dashboardFormat"
 
 // L'accueil de l'administration : comment va le site, en un écran.
 //
@@ -19,15 +28,23 @@ import { LIBELLES_PERIODE, nombre } from "@/lib/dashboardFormat"
 // une fonction pure de son résultat, et le conteneur ne fait que chercher.
 // C'est ce qui rend chaque état — y compris les quatre pannes — vérifiable
 // sans réseau et sans session.
+//
+// Le graphique est TOUJOURS rendu. Une panne d'Umami retirait le cadre et
+// mettait une phrase à sa place ; l'écran n'avait alors plus de forme, et
+// il devenait impossible de distinguer d'un coup d'œil « le service est
+// muet » de « le site est calme ». Le cadre reste, et l'état se pose
+// dessus (`CadreSansMesure`).
 
-/** Ce que chaque état non-`ok` veut dire, en une phrase sur le système. */
-const EXPLANATIONS: Record<Exclude<SiteSummary["status"], "ok">, string> = {
-  "not-configured":
-    "Aucune mesure d'audience n'est configurée sur ce déploiement.",
-  unreachable:
-    "Le service de statistiques est injoignable. Les chiffres réapparaîtront dès qu'il répondra.",
-  unauthorized:
-    "Les identifiants de lecture ont été refusés. Vérifiez UMAMI_API_USERNAME et UMAMI_API_PASSWORD sur le déploiement Convex.",
+/**
+ * Ce qu'il faut écrire sur le cadre quand il n'y a pas de courbe.
+ *
+ * Le cas `ok` en fait partie : Umami peut rendre les totaux et rater la
+ * série. Le service a répondu, donc aucun des trois états de panne ne
+ * décrit ce qui s'est passé — et une courbe à zéro le décrirait encore
+ * moins.
+ */
+function etatDuCadre(summary: SiteSummary): string {
+  return summary.status === "ok" ? COURBE_INDISPONIBLE : LIBELLES_ETAT[summary.status]
 }
 
 /**
@@ -138,35 +155,45 @@ export function SiteDashboard({
       <CardContent className="flex flex-col gap-6">
         {summary === undefined ? (
           <Skeleton className="h-[340px] rounded-lg" />
-        ) : summary.status !== "ok" || summary.totals === null ? (
-          <span className="text-sm text-muted-foreground">
-            {EXPLANATIONS[summary.status === "ok" ? "unreachable" : summary.status]}
-          </span>
         ) : (
           <>
-            <div className="grid gap-6 sm:grid-cols-2">
-              <Figure
-                label="Visiteurs"
-                metric={summary.totals.visitors}
-                fenetre={`vs période précédente`}
-              />
-              <Figure
-                label="Pages vues"
-                metric={summary.totals.pageviews}
-                fenetre={`vs période précédente`}
-              />
-            </div>
+            {/* Les chiffres n'apparaissent que mesurés. Les afficher à zéro
+                sous un service muet serait affirmer « personne n'est venu »
+                là où la vérité est « on ne sait pas ». */}
+            {summary.totals && (
+              <div className="grid gap-6 sm:grid-cols-2">
+                <Figure
+                  label="Visiteurs"
+                  metric={summary.totals.visitors}
+                  fenetre={`vs période précédente`}
+                />
+                <Figure
+                  label="Pages vues"
+                  metric={summary.totals.pageviews}
+                  fenetre={`vs période précédente`}
+                />
+              </div>
+            )}
 
-            {summary.series && <CourbeAudience series={summary.series} periode={periode} />}
+            {summary.status === "ok" && summary.series ? (
+              <CourbeAudience series={summary.series} periode={periode} />
+            ) : (
+              <CadreSansMesure etat={etatDuCadre(summary)} />
+            )}
 
-            <div className="grid gap-6 sm:grid-cols-2">
-              {/* « visitées » et non « vues » : Umami compte ici une visite
-                  par session, pas chaque affichage. Le chiffre était juste,
-                  l'intitulé mentait — mesuré, `/` sortait à 2 visites pour
-                  5 vues. */}
-              <Ranking title="Pages les plus visitées" items={summary.topPages} />
-              <Ranking title="D'où viennent-ils" items={summary.topReferrers} />
-            </div>
+            {/* Les palmarès ne se rendent que quand la mesure a répondu :
+                sinon leur « Liste indisponible » répéterait, deux fois, ce
+                que le cadre vient de dire une fois. */}
+            {summary.status === "ok" && (
+              <div className="grid gap-6 sm:grid-cols-2">
+                {/* « visitées » et non « vues » : Umami compte ici une visite
+                    par session, pas chaque affichage. Le chiffre était juste,
+                    l'intitulé mentait — mesuré, `/` sortait à 2 visites pour
+                    5 vues. */}
+                <Ranking title="Pages les plus visitées" items={summary.topPages} />
+                <Ranking title="D'où viennent-ils" items={summary.topReferrers} />
+              </div>
+            )}
           </>
         )}
 

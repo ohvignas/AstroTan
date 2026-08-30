@@ -54,6 +54,96 @@ describe("trend", () => {
 // Ce qui restait vérifiable sans DOM — le format des étiquettes, la lecture
 // des seaux en UTC — a été déplacé dans `lib/dashboardFormat.test.ts`
 // plutôt que supprimé.
+//
+// Ce qui SE vérifie encore sans DOM, et qui est tout l'enjeu de cet écran,
+// c'est LEQUEL des deux cadres est rendu. `ResponsiveContainer` ne trace
+// rien hors navigateur — mesuré, le rendu serveur s'arrête à un
+// `<div class="recharts-wrapper">` vide — mais deux marqueurs traversent :
+//
+//   `data-etat`          — posé par chacun des deux cadres.
+//   `--color-pageviews`  — la feuille de style que recharts émet pour la
+//                          configuration des séries. Elle n'existe que si
+//                          le graphique est monté avec ses deux séries.
+//
+// Les tests ci-dessous exigent les deux dans un sens ET leur absence dans
+// l'autre : un cadre qui se rendrait à la place de son jumeau les fait
+// tomber, ce qu'une assertion sur le seul texte ne ferait pas.
+
+/** Umami a répondu, et le site n'a reçu personne. */
+const ZEROS: SiteSummary = {
+  ...OK,
+  totals: {
+    visitors: { value: 0, prev: 0 },
+    pageviews: { value: 0, prev: 0 },
+  },
+  series: [
+    { date: "2026-08-01T00:00:00Z", visitors: 0, pageviews: 0 },
+    { date: "2026-08-02T00:00:00Z", visitors: 0, pageviews: 0 },
+  ],
+  topPages: [],
+  topReferrers: [],
+}
+
+/** Umami n'a pas répondu du tout. */
+const PANNE: SiteSummary = {
+  periode: "mois",
+  unit: "day",
+  startAt: 0,
+  endAt: 0,
+  totals: null,
+  series: null,
+  topPages: null,
+  topReferrers: null,
+  status: "unreachable",
+}
+
+describe("le cadre du graphique", () => {
+  test("Umami répond sans trafic : la courbe est tracée, à zéro", () => {
+    const html = render(ZEROS)
+    expect(html).toContain('data-etat="mesure"')
+    expect(html).not.toContain('data-etat="indisponible"')
+    // Le graphique est monté avec ses deux séries.
+    expect(html).toContain("--color-pageviews")
+    expect(html).toContain("--color-visitors")
+    // Zéro est une MESURE, et il s'affiche : c'est la demande.
+    expect(html).toContain(">0<")
+    expect(html).not.toContain("injoignable")
+  })
+
+  test("Umami muet : le cadre reste, vide, et n'écrit aucun zéro", () => {
+    const html = render(PANNE)
+    expect(html).toContain('data-etat="indisponible"')
+    expect(html).not.toContain('data-etat="mesure"')
+    // Aucun graphique monté : pas de courbe, donc pas de ligne plate qu'on
+    // lirait comme une mesure.
+    expect(html).not.toContain("--color-pageviews")
+    expect(html).toContain("injoignable")
+    expect(html).not.toContain(">0<")
+    // Le cadre EST là — cinq lignes de grille, pas une phrase toute seule.
+    expect(html.match(/<line/g)).toHaveLength(5)
+  })
+
+  test("les totaux sans la série : les chiffres restent, le cadre l'avoue", () => {
+    // Umami peut rendre `/stats` et rater `/pageviews`. Le service a
+    // répondu : ni « injoignable » ni une courbe à zéro ne le décrivent.
+    const html = render({ ...OK, series: null })
+    expect(html).toContain("44")
+    expect(html).toContain("Courbe indisponible")
+    expect(html).not.toContain("injoignable")
+    expect(html).toContain('data-etat="indisponible"')
+  })
+
+  test("plus rien ne remplace le graphique par une phrase", () => {
+    // Deux phrases ont vécu là : « pas encore assez de mesures pour tracer
+    // une courbe » (garde à moins de deux points, inatteignable — la série
+    // est dense et fait 7, 30 ou 12 points) et la promesse que les chiffres
+    // reviendraient.
+    for (const html of [render(OK), render(ZEROS), render(PANNE)]) {
+      expect(html).not.toContain("assez de mesures")
+      expect(html).not.toContain("réapparaîtront")
+    }
+  })
+})
 
 describe("SiteDashboard", () => {
   test("affiche chiffres, tendances et palmarès", () => {
@@ -93,19 +183,11 @@ describe("SiteDashboard", () => {
     ["unreachable", "injoignable"],
     ["unauthorized", "refusés"],
   ] as const)("l'état %s explique au lieu d'afficher zéro", (status, expected) => {
-    const html = render({
-      periode: "mois",
-      unit: "day",
-      startAt: 0,
-      endAt: 0,
-      totals: null,
-      series: null,
-      topPages: null,
-      topReferrers: null,
-      status,
-    })
+    const html = render({ ...PANNE, status })
     expect(html).toContain(expected)
     expect(html).not.toContain(">0<")
+    // L'état est posé SUR le cadre, pas à sa place.
+    expect(html).toContain('data-etat="indisponible"')
   })
 
   test("un palmarès indisponible ne se confond pas avec un palmarès vide", () => {

@@ -3,6 +3,7 @@ import { useAction } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { AnalyticsResult } from "@astrotan/backend/convex/analytics"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { LIBELLES_ETAT } from "@/lib/dashboardFormat"
 
 // Audience figures beside the editor of the page they measure.
 //
@@ -11,22 +12,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 // what makes the states testable without a network, a session, or a DOM.
 // `PageAnalytics` is the thin container that fetches; there is nothing in
 // it worth asserting that the action's own tests do not already cover.
-
-/**
- * What each non-`ok` status means to whoever is reading the screen.
- *
- * Every one of them is a sentence about the *system*, not about the page:
- * a page with no configured analytics has not "had zero visitors", and
- * saying so would be a lie the writer could act on.
- */
-const EXPLANATIONS: Record<Exclude<AnalyticsResult["status"], "ok">, string> = {
-  "not-configured":
-    "Aucune mesure d'audience n'est configurée sur ce déploiement.",
-  unreachable:
-    "Le service de statistiques est injoignable. Les chiffres réapparaîtront dès qu'il répondra.",
-  unauthorized:
-    "Les identifiants de lecture ont été refusés. Vérifiez UMAMI_API_USERNAME et UMAMI_API_PASSWORD sur le déploiement Convex.",
-}
+//
+// What each non-`ok` status means is in `lib/dashboardFormat` — one copy,
+// shared with the site dashboard. Every one of them is a sentence about
+// the *system*, not about the page: a page with no configured analytics
+// has not "had zero visitors", and saying so would be a lie the writer
+// could act on.
 
 function Window({
   label,
@@ -70,7 +61,7 @@ export function AnalyticsPanel({
           <span className="text-muted-foreground">Chargement…</span>
         ) : result.status !== "ok" ? (
           <span className="text-muted-foreground">
-            {EXPLANATIONS[result.status]}
+            {LIBELLES_ETAT[result.status]}
           </span>
         ) : (
           <>
@@ -85,7 +76,7 @@ export function AnalyticsPanel({
   )
 }
 
-export function PageAnalytics({ path }: { path: string }) {
+export function PageAnalytics({ path }: { path: string | null }) {
   const forPath = useAction(api.analytics.forPath)
   const [result, setResult] = useState<AnalyticsResult | undefined>(undefined)
 
@@ -95,6 +86,12 @@ export function PageAnalytics({ path }: { path: string }) {
     // and not a query in the first place.
     let current = true
     setResult(undefined)
+    // `null` means the caller does not know the path *yet* — on the page
+    // editor it waits for `settings.homePageSlug`, without which the home
+    // page reads as `/accueil` and Umami is asked about an address that is
+    // never served. The panel stays in its loading state rather than
+    // spending a round trip on a question with a known-wrong answer.
+    if (path === null) return
     forPath({ path })
       .then((value) => {
         if (current) setResult(value)
