@@ -119,10 +119,35 @@ export const legalEntity: LegalEntity = {
   publicationDirector: "À compléter",
 }
 
+// L'hébergeur, et pourquoi ce template ne le devine pas à votre place.
+//
+// Ces trois champs nommaient Hostinger : raison sociale complète, adresse à
+// Larnaca, URL qui répond. C'était l'hébergeur de l'auteur, recopié une
+// fois — et c'est la seule valeur de cette section qui se lisait comme
+// DÉJÀ REMPLIE, quand les quatre autres s'annoncent (« à compléter »,
+// « à remplacer par votre raison sociale »). Un adoptant qui déploie sur
+// OVH, Scaleway ou Hetzner parcourait ce fichier en cherchant ce qui reste
+// à faire et passait devant sans s'arrêter.
+//
+// C'est le pire champ où le faire. L'hébergeur est une mention obligatoire
+// (LCEN art. 6-III), et c'est la seule que ce template ne peut
+// structurellement pas connaître : elle désigne une machine qu'il ne
+// fournit pas. Rien ici n'en dépend — `docker/`, Traefik, le compose et les
+// workflows décrivent un VPS Docker quelconque. Il n'y a donc pas
+// d'« hébergeur de référence » à préserver.
+//
+// Un garde-fou tient désormais la règle plutôt que ce commentaire
+// (`legal.test.ts` : « le template ne livre aucune identité légale qui
+// puisse passer pour vraie ») : tant que le marqueur ci-dessus vaut `true`,
+// aucun champ d'identité livré ne peut nommer un tiers.
+//
+// À REMPLIR : le nom, l'adresse postale et un moyen de joindre l'entreprise
+// qui héberge réellement ce site — celle dont vous louez la machine ou le
+// service. Ces valeurs se trouvent sur son site ou dans votre contrat.
 export const legalHost: LegalHost = {
-  name: "Hostinger International Ltd.",
-  address: "61 Lordou Vironos Street, 6023 Larnaca, Chypre",
-  contact: "https://www.hostinger.fr",
+  name: "Hébergeur à compléter",
+  address: "Adresse de l'hébergeur à compléter",
+  contact: "Site ou téléphone de l'hébergeur à compléter",
 }
 
 // =============================================================================

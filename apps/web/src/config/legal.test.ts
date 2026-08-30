@@ -368,10 +368,16 @@ const VALEURS_EXEMPLE = {
     email: "contact@exemple.fr",
     publicationDirector: "À compléter",
   },
+  // Ces trois-là nommaient Hostinger — l'hébergeur de l'auteur, recopié une
+  // fois. Ce sont maintenant des marques à remplir, et il FAUT qu'elles
+  // restent recopiées ici : c'est cette liste qui refuse qu'un adoptant
+  // passe le marqueur à `false` en les ayant laissées en place. Les
+  // remplacer dans `legal.ts` sans les remplacer ici rendrait ce garde-fou
+  // muet sur l'hébergeur, sans que rien ne le dise.
   legalHost: {
-    name: "Hostinger International Ltd.",
-    address: "61 Lordou Vironos Street, 6023 Larnaca, Chypre",
-    contact: "https://www.hostinger.fr",
+    name: "Hébergeur à compléter",
+    address: "Adresse de l'hébergeur à compléter",
+    contact: "Site ou téléphone de l'hébergeur à compléter",
   },
   repoUrl: "https://github.com/OhVignas/AstroTan",
 }
@@ -443,6 +449,80 @@ test("aucune valeur d'exemple ne peut atteindre la production sans refus explici
       "à `false` dès maintenant et utilisez cette liste comme votre feuille de route.",
     ].join("\n"),
   ).toBe(true)
+})
+
+// ---------------------------------------------------------------------
+// Ce que le TEMPLATE a le droit de livrer
+// ---------------------------------------------------------------------
+//
+// Le test au-dessus ne se déclenche qu'une fois le marqueur passé à
+// `false` — il regarde l'adoptant. Celui-ci regarde le template, et il est
+// vrai dans l'AUTRE état : tant que le marqueur vaut `true`, aucune valeur
+// livrée ne doit pouvoir passer pour une vraie.
+//
+// LE DÉFAUT QU'IL FERME. `legalHost` codait Hostinger : raison sociale
+// complète, adresse à Larnaca, URL qui répond. Les quatre autres champs de
+// la section « À REMPLIR » s'annoncent — « Adresse à compléter »,
+// « À compléter », « contact@exemple.fr », « à remplacer par votre raison
+// sociale ». Celui-là, seul, se lisait comme DÉJÀ FAIT. C'est le pire
+// endroit où le faire : l'hébergeur est une mention obligatoire (LCEN
+// art. 6-III), et c'est la seule que le template ne peut structurellement
+// pas connaître — elle désigne une machine qu'il ne fournit pas. Un
+// adoptant qui déploie sur OVH, Scaleway ou Hetzner et qui parcourt ce
+// fichier en cherchant ce qui reste à remplir passe devant sans s'arrêter.
+//
+// Rien dans ce dépôt ne dépend d'Hostinger : `docker/`, Traefik, le
+// compose et les workflows décrivent un VPS Docker quelconque, et la seule
+// mention (`docker/README.md` §3) est une remarque sur le DNS Cloudflare
+// qu'un VPS Hostinger apporte souvent. Il n'y a donc pas d'« hébergeur de
+// référence » : il y avait l'hébergeur de l'auteur, recopié une fois.
+//
+// La règle est donc : LE TEMPLATE PEUT SE NOMMER LUI-MÊME, IL NE PEUT
+// NOMMER PERSONNE D'AUTRE. Elle ferme la classe et pas seulement le cas —
+// une adresse postale réelle pré-remplie dans `legalEntity` rougirait
+// pareil.
+
+/**
+ * Un champ qui s'annonce comme à remplir, plutôt que de passer pour rempli.
+ *
+ * « AstroTan » est admis : le template se nommant lui-même ne trompe
+ * personne — aucun adoptant ne lit sa propre raison sociale là-dedans — et
+ * c'est la chaîne sur laquelle repose déjà tout le reste du garde-fou.
+ */
+function sAnnonceCommeAtRemplir(valeur: string): boolean {
+  return /compléter|remplacer|exemple|AstroTan/i.test(valeur)
+}
+
+test("le template ne livre aucune identité légale qui puisse passer pour vraie", () => {
+  if (!ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED) return
+
+  const habillees: string[] = []
+  const champs: [string, Record<string, string | undefined>][] = [
+    ["legalEntity", legalEntity as unknown as Record<string, string | undefined>],
+    ["legalHost", legalHost as unknown as Record<string, string | undefined>],
+  ]
+  for (const [nom, bloc] of champs) {
+    for (const [champ, valeur] of Object.entries(bloc)) {
+      if (valeur === undefined || valeur === "") continue
+      if (sAnnonceCommeAtRemplir(valeur)) continue
+      habillees.push(`${nom}.${champ} vaut « ${valeur} »`)
+    }
+  }
+
+  expect(
+    habillees,
+    [
+      "Ce template livre une valeur légale qui ressemble à une valeur remplie :",
+      ...habillees.map((h) => `  - ${h}`),
+      "",
+      "Tant qu'ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED vaut `true`, chaque champ de",
+      "`legalEntity` et de `legalHost` doit s'ANNONCER comme à remplir. Une valeur",
+      "plausible — le nom d'un vrai hébergeur, une vraie adresse postale — se lit",
+      "comme déjà faite : un adoptant la laisse en place, et publie une mention",
+      "légale obligatoire qui est fausse. Le template peut se nommer lui-même ;",
+      "il ne peut nommer personne d'autre.",
+    ].join("\n"),
+  ).toEqual([])
 })
 
 // ---------------------------------------------------------------------
