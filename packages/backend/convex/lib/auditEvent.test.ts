@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import { AUDIT_CIBLE_NATURE, CIBLE_NATURES } from "../_dataRegistry"
 import { AUDIT_ACTIONS, decrireAction } from "./auditEvent"
 
 describe("decrireAction", () => {
@@ -71,5 +72,72 @@ describe("decrireAction", () => {
     const phrase = decrireAction("role.change", "Antoine", "alice@exemple.fr", "editor")
     expect(phrase).toContain("alice@exemple.fr")
     expect(phrase).toContain("editor")
+  })
+})
+
+// ---------------------------------------------------------------------
+// La moitié « backend » du garde-fou du journal publié.
+//
+// Le test ci-dessus ferme la liste des actions ; il ne dit rien de ce
+// qu'elles ÉCRIVENT. C'est par là que le défaut est passé : trois actions
+// ajoutées (`invitation.create`, `password.reset`, `emailTemplate.*`)
+// écrivaient en `cible` des catégories que `/confidentialite` n'énumérait
+// pas — dont l'adresse d'une personne invitée qui n'a jamais eu de compte,
+// dans la seule table que rien ne purge.
+//
+// Le maillon est `AUDIT_CIBLE_NATURE` (`convex/_dataRegistry.ts`) : une
+// action y pointe la NATURE de sa cible, et la nature porte la phrase que
+// la page doit publier. Ici on tient le premier bout — toute action a une
+// nature, et cette nature existe. `apps/web/src/config/legal.test.ts`
+// tient l'autre — la phrase est réellement publiée.
+// ---------------------------------------------------------------------
+
+describe("la nature de la cible, en face de chaque geste", () => {
+  test("toute action journalisée a une nature déclarée", () => {
+    // `Record<AuditAction, …>` le refuserait déjà à la compilation. Refait
+    // ici parce que `tsc` ne tourne pas dans la boucle d'un `vitest run` :
+    // une action ajoutée avec le typecheck en échec passerait au vert.
+    const sansNature = AUDIT_ACTIONS.filter((action) => !(action in AUDIT_CIBLE_NATURE))
+    expect(
+      sansNature,
+      "Une action a été ajoutée à `AUDIT_ACTIONS` sans dire ce qu'elle écrit " +
+        "en `cible`. Ajoutez-lui une nature dans `AUDIT_CIBLE_NATURE` " +
+        "(`convex/_dataRegistry.ts`) : si cette nature est nouvelle, elle doit " +
+        "aussi être énumérée dans le registre publié sur /confidentialite " +
+        "(`apps/web/src/config/legal.ts`), sans quoi la page décrit un journal " +
+        "qui n'est plus celui que le code écrit.",
+    ).toEqual([])
+  })
+
+  test("aucune nature déclarée n'a survécu à son action", () => {
+    // La réciproque : une entrée qui reste après le retrait de son action
+    // force la page à publier une catégorie que le journal n'écrit plus.
+    const connues = new Set<string>(AUDIT_ACTIONS)
+    expect(Object.keys(AUDIT_CIBLE_NATURE).filter((a) => !connues.has(a))).toEqual([])
+  })
+
+  test("chaque nature pointée existe, et dit soit sa phrase soit sa raison", () => {
+    for (const [action, nom] of Object.entries(AUDIT_CIBLE_NATURE)) {
+      const nature = CIBLE_NATURES[nom]
+      expect(nature, `${action} pointe une nature inconnue : ${nom}`).toBeDefined()
+      // Une phrase vide passerait le test de la page publiée — `contains ""`
+      // est toujours vrai — tout en n'énumérant rien. Une raison vide serait
+      // la porte de sortie silencieuse que `sansCible` ne doit pas être.
+      const texte = "publiee" in nature ? nature.publiee : nature.sansCible
+      expect(texte.trim().length, `la nature ${nom} ne dit rien`).toBeGreaterThan(20)
+    }
+  })
+
+  test("`invitation.create` écrit une adresse SANS COMPTE, et le dit", () => {
+    // Le cas qui coûte, nommé plutôt que noyé dans la boucle ci-dessus :
+    // une personne invitée qui n'accepte jamais n'a jamais de compte, et
+    // son adresse reste pourtant dans une table sans purge. La ranger
+    // sous la même nature que `role.change` publierait une phrase où elle
+    // ne se reconnaîtrait pas — « le compte concerné », alors qu'elle n'en
+    // a pas. Ce test refuse cette fusion.
+    expect(AUDIT_CIBLE_NATURE["invitation.create"]).toBe("emailDePersonneInvitee")
+    expect(AUDIT_CIBLE_NATURE["invitation.create"]).not.toBe(
+      AUDIT_CIBLE_NATURE["role.change"],
+    )
   })
 })

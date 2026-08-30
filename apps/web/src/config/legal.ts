@@ -17,7 +17,19 @@ import { consentConfig } from "./consent"
 // d'importer le schéma Better Auth (invariant #1, et une règle ESLint le
 // tient). Réexporté pour que ce fichier reste le point d'entrée lisible du
 // sujet « ce que le site déclare traiter ».
-export { TABLE_COVERAGE, type TableCoverage } from "@astrotan/backend/convex/_dataRegistry"
+// `AUDIT_CIBLE_NATURE`/`CIBLE_NATURES` viennent du même module et pour la
+// même raison : la correspondance « geste journalisé → nature de ce qu'il
+// écrit » se déduit des points d'écriture, qui sont tous dans
+// `packages/backend`. Elle est déclarée là-bas, publiée ici, et
+// `legal.test.ts` vérifie que les deux disent la même chose.
+export {
+  AUDIT_CIBLE_NATURE,
+  CIBLE_NATURES,
+  TABLE_COVERAGE,
+  type CibleNature,
+  type CibleNatureName,
+  type TableCoverage,
+} from "@astrotan/backend/convex/_dataRegistry"
 
 export interface LegalEntity {
   /** Raison sociale, ou nom et prénom pour une personne physique. */
@@ -369,17 +381,32 @@ export const processings: Processing[] = [
   },
   // Table : `auditLog`. Écrite par `lib/auditEvent.ts`, dans la mutation même
   // qui accomplit le geste.
+  //
+  // L'énumération de `data` ci-dessous n'est PAS libre : chaque catégorie y
+  // reprend mot pour mot la phrase d'une nature de
+  // `AUDIT_CIBLE_NATURE`/`CIBLE_NATURES` (`convex/_dataRegistry.ts`), et
+  // `legal.test.ts` refuse qu'une nature journalisée manque ici. C'est ce
+  // qui a fermé le défaut : trois actions avaient été ajoutées à
+  // `AUDIT_ACTIONS` — dont l'invitation, qui écrit l'adresse de l'invité —
+  // pendant que cette phrase n'énumérait toujours que le changement de rôle
+  // et la suppression de compte. Reformuler est permis ; faire disparaître
+  // une catégorie ne l'est pas.
   {
     purpose: "Savoir qui a changé un rôle, un accès ou un réglage",
     data:
       "Le nom d'affichage et l'identifiant de l'administrateur auteur du " +
       "geste, recopiés au moment où il est fait ; la nature du geste ; et ce " +
-      "qu'il visait — l'adresse électronique du compte concerné pour un " +
-      "changement de rôle ou une suppression de compte, le nom d'un jeton " +
-      "d'accès (jamais sa valeur, pas même tronquée), l'adresse d'une page " +
-      "publiée ou dépubliée, ou l'identifiant interne d'une fiche de contact " +
-      "supprimée — jamais l'adresse ni le nom de la personne qui l'avait " +
-      "écrite, pour que ce journal ne défasse pas l'effacement de la fiche",
+      "qu'il visait — selon le geste : l'adresse électronique du compte " +
+      "concerné (changement de rôle, suppression de compte, réinitialisation " +
+      "de mot de passe) ; l'adresse électronique d'une personne invitée à " +
+      "rejoindre l'administration, y compris si elle n'accepte jamais " +
+      "l'invitation et n'a donc jamais de compte ici ; le nom d'un jeton " +
+      "d'accès (jamais sa valeur, pas même tronquée) ; l'adresse d'une page " +
+      "ou d'un article publié, dépublié ou supprimé ; le titre d'un e-mail " +
+      "type dont le texte ou l'envoi a été modifié (jamais son contenu) ; ou " +
+      "l'identifiant interne d'une fiche de contact supprimée — jamais " +
+      "l'adresse ni le nom de la personne qui l'avait écrite, pour que ce " +
+      "journal ne défasse pas l'effacement de la fiche",
     basis:
       "Intérêt légitime — sécurité : pouvoir dire qui a changé un rôle, écrit " +
       "un jeton d'accès ou retiré une page du site, ce qu'aucune autre donnée " +
@@ -387,7 +414,9 @@ export const processings: Processing[] = [
     retention:
       "Conservé sans limite. Rien ne purge ce journal, et c'est délibéré : un " +
       "journal qu'on efface à volonté ne prouve plus rien. La suppression d'un " +
-      "compte d'administration ne retire donc pas les lignes qui le nomment.",
+      "compte d'administration ne retire donc pas les lignes qui le nomment, " +
+      "et une invitation refusée, expirée ou révoquée n'en retire pas non " +
+      "plus l'adresse invitée.",
     recipients: "Convex, Inc. (hébergement de la base, États-Unis)",
   },
 ]

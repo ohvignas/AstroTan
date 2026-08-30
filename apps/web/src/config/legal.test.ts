@@ -10,6 +10,8 @@ import { consentConfig } from "./consent"
 import { FIGURES } from "./facts"
 import {
   ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED,
+  AUDIT_CIBLE_NATURE,
+  CIBLE_NATURES,
   dpo,
   legalEntity,
   legalHost,
@@ -673,4 +675,103 @@ test("le dépôt réel (marqueur et identité tels que committés) ne publie auc
       expect(html, `« ${valeur} » ne doit apparaître sur aucune des trois pages`).not.toContain(valeur)
     }
   }
+})
+
+// ---------------------------------------------------------------------
+// La moitié « page publiée » du garde-fou du JOURNAL D'AUDIT.
+//
+// Les tests plus haut vérifient que `auditLog` est CLASSÉE et que sa
+// conservation dit « sans limite ». Aucun ne regardait ce que la ligne
+// publiée énumère en face du champ `data` — et c'est exactement par là que
+// la page est devenue fausse : huit actions ajoutées à `AUDIT_ACTIONS`,
+// dont trois écrivant des catégories que ce texte ne nommait pas
+// (l'adresse d'une personne invitée, l'adresse du titulaire lors d'une
+// réinitialisation, le titre d'un e-mail type), sans qu'un seul test ne
+// rougisse.
+//
+// LE MAILLON, et il est le point de toute cette affaire : une action est
+// un identifiant (`invitation.create`), le registre est une phrase
+// française. Rien ne les relie de soi. Exiger la chaîne
+// `"invitation.create"` dans le texte publié donnerait une page que
+// personne ne peut lire ; ne rien exiger ne protège de rien. Ce que le
+// journal écrit en `cible` a en revanche un petit nombre de NATURES, et ce
+// sont elles que la page énumère. `AUDIT_CIBLE_NATURE` /`CIBLE_NATURES`
+// (`packages/backend/convex/_dataRegistry.ts`) déclarent la
+// correspondance à un seul endroit ; `convex/lib/auditEvent.test.ts` tient
+// l'autre bout — toute action a une nature.
+// ---------------------------------------------------------------------
+
+/** La ligne de registre qui couvre `auditLog`, retrouvée par son classement. */
+function ligneDuJournal(): Processing {
+  const couverture = TABLE_COVERAGE.auditLog
+  const ligne = processings.find(
+    (p) => p.purpose === (couverture as { declaredAs: string }).declaredAs,
+  )
+  expect(ligne, "aucune ligne de `processings` ne couvre `auditLog`").toBeDefined()
+  return ligne!
+}
+
+// `data` est concaténé sur une douzaine de lignes de source : comparer les
+// espaces à l'identique casserait au premier reformatage, pour une raison
+// qui n'a rien à voir avec le registre. La casse tombe pour la même raison
+// — une catégorie déplacée en tête de phrase prend une majuscule sans rien
+// changer de ce qu'elle déclare.
+const aplatir = (texte: string) => texte.replace(/\s+/g, " ").toLowerCase()
+
+test("chaque nature de cible journalisée est énumérée sur /confidentialite", () => {
+  const publie = aplatir(ligneDuJournal().data)
+  const absentes = [...new Set(Object.values(AUDIT_CIBLE_NATURE))]
+    .map((nom) => [nom, CIBLE_NATURES[nom]] as const)
+    .filter(([, nature]) => "publiee" in nature && !publie.includes(aplatir(nature.publiee)))
+    .map(([nom, nature]) => `${nom} → « ${(nature as { publiee: string }).publiee} »`)
+
+  expect(
+    absentes,
+    "Le journal d'audit écrit une catégorie de données que /confidentialite " +
+      "n'énumère pas. Le registre publié (`processings`, ligne `auditLog`) doit " +
+      "reprendre MOT POUR MOT la phrase de chaque nature de `CIBLE_NATURES` " +
+      "(`packages/backend/convex/_dataRegistry.ts`) qu'au moins une action " +
+      "utilise. Reformuler la phrase est permis — des deux côtés ensemble ; " +
+      "la faire disparaître d'un seul côté est ce que ce test refuse, parce " +
+      "que ce journal n'est purgé par rien et que la personne concernée doit " +
+      "pouvoir y retrouver sa situation.",
+  ).toEqual([])
+})
+
+test("une nature déclarée que plus aucune action n'utilise n'est pas publiée", () => {
+  // L'autre sens, et il compte autant : publier une catégorie que le
+  // journal n'écrit plus décrit un traitement qui n'a pas lieu. Même
+  // raisonnement que « chaque finalité publiée est portée par au moins une
+  // table » plus haut.
+  const utilisees = new Set<string>(Object.values(AUDIT_CIBLE_NATURE))
+  expect(Object.keys(CIBLE_NATURES).filter((nom) => !utilisees.has(nom))).toEqual([])
+})
+
+test("une invitation jamais acceptée se retrouve dans le registre publié", () => {
+  // Le cas qui coûte, vérifié pour lui-même : quelqu'un qui reçoit une
+  // invitation et ne l'accepte JAMAIS voit son adresse écrite dans la
+  // table dont la même ligne annonce « Conservé sans limite ». Il n'a
+  // jamais eu de compte — donc aucune phrase parlant du « compte
+  // concerné » ne le décrit, et il ne se cherchera pas là. La page doit
+  // dire les deux choses, et dans cette ligne-ci : que l'adresse d'une
+  // personne invitée y entre, et que ne pas accepter n'y change rien.
+  const ligne = ligneDuJournal()
+  const publie = aplatir(`${ligne.data} ${ligne.retention}`)
+  expect(publie).toContain(aplatir(CIBLE_NATURES.emailDePersonneInvitee.publiee))
+  expect(
+    /n'accepte jamais|refus|jamais accept/.test(publie),
+    "La ligne du journal doit dire qu'une invitation non acceptée laisse " +
+      "quand même l'adresse dans un journal que rien ne purge : c'est la " +
+      "seule situation où une personne sans aucun compte est conservée sans " +
+      "limite, et elle ne se reconnaîtra dans aucune autre phrase.",
+  ).toBe(true)
+})
+
+test("aucune nature ne publie une valeur de secret", () => {
+  // Règle 3 de `convex/lib/auditEvent.ts` : aucune valeur de jeton
+  // n'entre au journal, même tronquée. Le registre ne doit donc jamais
+  // annoncer le contraire — une page qui déclarerait conserver la valeur
+  // d'un secret serait fausse dans le sens le plus embarrassant.
+  expect(aplatir(CIBLE_NATURES.nomDeJeton.publiee)).not.toContain("valeur")
+  expect(aplatir(ligneDuJournal().data)).toContain("jamais sa valeur")
 })

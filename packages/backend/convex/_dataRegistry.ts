@@ -18,6 +18,8 @@
 // `_registry.ts`, et le bundler de déploiement s'en accommode pour la
 // même raison.
 
+import type { AuditAction } from "./lib/auditEvent"
+
 /**
  * Chaque table des deux schémas, classée : rattachée à une finalité
  * publiée, ou exemptée AVEC SA RAISON.
@@ -108,4 +110,150 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
       "Les clés de signature des jetons Better Auth. Du matériel " +
       "cryptographique du déploiement, qui ne désigne aucune personne.",
   },
+}
+
+// ---------------------------------------------------------------------
+// Le second maillon : la NATURE de ce que le journal d'audit écrit.
+//
+// `TABLE_COVERAGE` ci-dessus ferme une question — « cette table est-elle
+// déclarée ? ». Il n'en ferme pas une autre, et c'est celle-là qui a
+// dérivé : `auditLog` était bien déclarée, sa conservation bien annoncée
+// « sans limite », et pourtant la phrase publiée en face du champ `data`
+// n'énumérait plus que deux des catégories que le code y écrit. Trois
+// actions ont été ajoutées à `AUDIT_ACTIONS` sans que rien ne rougisse —
+// dont `invitation.create`, qui inscrit l'adresse d'une personne QUI N'A
+// JAMAIS EU DE COMPTE dans la seule table que rien ne purge.
+//
+// LE PROBLÈME, ET POURQUOI CE FICHIER-CI. Une action est un identifiant
+// (`invitation.create`) ; le registre est une phrase française. Rien ne
+// les relie mécaniquement, et les deux tentatives évidentes échouent :
+// exiger la chaîne `"invitation.create"` dans le texte publié donnerait
+// une page illisible, et ne rien exiger ne protège de rien.
+//
+// LE MAILLON. Ce que le journal écrit en `cible` n'a qu'un petit nombre
+// de NATURES — une adresse électronique, le nom d'un jeton, l'adresse
+// d'une page, le titre d'un e-mail type, un identifiant interne. Ce sont
+// ces natures que la page doit énumérer, jamais les actions : un lecteur
+// ne cherche pas « `invitation.create` », il cherche « mon adresse ». La
+// correspondance action → nature est déclarée ici, en un seul endroit, et
+// chaque nature porte la phrase EXACTE qui doit figurer sur
+// `/confidentialite`. Les deux tests s'y accrochent :
+//
+//   • `lib/auditEvent.test.ts` (backend) — toute action de `AUDIT_ACTIONS`
+//     a une nature. Une action ajoutée sans nature fait rougir la suite.
+//   • `apps/web/src/config/legal.test.ts` — la phrase de chaque nature
+//     utilisée figure réellement dans le `data` publié. Une nature
+//     déclarée que la page n'énumère pas fait rougir la suite.
+//
+// Ici plutôt que dans `lib/auditEvent.ts` : `apps/web` doit lire cette
+// table pour tenir sa moitié du garde-fou, et `lib/auditEvent.ts` importe
+// `convex/values` — donc le runtime serveur de Convex — que le bundle du
+// site n'a rien à porter. `AuditAction` en `import type` seul : effacé au
+// build (`verbatimModuleSyntax`), il ne fait entrer aucun code, et suffit
+// à ce que `Record<AuditAction, …>` refuse à la compilation une action
+// oubliée. Même frontière, même raison que pour le schéma Better Auth
+// (invariant #1) — voir l'en-tête de ce fichier.
+//
+// CE QUE LE MAILLON NE VOIT PAS, et il faut le dire pour que l'absence se
+// relise : il classe `cible`, pas `detail`. `detail` ne porte aujourd'hui
+// que des mots choisis par le code — un nom de rôle, « création » ou
+// « remplacement », « désactivé », une liste de noms de réglages —, jamais
+// rien qui désigne quelqu'un. Le jour où un point d'écriture y mettrait
+// une donnée personnelle, rien ici ne le signalerait.
+// ---------------------------------------------------------------------
+
+/**
+ * Une nature de cible : ce qu'elle oblige la page à publier, ou pourquoi
+ * il n'y a rien à publier.
+ *
+ * Même forme que `TableCoverage` ci-dessus, et pour la même raison : une
+ * action qui ne vise personne doit pouvoir le dire, mais PAR ÉCRIT. Sans
+ * le second cas, `sansCible` serait la porte de sortie silencieuse par
+ * laquelle une action se soustrairait au registre.
+ */
+export type CibleNature =
+  /** La phrase EXACTE qui doit figurer dans le `data` publié. */
+  | { publiee: string }
+  /** Pourquoi cette action n'écrit aucune cible. */
+  | { sansCible: string }
+
+export const CIBLE_NATURES = {
+  /** `users.setRole`, `users.remove`, `passwordReset` — `target.email`. */
+  emailDeCompte: {
+    publiee: "l'adresse électronique du compte concerné",
+  },
+  /**
+   * `invitations.create` — l'adresse de l'INVITÉ, écrite avant qu'aucun
+   * compte n'existe. Une nature à part de `emailDeCompte`, et ce n'est pas
+   * un raffinement : une personne qui n'accepte jamais l'invitation n'a
+   * jamais de compte ici, et se cherchera sur la page sous « j'ai été
+   * invité », jamais sous « mon compte ». Les confondre, c'est publier une
+   * phrase où elle ne se reconnaît pas.
+   */
+  emailDePersonneInvitee: {
+    publiee: "l'adresse électronique d'une personne invitée",
+  },
+  /** `secrets.set`/`clear` — `args.nom`. Jamais la valeur, pas même tronquée. */
+  nomDeJeton: {
+    publiee: "le nom d'un jeton d'accès",
+  },
+  /** `pages.*`/`posts.*` — le slug, qui est l'adresse publique. */
+  adresseDePage: {
+    publiee: "l'adresse d'une page ou d'un article",
+  },
+  /**
+   * `emails.*` — `description.titre`, le titre du catalogue. Le TEXTE de
+   * l'e-mail n'entre jamais dans la ligne (voir `emails.ts`) ; le titre,
+   * lui, est écrit par le déploiement et ne désigne personne — mais il
+   * s'énumère quand même, parce que le registre décrit ce que la table
+   * contient, pas seulement ce qu'elle contient de personnel.
+   */
+  titreDEmail: {
+    publiee: "le titre d'un e-mail type",
+  },
+  /**
+   * `leads.remove` — l'identifiant Convex de la fiche, et rien d'autre :
+   * y recopier l'adresse défairait l'effacement que la même page promet.
+   */
+  identifiantDeFiche: {
+    publiee: "l'identifiant interne d'une fiche de contact",
+  },
+  /** `settings.update`. */
+  aucune: {
+    sansCible:
+      "Le geste ne vise personne : la ligne ne porte que le nom des réglages " +
+      "modifiés, jamais leur valeur, et aucun réglage n'est une personne.",
+  },
+} satisfies Record<string, CibleNature>
+
+export type CibleNatureName = keyof typeof CIBLE_NATURES
+
+/**
+ * Chaque geste journalisé, en face de la nature de ce qu'il écrit en
+ * `cible`. Dérivé des points d'écriture, un par un — la valeur passée à
+ * `journaliser({ cible })`, pas ce qu'on aimerait qu'elle soit.
+ *
+ * `Record<AuditAction, …>` et non un objet libre : ajouter une valeur à
+ * `AUDIT_ACTIONS` sans venir ici est une erreur de compilation, et
+ * `lib/auditEvent.test.ts` la refait à l'exécution — `tsc` ne tourne pas
+ * dans la boucle d'un test qui passe au vert.
+ */
+export const AUDIT_CIBLE_NATURE: Record<AuditAction, CibleNatureName> = {
+  "role.change": "emailDeCompte",
+  "user.remove": "emailDeCompte",
+  "password.reset": "emailDeCompte",
+  "invitation.create": "emailDePersonneInvitee",
+  "secret.set": "nomDeJeton",
+  "secret.clear": "nomDeJeton",
+  "lead.remove": "identifiantDeFiche",
+  "page.publish": "adresseDePage",
+  "page.unpublish": "adresseDePage",
+  "page.remove": "adresseDePage",
+  "post.publish": "adresseDePage",
+  "post.unpublish": "adresseDePage",
+  "post.remove": "adresseDePage",
+  "emailTemplate.set": "titreDEmail",
+  "emailTemplate.toggle": "titreDEmail",
+  "emailTemplate.reset": "titreDEmail",
+  "settings.update": "aucune",
 }
