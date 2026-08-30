@@ -6,7 +6,6 @@ import {
   chiffrer,
   dechiffrer,
   lireCleMaitresse,
-  quatreDerniers,
 } from "./secretsCrypto"
 
 // Le chiffrement d'enveloppe, vérifié plutôt que supposé.
@@ -105,18 +104,5 @@ describe("chiffrer / dechiffrer", () => {
     await expect(
       dechiffrer(cle, autreIv.buffer as ArrayBuffer, chiffre)
     ).rejects.toThrow()
-  })
-})
-
-describe("quatreDerniers", () => {
-  test("les quatre derniers caractères d'un jeton de taille normale", () => {
-    expect(quatreDerniers("sk-or-v1-abcdef1234")).toBe("1234")
-  })
-
-  test("rien du tout pour une valeur courte", () => {
-    // Quatre caractères sur six, ce n'est plus un indice : c'est le secret.
-    expect(quatreDerniers("abc")).toBe("")
-    expect(quatreDerniers("1234567")).toBe("")
-    expect(quatreDerniers("12345678")).toBe("5678")
   })
 })

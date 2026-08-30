@@ -142,15 +142,3 @@ export async function dechiffrer(
   )
   return new TextDecoder().decode(clair)
 }
-
-/**
- * Les quatre derniers caractères, et seulement s'il en reste assez pour que
- * ce ne soit pas la moitié du secret.
- *
- * C'est le seul fragment de valeur qui remonte au navigateur. Il sert à une
- * question précise et fréquente : « celle que je vois posée est-elle bien
- * celle que j'ai dans mon gestionnaire de mots de passe ? »
- */
-export function quatreDerniers(valeur: string): string {
-  return valeur.length >= 8 ? valeur.slice(-4) : ""
-}

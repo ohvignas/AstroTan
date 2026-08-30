@@ -367,8 +367,6 @@ export default defineSchema({
     /** 12 octets, NEUFS à chaque écriture — un IV réutilisé casse AES-GCM. */
     iv: v.bytes(),
     chiffre: v.bytes(),
-    /** Les quatre derniers caractères, ou "" si le secret est trop court. */
-    quatreDerniers: v.string(),
     majAt: v.number(),
     majPar: v.string(),
   }).index("by_nom", ["nom"]),

@@ -78,8 +78,9 @@ test("sans session, on ne lit ni n'écrit rien", async () => {
 test("un editor est refusé — classer des leads n'est pas détenir une clé de facturation", async () => {
   const { identity } = await seedActor("editor")
   // Volontairement plus strict que `settings.environment`, qui laisse un
-  // editor lire des booléens : `status` rend les quatre derniers
-  // caractères, qui sont un fragment de secret.
+  // editor lire des booléens : savoir quelles clés sont posées, lesquelles
+  // manquent et laquelle est illisible dessine l'état de sécurité du
+  // déploiement.
   await expect(identity.query(api.secrets.status, {})).rejects.toThrow()
   await expect(
     identity.action(api.secrets.set, {
@@ -101,7 +102,6 @@ test("un admin peut poser un jeton", async () => {
   const etat = await identity.query(api.secrets.status, {})
   const ligne = etat.secrets.find((s) => s.nom === "RESEND_API_KEY")
   expect(ligne?.base).toBe(true)
-  expect(ligne?.quatreDerniers).toBe("1234")
 })
 
 // ---------------------------------------------------------------------
@@ -122,7 +122,11 @@ test("status ne rend jamais la valeur, ni l'IV, ni le chiffré", async () => {
   // l'assertion de non-fuite ci-dessous sans rien garder du tout.
   expect(ligne?.base).toBe(true)
   expect(ligne?.source).toBe("base")
-  expect(ligne?.quatreDerniers).toBe("9876")
+  // `quatreDerniers` n'a plus aucun lecteur côté écran (voir
+  // `apps/admin/src/components/settings-secrets.tsx`) : un fragment de
+  // secret qu'on cesse d'afficher n'a plus de raison de traverser le
+  // réseau. Ce test rougit si la query le rend à nouveau.
+  expect(ligne).not.toHaveProperty("quatreDerniers")
 
   const rendu = JSON.stringify(etat)
   expect(rendu).not.toContain(SENTINELLE)
@@ -130,6 +134,7 @@ test("status ne rend jamais la valeur, ni l'IV, ni le chiffré", async () => {
   // quelqu'un les recopie « pour déboguer », ce test le dit.
   expect(rendu).not.toContain("chiffre")
   expect(rendu).not.toContain("\"iv\"")
+  expect(rendu).not.toContain("quatreDerniers")
 })
 
 test("la valeur en clair n'est nulle part dans la table", async () => {
@@ -141,8 +146,6 @@ test("la valeur en clair n'est nulle part dans la table", async () => {
   const lignes = await t.run((ctx) => ctx.db.query("secrets").collect())
   expect(lignes).toHaveLength(1)
   expect(JSON.stringify(lignes)).not.toContain(SENTINELLE)
-  // Le fragment affiché est bien le seul morceau de valeur stocké.
-  expect(lignes[0]?.quatreDerniers).toBe("9876")
 })
 
 test("les secrets ne sont pas dans la table settings, ni dans sa projection publique", async () => {
@@ -238,7 +241,6 @@ test("réécrire remplace la ligne au lieu d'en ajouter une seconde", async () =
   })
   const lignes = await t.run((ctx) => ctx.db.query("secrets").collect())
   expect(lignes).toHaveLength(1)
-  expect(lignes[0]?.quatreDerniers).toBe("2222")
 })
 
 test("clear retire la ligne, et un second clear ne lève pas", async () => {

@@ -17,7 +17,6 @@ import {
   chiffrer,
   dechiffrer,
   lireCleMaitresse,
-  quatreDerniers,
 } from "./lib/secretsCrypto"
 
 // ---------------------------------------------------------------------
@@ -33,9 +32,9 @@ import {
 //   • table dédiée, jamais `settings` — celle-là a une projection publique ;
 //   • valeur CHIFFRÉE (AES-GCM) sous une clé maîtresse qui, elle, reste
 //     dans l'environnement : une copie de la base ne suffit plus ;
-//   • aucune query ne rend jamais `iv`, `chiffre`, ni la valeur en clair.
-//     Ce qui remonte : configuré oui/non, les quatre derniers caractères,
-//     la date. `secrets.test.ts` échoue si autre chose sort.
+//   • aucune query ne rend jamais `iv`, `chiffre`, ni la valeur en clair, ni
+//     même un fragment de celle-ci. Ce qui remonte : configuré oui/non, la
+//     source, la date. `secrets.test.ts` échoue si autre chose sort.
 //
 // LA PRÉCÉDENCE, tranchée ici et nulle part ailleurs :
 //
@@ -102,13 +101,14 @@ export const MAX_SECRET_LENGTH = 2048
 export type SecretSource = "environnement" | "base" | "aucune"
 
 /**
- * L'état de chaque jeton — jamais sa valeur.
+ * L'état de chaque jeton — jamais sa valeur, ni un fragment de celle-ci.
  *
  * `owner`/`admin` seulement, à la différence de `settings.environment` qui
- * laisse aussi passer un editor : celle-ci rend les quatre derniers
- * caractères, qui sont un fragment de secret, et l'écriture est de toute
- * façon réservée aux deux mêmes rôles. Un editor garde l'écran, avec les
- * booléens que `settings.environment` lui donne déjà.
+ * laisse aussi passer un editor : savoir quelles clés sont posées,
+ * lesquelles manquent et laquelle est illisible dessine l'état de sécurité
+ * du déploiement, et l'écriture est de toute façon réservée aux deux mêmes
+ * rôles. Un editor garde l'écran, avec les booléens que `settings.environment`
+ * lui donne déjà.
  */
 export const status = query({
   args: {},
@@ -146,7 +146,6 @@ export const status = query({
         environnement,
         base: row !== undefined,
         illisible,
-        quatreDerniers: row?.quatreDerniers ?? null,
         majAt: row?.majAt ?? null,
         source: (environnement
           ? "environnement"
@@ -208,7 +207,6 @@ export const ranger = internalMutation({
     nom: nomValidator,
     iv: v.bytes(),
     chiffre: v.bytes(),
-    quatreDerniers: v.string(),
     majPar: v.string(),
     majParEmail: v.string(),
   },
@@ -220,14 +218,12 @@ export const ranger = internalMutation({
     const patch = {
       iv: args.iv,
       chiffre: args.chiffre,
-      quatreDerniers: args.quatreDerniers,
       majAt: Date.now(),
       majPar: args.majPar,
     }
-    // Le NOM du jeton, jamais sa valeur — ni entière, ni tronquée aux
-    // quatre derniers caractères que `secrets.status` rend à un owner
-    // devant son écran. Un journal se relit longtemps après, souvent par
-    // plus de monde que cet écran-là.
+    // Le NOM du jeton, jamais sa valeur — ni entière, ni sous forme de
+    // fragment. Un journal se relit longtemps après, souvent par plus de
+    // monde que cet écran-là.
     await journaliser(ctx, {
       acteur: { _id: args.majPar, email: args.majParEmail },
       action: "secret.set",
@@ -293,7 +289,6 @@ export const set = action({
       nom: args.nom,
       iv,
       chiffre,
-      quatreDerniers: quatreDerniers(valeur),
       majPar: acteur._id,
       majParEmail: acteur.email,
     })
