@@ -361,6 +361,20 @@ const A_SITE_MUET: Verdict = { ...PLAN_SITE, trouve: [], etat: "indisponible" }
  */
 const A_SITE_AILLEURS: Verdict = { ...PLAN_SITE, trouve: ["104.21.5.9"], etat: "different" }
 
+/**
+ * LE MÊME A, SUR UN DÉPLOIEMENT QUI N'A PERSONNE À QUI LE COMPARER.
+ *
+ * Adresse identique à `A_SITE_AILLEURS` — un proxy Cloudflare — et
+ * pourtant `forme` et non `different` : `convex/dns.ts` n'a pas d'hôte
+ * courant (`ReferenceServeur.aucune`), donc il ne sait rien de plus que
+ * « c'est une IPv4 publique ». C'est le point de rencontre des deux
+ * correctifs : avant le routage de secours, cet état était inatteignable ;
+ * depuis, l'écran s'ouvre dessus, et le verrou y est dégradé au contrôle
+ * de forme.
+ */
+const A_SITE_FORME: Verdict = { ...PLAN_SITE, trouve: ["104.21.5.9"], etat: "forme" }
+const A_ADMIN_FORME: Verdict = { ...PLAN_ADMIN, trouve: ["104.21.5.9"], etat: "forme" }
+
 /** Une lecture faite sur `exemple.fr`, sauf mention contraire. */
 function lue(
   site: Verdict[],
@@ -478,6 +492,59 @@ describe("l'état affiché à côté du bouton", () => {
     })
   })
 
+  // ─────────────────────────────────────────────────────────────────
+  // DEUX FAÇONS D'ÊTRE VERT, ET UNE SEULE EST UNE COMPARAISON.
+  //
+  // Le résidu que ces trois tests ferment : `jugerA` rendait `ok` quand il
+  // n'existait aucun serveur de référence, si bien qu'un « A en place »
+  // vert pouvait vouloir dire « il mène ici » OU « il a la bonne forme,
+  // personne n'a vérifié où il mène ». Indiscernables à l'écran, alors que
+  // le second est exactement la configuration qui brûle le quota Let's
+  // Encrypt.
+  //
+  // CE QU'ILS DISCRIMINENT, vérifié en mutant `etatDesA` :
+  //   - la branche `forme` qui rend « A en place » → 1 échec.
+  //   - `forme` laissé dans le fourre-tout « A non lu » (`etat !== "ok"`
+  //     seul) → 1 échec.
+  //   - la branche `forme` placée AVANT ce fourre-tout → 1 échec (le cas
+  //     mixte : un A non lu à côté d'un A plausible n'arme rien).
+  // ─────────────────────────────────────────────────────────────────
+
+  test("un A vert sans serveur de référence ne se dit pas comme un A comparé", () => {
+    const compare = etatDesA("exemple.fr", "exemple.fr", lue([A_SITE_OK, A_ADMIN_OK]))
+    const sansReference = etatDesA(
+      "exemple.fr",
+      "exemple.fr",
+      lue([A_SITE_FORME, A_ADMIN_FORME])
+    )
+    // Le bouton s'arme des deux côtés — le refuser enfermerait tout
+    // déploiement sans variable Convex —, et c'est précisément pour ça que
+    // le TEXTE est le seul endroit où la différence peut se voir.
+    expect(compare?.signe).toBe("ok")
+    expect(sansReference?.signe).toBe("ok")
+    expect(sansReference?.texte).not.toBe(compare?.texte)
+    // Et il dit la chose qui manque, pas seulement « quelque chose diffère ».
+    expect(sansReference?.texte).toContain("serveur de référence")
+  })
+
+  test("un A plausible à côté d'un A non lu n'arme rien", () => {
+    const lecture = lue([A_SITE_FORME, { ...A_ADMIN_FORME, etat: "indisponible" }])
+    expect(etatDesA("exemple.fr", "exemple.fr", lecture)).toEqual({
+      signe: "inconnu",
+      texte: "A non lu",
+    })
+    expect(domaineEnregistrable("exemple.fr", "exemple.fr", lecture)).toBe(false)
+  })
+
+  test("un A plausible à côté d'un A manquant reste rouge", () => {
+    const lecture = lue([A_SITE_FORME, A_ADMIN_MANQUANT])
+    expect(etatDesA("exemple.fr", "exemple.fr", lecture)).toEqual({
+      signe: "ko",
+      texte: "A à poser",
+    })
+    expect(domaineEnregistrable("exemple.fr", "exemple.fr", lecture)).toBe(false)
+  })
+
   // Une croix rouge à côté d'un bouton armé, ou l'inverse, est la seule
   // façon dont ces deux-là peuvent mentir. Ils sont dérivés l'un de
   // l'autre pour que ce soit impossible ; ce test le tient.
@@ -486,6 +553,8 @@ describe("l'état affiché à côté du bouton", () => {
       ["exemple.fr", "exemple.fr", lue([A_SITE_OK, A_ADMIN_OK])],
       ["exemple.fr", "exemple.fr", lue([A_SITE_OK, A_ADMIN_MANQUANT])],
       ["exemple.fr", "exemple.fr", lue([A_SITE_MUET, A_ADMIN_OK])],
+      ["exemple.fr", "exemple.fr", lue([A_SITE_FORME, A_ADMIN_FORME])],
+      ["exemple.fr", "exemple.fr", lue([A_SITE_FORME, A_ADMIN_MANQUANT])],
       ["exemple.fr", "exemple.fr", null],
       ["exemple.f", null, null],
     ]

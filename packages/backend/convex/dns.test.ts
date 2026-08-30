@@ -60,11 +60,21 @@ function stubDns(reponses: Record<string, string[]>) {
 }
 
 test("checkSite : A présent sur les deux hôtes rend deux verdicts ok", async () => {
+  // `WEB_DOMAIN` posée, et l'hôte courant résolu : sans elle, ce test
+  // passait sur le REPLI de forme (`ReferenceServeur.aucune`) tout en
+  // annonçant une comparaison. Il rendait donc `ok` pour n'importe quelle
+  // IPv4 publique, y compris celle d'un proxy — c'est-à-dire exactement ce
+  // que ce module existe pour refuser.
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
+  process.env.WEB_DOMAIN = "actuel.fr"
   vi.stubGlobal(
     "fetch",
-    stubDns({ "exemple.fr/A": ["203.0.113.7"], "admin.exemple.fr/A": ["203.0.113.7"] }),
+    stubDns({
+      "actuel.fr/A": ["203.0.113.7"],
+      "exemple.fr/A": ["203.0.113.7"],
+      "admin.exemple.fr/A": ["203.0.113.7"],
+    }),
   )
   const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
   expect(verdicts.map((v) => [v.cle, v.etat])).toEqual([
@@ -129,9 +139,14 @@ test("checkSite : un A derrière un CNAME reste joignable", async () => {
   // réponse ferait dire « different » à une configuration correcte.
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
+  // Même raison qu'au-dessus : un hôte courant, sinon le CNAME serait
+  // « joignable » par simple contrôle de forme et la chaîne ne serait pas
+  // vraiment déroulée jusqu'à une adresse COMPARÉE.
+  process.env.WEB_DOMAIN = "actuel.fr"
   vi.stubGlobal(
     "fetch",
     stubDns({
+      "actuel.fr/A": ["203.0.113.7"],
       "exemple.fr/A": ["cible.hebergeur.test.", "203.0.113.7"],
       "admin.exemple.fr/A": ["203.0.113.7"],
     }),
@@ -404,11 +419,18 @@ test("checkSite : le domaine déclaré est l'hôte de référence, pas `WEB_DOMA
   expect(verdicts.map((v) => v.etat)).toEqual(["different", "different"])
 })
 
-test("checkSite : sans hôte courant, un premier déploiement peut encore enregistrer", async () => {
+test("checkSite : sans hôte courant, le verdict est `forme` — pas `ok`", async () => {
   // Ni domaine déclaré, ni `WEB_DOMAIN` : il n'existe aucun serveur à qui
   // comparer. Refuser ici enfermerait un déploiement neuf dans un écran où
   // le premier domaine ne peut jamais être enregistré. On retombe sur ce
-  // qu'on sait dire de vrai — la forme.
+  // qu'on sait dire de vrai — la forme — et ON LE DIT.
+  //
+  // `IP_DU_PROXY`, exprès : c'est le cas de la panne. Cet état n'est pas
+  // réservé au premier jour — `deploy.yml` ne pose aucune variable Convex —
+  // et depuis que le routage de secours fait tenir le site debout sans
+  // elles, l'écran est atteignable ici. Un adoptant derrière Cloudflare y
+  // arme le bouton sur une adresse qui n'est pas la sienne. `forme` est ce
+  // qui rend la chose visible à l'écran ; rendre `ok` la cachait.
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
   vi.stubGlobal(
@@ -416,7 +438,27 @@ test("checkSite : sans hôte courant, un premier déploiement peut encore enregi
     stubDns({ "exemple.fr/A": [IP_DU_PROXY], "admin.exemple.fr/A": [IP_DU_PROXY] }),
   )
   const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
-  expect(verdicts.map((v) => v.etat)).toEqual(["ok", "ok"])
+  expect(verdicts.map((v) => v.etat)).toEqual(["forme", "forme"])
+})
+
+test("checkSite : `forme` ne survit pas à l'existence d'un serveur de référence", async () => {
+  // La discrimination qui compte côté serveur : `forme` doit être la
+  // conséquence de l'ABSENCE de référence, jamais un synonyme paresseux de
+  // « c'est une IPv4 publique ». Mêmes adresses trouvées qu'au-dessus, un
+  // hôte courant en plus — et les deux verdicts changent.
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.WEB_DOMAIN = "actuel.fr"
+  vi.stubGlobal(
+    "fetch",
+    stubDns({
+      "actuel.fr/A": [NOTRE_IP],
+      "exemple.fr/A": [IP_DU_PROXY],
+      "admin.exemple.fr/A": [NOTRE_IP],
+    }),
+  )
+  const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
+  expect(verdicts.map((v) => v.etat)).toEqual(["different", "ok"])
 })
 
 test("checkSite : un hôte courant illisible ne dit ni « en place » ni « à poser »", async () => {

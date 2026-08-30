@@ -275,9 +275,20 @@ export function etatDesA(
   }
   // Un résolveur muet n'est pas un enregistrement absent — même règle que
   // dans le tableau, et la même conséquence ici : on n'arme rien sur ce
-  // qu'on n'a pas pu lire.
-  if (a.some((verdict) => verdict.etat !== "ok")) {
+  // qu'on n'a pas pu lire. `forme` en est exclu : lui a été lu.
+  if (a.some((verdict) => verdict.etat !== "ok" && verdict.etat !== "forme")) {
     return { signe: "inconnu", texte: "A non lu" }
+  }
+  // DEUX FAÇONS D'ÊTRE VERT, ET ELLES NE SE DISENT PAS PAREIL. `ok` veut
+  // dire que le A mène à CE serveur ; `forme` veut dire qu'il est une
+  // IPv4 publique et que le déploiement n'avait personne à qui le
+  // comparer (`convex/dns.ts`, `jugerA`, cas `aucune`). Le bouton s'arme
+  // dans les deux cas — le refuser enfermerait tout déploiement sans
+  // variable Convex —, mais promettre « A en place » sur une comparaison
+  // qui n'a pas eu lieu est ce qui laissait un adoptant derrière
+  // Cloudflare brûler son quota Let's Encrypt en croyant l'écran.
+  if (a.some((verdict) => verdict.etat === "forme")) {
+    return { signe: "ok", texte: "A plausible · aucun serveur de référence" }
   }
   return { signe: "ok", texte: "A en place" }
 }

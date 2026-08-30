@@ -35,9 +35,14 @@ import { deriverHotes } from "./routing"
 // inoffensive.
 
 /**
- * Quatre états, pas deux — et surtout pas trois confondus en deux.
+ * Cinq états, pas deux — et surtout pas quatre confondus en trois.
  *
- * - `ok` : l'enregistrement est là et convient.
+ * - `ok` : l'enregistrement est là et convient. Pour un A, cela veut dire
+ *   qu'il a été COMPARÉ à l'adresse du serveur, et qu'il y mène.
+ * - `forme` : la ligne A est bien une IPv4 publique, et il n'existait
+ *   AUCUN serveur de référence à qui la comparer. Elle est plausible ;
+ *   elle n'est pas vérifiée. Le seul état que `jugerA` produise seul, et
+ *   le seul qui dise « on a regardé, mais pas ce qu'il fallait ».
  * - `manquant` : le nom ne porte pas cet enregistrement. « Créez-le. »
  * - `different` : un enregistrement existe mais ne convient pas.
  *   « Remplacez sa valeur. »
@@ -47,8 +52,15 @@ import { deriverHotes } from "./routing"
  * afficher « créez cet enregistrement » quand on n'a simplement pas pu
  * regarder fait créer un doublon chez l'hébergeur de l'adoptant, qu'il
  * devra ensuite diagnostiquer sans savoir d'où il vient.
+ *
+ * `ok` et `forme` de même, et pour une raison qui n'est apparue qu'après
+ * coup. L'écran arme le bouton d'enregistrement sur les deux — il le
+ * doit, sinon un déploiement sans serveur de référence n'aurait aucune
+ * issue —, mais il ne doit pas les AFFICHER pareil : les fondre en un
+ * seul « A en place » vert promet une comparaison qui n'a pas eu lieu.
+ * Le raisonnement entier est dans `jugerA`.
  */
-export type EtatVerdict = "ok" | "manquant" | "different" | "indisponible"
+export type EtatVerdict = "ok" | "forme" | "manquant" | "different" | "indisponible"
 
 /**
  * Un enregistrement à créer chez l'hébergeur — connu sans rien résoudre.
@@ -175,6 +187,27 @@ function estIpv4Publique(valeur: string): boolean {
 // serait une valeur d'opérateur qu'il suffirait de mettre au bon chiffre
 // pour désarmer le verrou — un verrou qu'on peut ouvrir soi-même n'en est
 // pas un.
+//
+// CE RAISONNEMENT SUPPOSE UN DÉPLOIEMENT EN ACCÈS DIRECT, et il faut le
+// dire, parce que le dépôt propose lui-même la configuration qui le met
+// en défaut. `docker/README.md` §3 offre le challenge DNS-01 comme remède
+// au proxy — il ne dépend pas du routage HTTP, donc les certificats
+// s'émettent avec le nuage orange allumé. Un déploiement qui a pris ce
+// remède est LUI-MÊME derrière le proxy : l'hôte courant résout vers les
+// adresses anycast de Cloudflare, la référence vaut ces adresses-là, et
+// un nouveau domaine posé sur une AUTRE zone — donc d'autres anycast, ou
+// l'IP nue du VPS — est jugé `different` alors que sa configuration est
+// juste. Rien ne le débloque depuis l'écran, et l'étiquette « A à poser »
+// envoie corriger ce qui n'est pas cassé.
+//
+// C'est un échec FERMÉ, donc la bonne direction : le verrou refuse plutôt
+// qu'il n'ouvre, et rien ne part brûler le quota Let's Encrypt. Mais
+// c'est une impasse, et elle n'est écrite qu'ici. La sortie serait de
+// comparer autre chose que des adresses — demander à l'hôte visé s'il est
+// bien CE déploiement, ce qui suppose un point de terminaison identifié
+// et un secret partagé de plus. Personne n'en a eu besoin ; le jour où
+// quelqu'un signale ce cas, c'est là qu'il faut chercher, pas dans
+// `estIpv4Publique`.
 // ---------------------------------------------------------------------
 
 /**
@@ -186,9 +219,13 @@ function estIpv4Publique(valeur: string): boolean {
  *
  * - `connue` : l'hôte courant résout vers une ou plusieurs IPv4 publiques.
  *   C'est à elles qu'un A doit mener.
- * - `aucune` : il n'y a pas encore d'hôte courant à interroger. C'est le
- *   PREMIER DÉPLOIEMENT — ni domaine déclaré, ni `WEB_DOMAIN` — et c'est
- *   un état ordinaire, pas une panne. Voir `jugerA`.
+ * - `aucune` : il n'y a pas d'hôte courant à interroger — ni domaine
+ *   déclaré, ni `WEB_DOMAIN` dans l'environnement CONVEX. C'est un état
+ *   ordinaire, pas une panne, et il n'est PAS réservé au premier jour :
+ *   `.github/workflows/deploy.yml` ne pose aucune variable Convex, si
+ *   bien qu'un adoptant qui suit le dépôt y reste tant qu'il n'a pas
+ *   lancé les `convex env set` à la main (`docker/README.md` §6).
+ *   Voir `jugerA`, qui en tire la seule conclusion honnête.
  * - `indisponible` : il y a un hôte courant, et le résolveur n'a rien
  *   rendu d'exploitable pour lui. On ne sait pas, et on le dit.
  */
@@ -261,11 +298,27 @@ async function referenceServeur(courant: string | null): Promise<ReferenceServeu
  * Ensuite, et seulement ensuite, la référence décide :
  *
  * - `connue` : l'adresse doit être celle-là. C'est tout l'objet du verrou.
- * - `aucune` : PREMIER DÉPLOIEMENT. Il n'existe aucun hôte courant, donc
- *   rien à quoi comparer — et refuser ici enfermerait un déploiement neuf
- *   dans un écran où le premier domaine ne peut jamais être enregistré.
- *   On retombe sur le contrôle de forme, qui est ce qu'on sait dire de
- *   vrai à ce moment-là.
+ * - `aucune` : il n'existe aucun hôte courant, donc rien à quoi comparer
+ *   — et refuser ici enfermerait dans un écran où le premier domaine ne
+ *   peut jamais être enregistré. On retombe sur le contrôle de forme, qui
+ *   est ce qu'on sait dire de vrai à ce moment-là, et on le DIT :
+ *   `forme`, pas `ok`.
+ *
+ *   Cette distinction est le point le plus coûteux du module, et elle
+ *   n'existe que parce que deux correctifs se sont rencontrés. Tant que
+ *   l'absence d'hôte courant valait 404 sur cet écran, l'état était mort
+ *   — inatteignable, donc sans conséquence. Depuis que le routage de
+ *   secours fait tenir le site debout sans variable Convex
+ *   (`services/routeur`, issue `routage-de-secours`), l'écran est
+ *   atteignable DANS cet état : le verrou y est dégradé au contrôle de
+ *   forme, et un adoptant derrière Cloudflare — l'IP publique du proxy —
+ *   arme le bouton. C'est exactement le cas que ce verrou existe pour
+ *   fermer, et le rendre `ok` le rendait invisible.
+ *
+ *   On ne referme pas le verrou pour autant : ce serait échanger une
+ *   panne rare contre une impasse certaine pour tout déploiement neuf.
+ *   On rend l'état visible, et l'écran écrit qu'il n'y a pas de serveur
+ *   de référence (`etatDesA`, `routes/_authed/settings/domaine.tsx`).
  * - `indisponible` : un hôte courant existe et n'a pas répondu. Ni « en
  *   place » ni « à créer » : « le résolveur n'a pas répondu ». Le verrou
  *   reste fermé, l'écran dit « A non lu », et réessayer est la bonne
@@ -287,7 +340,7 @@ function jugerA(reference: ReferenceServeur) {
           ? "ok"
           : "different"
       case "aucune":
-        return "ok"
+        return "forme"
       case "indisponible":
         return "indisponible"
     }

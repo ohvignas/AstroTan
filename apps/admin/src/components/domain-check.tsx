@@ -24,16 +24,19 @@ import {
 // état « attente » : la colonne existe toujours, elle se remplit quand la
 // vérification répond.
 //
-// TROIS SIGNES, PAS QUATRE. `convex/dns.ts` rend quatre états et tient
-// `manquant` et `indisponible` séparés exprès : « le résolveur n'a pas
-// répondu » n'est pas « c'est absent ». L'un se réessaie, l'autre se crée,
-// et les confondre en rouge fait créer chez l'hébergeur un doublon qui se
-// diagnostique des semaines plus tard. `manquant` et `different`, eux,
-// appellent le même geste — aller chez l'hébergeur — et partagent donc le
-// rouge. L'état local « attente » (pas encore vérifié) emprunte le
-// troisième signe, celui d'« indisponible » : les deux disent la même
-// chose à l'œil, « on ne sait pas encore » — ils ne se distinguent que
-// dans `data-etat`, pour les tests.
+// TROIS SIGNES, POUR CINQ ÉTATS PLUS UN. `convex/dns.ts` rend cinq états
+// et tient `manquant` et `indisponible` séparés exprès : « le résolveur
+// n'a pas répondu » n'est pas « c'est absent ». L'un se réessaie, l'autre
+// se crée, et les confondre en rouge fait créer chez l'hébergeur un
+// doublon qui se diagnostique des semaines plus tard. `manquant` et
+// `different`, eux, appellent le même geste — aller chez l'hébergeur — et
+// partagent donc le rouge. L'état local « attente » (pas encore vérifié)
+// emprunte le signe d'« indisponible » : les deux disent la même chose à
+// l'œil, « on ne sait pas encore ». `forme` emprunte celui d'`ok` pour la
+// raison inverse — la ligne est bien là, c'est le serveur de référence
+// qui manque, et ça ne se dit pas d'une ligne. Ces deux paires-là ne se
+// distinguent que dans `data-etat`, pour les tests ; ce qui les sépare à
+// l'écran est l'étiquette au-dessus du tableau.
 //
 // TYPE, NOM, VALEUR : TROIS COLONNES NUES, PLUS L'ÉTAT. `convex/dns.ts`
 // porte maintenant `type` et `nom` comme champs à part entière — ce
@@ -73,6 +76,13 @@ const SIGNES: Record<Signe, { glyphe: string; texte: string; classe: string }> =
 
 const SIGNE_DE: Record<EtatVerdict | "attente", Signe> = {
   ok: "ok",
+  // Vert comme `ok`, et c'est voulu : la LIGNE est en place — un A qui
+  // existe et qui est une IPv4 publique. Ce qui manque n'est pas dans la
+  // ligne, c'est un serveur à qui la comparer, et ça ne se dit pas d'une
+  // ligne de tableau. L'étiquette au-dessus le dit, elle (`etatDesA`).
+  // Même arrangement qu'entre « attente » et `indisponible` : le signe est
+  // partagé, `data-etat` les sépare.
+  forme: "ok",
   manquant: "ko",
   different: "ko",
   indisponible: "inconnu",
