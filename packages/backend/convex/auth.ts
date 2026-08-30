@@ -687,10 +687,17 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     // verrouillage que ce lot existe pour éviter.
     //
     // D'où la forme retenue : `baseURL` figée par l'environnement, et
-    // `trustedOrigins` ci-dessous qui AJOUTE l'origine du domaine déclaré.
-    // L'ancienne origine reste donc acceptée pendant que la nouvelle le
-    // devient — le même « on ajoute, on vérifie, puis seulement on
-    // retire » que le service `routeur` applique au routage.
+    // `trustedOrigins` ci-dessous qui AJOUTE l'origine du domaine déclaré
+    // et celles des domaines sortants.
+    //
+    // `baseURL` seule ne suffit PAS à garder l'ancienne origine acceptée,
+    // et l'avoir cru est ce qui a laissé passer le défaut : elle ne
+    // conserve que l'origine du PREMIER domaine, celle de `SITE_URL`.
+    // Au deuxième changement, l'origine intermédiaire — la seule encore
+    // routée quand le nouveau domaine n'obtient pas de certificat —
+    // disparaissait de la liste. Ce sont les sortants qui la gardent, et
+    // c'est ce qui rend enfin vrai le « on ajoute, on vérifie, puis
+    // seulement on retire » que le service `routeur` applique au routage.
     baseURL: process.env.SITE_URL,
     // Fonction, et asynchrone : better-auth accepte
     // `(request?) => Awaitable<(string|null|undefined)[]>` et la rappelle
@@ -708,20 +715,58 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     // `deriverOrigines(..., {})` avec un environnement VIDE, exprès :
     // l'origine de `SITE_URL` est déjà dans la liste par `baseURL`, et la
     // repousser ici n'ajouterait qu'un doublon. Ce que cette fonction
-    // apporte, c'est l'origine du domaine déclaré, et rien d'autre.
+    // apporte, c'est l'origine du domaine déclaré et celles des domaines
+    // SORTANTS, et rien d'autre.
+    //
+    // Les sortants, parce que sans eux le DEUXIÈME changement de domaine
+    // enferme. `[baseURL, domaine déclaré]` seuls, c'est-à-dire
+    // `[admin.A, admin.C]` après A → B → C : l'origine encore ROUTÉE,
+    // `admin.B`, n'y figure plus, et tout `POST` qui en vient est refusé
+    // en 403 `INVALID_ORIGIN` — `/sign-in/email` comme
+    // `/request-password-reset`. Le raisonnement entier, ce que
+    // `trustedOrigins` autorise réellement dans better-auth 1.6.17, et ce
+    // que cette confiance n'élargit PAS : en-tête de `lib/origines.ts`.
+    //
+    // UNE lecture de base, pas deux. Better-auth rappelle cette fonction à
+    // chaque requête d'authentification et rien ici n'est mis en cache —
+    // un cache périmé sur cette liste EST le verrouillage. D'où
+    // `settings.domaineEtSortants`, qui rend les deux champs de la même
+    // ligne, plutôt qu'un `domaineDeclare` suivi d'une seconde query.
+    //
+    // L'origine courante d'abord : better-auth parcourt la liste jusqu'au
+    // premier accord, et le cas de très loin le plus fréquent est celui où
+    // aucun domaine n'est sortant.
     trustedOrigins: async () => {
       if (!("runQuery" in convexCtx)) return []
       try {
-        const { admin } = deriverOrigines(
-          await convexCtx.runQuery(internal.settings.domaineDeclare, {}),
+        const { declare, sortants } = await convexCtx.runQuery(
+          internal.settings.domaineEtSortants,
           {},
         )
-        return admin === null ? [] : [admin]
+        const { admin, adminSortantes } = deriverOrigines(declare, {}, sortants)
+        return admin === null ? adminSortantes : [admin, ...adminSortantes]
       } catch (err) {
         console.error("TRUSTED_ORIGINS_UNREAD:", err)
         return []
       }
     },
+    // Écrit plutôt qu'hérité, comme `resetPasswordTokenExpiresIn` plus
+    // bas et pour la même raison — sauf qu'ici le défaut hérité DÉPEND DE
+    // L'ENVIRONNEMENT, ce qui est pire qu'une constante.
+    //
+    // `dist/context/create-context.mjs` (1.6.17) :
+    // `skipOriginCheck: options.advanced?.disableOriginCheck !== undefined
+    // ? options.advanced.disableOriginCheck : isTest() ? true : false`.
+    // Autrement dit, tant que l'option est absente, better-auth désactive
+    // TOUT le contrôle d'origine dès que `NODE_ENV` vaut `test`. Un
+    // déploiement Convex ne vaut jamais `test`, donc cette ligne ne change
+    // rien en production — mais sous vitest elle changeait tout : aucune
+    // suite ne pouvait observer un 403 `INVALID_ORIGIN`, et un test du
+    // verrouillage de domaine aurait été vert avant comme après sa
+    // correction. Poser `false` rend le contrôle observable là où il est
+    // vérifié, et cesse d'hériter d'une valeur qui peut changer au
+    // prochain `pnpm update`.
+    advanced: { disableOriginCheck: false },
     database: authComponent.adapter(ctx), // requis — omis, rien ne persiste
     emailAndPassword: {
       enabled: true,

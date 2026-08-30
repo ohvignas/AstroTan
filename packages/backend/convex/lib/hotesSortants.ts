@@ -23,14 +23,31 @@ import { normaliserHote } from "./hoteNu"
 //
 // ── CE QU'UN HÔTE SORTANT AUTORISE, ET RIEN DE PLUS ────────────────────
 //
-// Il est reconnu pour HONORER `x-forwarded-for`, un point c'est tout. Ce
-// n'est pas une autorisation d'accès — Traefik décide seul de ce qu'il
-// route —, ce n'est pas une origine de confiance pour l'authentification
-// (`trustedOrigins` et `baseURL` sortent de `lib/origines.ts`, qui ne lit
-// jamais ce module), et ce n'est pas une origine de lien d'email. La
-// question à laquelle un hôte sortant répond est la seule suivante :
-// « ce visiteur vient-il bien par notre proxy, son adresse est-elle
-// fiable ? »
+// Deux choses, et seulement deux.
+//
+//   1. **Honorer `x-forwarded-for`** (`routing.hotes`). La question est
+//      « ce visiteur vient-il bien par notre proxy, son adresse est-elle
+//      fiable ? ».
+//   2. **Être une origine de confiance pour ENTRER** (`auth.ts`
+//      `trustedOrigins`, via `lib/origines.ts`) : se connecter, demander
+//      une réinitialisation de mot de passe.
+//
+// Le point 2 est une AJOUT, et ce commentaire disait auparavant le
+// contraire — « ce n'est pas une origine de confiance pour
+// l'authentification ». La raison écrite ne tenait pas au deuxième
+// changement de domaine : `[baseURL, domaine déclaré]` ne conserve que
+// l'origine du PREMIER domaine, si bien qu'un A → B → C dont le C
+// n'obtient jamais de certificat laissait `admin.B` — le seul hôte encore
+// routé — hors de la liste, et refusait en 403 `INVALID_ORIGIN` jusqu'au
+// chemin de récupération. Le raisonnement complet, et ce que
+// `trustedOrigins` autorise réellement dans better-auth 1.6.17, sont dans
+// l'en-tête de `lib/origines.ts`.
+//
+// Ce qu'un hôte sortant n'autorise TOUJOURS pas : un accès — Traefik
+// décide seul de ce qu'il route, et le mot de passe, la limitation de
+// débit et le contrôle de rôle restent entiers derrière le contrôle
+// d'origine — ni une origine de lien d'email, qui ne suit que le domaine
+// courant (`Origines.admin`).
 //
 // ── D'OÙ VIENT LA SOURCE DE VÉRITÉ, ET POURQUOI PAS LE FICHIER ─────────
 //

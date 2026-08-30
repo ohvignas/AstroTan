@@ -376,9 +376,13 @@ export default defineSchema({
      * la fenêtre (72 h) et le plafond (5 entrées), avec leur justification.
      *
      * **Ce qu'un hôte sortant autorise, et rien de plus** : honorer
-     * `x-forwarded-for`. Pas un accès, pas une origine de confiance pour
-     * l'authentification (`lib/origines.ts` ne lit jamais ce champ), pas
-     * une origine de lien d'email.
+     * `x-forwarded-for` (`routing.hotes`), et servir d'origine de
+     * confiance pour ENTRER — se connecter, demander une
+     * réinitialisation (`auth.ts` `trustedOrigins`, via
+     * `lib/origines.ts`, qui lit donc bien ce champ depuis la correction
+     * du verrouillage au deuxième changement de domaine). Toujours PAS un
+     * accès, et pas une origine de lien d'email : celle-là ne suit que le
+     * domaine courant.
      *
      * `v.optional()` (invariant 6) : le champ se déploie seul, et son
      * absence est l'état de tout déploiement qui n'a jamais changé de

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "vitest"
 import { createAuth, createAuthOptions } from "./auth"
+import { FENETRE_SORTANTE_MS, noterSortie, type HoteSortant } from "./lib/hotesSortants"
 
 // `createAuth`'s ctx is only used to build a lazy Convex database adapter
 // (see createAuthOptions's `authComponent.adapter(ctx)`), which doesn't
@@ -80,10 +81,23 @@ test("createAuth throws when SITE_URL is unset, even with a valid secret", () =>
 // REFUSER des requêtes légitimes : le dashboard entier devient
 // inutilisable, et personne ne revient en arrière sans SSH.
 
-/** Le `ctx` d'une action : `runQuery` est ce que la fonction cherche. */
-function ctxAvecDomaine(declare: string | null | (() => never)) {
+/**
+ * Le `ctx` d'une action : `runQuery` est ce que la fonction cherche.
+ *
+ * Rend la forme de `settings.domaineEtSortants` — les DEUX champs de la
+ * même ligne, en une lecture. C'est le point de coût de ce bloc : better
+ * -auth rappelle `trustedOrigins` à chaque requête d'authentification et
+ * rien n'y est mis en cache (un cache périmé sur cette liste EST le
+ * verrouillage), donc une seconde query pour les sortants doublerait la
+ * charge de chaque connexion.
+ */
+function ctxAvecDomaine(
+  declare: string | null | (() => never),
+  sortants: HoteSortant[] | null = null,
+) {
   return {
-    runQuery: async () => (typeof declare === "function" ? declare() : declare),
+    runQuery: async () =>
+      typeof declare === "function" ? declare() : { declare, sortants },
   } as any
 }
 
@@ -135,4 +149,75 @@ test("un ctx sans runQuery ne fait pas échouer trustedOrigins", async () => {
   // composant. Il n'y a là ni base ni `runQuery` — et le déploiement
   // entier tombe si ce chemin lève.
   await expect(originesDeConfiance({} as any)).resolves.toEqual([])
+})
+
+// --- Les origines SORTANTES : le deuxième changement de domaine ----------
+//
+// Les quatre tests ci-dessus passaient déjà AVANT que les sortants
+// existent, et c'est justement ce qui rendait le défaut invisible : ils
+// n'exercent qu'UN changement de domaine, le seul cas où `baseURL` garde
+// l'ancienne origine par coïncidence. Ceux-ci exercent le deuxième.
+
+const HEURE = 60 * 60 * 1000
+
+/** A → B → C, écrit par `noterSortie` comme `settings.update` l'écrit. */
+function apresDeuxChangements(maintenant: number = Date.now()) {
+  const apresB = noterSortie([], "alpha.fr", maintenant - 2 * HEURE)
+  return noterSortie(apresB, "beta.fr", maintenant - HEURE)
+}
+
+test("trustedOrigins garde l'origine encore ROUTÉE au deuxième changement", async () => {
+  // `gamma.fr` est la faute de frappe : il n'obtient jamais de certificat,
+  // donc le routeur garde `admin.beta.fr` routé, et c'est le seul hôte
+  // joignable. Sans les sortants, la liste valait `[admin.gamma.fr]` et
+  // tout `POST` venu de `https://admin.beta.fr` était refusé en 403
+  // `INVALID_ORIGIN` — connexion comme réinitialisation de mot de passe.
+  const ctx = ctxAvecDomaine("gamma.fr", apresDeuxChangements())
+  expect(await originesDeConfiance(ctx)).toEqual([
+    "https://admin.gamma.fr",
+    "https://admin.beta.fr",
+    "https://admin.alpha.fr",
+  ])
+})
+
+test("passé la fenêtre, une origine sortante quitte la liste", async () => {
+  // Le pendant. La fenêtre est celle de `lib/hotesSortants.ts` — jamais
+  // une seconde écrite ici, sous peine de voir les deux diverger.
+  const vieux = apresDeuxChangements(Date.now() - FENETRE_SORTANTE_MS)
+  expect(await originesDeConfiance(ctxAvecDomaine("gamma.fr", vieux))).toEqual([
+    "https://admin.gamma.fr",
+  ])
+})
+
+test("un sortant douteux n'entre pas plus dans la liste qu'un domaine douteux", async () => {
+  const ctx = ctxAvecDomaine("gamma.fr", [
+    { host: "beta.fr`) || Host(`pirate.fr", since: Date.now() },
+    { host: "*.pirate.fr", since: Date.now() },
+  ])
+  expect(await originesDeConfiance(ctx)).toEqual(["https://admin.gamma.fr"])
+})
+
+test("sans domaine déclaré, les sortants restent rendus", async () => {
+  // Le domaine déclaré effacé (ou douteux) fait replier `admin` sur
+  // `SITE_URL`, que better-auth pousse déjà depuis `baseURL` — d'où la
+  // liste qui ne contient QUE les sortants. Les oublier ici rouvrirait le
+  // verrouillage précisément quand la ligne `settings` est en mauvais
+  // état.
+  process.env.SITE_URL = "http://localhost:3001"
+  expect(await originesDeConfiance(ctxAvecDomaine(null, apresDeuxChangements()))).toEqual([
+    "https://admin.beta.fr",
+    "https://admin.alpha.fr",
+  ])
+})
+
+test("une base injoignable ne fait toujours pas échouer trustedOrigins", async () => {
+  // Répété après l'ajout des sortants : la lecture rend maintenant un
+  // objet, et un `try` mal placé aurait pu laisser passer un
+  // `TypeError` de déstructuration plutôt que de retomber sur `[]`.
+  const ctx = {
+    runQuery: async () => {
+      throw new Error("base injoignable")
+    },
+  } as any
+  await expect(originesDeConfiance(ctx)).resolves.toEqual([])
 })

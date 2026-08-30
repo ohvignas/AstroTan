@@ -300,6 +300,36 @@ export const domaineDeclare = internalQuery({
   handler: async (ctx) => (await ctx.db.query("settings").first())?.declaredDomain ?? null,
 })
 
+/**
+ * Le domaine déclaré ET les domaines sortants, en UNE lecture.
+ *
+ * Pour `auth.ts` `trustedOrigins`, et pour lui seul. Cette fonction-là est
+ * rappelée par better-auth à CHAQUE requête d'authentification, et sa
+ * lecture n'est délibérément pas mise en cache : un cache périmé sur la
+ * liste des origines de confiance EST le verrouillage que ce lot existe
+ * pour éviter. Le coût est donc une lecture par requête — et il doit le
+ * rester. Appeler `domaineDeclare` puis une seconde query pour les
+ * sortants le doublerait, d'où cette query-ci plutôt qu'une paire.
+ *
+ * `internalQuery`, comme `domaineDeclare` et pour la même raison :
+ * `settings.get` est publique et non authentifiée (invariant 1), et ni le
+ * domaine déclaré ni les sortants n'y entrent
+ * (`settings.publicProjection.test.ts`).
+ *
+ * Les deux champs sont rendus BRUTS, non validés : la validation vit dans
+ * `deriverOrigines` et `sortantsValides`, un seul endroit chacune.
+ */
+export const domaineEtSortants = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const settings = await ctx.db.query("settings").first()
+    return {
+      declare: settings?.declaredDomain ?? null,
+      sortants: (settings?.previousDomains ?? null) as HoteSortant[] | null,
+    }
+  },
+})
+
 function assertLength(value: string, max: number, field: string): void {
   if (value.length > max) {
     throw new ConvexError({ code: "FIELD_TOO_LONG", field, max })

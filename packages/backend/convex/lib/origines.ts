@@ -1,4 +1,5 @@
 import { normaliserHote } from "./hoteNu"
+import { sortantsValides, type HoteSortant } from "./hotesSortants"
 
 // Les deux ORIGINES que composent les liens envoyés par email — et rien
 // d'autre.
@@ -36,12 +37,86 @@ import { normaliserHote } from "./hoteNu"
 // sert derrière un certificat Let's Encrypt (`docker/docker-compose.yml`).
 // L'environnement, lui, garde son schéma tel qu'il est posé — c'est ce qui
 // laisse `http://localhost:4321` fonctionner en développement.
+//
+// ── LES ORIGINES SORTANTES, ET POURQUOI CE MODULE LES LIT MAINTENANT ───
+//
+// Ce module a longtemps REFUSÉ de lire `settings.previousDomains`, et le
+// refus était écrit noir sur blanc dans `lib/hotesSortants.ts` et dans
+// `schema.ts` : « un hôte sortant autorise à honorer `x-forwarded-for`,
+// rien de plus ; pas une origine de confiance pour l'authentification ».
+// Le refus ne tient plus, pour une raison précise et vérifiée.
+//
+// **La séquence qui le casse**, au DEUXIÈME changement de domaine :
+//
+//   1. `SITE_URL` vaut `https://admin.A`. On passe à B. `trustedOrigines`
+//      vaut `[admin.A, admin.B]` — mais `admin.A` n'y survit que par
+//      COÏNCIDENCE, parce qu'elle se trouve être `SITE_URL`, que
+//      better-auth pousse depuis `baseURL`.
+//   2. Faute de frappe : on passe à C, qui n'obtient jamais de
+//      certificat. Le routeur garde donc `admin.B` routé — c'est son
+//      comportement voulu, et c'est le SEUL hôte encore joignable.
+//   3. Sans les sortants, la liste vaut `[admin.A, admin.C]`. `admin.B`
+//      n'y est plus. Tout `POST` depuis `https://admin.B` est refusé en
+//      403 `INVALID_ORIGIN` — `/sign-in/email` comme
+//      `/request-password-reset`. Une session déjà ouverte survit
+//      (`/convex/token` est un GET, non contrôlé), mais une déconnexion,
+//      une expiration ou un autre navigateur ferment la dernière porte.
+//      Sortie : SSH ou `convex env set`.
+//
+// C'est exactement le verrouillage que tout ce lot existe pour éviter, et
+// c'est la même règle qu'ailleurs — ajouter, vérifier, puis seulement
+// retirer — appliquée à l'authentification comme elle l'est déjà au
+// routage et à la validation d'hôte du site public.
+//
+// **La fenêtre et la borne ne sont PAS redécidées ici** : elles viennent
+// de `sortantsValides` (`lib/hotesSortants.ts`, 72 h et cinq entrées, avec
+// leur justification). Deux fenêtres pour la même notion de « sortant »
+// divergeraient, et c'est précisément la classe d'erreur que ce dépôt a
+// déjà payée plusieurs fois.
+//
+// **Ce qu'une origine sortante autorise — vérifié dans `better-auth`
+// 1.6.17, pas supposé.** `trustedOrigins` sert à deux choses, et à deux
+// seulement (`dist/api/middlewares/origin-check.mjs`) :
+//
+//   - `validateOrigin` : l'en-tête `Origin`/`Referer` d'une requête non
+//     GET/HEAD/OPTIONS doit y correspondre. C'est le contrôle CSRF, et
+//     c'est le seul qui décide si l'on peut ENTRER.
+//   - `validateURL` : `callbackURL`, `redirectTo`, `errorCallbackURL` et
+//     `newUserCallbackURL` doivent y correspondre. C'est un contrôle de
+//     redirection ouverte.
+//
+// Elle n'accorde AUCUNE session, aucun rôle, aucune permission : la
+// requête passe le contrôle d'origine puis affronte le mot de passe, la
+// limitation de débit et le contrôle de rôle inchangés. Le seul
+// élargissement réel est le second point — pendant 72 heures, un domaine
+// que l'adoptant vient de quitter redevient une cible de redirection
+// valide. On l'accepte : c'est un domaine qui était le sien il y a moins
+// de trois jours, la fenêtre est bornée (c'est la raison même pour
+// laquelle `FENETRE_SORTANTE_MS` n'est pas « toujours »), et l'alternative
+// mesurée est l'enfermement décrit plus haut.
+//
+// **Ce qu'une origine sortante n'autorise toujours pas** : figurer dans un
+// EMAIL. `admin` et `web` ci-dessous ne suivent que le domaine COURANT, et
+// les appelants qui composent un lien (`invitations.ts`, `auth.ts`
+// `sendResetPassword`, `revalidate.ts`, `leads.ts`) ne lisent que ces
+// deux champs-là. Un lien envoyé vers un domaine qu'on est en train de
+// quitter mènerait bientôt nulle part.
 
 export type Origines = {
   /** L'origine du dashboard — celle des liens d'invitation et de réinitialisation. */
   admin: string | null
   /** L'origine du site public — celle qu'on appelle pour invalider son cache. */
   web: string | null
+  /**
+   * Les origines du dashboard des domaines SORTANTS, encore dans leur
+   * fenêtre — les plus récentes d'abord, sans doublon, jamais le domaine
+   * courant.
+   *
+   * De confiance pour ENTRER, et rien d'autre (voir l'en-tête). Vide
+   * partout où l'appelant ne passe pas `precedents`, ce qui est le cas de
+   * TOUS les appelants qui composent un email.
+   */
+  adminSortantes: string[]
 }
 
 /**
@@ -53,19 +128,50 @@ export type Origines = {
  * @param declare la valeur BRUTE de `settings.declaredDomain`, telle
  * qu'elle est en base — non validée, exprès : c'est ici qu'on la valide.
  * @param env l'environnement du déploiement, injecté pour le test.
+ * @param precedents la valeur BRUTE de `settings.previousDomains`, non
+ * validée pour la même raison que `declare` — `sortantsValides` la
+ * revalide, hôte par hôte. OMISE par défaut, et c'est délibéré : un
+ * appelant n'obtient des origines sortantes que s'il les a demandées,
+ * donc aucun chemin d'email n'en hérite par accident.
+ * @param maintenant `Date.now()`, injecté pour que le test décide du
+ * temps — c'est lui qui ouvre et ferme la fenêtre de 72 heures.
  *
- * `null` sur un champ veut dire « aucune origine connue » : ni domaine
- * déclaré, ni variable posée. Les appelants LÈVENT dans ce cas, avec le
- * message qu'ils levaient déjà — un job en échec, visible dans le tableau
- * de bord Convex, plutôt qu'un email amputé du lien qui permet d'agir.
+ * `null` sur `admin` ou `web` veut dire « aucune origine connue » : ni
+ * domaine déclaré, ni variable posée. Les appelants LÈVENT dans ce cas,
+ * avec le message qu'ils levaient déjà — un job en échec, visible dans le
+ * tableau de bord Convex, plutôt qu'un email amputé du lien qui permet
+ * d'agir.
  */
 export function deriverOrigines(
   declare: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
+  precedents?: readonly HoteSortant[] | null,
+  maintenant: number = Date.now(),
 ): Origines {
   const hote = declare == null ? null : normaliserHote(declare)
+
+  // Le domaine courant est passé comme EXCLU, pas par politesse : un
+  // domaine repris après avoir été quitté (A → B → A) est courant, et son
+  // origine est déjà rendue par `admin`. Sans cette exclusion, la liste la
+  // porterait deux fois.
+  //
+  // Quand `hote` est `null` — pas de domaine déclaré, ou une valeur
+  // douteuse qui replie — les sortants sont dérivés quand même. C'est le
+  // cas qui compte le plus : la ligne `settings` peut encore porter les
+  // hôtes que le routeur route toujours, et les oublier ici rouvrirait
+  // exactement l'enfermement. L'exclusion ne peut alors pas s'appliquer,
+  // faute d'hôte courant connu — l'origine de repli vient de `SITE_URL`,
+  // que better-auth pousse déjà de son côté depuis `baseURL`, si bien
+  // qu'un doublon éventuel ne coûte qu'une entrée de plus dans une liste
+  // que better-auth parcourt.
+  const adminSortantes = sortantsValides(
+    precedents ?? undefined,
+    hote === null ? [] : [hote],
+    maintenant,
+  ).map((sortant) => `https://admin.${sortant}`)
+
   if (hote === null) {
-    return { admin: env.SITE_URL ?? null, web: env.WEB_SITE_URL ?? null }
+    return { admin: env.SITE_URL ?? null, web: env.WEB_SITE_URL ?? null, adminSortantes }
   }
-  return { admin: `https://admin.${hote}`, web: `https://${hote}` }
+  return { admin: `https://admin.${hote}`, web: `https://${hote}`, adminSortantes }
 }

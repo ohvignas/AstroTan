@@ -374,9 +374,14 @@ test("un sortant douteux posé DIRECTEMENT en base ne sort jamais", async () => 
   })
 })
 
-test("un sortant n'est PAS une origine de confiance pour l'authentification", async () => {
-  // La borne de tout ce mécanisme : un hôte sortant est reconnu pour
-  // honorer `x-forwarded-for`, rien de plus. `settings.environment` rend
+test("un sortant n'est PAS une origine de lien d'email", async () => {
+  // La borne de tout ce mécanisme. Un hôte sortant est reconnu pour deux
+  // choses — honorer `x-forwarded-for` (ici), et laisser ENTRER
+  // (`auth.ts` `trustedOrigins`, voir `auth.trustedOrigins.test.ts`) —
+  // et pour rien d'autre. Le titre de ce test disait « pas une origine de
+  // confiance pour l'authentification » ; ce n'est plus vrai depuis que
+  // le verrouillage au deuxième changement de domaine est fermé, mais ce
+  // qu'il garde vraiment, lui, n'a pas bougé. `settings.environment` rend
   // les deux origines EFFECTIVES — celles des liens d'invitation et de
   // réinitialisation de mot de passe —, et elles ne suivent que le domaine
   // COURANT. Un sortant qui s'y glisserait ferait pointer un lien d'accès
