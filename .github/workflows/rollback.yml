@@ -78,13 +78,31 @@ jobs:
 
       # Échouer ici plutôt que sur le VPS, à mi-chemin d'un `compose up`
       # dont un service ne démarrera jamais.
-      - name: Vérifier que les deux images de ce sha existent
+      #
+      # La liste des images est DÉRIVÉE du compose du sha visé
+      # (`scripts/rollback-images.mjs`), jamais écrite ici. Elle l'a été :
+      # cette étape nommait `astrotan-web` et `astrotan-admin`, et a cessé
+      # d'être vraie le jour où `astrotan-routeur` est née — un rollback
+      # vers un sha dont cette image avait été purgée échouait à mi-chemin
+      # d'un `compose pull`, sur le VPS, après avoir déjà redéployé les
+      # functions Convex. Le script sort en 1 s'il ne trouve rien, pour
+      # qu'un motif qui ne reconnaît plus le compose échoue bruyamment
+      # plutôt que de pré-vérifier zéro image en silence.
+      - name: Vérifier que toutes les images de ce sha existent
         env:
           IMG_PREFIX: ${{ steps.img.outputs.prefix }}
           INPUT_SHA: ${{ inputs.sha }}
         run: |
-          docker manifest inspect "$IMG_PREFIX/astrotan-web:$INPUT_SHA" >/dev/null
-          docker manifest inspect "$IMG_PREFIX/astrotan-admin:$INPUT_SHA" >/dev/null
+          # Substitution de commande et non un tube : le shell de GitHub
+          # est `bash -e` SANS `pipefail`, donc `node … | while read` aurait
+          # rendu 0 quand le script échoue — la pré-vérification aurait
+          # alors passé au vert en n'ayant rien vérifié, ce qui est le
+          # défaut qu'on est en train de corriger, avec un autre visage.
+          images=$(node scripts/rollback-images.mjs)
+          for image in $images; do
+            echo "· $IMG_PREFIX/$image:$INPUT_SHA"
+            docker manifest inspect "$IMG_PREFIX/$image:$INPUT_SHA" >/dev/null
+          done
 
       - name: Configure the SSH client
         env:
