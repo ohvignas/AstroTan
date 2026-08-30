@@ -62,10 +62,14 @@ sur une machine par ailleurs parfaitement saine. Le pipeline ne corrige pas
 
 Deux chemins, à choisir maintenant :
 
-1. **Rendre les deux packages publics** — le plus simple, et il ne laisse
+1. **Rendre les trois packages publics** — le plus simple, et il ne laisse
    aucun secret sur le VPS. Sur GitHub : *Packages* → `astrotan-web` →
    *Package settings* → *Change visibility* → *Public*. Idem pour
-   `astrotan-admin`. Plus rien à faire sur la machine. Les images ne
+   `astrotan-admin` **et `astrotan-routeur`** — celui-ci est arrivé après
+   les deux autres, et en oublier un ne se voit qu'au premier `compose
+   pull` sur le VPS, sur une erreur d'authentification qui ne le nomme pas
+   comme un oubli. La liste qui fait foi est celle que rend
+   `node scripts/rollback-images.mjs`. Plus rien à faire sur la machine. Les images ne
    contiennent aucun secret par construction (seules des valeurs publiques
    passent en build-arg, section 8), mais elles contiennent votre code : ce
    choix est le vôtre.
@@ -486,7 +490,8 @@ Pousser sur `main`. Le workflow `Deploy` fait, dans cet ordre :
    `apps/web` prérend `src/pages/index.astro`, qui interroge Convex pendant
    `astro build`. Construire l'image d'abord ferait lire un schéma qui
    n'existe pas encore.
-2. Build et push des deux images sur GHCR, taguées `:{sha}` **et** `:latest`.
+2. Build et push des trois images sur GHCR (`web`, `admin`, `routeur`),
+   taguées `:{sha}` **et** `:latest`.
    Seules des valeurs publiques passent en build-arg : Vite et Astro les
    figent dans le bundle, donc un secret qui passerait là serait lisible dans
    l'image.
@@ -591,8 +596,10 @@ Lancer le workflow **Rollback** (*Actions* → *Rollback* → *Run workflow*) en
 lui donnant le sha complet, 40 caractères, du déploiement à rejouer.
 
 Il refait le pipeline entier sur l'arbre de ce sha : `convex deploy` depuis
-cet arbre, vérification que les deux images de ce sha existent encore sur
-GHCR, `rsync` du `docker/` de ce sha, puis `compose up -d` avec
+cet arbre, vérification que **toutes** les images de ce sha existent encore
+sur GHCR — la liste est dérivée du compose de ce sha par
+`scripts/rollback-images.mjs`, jamais écrite à la main —, `rsync` du
+`docker/` de ce sha, puis `compose up -d` avec
 `IMAGE_TAG=<sha>`.
 
 **Ne jamais modifier `IMAGE_TAG` à la main sur le VPS.** C'est le

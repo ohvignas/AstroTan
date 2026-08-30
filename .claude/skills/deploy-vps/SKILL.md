@@ -8,7 +8,8 @@ description: Use when deploying, operating or repairing the AstroTan stack on it
 ## Le modèle, en une phrase
 
 **Un déploiement est un `sha` de commit rejoué en trois temps, dans cet
-ordre : `convex deploy`, puis le build et le push des deux images sur GHCR,
+ordre : `convex deploy`, puis le build et le push des trois images sur GHCR
+(`web`, `admin`, `routeur`),
 puis `docker compose up` sur le VPS avec `IMAGE_TAG=<sha>`.** L'ordre n'est
 pas cosmétique : `apps/web` prérend `src/pages/index.astro`, qui interroge
 Convex **pendant** `astro build`. Construire l'image avant `convex deploy`
@@ -122,10 +123,11 @@ ssh <user>@<host> 'cat ~/astrotan/DEPLOYED_SHA'
 ```
 
 Le workflow rejoue **le pipeline entier** sur l'arbre de ce sha :
-`convex deploy` depuis cet arbre, vérification que les deux images de ce sha
-existent encore sur GHCR (`docker manifest inspect` — échouer là plutôt qu'à
-mi-chemin d'un `compose up`), `rsync` du `docker/` **de ce sha**, puis
-`compose up -d --wait` avec `IMAGE_TAG=<sha>`.
+`convex deploy` depuis cet arbre, vérification que **toutes** les images de ce
+sha existent encore sur GHCR (`docker manifest inspect` — échouer là plutôt
+qu'à mi-chemin d'un `compose up` ; la liste vient de
+`scripts/rollback-images.mjs`, dérivée du compose de ce sha), `rsync` du
+`docker/` **de ce sha**, puis `compose up -d --wait` avec `IMAGE_TAG=<sha>`.
 
 ### Ce que le rollback ne rattrape pas
 
