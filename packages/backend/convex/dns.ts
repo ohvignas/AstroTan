@@ -1,11 +1,12 @@
 import { ConvexError, v } from "convex/values"
-import { action, query } from "./_generated/server"
-import { api } from "./_generated/api"
+import { action, internalQuery, query } from "./_generated/server"
+import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
 import { requireRole } from "./lib/authz"
 import { resoudre, type TypeDns } from "./lib/doh"
 import { normaliserHote } from "./lib/hoteNu"
 import { isPrivateIpv4 } from "./lib/webhookUrl"
+import { deriverHotes } from "./routing"
 
 // Dire à l'adoptant quels enregistrements DNS créer, et lesquels sont déjà là.
 //
@@ -82,15 +83,38 @@ export type Verdict = Enregistrement & {
   etat: EtatVerdict
 }
 
+/**
+ * Ce qu'un contrôle conclut de valeurs RÉELLEMENT trouvées.
+ *
+ * `manquant` n'en fait pas partie, et c'est le point : il se décide avant
+ * d'appeler le contrôle, parce que le résolveur l'a dit. Ce type dit les
+ * trois issues qui restent une fois qu'il y a quelque chose à regarder —
+ * dont `indisponible`, qui n'est pas « c'est faux » mais « on n'a pas pu
+ * savoir ». La confusion de ces deux-là est exactement le défaut que ce
+ * module existe pour éviter, et un `boolean` la rendait inévitable.
+ */
+type Jugement = Exclude<EtatVerdict, "manquant">
+
 type Controle = Enregistrement & {
-  /** Une des valeurs trouvées convient-elle ? */
-  accepte: (valeurs: string[]) => boolean
+  /** Ce que les valeurs trouvées valent, une fois regardées. */
+  juger: (valeurs: string[]) => Jugement
+}
+
+/**
+ * Un prédicat, dans la forme d'un jugement.
+ *
+ * Pour les quatre contrôles qui n'ont que deux issues : la valeur convient
+ * ou elle ne convient pas. Seul le A a un troisième cas, et il est le seul
+ * à écrire son jugement à la main.
+ */
+function selon(predicat: (valeurs: string[]) => boolean) {
+  return (valeurs: string[]): Jugement => (predicat(valeurs) ? "ok" : "different")
 }
 
 /**
  * Le contrôle, moins son prédicat.
  *
- * Champ par champ et non `...controle` : `accepte` est une fonction, et un
+ * Champ par champ et non `...controle` : `juger` est une fonction, et un
  * spread l'enverrait vers un client qui ne sait pas la porter. La liste
  * explicite oblige aussi à choisir, le jour où `Enregistrement` gagne un
  * champ, s'il doit sortir d'ici.
@@ -126,10 +150,149 @@ function estIpv4Publique(valeur: string): boolean {
   return !isPrivateIpv4(valeur)
 }
 
-// Le résolveur rend la chaîne complète pour un A : si le nom est un CNAME,
-// la réponse porte le CNAME *et* le A final. `some` trouve donc l'adresse
-// au bout de la chaîne, sans avoir à dérouler les alias nous-mêmes.
-const accepteA = (valeurs: string[]) => valeurs.some(estIpv4Publique)
+// ---------------------------------------------------------------------
+// UNE IP PUBLIQUE N'EST PAS *NOTRE* IP — et c'est le seul cas qui compte.
+//
+// Vérifier la FORME d'un A (« est-ce une IPv4 publique ? ») laisse passer
+// le mode d'échec le plus rapporté sur Traefik + Let's Encrypt : un
+// domaine parqué chez le registrar, resté chez l'ancien hébergeur, ou
+// derrière Cloudflare en mode proxy rend une IP publique parfaitement
+// valide. L'étiquette passait au vert, le bouton d'enregistrement
+// s'armait, Traefik demandait un certificat, le challenge HTTP-01 était
+// servi par le proxy et échouait — et chaque échec compte dans le quota de
+// cinq par domaine et par semaine, que ce verrou existe précisément pour
+// protéger. `docker/README.md` §3 note qu'un VPS Hostinger est souvent
+// livré avec son DNS chez Cloudflare : c'est le cas ATTENDU, pas un cas
+// limite.
+//
+// L'ADRESSE DE RÉFÉRENCE NE SE DEMANDE À PERSONNE. Le déploiement la
+// connaît déjà : c'est celle vers laquelle pointe l'hôte web COURANT,
+// celui que Traefik sert en ce moment (`routing.deriverHotes` — le domaine
+// déclaré, sinon `WEB_DOMAIN`). On la résout une fois, et on COMPARE, au
+// lieu de vérifier une forme.
+//
+// Aucun réglage, aucune saisie : une adresse de référence configurable
+// serait une valeur d'opérateur qu'il suffirait de mettre au bon chiffre
+// pour désarmer le verrou — un verrou qu'on peut ouvrir soi-même n'en est
+// pas un.
+// ---------------------------------------------------------------------
+
+/**
+ * L'adresse du serveur, telle que le DNS la donne aujourd'hui — ou la
+ * raison pour laquelle on ne la connaît pas.
+ *
+ * Trois cas et non deux, pour la même raison que `EtatVerdict` en tient
+ * quatre :
+ *
+ * - `connue` : l'hôte courant résout vers une ou plusieurs IPv4 publiques.
+ *   C'est à elles qu'un A doit mener.
+ * - `aucune` : il n'y a pas encore d'hôte courant à interroger. C'est le
+ *   PREMIER DÉPLOIEMENT — ni domaine déclaré, ni `WEB_DOMAIN` — et c'est
+ *   un état ordinaire, pas une panne. Voir `jugerA`.
+ * - `indisponible` : il y a un hôte courant, et le résolveur n'a rien
+ *   rendu d'exploitable pour lui. On ne sait pas, et on le dit.
+ */
+export type ReferenceServeur =
+  | { etat: "connue"; adresses: string[] }
+  | { etat: "aucune" }
+  | { etat: "indisponible" }
+
+/**
+ * L'hôte web que Traefik sert en ce moment, s'il y en a un.
+ *
+ * `internalQuery` : une action ne lit pas la base directement, et cette
+ * lecture n'a aucune raison d'être atteignable depuis un client. Elle ne
+ * rend qu'un hôte — jamais la ligne `settings`, dont `settings.get` est
+ * publique (invariant 1).
+ *
+ * `deriverHotes` et non une seconde règle écrite ici : c'est elle qui
+ * décide déjà, pour Traefik, quel hôte est le courant. Deux dérivations
+ * divergeraient, et le jour où elles divergent le verrou compare à un
+ * serveur qui n'est pas celui qui sert.
+ */
+export const hoteCourant = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<string | null> => {
+    const settings = await ctx.db.query("settings").first()
+    try {
+      return deriverHotes(settings?.declaredDomain).web
+    } catch {
+      // `NOT_CONFIGURED` : ni domaine déclaré, ni `WEB_DOMAIN`. Un premier
+      // déploiement, pas une erreur — et c'est `deriverHotes` qui porte
+      // cette décision, pas nous.
+      return null
+    }
+  },
+})
+
+/**
+ * L'adresse de référence, résolue une fois pour les deux lignes A.
+ *
+ * Une seule requête sortante de plus par vérification, partagée par
+ * `exemple.fr` et `admin.exemple.fr` : les deux doivent mener au même
+ * serveur, et Traefik demande un certificat pour chacune.
+ *
+ * Le filtre `estIpv4Publique` retire le CNAME que le résolveur rend au
+ * milieu d'une chaîne, et refuse de prendre pour référence une adresse
+ * privée : un déploiement dont l'hôte courant pointe vers `10.x` ne peut
+ * servir de référence à rien, et s'en servir validerait n'importe quoi.
+ */
+async function referenceServeur(courant: string | null): Promise<ReferenceServeur> {
+  if (courant === null) return { etat: "aucune" }
+  const reponse = await resoudre(courant, "A")
+  if (reponse.statut !== "ok") return { etat: "indisponible" }
+  const adresses = reponse.valeurs.filter(estIpv4Publique)
+  return adresses.length === 0 ? { etat: "indisponible" } : { etat: "connue", adresses }
+}
+
+/**
+ * Le jugement d'une ligne A, face à l'adresse de référence.
+ *
+ * Le résolveur rend la chaîne complète pour un A : si le nom est un CNAME,
+ * la réponse porte le CNAME *et* le A final. Le filtre trouve donc
+ * l'adresse au bout de la chaîne, sans avoir à dérouler les alias
+ * nous-mêmes.
+ *
+ * Une valeur qui n'est même pas une IPv4 publique est `different` quelle
+ * que soit la référence : un A vers `192.168.1.10` — l'erreur fréquente
+ * derrière un routeur domestique — ne mène nulle part depuis l'extérieur,
+ * et ça se sait sans rien comparer.
+ *
+ * Ensuite, et seulement ensuite, la référence décide :
+ *
+ * - `connue` : l'adresse doit être celle-là. C'est tout l'objet du verrou.
+ * - `aucune` : PREMIER DÉPLOIEMENT. Il n'existe aucun hôte courant, donc
+ *   rien à quoi comparer — et refuser ici enfermerait un déploiement neuf
+ *   dans un écran où le premier domaine ne peut jamais être enregistré.
+ *   On retombe sur le contrôle de forme, qui est ce qu'on sait dire de
+ *   vrai à ce moment-là.
+ * - `indisponible` : un hôte courant existe et n'a pas répondu. Ni « en
+ *   place » ni « à créer » : « le résolveur n'a pas répondu ». Le verrou
+ *   reste fermé, l'écran dit « A non lu », et réessayer est la bonne
+ *   conduite. Rendre `ok` ici rouvrirait le trou à chaque hoquet du
+ *   résolveur, ce qui en ferait un trou permanent pour qui insiste.
+ *
+ * Le cas où l'hôte vérifié EST l'hôte courant se juge tout seul : les deux
+ * résolutions portent sur le même nom, rendent les mêmes adresses, et le
+ * verdict est `ok`. C'est juste — c'est le domaine qui sert déjà, et son
+ * certificat est déjà émis.
+ */
+function jugerA(reference: ReferenceServeur) {
+  return (valeurs: string[]): Jugement => {
+    const publiques = valeurs.filter(estIpv4Publique)
+    if (publiques.length === 0) return "different"
+    switch (reference.etat) {
+      case "connue":
+        return publiques.some((adresse) => reference.adresses.includes(adresse))
+          ? "ok"
+          : "different"
+      case "aucune":
+        return "ok"
+      case "indisponible":
+        return "indisponible"
+    }
+  }
+}
 
 /**
  * La valeur d'un A n'est pas connue d'ici : c'est l'adresse du serveur de
@@ -147,7 +310,16 @@ const VALEUR_DMARC = "v=DMARC1; p=none;"
 /** Le sélecteur que Resend publie pour ce domaine. */
 const SELECTEUR_DKIM = "resend._domainkey"
 
-function controlesSite(hote: string): Controle[] {
+/**
+ * @param reference l'adresse du serveur. `aucune` par défaut, pour `plan`
+ * seul : c'est une query, elle ne résout rien, et elle ne lit de ces
+ * contrôles que `type`, `nom` et `attendu` — jamais leur jugement.
+ */
+function controlesSite(
+  hote: string,
+  reference: ReferenceServeur = { etat: "aucune" },
+): Controle[] {
+  const juger = jugerA(reference)
   return [
     {
       cle: "site",
@@ -155,7 +327,7 @@ function controlesSite(hote: string): Controle[] {
       nom: hote,
       type: "A",
       attendu: VALEUR_A,
-      accepte: accepteA,
+      juger,
     },
     {
       cle: "admin",
@@ -163,7 +335,7 @@ function controlesSite(hote: string): Controle[] {
       nom: `admin.${hote}`,
       type: "A",
       attendu: VALEUR_A,
-      accepte: accepteA,
+      juger,
     },
   ]
 }
@@ -179,11 +351,12 @@ function controlesEmail(hote: string): Controle[] {
       // `some` et pas « la » valeur : un domaine porte souvent plusieurs
       // TXT (jetons de vérification d'un moteur de recherche, d'un
       // fournisseur d'emails). On cherche celui qui est un SPF.
-      accepte: (valeurs) =>
+      juger: selon((valeurs) =>
         valeurs.some((valeur) => {
           const bas = valeur.toLowerCase()
           return bas.startsWith("v=spf1") && bas.includes("amazonses.com")
         }),
+      ),
     },
     {
       cle: "dkim",
@@ -193,11 +366,12 @@ function controlesEmail(hote: string): Controle[] {
       attendu: "la clé publique fournie par Resend (elle commence par « p= »)",
       // Deux formes circulent : la clé nue (`p=MIGf…`) et la forme
       // complète (`v=DKIM1; k=rsa; p=MIGf…`). Les deux signent.
-      accepte: (valeurs) =>
+      juger: selon((valeurs) =>
         valeurs.some((valeur) => {
           const bas = valeur.toLowerCase()
           return bas.startsWith("p=") || bas.startsWith("v=dkim1")
         }),
+      ),
     },
     {
       cle: "dmarc",
@@ -205,8 +379,9 @@ function controlesEmail(hote: string): Controle[] {
       nom: `_dmarc.${hote}`,
       type: "TXT",
       attendu: VALEUR_DMARC,
-      accepte: (valeurs) =>
+      juger: selon((valeurs) =>
         valeurs.some((valeur) => valeur.toLowerCase().startsWith("v=dmarc1")),
+      ),
     },
   ]
 }
@@ -224,9 +399,7 @@ async function verifier(controles: Controle[]): Promise<Verdict[]> {
           ? "indisponible"
           : reponse.statut === "absent"
             ? "manquant"
-            : controle.accepte(reponse.valeurs)
-              ? "ok"
-              : "different"
+            : controle.juger(reponse.valeurs)
       return {
         ...enregistrementDe(controle),
         trouve: reponse.statut === "ok" ? reponse.valeurs : [],
@@ -281,7 +454,11 @@ export const checkSite = action({
   args: { domaine: v.string() },
   handler: async (ctx, args): Promise<Verdict[]> => {
     await requireRole(ctx, ["owner", "admin"])
-    return await verifier(controlesSite(exigerHote(args.domaine)))
+    const hote = exigerHote(args.domaine)
+    // L'ordre compte : la référence AVANT les deux lignes, parce que les
+    // deux la partagent. Trois requêtes sortantes au total, pas quatre.
+    const courant: string | null = await ctx.runQuery(internal.dns.hoteCourant, {})
+    return await verifier(controlesSite(hote, await referenceServeur(courant)))
   },
 })
 

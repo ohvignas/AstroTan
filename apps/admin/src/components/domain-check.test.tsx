@@ -347,6 +347,19 @@ const A_ADMIN_OK: Verdict = { ...PLAN_ADMIN, trouve: ["203.0.113.7"], etat: "ok"
 const A_ADMIN_MANQUANT: Verdict = { ...PLAN_ADMIN, trouve: [], etat: "manquant" }
 const A_SITE_MUET: Verdict = { ...PLAN_SITE, trouve: [], etat: "indisponible" }
 
+/**
+ * Le cas de quota le plus fréquent : un A qui EXISTE, qui est une IPv4
+ * publique parfaitement valide, et qui mène ailleurs — un proxy
+ * Cloudflare, l'ancien hébergeur, une page de parking du registrar.
+ *
+ * `convex/dns.ts` le rend `different` depuis qu'il compare à l'adresse de
+ * l'hôte web courant au lieu de vérifier une forme. Ce qui se joue ici est
+ * l'autre bout : que `different` ferme le verrou aussi sûrement que
+ * `manquant`. Les deux appellent le même geste — aller chez l'hébergeur —
+ * et aucun des deux n'est un certificat qu'on peut demander.
+ */
+const A_SITE_AILLEURS: Verdict = { ...PLAN_SITE, trouve: ["104.21.5.9"], etat: "different" }
+
 /** Une lecture faite sur `exemple.fr`, sauf mention contraire. */
 function lue(
   site: Verdict[],
@@ -373,6 +386,15 @@ describe("le verrou du bouton d'enregistrement", () => {
   // clic, on ne sait rien, et « on ne sait rien » n'est pas « c'est bon ».
   test("aucune lecture : inerte", () => {
     expect(domaineEnregistrable("exemple.fr", "exemple.fr", null)).toBe(false)
+  })
+
+  test("un A qui pointe ailleurs qu'ici n'arme rien", () => {
+    const lecture = lue([A_SITE_AILLEURS, A_ADMIN_OK])
+    expect(domaineEnregistrable("exemple.fr", "exemple.fr", lecture)).toBe(false)
+    expect(etatDesA("exemple.fr", "exemple.fr", lecture)).toEqual({
+      signe: "ko",
+      texte: "A à poser",
+    })
   })
 
   // Le résolveur muet ne dit pas que l'enregistrement manque — mais il ne
