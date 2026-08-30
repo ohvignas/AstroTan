@@ -127,7 +127,8 @@ adresse Cloudflare, et le challenge HTTP-01 n'atteint jamais Traefik —
 Let's Encrypt reçoit un 404 servi par le proxy, et le certificat n'est
 jamais émis. C'est le mode d'échec le plus rapporté sur
 Traefik + Let's Encrypt, et il concerne directement ce template : un VPS
-Hostinger est souvent livré avec son DNS chez Cloudflare.
+d'entrée de gamme est souvent livré avec son DNS chez Cloudflare, et
+l'adoptant ne l'a pas toujours choisi.
 
 Deux remèdes, au choix :
 

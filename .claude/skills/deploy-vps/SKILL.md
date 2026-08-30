@@ -1,6 +1,6 @@
 ---
 name: deploy-vps
-description: Use when deploying, operating or repairing the AstroTan stack on its Hostinger VPS — Docker images, Traefik, Let's Encrypt certificates, GHCR, the deploy and rollback GitHub workflows, the VPS `.env`, shared HMAC secrets, or the Umami database backup. Triggers include "déployer", "mettre en production", "mettre à jour le VPS", "rollback", "revenir en arrière", "le site est down", "502", "Traefik", "certificat", "Let's Encrypt", "ACME", "sauvegarde", "backup", "GHCR", "docker compose", "secrets", "faire tourner une clé", "première mise en service".
+description: Use when deploying, operating or repairing the AstroTan stack on its VPS — Docker images, Traefik, Let's Encrypt certificates, GHCR, the deploy and rollback GitHub workflows, the VPS `.env`, shared HMAC secrets, or the Umami database backup. Triggers include "déployer", "mettre en production", "mettre à jour le VPS", "rollback", "revenir en arrière", "le site est down", "502", "Traefik", "certificat", "Let's Encrypt", "ACME", "sauvegarde", "backup", "GHCR", "docker compose", "secrets", "faire tourner une clé", "première mise en service".
 ---
 
 # Exploitation — VPS, Traefik, rollback
@@ -74,7 +74,7 @@ Puis, dans cet ordre, et l'ordre est la partie qui compte :
    ```
    Si `dig` rend autre chose, **ne démarrez pas**. Le cas fréquent n'est pas
    la faute de frappe : c'est **Cloudflare en mode proxy** (nuage orange) —
-   un VPS Hostinger est souvent livré avec son DNS chez Cloudflare. Le
+   un VPS d'entrée de gamme est souvent livré avec son DNS chez Cloudflare. Le
    challenge HTTP-01 n'atteint alors jamais Traefik, et le certificat n'est
    jamais émis.
 

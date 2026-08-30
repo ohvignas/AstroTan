@@ -1,7 +1,7 @@
 # AstroTan
 
 Template site vitrine + CMS. Site public Astro, dashboard TanStack Start, backend
-Convex partagé, Docker sur VPS Hostinger derrière Traefik.
+Convex partagé, Docker sur un VPS derrière Traefik.
 
 **Spec d'architecture : [`docs/superpowers/specs/2026-08-27-astrotan-design.md`](docs/superpowers/specs/2026-08-27-astrotan-design.md)** — à lire avant toute
 décision technique. Elle contient le schéma de données, les invariants de sécurité,
