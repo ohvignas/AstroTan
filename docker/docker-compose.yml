@@ -17,6 +17,13 @@ services:
       # le root de l'hôte au conteneur.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - acme:/acme
+      # Les règles de routage, écrites par le service `routeur` et relues à
+      # chaud par le provider fichier ci-dessous.
+      #
+      # LECTURE SEULE, comme le socket : Traefik n'a rien à écrire là. Un
+      # seul conteneur a le droit d'écrire ce qui décide du routage public,
+      # et ce n'est pas celui qui est exposé sur :80 et :443.
+      - dynamique:/dynamique:ro
     # NE JAMAIS AJOUTER DE `command:` NI DE `traefik.yml` MONTÉ ICI.
     #
     # Traefik charge sa configuration statique par trois loaders essayés
@@ -47,6 +54,30 @@ services:
       # Le défaut inverse publierait sur internet tout conteneur de l'hôte.
       TRAEFIK_PROVIDERS_DOCKER_EXPOSEDBYDEFAULT: "false"
       TRAEFIK_PROVIDERS_DOCKER_NETWORK: astrotan_edge
+      # ── Le provider FICHIER : ce qui rend le domaine changeable ─────────
+      #
+      # Les règles `Host(...)` ne viennent plus des labels Docker plus bas
+      # mais de `/dynamique/routes.yml`, écrit par le service `routeur`. La
+      # raison est mécanique : un label ne change qu'en RECRÉANT le
+      # conteneur, donc en repassant par un déploiement et par SSH. Un
+      # fichier surveillé, lui, est relu à chaud.
+      #
+      # `_WATCH` n'est pas une commodité : sans lui Traefik lit le
+      # répertoire au démarrage et plus jamais. Le service réécrirait alors
+      # dans le vide, sans qu'aucune erreur ne le dise.
+      #
+      # Deux providers coexistent, et c'est voulu : le provider DOCKER
+      # continue de fournir les SERVICES (le port de chaque conteneur, qui
+      # vit à côté du conteneur qui l'ouvre), le provider FICHIER fournit
+      # les ROUTEURS. C'est pourquoi le fichier écrit `service: web@docker`
+      # — sans le suffixe de fournisseur, Traefik chercherait `web@file`,
+      # ne le trouverait pas, et la route ne servirait rien.
+      #
+      # EN VARIABLES D'ENVIRONNEMENT, jamais en `command:` ni en fichier
+      # statique monté — voir le bloc en majuscules plus haut : le premier
+      # loader qui aboutit fait ignorer tous les autres, EN SILENCE.
+      TRAEFIK_PROVIDERS_FILE_DIRECTORY: /dynamique
+      TRAEFIK_PROVIDERS_FILE_WATCH: "true"
       TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
       TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_STORAGE: /acme/acme.json
       TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_HTTPCHALLENGE_ENTRYPOINT: web
@@ -61,6 +92,26 @@ services:
       TRAEFIK_LOG_LEVEL: INFO
       TRAEFIK_ACCESSLOG: "true"
     networks: [edge]
+    # Uniquement pour l'ORDRE DE DÉMARRAGE, et il compte une fois : un
+    # volume nommé vide reçoit le propriétaire et le contenu du répertoire
+    # que porte l'image du PREMIER conteneur qui le monte. L'image de
+    # Traefik n'a pas de `/dynamique` : s'il montait le volume en premier,
+    # celui-ci resterait à `root`, et `routeur` — qui tourne en `node`
+    # (uid 1000) — échouerait à chaque écriture en `EACCES`. Bruyamment,
+    # dans ses journaux, mais le routage ne suivrait plus jamais.
+    #
+    # `service_started` et non `service_healthy` : `routeur` n'a pas de
+    # healthcheck (il n'écoute rien, il n'a rien à répondre), et Traefik n'a
+    # aucune raison d'attendre sa première passe — un répertoire vide est
+    # l'état normal des quelques secondes qui la précèdent.
+    #
+    # Si le volume a malgré tout été créé à `root` (un `up traefik` seul,
+    # sur une pile antérieure à cette version), le remède tient en une
+    # ligne : `docker volume rm astrotan_dynamique`, puis `up -d`. Rien n'y
+    # est durable — la passe suivante réécrit tout.
+    depends_on:
+      routeur:
+        condition: service_started
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 30s
@@ -138,10 +189,17 @@ services:
       retries: 3
       start_period: 20s
     labels:
+      # `traefik.enable` RESTE, et le service aussi. Ce qui est parti, c'est
+      # le routeur : sa règle, son entrypoint et son résolveur vivent
+      # maintenant dans `/dynamique/routes.yml`, que le service `routeur`
+      # réécrit sans qu'aucun conteneur soit recréé.
+      #
+      # Retirer `traefik.enable` aurait fait disparaître le conteneur du
+      # provider docker, donc le SERVICE avec lui : le routeur du fichier
+      # viserait `web@docker`, qui n'existerait plus, et la route ne
+      # servirait rien. C'est le port ci-dessous qui doit rester ici — il
+      # est la seule chose que le fichier n'a aucun moyen de connaître.
       traefik.enable: "true"
-      traefik.http.routers.web.rule: Host(`${WEB_DOMAIN:?WEB_DOMAIN is required}`)
-      traefik.http.routers.web.entrypoints: websecure
-      traefik.http.routers.web.tls.certresolver: letsencrypt
       traefik.http.services.web.loadbalancer.server.port: "4321"
 
   admin:
@@ -162,11 +220,57 @@ services:
       retries: 3
       start_period: 20s
     labels:
+      # Comme pour `web` : le routeur est parti dans le fichier dynamique,
+      # `traefik.enable` et le service restent.
       traefik.enable: "true"
-      traefik.http.routers.admin.rule: Host(`${ADMIN_DOMAIN:?ADMIN_DOMAIN is required}`)
-      traefik.http.routers.admin.entrypoints: websecure
-      traefik.http.routers.admin.tls.certresolver: letsencrypt
       traefik.http.services.admin.loadbalancer.server.port: "3000"
+
+  # ── Le service qui suit le domaine déclaré ───────────────────────────────
+  #
+  # Il interroge `routing.hotes` (Convex), compare, et réécrit
+  # `/dynamique/routes.yml` UNIQUEMENT sur un changement réel et stable.
+  # C'est lui qui remplace la recréation de conteneurs : changer de domaine
+  # depuis `/settings/domaine` suffit désormais, sans SSH.
+  #
+  # CE QU'IL N'A PAS, ET QU'IL NE FAUT PAS LUI DONNER :
+  #   · pas de `ports:` — il n'écoute rien, il appelle ;
+  #   · pas de socket Docker — il n'a aucun conteneur à piloter, et un
+  #     socket dans un conteneur équivaut à lui donner le root de l'hôte ;
+  #   · pas de `traefik.enable` — il n'est joignable de nulle part.
+  #
+  # CE QUE COÛTE LA BASCULE, UNE FOIS : deux lectures concordantes sont
+  # exigées avant la première écriture (l'anti-battement qui protège le
+  # quota Let's Encrypt), soit une trentaine de secondes. Sur le
+  # déploiement qui retire les labels, le volume est encore vide pendant ce
+  # temps et Traefik ne connaît AUCUNE route — le site répond 404. Les
+  # déploiements suivants ne repayent rien : le fichier persiste dans le
+  # volume et Traefik le lit dès son démarrage.
+  #
+  # Il est sur `edge` pour deux raisons, toutes deux sortantes : joindre
+  # Convex, et frapper `traefik:443` pour savoir si un hôte sert déjà un
+  # certificat valide — la condition, et la seule, du retrait des anciens
+  # hôtes après un changement de domaine.
+  routeur:
+    image: ghcr.io/${GHCR_OWNER}/astrotan-routeur:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      # L'URL du déploiement Convex, la MÊME que celle du dashboard. Elle
+      # n'est pas secrète (elle part déjà dans le bundle du navigateur) et
+      # elle n'a pas de ligne à elle dans le `.env` : ce serait une seconde
+      # valeur à tenir d'accord avec la première.
+      CONVEX_URL: ${VITE_CONVEX_URL}
+      # Le secret partagé qui ouvre `routing.hotes`. Valeur IDENTIQUE ici et
+      # sur le déploiement Convex (`convex env set ROUTING_SECRET`) —
+      # `pnpm bootstrap` pose les deux. Divergente ou absente, la query
+      # refuse chaque appel : le routage reste figé à ce que le fichier
+      # contient déjà, et `docker compose logs routeur` est le seul endroit
+      # qui le dise.
+      ROUTING_SECRET: ${ROUTING_SECRET:?ROUTING_SECRET is required}
+    volumes:
+      # Le SEUL montage en écriture de ce volume. Traefik le monte en
+      # lecture seule.
+      - dynamique:/dynamique
+    networks: [edge]
 
   # ── Umami — mesure d'audience auto-hébergée (lot 6, spec §6.5) ──────────
   #
@@ -266,10 +370,15 @@ services:
       # Corollaire non négociable : le compte livré par défaut est
       # `admin` / `umami`, et il faut le changer à la première connexion.
       # Voir README §13.
+      #
+      # Comme pour `web` et `admin`, le routeur est parti dans le fichier
+      # dynamique. `UMAMI_DOMAIN` n'est donc plus interpolée nulle part dans
+      # ce fichier — elle est désormais lue par `routing.hotes` sur le
+      # DÉPLOIEMENT CONVEX, et c'est sa seule présence là-bas qui dit qu'un
+      # tableau de bord Umami est déployé. Absente de l'environnement
+      # Convex, la query rend `umami: null` et aucun routeur ne s'écrit
+      # pour lui : Umami tournerait, sans être publié.
       traefik.enable: "true"
-      traefik.http.routers.umami.rule: Host(`${UMAMI_DOMAIN:?UMAMI_DOMAIN is required}`)
-      traefik.http.routers.umami.entrypoints: websecure
-      traefik.http.routers.umami.tls.certresolver: letsencrypt
       traefik.http.services.umami.loadbalancer.server.port: "3000"
 
   # ── Purge de rétention Umami (lot 6, tâche 6) ────────────────────────────
@@ -391,6 +500,21 @@ volumes:
   # minutes. Ne pas le supprimer pour « repartir propre » (voir
   # `ACME_CA_SERVER` dans `.env.example` pour tester sans risque).
   acme:
+
+  # Les règles de routage, écrites par `routeur` et lues par Traefik.
+  # Volume NOMMÉ, et pas un bind-mount depuis l'hôte : le fichier doit être
+  # écrit par l'utilisateur non-root du conteneur `routeur` (uid 1000), et
+  # un répertoire créé côté hôte arrive avec le propriétaire de l'hôte.
+  #
+  # SA PERSISTANCE PORTE UNE PROPRIÉTÉ DU PLAN, pas seulement des octets :
+  # l'état « hôtes précédents » se relit de ce fichier, et de nulle part
+  # ailleurs. Le supprimer pendant qu'un changement de domaine est en cours
+  # ferait retirer les anciens hôtes avant que le nouveau ne serve son
+  # certificat — c'est-à-dire exactement la panne (administration
+  # injoignable sur les deux domaines) que le mécanisme existe pour
+  # empêcher. Le perdre en régime établi est en revanche sans conséquence :
+  # la passe suivante le réécrit.
+  dynamique:
 
   # Les données d'audience d'Umami. C'est le PREMIER volume applicatif du
   # projet — le contenu vit dans Convex, qui a ses propres sauvegardes — et

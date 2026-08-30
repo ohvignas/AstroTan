@@ -139,6 +139,30 @@ jobs:
           cache-from: type=gha,scope=deploy-admin
           cache-to: type=gha,mode=max,scope=deploy-admin
 
+      # Le service qui suit le domaine déclaré et réécrit le routage de
+      # Traefik. AUCUN build-arg, et c'est une propriété : rien de ce qu'il
+      # lit n'est figé au build. Il lit tout au runtime, dans son
+      # `environment:` du compose et les `ENV` de son image — c'est
+      # précisément ce qui rend le domaine changeable sans reconstruire.
+      #
+      # Depuis que `docker/docker-compose.yml` déclare le service `routeur`,
+      # cette étape n'est plus facultative : sans elle, le `compose pull`
+      # ci-dessous échoue sur une image absente et le déploiement s'arrête —
+      # bruyamment, ce qui est la bonne façon.
+      - name: Build and push the router image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/routeur.Dockerfile
+          push: true
+          tags: |
+            ${{ steps.img.outputs.prefix }}/astrotan-routeur:${{ github.sha }}
+            ${{ steps.img.outputs.prefix }}/astrotan-routeur:latest
+          # Scope distinct des deux autres — voir le commentaire du build
+          # `web` pour la raison.
+          cache-from: type=gha,scope=deploy-routeur
+          cache-to: type=gha,mode=max,scope=deploy-routeur
+
       # La configuration qui tourne sur le VPS vient du dépôt, à chaque
       # déploiement — sinon un compose édité à la main sur la machine
       # diverge en silence, et le rollback ne reproduit plus rien.

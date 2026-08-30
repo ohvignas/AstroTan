@@ -21,9 +21,17 @@ import { memoireNeuve, passe, type Hotes, type Journal, type Ports } from "./pas
 // vérifier (il cherche des littéraux : ne pas en écrire un ici, même en
 // commentaire, ferait rougir le test pour une prose).
 
-/** Une variable dont l'absence n'a pas de repli raisonnable. */
-function exigee(nom: string): string {
-  const valeur = process.env[nom]
+/**
+ * Une variable dont l'absence n'a pas de repli raisonnable.
+ *
+ * La valeur est passée par l'appelant plutôt que lue ici par
+ * `process.env[nom]`, et ce n'est pas cosmétique :
+ * `scripts/check-env-wiring.mjs` ne reconnaît qu'un accès LITTÉRAL (le
+ * nom écrit après `process.env`, en toutes lettres). Un accès calculé lui
+ * échappe, et la variable traverserait alors le garde-fou sans que
+ * personne ne la pose — ce qui vaut la chaîne vide en production.
+ */
+function exigee(nom: string, valeur: string | undefined): string {
   if (valeur === undefined || valeur === "") {
     // Échouer au démarrage, pas à la première passe : le conteneur reste
     // alors en redémarrage visible dans `docker compose ps`, au lieu de
@@ -33,8 +41,8 @@ function exigee(nom: string): string {
   return valeur
 }
 
-const CONVEX_URL = exigee("CONVEX_URL").replace(/\/+$/, "")
-const ROUTING_SECRET = exigee("ROUTING_SECRET")
+const CONVEX_URL = exigee("CONVEX_URL", process.env.CONVEX_URL).replace(/\/+$/, "")
+const ROUTING_SECRET = exigee("ROUTING_SECRET", process.env.ROUTING_SECRET)
 
 /**
  * Le fichier écrit, dans le volume que Traefik monte en LECTURE SEULE.

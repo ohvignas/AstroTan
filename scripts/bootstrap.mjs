@@ -317,6 +317,17 @@ const GENERATED = [
   // qu'identiques sur Convex et dans le conteneur `web`.
   { key: "LEAD_SUBMIT_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
   { key: "CONSENT_LOG_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
+  // La clé qui ouvre `routing.hotes` au service `routeur` — celui qui suit
+  // le domaine déclaré et réécrit le routage de Traefik. Même nature que
+  // les quatre précédentes : vérifiée des deux côtés d'une frontière, donc
+  // n'ayant de sens qu'identique sur Convex et dans le conteneur.
+  //
+  // Générée ici plutôt que laissée à l'adoptant, comme les neuf autres :
+  // sur un template, un secret à poser à la main est un secret que
+  // plusieurs oublieront — et celui-ci s'oublie SANS symptôme. Le site
+  // continue de servir, le routage reste simplement figé, et changer de
+  // domaine depuis l'administration n'a plus aucun effet.
+  { key: "ROUTING_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
   // La clé maîtresse du chiffrement des jetons saisis depuis
   // l'administration (`convex/lib/secretsCrypto.ts`). Base64, pas
   // hexadécimal, et 44 caractères et non 32 : AES-256-GCM exige EXACTEMENT
@@ -567,6 +578,25 @@ const CONVEX_VARS = [
   { name: "SECRETS_KEY", value: g("SECRETS_KEY"), secret: true },
   { name: "RESEND_API_KEY", value: g("RESEND_API_KEY"), secret: true, optional: true },
   { name: "RESEND_TEST_MODE", value: g("RESEND_TEST_MODE") || "true" },
+  // Le routage. `ROUTING_SECRET` ouvre `routing.hotes` au service
+  // `routeur` ; les trois domaines sont le REPLI de cette query — ce
+  // qu'elle rend tant que personne n'a déclaré de domaine depuis
+  // `/settings/domaine`, c'est-à-dire l'état d'un déploiement neuf.
+  //
+  // Ils vivent sur CONVEX et non plus dans le compose : depuis que Traefik
+  // lit un fichier au lieu de labels, aucun conteneur ne les interpole. Un
+  // `WEB_DOMAIN` manquant ici ferait lever la query en `NOT_CONFIGURED`,
+  // donc le service n'écrirait aucun routage — un site debout et injoignable
+  // sur un déploiement pourtant vert.
+  //
+  // `UMAMI_DOMAIN` est le cas particulier : c'est sa PRÉSENCE qui dit qu'un
+  // tableau de bord Umami est déployé. Posée pour un Umami absent, Traefik
+  // demanderait un certificat pour un nom sans enregistrement DNS — et
+  // chaque échec compte dans le quota Let's Encrypt.
+  { name: "ROUTING_SECRET", value: g("ROUTING_SECRET"), secret: true },
+  { name: "WEB_DOMAIN", value: g("WEB_DOMAIN") },
+  { name: "ADMIN_DOMAIN", value: g("ADMIN_DOMAIN") },
+  { name: "UMAMI_DOMAIN", value: UMAMI_DOMAIN },
 ];
 
 // Les secrets de docker/README.md §7, dans son ordre.
@@ -853,7 +883,13 @@ GHCR_OWNER=${g("GHCR_OWNER")}
 # \`docker compose up\` lancé à la main sur la machine (docker/README.md §4).
 IMAGE_TAG=latest
 
+# Le domaine du site. Depuis que Traefik lit un fichier au lieu de labels,
+# c'est la copie CONVEX de ces trois valeurs qui décide du routage (posée
+# à l'étape 3 ci-dessus) ; celle-ci ne sert plus qu'au conteneur \`web\`,
+# qui compare son domaine à celui figé dans son image.
 WEB_DOMAIN=${g("WEB_DOMAIN")}
+# Plus interpolée par le compose : elle est ici parce que docker/.env.example
+# la documente et qu'un opérateur s'attend à la trouver à côté de l'autre.
 ADMIN_DOMAIN=${g("ADMIN_DOMAIN")}
 ACME_EMAIL=${g("ACME_EMAIL")}
 
@@ -876,9 +912,17 @@ REVALIDATE_SECRET=${g("REVALIDATE_SECRET")}
 LEAD_SUBMIT_SECRET=${g("LEAD_SUBMIT_SECRET")}
 CONSENT_LOG_SECRET=${g("CONSENT_LOG_SECRET")}
 
+# La clé du service \`routeur\`, qui suit le domaine déclaré et réécrit le
+# routage de Traefik. Identique à celle posée sur Convex ci-dessus.
+# Divergente, le routage reste figé : le site sert, mais changer de domaine
+# depuis l'administration n'a plus aucun effet.
+ROUTING_SECRET=${g("ROUTING_SECRET")}
+
 # ── Umami ───────────────────────────────────────────────────────────────────
 # Le sous-domaine du tableau de bord. Son DNS doit pointer sur ce VPS avant
-# le premier démarrage, comme les deux autres (quota Let's Encrypt).
+# le premier démarrage, comme les deux autres (quota Let's Encrypt). Elle
+# aussi est passée côté Convex : c'est sa présence là-bas qui dit à
+# \`routing.hotes\` qu'un Umami est déployé.
 UMAMI_DOMAIN=${UMAMI_DOMAIN}
 
 # Secrets d'Umami : ils ne quittent jamais ce fichier — ni image, ni

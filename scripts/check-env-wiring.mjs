@@ -146,6 +146,21 @@ const APPS = [
     dockerfile: "docker/admin.Dockerfile",
     service: "admin",
   },
+  {
+    // Le service qui suit le domaine déclaré et réécrit le routage de
+    // Traefik. Il n'a ni bundle ni build-arg : tout ce qu'il lit est du
+    // `process.env` au runtime, donc l'écart n° 1 et lui seul.
+    //
+    // Trois de ses variables ont un défaut en dur dans le code et sont
+    // posées en `ENV` du Dockerfile plutôt que dans le compose : un réglage
+    // qui a un défaut n'a pas à être saisi par l'adoptant, mais il doit
+    // être déclaré quelque part — un `process.env` avec un défaut et aucune
+    // moitié qui le pose est précisément ce que ce script attrape.
+    name: "services/routeur",
+    sources: ["services/routeur"],
+    dockerfile: "docker/routeur.Dockerfile",
+    service: "routeur",
+  },
 ];
 
 /**
@@ -407,6 +422,23 @@ function convexEnvReads() {
   );
   if (!cle) return null;
   add(cle[1], "convex/lib/secretsCrypto.ts (SECRETS_KEY_VAR)");
+
+  // Troisième lecture indirecte, et de la même famille que les deux
+  // au-dessus : `convex/routing.ts` lit les trois domaines de repli par un
+  // `depuisEnvironnement(nom)` — donc par `process.env[nom]`, invisible à
+  // la recherche de littéraux. Sans cette ligne, `WEB_DOMAIN` et
+  // `ADMIN_DOMAIN` apparaissaient en « documentées, lues nulle part » : une
+  // note qui invite à SUPPRIMER une variable dont dépend tout le routage.
+  //
+  // Pas de `return null` ici, à la différence des deux précédentes : si le
+  // helper est renommé, on retombe sur la note trompeuse, pas sur un
+  // garde-fou qui rétrécit en silence.
+  const routing = join(CONVEX_DIR, "routing.ts");
+  if (existsSync(routing)) {
+    for (const m of read(routing).matchAll(/depuisEnvironnement\("([A-Z][A-Z0-9_]*)"\)/g)) {
+      add(m[1], "convex/routing.ts (depuisEnvironnement)");
+    }
+  }
 
   return reads;
 }
