@@ -1,5 +1,5 @@
 import { useState } from "react"
-import type { Verdict } from "@astrotan/backend/convex/dns"
+import type { Enregistrement, EtatVerdict, Verdict } from "@astrotan/backend/convex/dns"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -13,36 +13,34 @@ import {
 // ---------------------------------------------------------------------
 // Les enregistrements DNS à poser, et lesquels sont là.
 //
-// UN TABLEAU, PAS DES PARAGRAPHES. Cet écran rendait un bloc de prose par
-// vérification : le verdict en toutes lettres, l'instruction en toutes
-// lettres, et les valeurs trouvées concaténées dans une phrase — huit
-// enregistrements TXT à la file pour un domaine réel. Personne ne lisait
-// ça. Une ligne par enregistrement, et à droite un signe.
+// LE TABLEAU S'AFFICHE DEPUIS LE PLAN, PAS DEPUIS LA VÉRIFICATION. Cet
+// écran cachait tout le tableau derrière un bouton « Vérifier » : rien à
+// voir tant que personne n'avait cliqué, alors que `dns.plan` (une query,
+// sans appel réseau) sait déjà, dès qu'un domaine est déclaré, ce qu'il
+// faut créer. `fusionnerVerdicts` ci-dessous prend le plan et un verdict
+// ENCORE ABSENT (`null`) — avant la première vérification, ou après un
+// échec réseau — et rend quand même une ligne par enregistrement, avec un
+// état « attente » : la colonne existe toujours, elle se remplit quand la
+// vérification répond.
 //
-// TROIS SIGNES, PAS DEUX. `convex/dns.ts` rend quatre états et tient
+// TROIS SIGNES, PAS QUATRE. `convex/dns.ts` rend quatre états et tient
 // `manquant` et `indisponible` séparés exprès : « le résolveur n'a pas
 // répondu » n'est pas « c'est absent ». L'un se réessaie, l'autre se crée,
 // et les confondre en rouge fait créer chez l'hébergeur un doublon qui se
 // diagnostique des semaines plus tard. `manquant` et `different`, eux,
 // appellent le même geste — aller chez l'hébergeur — et partagent donc le
-// rouge ; `data-etat` porte encore les quatre pour les tests.
+// rouge. L'état local « attente » (pas encore vérifié) emprunte le
+// troisième signe, celui d'« indisponible » : les deux disent la même
+// chose à l'œil, « on ne sait pas encore » — ils ne se distinguent que
+// dans `data-etat`, pour les tests.
 //
-// CE COMPOSANT N'ÉCRIT AUCUNE INSTRUCTION. Le type, le nom et la valeur de
-// l'enregistrement à créer sont composés dans `convex/dns.ts`
-// (`instruction()`), où un test les exige ; les recomposer ici en JSX
-// donnerait une seconde phrase, non testée, qui divergerait de la première
-// à la première correction. Il décide en revanche OÙ elle s'affiche : dans
-// le repli, jamais dans le flux.
-//
-// POURQUOI LE NOM DNS EST DANS LE REPLI ET NON DANS UNE COLONNE. `Verdict`
-// ne porte ni `nom` ni `type` comme champs : ils n'existent que fondus dans
-// la phrase `instruction`. Les rejouer ici depuis `cle` et le domaine
-// (`resend._domainkey.<hôte>`, `_dmarc.<hôte>`) serait une seconde copie
-// des tables `controlesSite` / `controlesEmail`, qui divergerait en silence
-// le jour où Resend change de sélecteur ; les extraire de la phrase par
-// expression régulière serait pire, puisque `instruction()` n'est pas
-// exporté et qu'aucun test ne pourrait tenir les deux ensemble. Une colonne
-// « nom » demande deux champs de plus côté serveur — hors périmètre ici.
+// TYPE, NOM, VALEUR : TROIS COLONNES NUES, PLUS L'ÉTAT. `convex/dns.ts`
+// porte maintenant `type` et `nom` comme champs à part entière — ce
+// composant les affiche tels quels, sans les recomposer depuis une phrase
+// (l'ancienne version le faisait depuis un champ `instruction`, retiré du
+// serveur). `libelle` (« SPF — qui a le droit d'envoyer en votre nom »)
+// n'apparaît plus dans le flux : il passe en infobulle (`title`), pour
+// qui veut savoir à quoi sert la ligne sans que ça coûte un mot à l'écran.
 // ---------------------------------------------------------------------
 
 type Signe = "ok" | "ko" | "inconnu"
@@ -72,11 +70,12 @@ const SIGNES: Record<Signe, { glyphe: string; texte: string; classe: string }> =
     },
   }
 
-const SIGNE_DE: Record<Verdict["etat"], Signe> = {
+const SIGNE_DE: Record<EtatVerdict | "attente", Signe> = {
   ok: "ok",
   manquant: "ko",
   different: "ko",
   indisponible: "inconnu",
+  attente: "inconnu",
 }
 
 /**
@@ -101,15 +100,51 @@ export function Signal({ signe }: { signe: Signe }) {
 }
 
 // ---------------------------------------------------------------------
+// La fusion : ce qu'il faut créer, enrichi de ce qui est là — quand on le
+// sait.
+// ---------------------------------------------------------------------
+
+/** Un enregistrement du plan, avec ce que le résolveur en dit — ou pas encore. */
+export type LigneDns = Enregistrement & {
+  /** Ce que le résolveur a rendu — vide si absent, indisponible, ou pas encore lu. */
+  trouve: string[]
+  etat: EtatVerdict | "attente"
+}
+
+/**
+ * Chaque ligne du plan, enrichie de son verdict s'il est arrivé.
+ *
+ * Fusion PAR `cle`, jamais par position : `plan` et `verdicts` partagent
+ * les mêmes clés (`controlesSite`/`controlesEmail`, côté serveur, les
+ * composent toutes deux), mais rien ne garantit qu'ils gardent le même
+ * ordre si l'un des deux évolue sans l'autre.
+ *
+ * `verdicts === null` — la vérification n'est pas encore arrivée, ou a
+ * échoué — laisse chaque ligne à `"attente"` plutôt que de faire
+ * disparaître le tableau : c'est tout l'objet de cette fonction.
+ */
+export function fusionnerVerdicts(
+  plan: Enregistrement[],
+  verdicts: Verdict[] | null
+): LigneDns[] {
+  return plan.map((enregistrement) => {
+    const verdict = verdicts?.find((v) => v.cle === enregistrement.cle) ?? null
+    return verdict === null
+      ? { ...enregistrement, trouve: [], etat: "attente" as const }
+      : { ...enregistrement, trouve: verdict.trouve, etat: verdict.etat }
+  })
+}
+
+// ---------------------------------------------------------------------
 // Le tableau des enregistrements.
 // ---------------------------------------------------------------------
 
 export function TableauDns({
   titre,
-  verdicts,
+  lignes,
 }: {
   titre: string
-  verdicts: Verdict[]
+  lignes: LigneDns[]
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -117,16 +152,17 @@ export function TableauDns({
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[34%] px-2 whitespace-normal">
-              Enregistrement
+            <TableHead className="w-12 px-2 whitespace-normal">Type</TableHead>
+            <TableHead className="w-[28%] px-2 whitespace-normal">
+              Nom
             </TableHead>
             <TableHead className="px-2 whitespace-normal">Valeur</TableHead>
             <TableHead className="w-9 px-0" aria-label="État" />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {verdicts.map((verdict) => (
-            <LigneVerdict key={verdict.cle} verdict={verdict} />
+          {lignes.map((ligne) => (
+            <LigneEnregistrement key={ligne.cle} ligne={ligne} />
           ))}
         </TableBody>
       </Table>
@@ -134,27 +170,23 @@ export function TableauDns({
   )
 }
 
-function LigneVerdict({ verdict }: { verdict: Verdict }) {
-  const [nom, glose] = nomEtGlose(verdict.libelle)
+function LigneEnregistrement({ ligne }: { ligne: LigneDns }) {
   return (
-    <TableRow data-testid={`verdict-${verdict.cle}`} data-etat={verdict.etat}>
-      <TableCell className="px-2 align-top whitespace-normal">
-        {/* La glose part en infobulle : « SPF — qui a le droit d'envoyer en
-            votre nom » redevient « SPF ». L'attribut `title` n'ajoute aucun
-            mot à l'écran, là où une apposition en ajoutait huit par ligne. */}
-        <span
-          title={glose ?? undefined}
-          className={
-            glose === null
-              ? "text-sm font-medium"
-              : "text-sm font-medium underline decoration-dotted underline-offset-4"
-          }
-        >
-          {nom}
-        </span>
+    <TableRow data-testid={`verdict-${ligne.cle}`} data-etat={ligne.etat}>
+      <TableCell
+        className="px-2 align-top text-xs font-medium whitespace-normal"
+        title={ligne.libelle}
+      >
+        {ligne.type}
+      </TableCell>
+      <TableCell
+        className="px-2 align-top text-xs whitespace-normal wrap-anywhere"
+        title={ligne.libelle}
+      >
+        {ligne.nom}
       </TableCell>
       <TableCell className="px-2 align-top whitespace-normal">
-        <div className="flex flex-col items-start gap-1.5">
+        <div className="flex w-full min-w-0 flex-col items-start gap-1.5">
           {/* `flex-wrap` + `basis-32` : à 390 px la colonne ne tient pas la
               valeur ET le bouton, et les garder sur une ligne cassait
               « include:amazonses.com » en trois morceaux. Le bouton passe
@@ -164,32 +196,20 @@ function LigneVerdict({ verdict }: { verdict: Verdict }) {
               espaces, comme une phrase. */}
           <div className="flex w-full min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
             <code className="min-w-0 grow basis-32 text-xs wrap-anywhere">
-              {verdict.attendu}
+              {ligne.attendu}
             </code>
-            {estCopiable(verdict.attendu) ? (
-              <BoutonCopier texte={verdict.attendu} />
+            {estCopiable(ligne.attendu) ? (
+              <BoutonCopier texte={ligne.attendu} />
             ) : null}
           </div>
-          <Repli verdict={verdict} />
+          {ligne.trouve.length > 0 ? <Repli trouve={ligne.trouve} /> : null}
         </div>
       </TableCell>
       <TableCell className="px-0 text-right align-top">
-        <Signal signe={SIGNE_DE[verdict.etat]} />
+        <Signal signe={SIGNE_DE[ligne.etat]} />
       </TableCell>
     </TableRow>
   )
-}
-
-/**
- * « SPF — qui a le droit d'envoyer en votre nom » → `["SPF", "qui a…"]`.
- *
- * Les libellés du site (« Le site public », « Le tableau de bord ») n'ont
- * pas de glose et ressortent entiers.
- */
-export function nomEtGlose(libelle: string): [string, string | null] {
-  const coupure = libelle.indexOf(" — ")
-  if (coupure === -1) return [libelle, null]
-  return [libelle.slice(0, coupure), libelle.slice(coupure + 3)]
 }
 
 /**
@@ -211,28 +231,22 @@ export function estCopiable(attendu: string): boolean {
 }
 
 /**
- * Ce qui ne s'étale pas : la phrase du serveur, et ce que le résolveur a
- * rendu.
+ * Ce que le résolveur a réellement trouvé, replié — utile pour diagnostiquer
+ * un `different`, superflu tant qu'il n'y a rien à montrer.
  *
  * `<details>` natif plutôt qu'un `Collapsible` : ces lignes se rendent en
  * `renderToStaticMarkup` dans les tests, et un repli qui dépend de l'état
  * React n'y serait jamais fermé. Fermé, il coûte un mot.
  */
-function Repli({ verdict }: { verdict: Verdict }) {
-  const trouve = verdict.trouve.length > 0 ? verdict.trouve.join(" · ") : null
+function Repli({ trouve }: { trouve: string[] }) {
   return (
     <details className="w-full min-w-0">
       <summary className="w-fit cursor-pointer text-xs text-muted-foreground underline decoration-dotted underline-offset-4 marker:content-none">
-        Détail
+        Trouvé
       </summary>
-      <div className="mt-1.5 flex flex-col gap-1 text-xs text-muted-foreground">
-        <p>{verdict.instruction}</p>
-        {trouve === null ? null : (
-          <p>
-            <code className="wrap-anywhere">{trouve}</code>
-          </p>
-        )}
-      </div>
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        <code className="wrap-anywhere">{trouve.join(" · ")}</code>
+      </p>
     </details>
   )
 }
@@ -254,68 +268,5 @@ function BoutonCopier({ texte }: { texte: string }) {
     >
       {copie ? "Copié" : "Copier"}
     </Button>
-  )
-}
-
-// ---------------------------------------------------------------------
-// Deux états que le DNS ne couvre pas.
-//
-// Ils remplacent deux paragraphes retirés sur consigne — « ces liens
-// partent de localhost… ils ne mènent nulle part », et « cette image a été
-// construite pour localhost… cinq messages de contact par heure pour tout
-// Internet ». Ce sont deux pannes RÉELLES et INVISIBLES : effacées, elles
-// deviennent indétectables depuis l'interface. Elles restent donc, mais
-// dans la langue du tableau ci-dessus : une étiquette, les valeurs qui
-// divergent, un signe. La conséquence, elle, descend en commentaire.
-//
-// 1. LES LIENS DES EMAILS. `SITE_URL` compose les liens contenus dans les
-//    emails (invitation, réinitialisation). Si son hôte n'est pas celui du
-//    domaine déclaré, les emails partent et leurs liens ne mènent nulle
-//    part — un défaut qui ne se voit qu'en cliquant, donc chez quelqu'un
-//    d'autre.
-//
-// 2. LE DOMAINE DU BUILD. `WEB_DOMAIN` est figée AU BUILD de l'image du
-//    site (`apps/web/astro.config.ts`) et Astro la fige dans
-//    `security.allowedDomains`. Si elle diverge du domaine déclaré, la
-//    liste est vide, Astro ignore `x-forwarded-for`, et `clientAddress`
-//    retombe sur l'adresse de Traefik — la même pour tout Internet. Les
-//    deux limiteurs de débit (`/api/contact`, `/api/consent`) n'ont alors
-//    qu'un seul seau : cinq messages de contact par heure pour la Terre
-//    entière. Voir `apps/web/src/lib/allowedDomains.ts`.
-// ---------------------------------------------------------------------
-
-export type LigneEtat = {
-  cle: string
-  etiquette: string
-  /** Une valeur quand tout va bien ; les deux qui divergent sinon. */
-  valeurs: string[]
-  ok: boolean
-}
-
-export function TableauEtats({ lignes }: { lignes: LigneEtat[] }) {
-  return (
-    <Table className="table-fixed">
-      <TableBody>
-        {lignes.map((ligne) => (
-          <TableRow
-            key={ligne.cle}
-            data-testid={`etat-${ligne.cle}`}
-            data-ok={ligne.ok}
-          >
-            <TableCell className="w-[34%] px-2 align-top text-sm whitespace-normal">
-              {ligne.etiquette}
-            </TableCell>
-            <TableCell className="px-2 align-top whitespace-normal">
-              <code className="text-xs wrap-anywhere">
-                {ligne.valeurs.join(" ≠ ")}
-              </code>
-            </TableCell>
-            <TableCell className="w-9 px-0 text-right align-top">
-              <Signal signe={ligne.ok ? "ok" : "ko"} />
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
   )
 }

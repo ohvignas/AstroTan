@@ -1,12 +1,11 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useAction, useMutation, useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
-import type { Verdict } from "@astrotan/backend/convex/dns"
+import type { Enregistrement, Verdict } from "@astrotan/backend/convex/dns"
 import { describeSettingsError } from "@/lib/settingsErrors"
-import type { LigneEtat } from "@/components/domain-check"
-import { TableauDns, TableauEtats } from "@/components/domain-check"
+import { TableauDns, fusionnerVerdicts } from "@/components/domain-check"
 import { useAutoSave } from "@/components/save-bar"
 import { SettingsGroup } from "@/components/settings-nav"
 import {
@@ -23,24 +22,14 @@ export const Route = createFileRoute("/_authed/settings/domaine")({
 })
 
 type Settings = FunctionReturnType<typeof api.settings.getPrivate>
-type Environment = FunctionReturnType<typeof api.settings.environment>
 
 function DomaineRoute() {
   const { loading, canWrite } = useSettingsAccess()
   const settings = useQuery(api.settings.getPrivate)
-  // Des booléens et deux origines publiques, jamais la valeur d'une clé —
-  // `settings.environment.test.ts` échoue si un secret sort d'ici.
-  const environment = useQuery(api.settings.environment)
-  if (loading || settings === undefined || environment === undefined) {
+  if (loading || settings === undefined) {
     return <SettingsLoading />
   }
-  return (
-    <DomaineForm
-      settings={settings}
-      environment={environment}
-      canWrite={canWrite}
-    />
-  )
+  return <DomaineForm settings={settings} canWrite={canWrite} />
 }
 
 // ---------------------------------------------------------------------
@@ -52,29 +41,26 @@ function DomaineRoute() {
 // `WEB_DOMAIN` est figée AU BUILD de l'image du site
 // (`apps/web/astro.config.ts`), Traefik pose l'hôte depuis `docker/.env`,
 // et aucune valeur de base n'est lue nulle part pour en décider. Ce qu'il
-// fait, c'est donner une entrée à la vérification ci-dessous, et rendre
-// visible l'écart entre le domaine que l'opérateur croit avoir déployé et
-// celui pour lequel l'image a été construite — écart qui, autrement, ne
-// produit aucun symptôme lisible (voir `AvertissementDivergence`).
+// fait, c'est donner une entrée à la vérification ci-dessous.
 //
-// POURQUOI RIEN NE PART TOUT SEUL
+// POURQUOI RIEN NE PART TOUT SEUL À LA SAISIE
 //
 // Même raison que `settings/webhook.tsx`, appliquée à un autre effet de
 // bord : une valeur intermédiaire est nuisible. `exemple.f` est une saisie
 // en route vers `exemple.fr`, et enregistrée ne serait-ce qu'une seconde
-// elle deviendrait le domaine que le bouton « Vérifier » interroge — cinq
+// elle deviendrait le domaine que la vérification interroge — cinq
 // requêtes sortantes vers un nom qui n'est pas le sien. D'où
 // `auto: {}` : `snapshotChanged({}, {})` est toujours faux, la
-// temporisation n'est jamais armée.
+// temporisation n'est jamais armée. La vérification, elle, part bien
+// toute seule — mais du domaine ENREGISTRÉ, jamais de ce qui est dans le
+// champ (voir `VerificationDns`).
 // ---------------------------------------------------------------------
 
 function DomaineForm({
   settings,
-  environment,
   canWrite,
 }: {
   settings: Settings
-  environment: Environment
   canWrite: boolean
 }) {
   const updateSettings = useMutation(api.settings.update)
@@ -143,19 +129,7 @@ function DomaineForm({
           </FieldDescription>
         </Field>
 
-        {canWrite ? (
-          <VerificationDns domaine={domaineEnregistre} />
-        ) : null}
-      </SettingsGroup>
-
-      <SettingsGroup>
-        <TableauEtats
-          lignes={lignesEtat(
-            domaineEnregistre,
-            environment.adminUrl,
-            environment.webUrl
-          )}
-        />
+        {canWrite ? <VerificationDns domaine={domaineEnregistre} /> : null}
       </SettingsGroup>
     </SettingsFormShell>
   )
@@ -175,18 +149,58 @@ function ressembleAUnHote(valeur: string): boolean {
 }
 
 // ---------------------------------------------------------------------
-// Le bouton, et ce qu'il rapporte.
+// Le tableau, et la vérification qui le tient à jour.
 // ---------------------------------------------------------------------
 
+type Plan = { site: Enregistrement[]; email: Enregistrement[] }
+type Resultat = { site: Verdict[]; email: Verdict[] }
+
+/**
+ * Les deux tableaux, du plan seul ou du plan enrichi de son verdict.
+ *
+ * PUR ET EXPORTÉ, SANS HOOK — c'est ici que se joue le défaut corrigé.
+ * `resultat` encore `null` (avant la première vérification, ou après un
+ * échec réseau) ne fait plus disparaître le tableau : `fusionnerVerdicts`
+ * laisse chaque ligne à `"attente"`, et le tableau se rend quand même.
+ * Aucun hook ici, donc aucun `ConvexProvider` requis pour le tester —
+ * `plan` et `resultat` sont de simples valeurs, dans la même veine que
+ * `FormulaireReinitialisation` (`routes/reset-password.tsx`).
+ */
+export function TableauxDns({
+  plan,
+  resultat,
+}: {
+  plan: Plan
+  resultat: Resultat | null
+}) {
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Deux tableaux plutôt qu'un seul : « Le site » et « Les emails »
+          se corrigent chez le même hébergeur mais pour deux pannes qui
+          n'ont rien à voir — le site injoignable d'un côté, les emails
+          refusés de l'autre. */}
+      <TableauDns
+        titre="Le site"
+        lignes={fusionnerVerdicts(plan.site, resultat?.site ?? null)}
+      />
+      <TableauDns
+        titre="Les emails"
+        lignes={fusionnerVerdicts(plan.email, resultat?.email ?? null)}
+      />
+    </div>
+  )
+}
+
 function VerificationDns({ domaine }: { domaine: string | null }) {
+  // `"skip"` sans domaine déclaré : `dns.plan` exige un argument et
+  // refuserait une chaîne vide (`INVALID_DOMAIN`) — même convention que
+  // `webhookSecret` dans `settings/webhook.tsx`.
+  const plan = useQuery(api.dns.plan, domaine === null ? "skip" : { domaine })
   const checkSite = useAction(api.dns.checkSite)
   const checkEmail = useAction(api.dns.checkEmail)
   const [enCours, setEnCours] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
-  const [resultat, setResultat] = useState<{
-    site: Verdict[]
-    email: Verdict[]
-  } | null>(null)
+  const [resultat, setResultat] = useState<Resultat | null>(null)
 
   async function verifier(hote: string) {
     setEnCours(true)
@@ -201,11 +215,24 @@ function VerificationDns({ domaine }: { domaine: string | null }) {
       setResultat({ site, email })
     } catch (err) {
       setErreur(describeSettingsError(err))
-      setResultat(null)
     } finally {
       setEnCours(false)
     }
   }
+
+  // Une fois au montage, et à chaque changement du domaine ENREGISTRÉ —
+  // jamais à chaque rendu. C'est ce qui remplit la colonne d'état « tout
+  // le temps », comme demandé, sans réémettre les cinq requêtes sortantes
+  // à chaque frappe dans le champ ou à chaque re-rendu du formulaire :
+  // `domaine` ne change que quand `settings.update` a effectivement
+  // enregistré une nouvelle valeur.
+  useEffect(() => {
+    if (domaine !== null) void verifier(domaine)
+    // `verifier` ferme sur `checkSite`/`checkEmail`, stables d'un rendu à
+    // l'autre (`useAction` les mémoïse) : les lister ici ne changerait
+    // rien à quand l'effet se relance, et les omettre est le point — seul
+    // `domaine` doit déclencher une nouvelle vérification.
+  }, [domaine])
 
   return (
     <div className="flex flex-col gap-4">
@@ -222,126 +249,23 @@ function VerificationDns({ domaine }: { domaine: string | null }) {
           ? "Lecture du DNS…"
           : domaine === null
             ? "Vérifier"
-            : `Vérifier ${domaine}`}
+            : resultat === null
+              ? `Vérifier ${domaine}`
+              : `Revérifier ${domaine}`}
       </Button>
 
       {erreur !== null ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : null}
 
-      {resultat !== null ? (
-        <div className="flex flex-col gap-5">
-          {/* Deux tableaux plutôt qu'un seul : « Le site » et « Les
-              emails » se corrigent chez le même hébergeur mais pour deux
-              pannes qui n'ont rien à voir — le site injoignable d'un côté,
-              les emails refusés de l'autre. Deux titres suivis de prose ne
-              disaient pas cette frontière ; deux tableaux la montrent. */}
-          <TableauDns titre="Le site" verdicts={resultat.site} />
-          <TableauDns titre="Les emails" verdicts={resultat.email} />
-        </div>
+      {/* Le tableau tient du plan seul, dès qu'il est chargé — pas besoin
+          d'attendre `resultat` : c'est le défaut de fond que cet écran
+          corrige. */}
+      {plan !== undefined ? (
+        <TableauxDns plan={plan} resultat={resultat} />
       ) : null}
     </div>
   )
-}
-
-// ---------------------------------------------------------------------
-// L'écart entre ce qu'on déclare et ce que le déploiement porte.
-//
-// Deux lignes d'état, dans la langue du tableau des DNS : une étiquette,
-// les valeurs qui divergent, un signe. Elles remplacent deux paragraphes
-// retirés sur consigne. Ce qu'ils annonçaient — liens d'emails morts,
-// limiteurs de débit à un seul seau pour tout Internet — est écrit en
-// commentaire en tête de `domain-check.tsx`, à côté des lignes qui le
-// signalent. Le fait reste à l'écran, la conséquence descend dans le code.
-// ---------------------------------------------------------------------
-
-/**
- * Les deux lignes, calculées ensemble.
- *
- * Ensemble et non chacune dans son composant : elles se rendent dans le
- * même tableau, et deux fonctions rendraient deux formes de « rien à
- * comparer » là où il n'en faut qu'une.
- */
-export function lignesEtat(
-  declare: string | null,
-  adminUrl: string | null,
-  webUrl: string | null
-): LigneEtat[] {
-  const lignes: LigneEtat[] = []
-
-  // `declare === null` rend `correspondAuDomaine` vrai : sans domaine
-  // déclaré il n'y a rien à comparer, donc rien à afficher en rouge. La
-  // branche divergente a donc toujours un `declare` — d'où le `?? ""`, qui
-  // n'est qu'un garde-fou de type.
-  const hoteAdmin = hoteDe(adminUrl)
-  const liensOk = correspondAuDomaine(hoteAdmin, declare)
-  lignes.push({
-    cle: "liens",
-    etiquette: "Liens des emails",
-    valeurs: liensOk
-      ? [adminUrl ?? "non réglée"]
-      : [hoteAdmin ?? "non réglée", declare ?? ""],
-    ok: liensOk,
-  })
-
-  // Origine inconnue : rien à comparer, donc pas de ligne. Un « ok »
-  // affiché sans avoir rien pu lire serait un mensonge, et un « ko » une
-  // panne inventée.
-  const construitPour = hoteDe(webUrl)
-  if (construitPour !== null) {
-    if (declare === null || construitPour === declare) {
-      lignes.push({
-        cle: "build",
-        etiquette: "Site construit pour",
-        valeurs: [construitPour],
-        ok: true,
-      })
-    } else {
-      lignes.push({
-        cle: "build",
-        etiquette: "Site construit pour",
-        valeurs: [construitPour, declare],
-        ok: false,
-      })
-    }
-  }
-
-  return lignes
-}
-
-/**
- * Le domaine pour lequel ce déploiement a été construit — ou `null`.
- *
- * Convex ne peut PAS lire le `WEB_DOMAIN` figé dans l'image du site : c'est
- * une variable de build d'`apps/web`, elle ne traverse pas la frontière.
- * `WEB_SITE_URL` est l'origine que ce déploiement tient pour celle du site,
- * et le conteneur `web` refuse de démarrer si son `WEB_DOMAIN` de runtime
- * diverge de celui du build (`apps/web/verifier-domaine.mjs`) : l'hôte de
- * cette origine est donc la lecture la plus proche du build qui soit
- * disponible d'ici.
- */
-function hoteDe(origine: string | null): string | null {
-  if (origine === null) return null
-  try {
-    return new URL(origine).hostname.toLowerCase()
-  } catch {
-    return null
-  }
-}
-
-/**
- * L'hôte de `SITE_URL` correspond-il au domaine déclaré ?
- *
- * Pas une égalité stricte, contrairement à la ligne « Site construit pour » :
- * `ADMIN_DOMAIN` est conventionnellement un SOUS-domaine du site
- * (`admin.exemple.fr` pour `exemple.fr` — `docker/.env.example`), jamais le
- * même hôte. `declare === null` rend `true` : sans domaine déclaré, il n'y
- * a rien à comparer, pas une divergence à affirmer.
- */
-function correspondAuDomaine(hote: string | null, declare: string | null): boolean {
-  if (declare === null) return true
-  if (hote === null) return false
-  return hote === declare || hote.endsWith(`.${declare}`)
 }
 
 // ---------------------------------------------------------------------
@@ -359,8 +283,8 @@ function correspondAuDomaine(hote: string | null, declare: string | null): boole
 // Le contenu, pour qu'il ne se perde pas d'ici là (les trois premiers
 // points vivent aussi dans `docker/README.md`) :
 //
-//   1. Les enregistrements DNS chez l'hébergeur — ceux que le bouton
-//      « Vérifier » de cet écran lit.
+//   1. Les enregistrements DNS chez l'hébergeur — ceux que le tableau
+//      ci-dessus lit.
 //   2. `WEB_DOMAIN` et `ADMIN_DOMAIN` dans le `docker/.env` du VPS :
 //      Traefik y prend ses règles de routage et ses certificats
 //      Let's Encrypt.
@@ -376,7 +300,10 @@ function correspondAuDomaine(hote: string | null, declare: string | null): boole
 //
 // Puis redéployer. Un seul oublié et la panne ne dit pas son nom :
 // certificat émis pour un domaine que personne ne visite, aperçus qui
-// pointent ailleurs, ou conteneur du site qui refuse de démarrer. Les deux
-// premières de ces pannes sont exactement ce que `lignesEtat` ci-dessus
-// rend visible d'un coup d'œil, sans une phrase.
+// pointent ailleurs, ou conteneur du site qui refuse de démarrer.
+//
+// LES DEUX LIGNES D'ÉTAT (« Liens des emails », « Site construit pour »)
+// qui rendaient visibles les deux premières de ces pannes ont été
+// retirées sur consigne explicite, répétée deux fois. Rien ne les
+// remplace ailleurs sur cet écran.
 // ---------------------------------------------------------------------
