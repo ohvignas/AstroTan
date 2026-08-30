@@ -44,7 +44,7 @@ const ENTRYPOINT = "websecure"
 
 /** Les trois services, dans l'ordre où ils sont écrits. */
 const SERVICES = ["web", "admin", "umami"] as const
-type Service = (typeof SERVICES)[number]
+export type Service = (typeof SERVICES)[number]
 
 /**
  * Les préfixes de sous-domaine que la convention du dépôt attribue à
@@ -108,8 +108,12 @@ function exigerHoteNu(hote: string, ou: string): string {
  * d'administration méconnaissable, et il retombe sur le site public. Le
  * remède est le même que pour le reste de cette fonctionnalité — changer
  * une chose à la fois.
+ *
+ * EXPORTÉE : `passe.ts` l'appelle aussi, pour plafonner le nombre
+ * d'anciens hôtes gardés PAR SERVICE plutôt que globalement — voir le
+ * commentaire à l'endroit où `passe` calcule `anciens`.
  */
-function serviceDeLAncienHote(hote: string, hotes: Hotes): Service {
+export function serviceDeLAncienHote(hote: string, hotes: Hotes): Service {
   const etiquette = premiereEtiquette(hote)
   for (const service of ["admin", "umami"] as const) {
     const courant = hotes[service]

@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, test } from "vitest"
+import { MAX_SORTANTS } from "@astrotan/backend/convex/lib/hotesSortants"
 import { composerRoutes } from "./ecrireRoutes"
-import { memoireNeuve, passe, type Hotes, type Memoire, type Ports } from "./passe"
+import { hotesDuFichier, memoireNeuve, passe, type Hotes, type Memoire, type Ports } from "./passe"
 
 const ANCIEN: Hotes = { web: "vieux.fr", admin: "admin.vieux.fr", umami: null }
 const NOUVEAU: Hotes = { web: "neuf.fr", admin: "admin.neuf.fr", umami: null }
@@ -316,6 +317,88 @@ describe("les anciens hôtes survivent au changement", () => {
     // L'autre ancien hôte, lui, est parfaitement lisible et reste routé :
     // écarter la valeur douteuse n'est pas jeter le fichier.
     expect(banc.fichier).toContain("Host(`admin.vieux.fr`)")
+  })
+})
+
+describe("les anciens hôtes ne s'accumulent pas sans borne", () => {
+  test("le nombre d'anciens hôtes gardés par service est plafonné à MAX_SORTANTS", async () => {
+    // Constat 3 (relecture finale) : tant qu'aucun nouveau domaine
+    // n'obtient de certificat, chaque changement ajoutait deux `Host()` de
+    // plus, INDÉFINIMENT — et Traefik tente d'obtenir un certificat pour
+    // chacun, donc consomme le quota Let's Encrypt sans fin. La borne est
+    // `MAX_SORTANTS` (`lib/hotesSortants.ts`), la même que la chaîne des
+    // origines sortantes, appliquée PAR SERVICE — voir `passe.ts` à
+    // l'endroit où `anciens` est calculé pour la raison du « par service ».
+    const { banc, ports } = bancDEssai(null)
+    banc.certificatValide = false
+    const memoire = memoireNeuve()
+
+    const hotesRound = (i: number): Hotes => ({
+      web: `d${i}.fr`,
+      admin: `admin.d${i}.fr`,
+      umami: null,
+    })
+
+    // Largement plus que MAX_SORTANTS changements de domaine, aucun
+    // n'obtenant jamais de certificat — le cas qui suppose une répétition
+    // d'erreurs (décrit comme mineur dans le rapport), mais sans plafond il
+    // n'a AUCUNE fin.
+    const dernier = MAX_SORTANTS + 4
+    for (let i = 1; i <= dernier; i++) {
+      banc.hotes = hotesRound(i)
+      await deuxPasses(ports, memoire)
+    }
+
+    const hotes = hotesDuFichier(banc.fichier)
+    const anciensWeb = hotes.filter((h) => /^d\d+\.fr$/.test(h) && h !== `d${dernier}.fr`)
+    const anciensAdmin = hotes.filter(
+      (h) => /^admin\.d\d+\.fr$/.test(h) && h !== `admin.d${dernier}.fr`,
+    )
+    expect(anciensWeb).toHaveLength(MAX_SORTANTS)
+    expect(anciensAdmin).toHaveLength(MAX_SORTANTS)
+
+    // Et ça ne bouge plus : plusieurs changements de plus ne font pas
+    // grandir la liste davantage — c'est un plafond, pas un simple retard.
+    const tailleApresPlafond = hotes.length
+    for (let i = dernier + 1; i <= dernier + 3; i++) {
+      banc.hotes = hotesRound(i)
+      await deuxPasses(ports, memoire)
+    }
+    expect(hotesDuFichier(banc.fichier)).toHaveLength(tailleApresPlafond)
+  })
+
+  test("un ancien hôte d'administration n'est pas sacrifié parce que `web` a plus d'histoire", async () => {
+    // Le danger d'un plafond GLOBAL plutôt que PAR SERVICE : `web` est
+    // toujours écrit AVANT `admin` dans le fichier (`SERVICES`,
+    // `ecrireRoutes.ts`), donc un plafond appliqué à la liste à plat
+    // piocherait ses `MAX_SORTANTS` places entièrement du côté `web` dès
+    // que celui-ci en accumule plus à lui seul — et laisserait tomber le
+    // dernier ancien hôte `admin` encore joignable. C'est précisément le
+    // dashboard verrouillé que le point 2 de l'en-tête de `passe.ts` existe
+    // pour empêcher : ce test échoue sous un plafond global, et passe sous
+    // un plafond par service.
+    const { banc, ports } = bancDEssai(null)
+    banc.certificatValide = false
+    const memoire = memoireNeuve()
+
+    // Un premier admin, qui va devenir l'unique ancien hôte d'admin —
+    // nommé selon la convention (`admin.<domaine>`) pour que
+    // `serviceDeLAncienHote` le reconnaisse bien comme un hôte d'ADMIN et
+    // non de web.
+    banc.hotes = { web: "d0.fr", admin: "admin.d0.fr", umami: null }
+    await deuxPasses(ports, memoire)
+
+    // `admin` se fixe une fois pour toutes ; SEUL `web` change ensuite, et
+    // plus de fois que `MAX_SORTANTS` — de quoi remplir, puis dépasser, le
+    // plafond `web` à lui seul, pendant que `admin.d0.fr` reste l'unique
+    // ancien hôte d'admin, jamais renouvelé.
+    const dernier = MAX_SORTANTS + 3
+    for (let i = 1; i <= dernier; i++) {
+      banc.hotes = { web: `d${i}.fr`, admin: "admin.stable.fr", umami: null }
+      await deuxPasses(ports, memoire)
+    }
+
+    expect(banc.fichier).toContain("Host(`admin.d0.fr`)")
   })
 })
 

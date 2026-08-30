@@ -1,6 +1,7 @@
 import { estHoteNu } from "@astrotan/backend/convex/lib/hoteNu"
+import { MAX_SORTANTS } from "@astrotan/backend/convex/lib/hotesSortants"
 import type { Hotes } from "@astrotan/backend/convex/routing"
-import { composerRoutes } from "./ecrireRoutes"
+import { composerRoutes, serviceDeLAncienHote } from "./ecrireRoutes"
 
 // UNE passe du service `routeur` : lire les hôtes, comparer, et n'écrire
 // que sur un changement réel.
@@ -270,11 +271,37 @@ export async function passe(ports: Ports, memoire: Memoire): Promise<Issue> {
     // une règle de routage, ni — en faisant lever `composerRoutes` —
     // empêcher pour toujours l'écriture du routage correct.
     const dansLeFichier = hotesDuFichier(contenu)
-    const anciens = dansLeFichier.filter((hote) => !attendus.includes(hote) && estHoteNu(hote))
     const illisibles = dansLeFichier.filter((hote) => !attendus.includes(hote) && !estHoteNu(hote))
     if (illisibles.length > 0) {
       ports.journal.erreur(`hôtes écartés du fichier existant, non conformes : ${illisibles.join(", ")}`)
     }
+
+    // Bornée, comme la chaîne des origines sortantes (`MAX_SORTANTS`,
+    // `lib/hotesSortants.ts`) — et pour la même raison de quota. Rien ici
+    // ne borne autrement le nombre d'ANCIENS conservés : tant qu'un domaine
+    // fraîchement déclaré n'obtient pas de certificat, la passe SUIVANTE
+    // qui change encore de domaine reclasse le dernier `attendus` en
+    // `ancien` et l'ajoute à ce qui restait déjà — sans plafond, chaque
+    // tentative de plus ajoute un `Host()` de plus par service, et Traefik
+    // en redemande un certificat à chaque tentative : c'est le quota Let's
+    // Encrypt qui trinque, indéfiniment.
+    //
+    // Bornée PAR SERVICE (`serviceDeLAncienHote`, `ecrireRoutes.ts`), pas
+    // globalement : un plafond global sur la liste à plat piocherait selon
+    // l'ordre du fichier — celui de `SERVICES`, `web` avant `admin` avant
+    // `umami` — et pourrait épuiser le quota sur les seuls anciens hôtes
+    // `web`, en laissant tomber le dernier ancien hôte `admin` encore
+    // joignable. Ce serait précisément le dashboard verrouillé que le
+    // point 2 de l'en-tête existe pour empêcher.
+    const parService = new Map<string, string[]>()
+    for (const hote of dansLeFichier) {
+      if (attendus.includes(hote) || !estHoteNu(hote)) continue
+      const service = serviceDeLAncienHote(hote, hotes)
+      const liste = parService.get(service) ?? []
+      if (liste.length < MAX_SORTANTS) liste.push(hote)
+      parService.set(service, liste)
+    }
+    const anciens = [...parService.values()].flat()
 
     let aGarder = anciens
     if (anciens.length > 0) {
