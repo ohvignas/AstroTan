@@ -47,3 +47,10 @@ import "../convex/emails"
 // aucun test de permission pour elle, pendant que `_registry.test.ts`
 // passerait quand même : exactement le trou décrit plus haut.
 import "../convex/secretCheck"
+// Même raison que `secretCheck.ts` juste au-dessus : `resendDomain.ts` n'est
+// importé par aucun module de production — c'est l'écran `/settings/domaine`
+// qui appelle son action. Sans cette ligne, la matrice de `lib/authz.test.ts`
+// (qui lit le registre à la COLLECTE) ne générerait aucun test de permission
+// pour `resendDomain.declarer`, une action qui appelle un tiers avec la clé
+// du déploiement.
+import "../convex/resendDomain"

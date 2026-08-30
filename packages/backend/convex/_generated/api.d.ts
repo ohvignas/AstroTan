@@ -59,6 +59,7 @@ import type * as passwordReset from "../passwordReset.js";
 import type * as posts from "../posts.js";
 import type * as profiles from "../profiles.js";
 import type * as redirects from "../redirects.js";
+import type * as resendDomain from "../resendDomain.js";
 import type * as retention from "../retention.js";
 import type * as revalidate from "../revalidate.js";
 import type * as routing from "../routing.js";
@@ -128,6 +129,7 @@ declare const fullApi: ApiFromModules<{
   posts: typeof posts;
   profiles: typeof profiles;
   redirects: typeof redirects;
+  resendDomain: typeof resendDomain;
   retention: typeof retention;
   revalidate: typeof revalidate;
   routing: typeof routing;
