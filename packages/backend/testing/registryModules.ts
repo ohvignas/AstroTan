@@ -41,3 +41,9 @@ import "../convex/posts"
 import "../convex/settings"
 import "../convex/redirects"
 import "../convex/emails"
+// `secretCheck.ts` ne se fait importer par aucun module de production —
+// c'est l'écran qui appelle son action. Sans cette ligne, la matrice de
+// `lib/authz.test.ts` (qui lit le registre à la COLLECTE) ne générerait
+// aucun test de permission pour elle, pendant que `_registry.test.ts`
+// passerait quand même : exactement le trou décrit plus haut.
+import "../convex/secretCheck"
