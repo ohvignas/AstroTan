@@ -84,14 +84,18 @@ export function ChampSecret({
   bloc,
   nom,
   children,
+  consequence,
 }: {
   bloc: SecretsBloc
   nom: string
   children?: ReactNode
+  /** Ce qui s'arrête sans ce jeton, lu au moment de confirmer un retrait. */
+  consequence?: ReactNode
 }) {
   return (
     <SecretField
       etat={etatDe(bloc, nom)}
+      consequence={consequence}
       // Sans clé maîtresse, l'écriture est refusée côté serveur : le champ
       // est masqué plutôt que de laisser taper une clé pour rien.
       disabled={!bloc.canWrite || bloc.cleMaitresse !== "posee"}
@@ -165,6 +169,18 @@ export function AiPage({ secrets }: { secrets: SecretsBloc }) {
 // ---------------------------------------------------------------------
 // Mesure & pixels
 // ---------------------------------------------------------------------
+
+/**
+ * Ce qu'une confirmation de retrait doit dire pour les quatre premiers
+ * identifiants Umami.
+ *
+ * Ils vont ENSEMBLE — `analytics.ts` les résout tous les quatre ou
+ * répond « non configuré » — si bien qu'en retirer un revient à couper
+ * les statistiques entières. La même phrase pour les quatre, parce que
+ * c'est la même conséquence.
+ */
+const CONSEQUENCE_UMAMI =
+  "Les statistiques cessent de s'afficher : les quatre identifiants vont ensemble, et il en manquera un."
 
 export function MeasurementPage({
   umamiApi,
@@ -282,13 +298,25 @@ export function MeasurementPage({
                 "L'environnement est incomplet : si la base ne complète pas ce qui manque, les statistiques répondent « non configuré »."
               )}
             </p>
-            <ChampSecret bloc={secrets} nom="UMAMI_API_URL">
+            <ChampSecret
+              bloc={secrets}
+              nom="UMAMI_API_URL"
+              consequence={CONSEQUENCE_UMAMI}
+            >
               L'origine de votre Umami, sans barre finale.
             </ChampSecret>
-            <ChampSecret bloc={secrets} nom="UMAMI_API_WEBSITE_ID">
+            <ChampSecret
+              bloc={secrets}
+              nom="UMAMI_API_WEBSITE_ID"
+              consequence={CONSEQUENCE_UMAMI}
+            >
               L'identifiant du site mesuré, tel qu'Umami l'a créé.
             </ChampSecret>
-            <ChampSecret bloc={secrets} nom="UMAMI_API_USERNAME">
+            <ChampSecret
+              bloc={secrets}
+              nom="UMAMI_API_USERNAME"
+              consequence={CONSEQUENCE_UMAMI}
+            >
               Un compte Umami en lecture.{" "}
               <code className="text-xs">UMAMI_API_*</code> et non{" "}
               <code className="text-xs">UMAMI_*</code> : le{" "}
@@ -297,7 +325,11 @@ export function MeasurementPage({
               <code className="text-xs">UMAMI_APP_SECRET</code>, qui sont
               d'autres secrets pour un autre usage.
             </ChampSecret>
-            <ChampSecret bloc={secrets} nom="UMAMI_API_PASSWORD">
+            <ChampSecret
+              bloc={secrets}
+              nom="UMAMI_API_PASSWORD"
+              consequence={CONSEQUENCE_UMAMI}
+            >
               Le mot de passe de ce compte. Envoyé à Umami une fois, contre un
               jeton de session que le serveur garde une demi-heure.
             </ChampSecret>

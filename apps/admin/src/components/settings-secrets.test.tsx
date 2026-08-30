@@ -19,7 +19,9 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import {
+  ActionsDuChamp,
   CleMaitresseBandeau,
+  ConfirmationRetrait,
   MASQUE,
   SecretField,
   SecretHorsPortee,
@@ -27,7 +29,7 @@ import {
   gesteDuChamp,
   sansMasque,
 } from "./settings-secrets"
-import type { SecretEtat } from "./settings-secrets"
+import type { Geste, SecretEtat } from "./settings-secrets"
 
 /** Un jeton plausible, qui ne doit jamais ressortir d'un rendu. */
 const JETON = "re_UN_VRAI_JETON_QUI_NE_DOIT_JAMAIS_SORTIR_1234"
@@ -175,12 +177,12 @@ describe("SecretField", () => {
     expect(chaines).toEqual(["nom", "source"])
   })
 
-  test("« Retirer de la base » n'apparaît que s'il y a quelque chose à retirer", () => {
-    expect(champ({ base: true, source: "base" })).toContain("Retirer de la base")
-    // Absent en base : le bouton n'aurait rien à faire, et il laisserait
-    // croire qu'il enlève la variable d'environnement.
+  test("il n'y a plus de bouton « Retirer de la base »", () => {
+    // Il était toujours visible à côté d'« Enregistrer » : le geste le
+    // plus destructeur de l'écran tenait en un clic, sans confirmation.
+    expect(champ({ base: true, source: "base" })).not.toContain("Retirer")
     expect(champ({ environnement: true, source: "environnement" })).not.toContain(
-      "Retirer de la base"
+      "Retirer"
     )
   })
 
@@ -239,6 +241,79 @@ describe("gesteDuChamp", () => {
   test("champ vide sans jeton posé : rien à faire", () => {
     expect(gesteDuChamp("", false)).toBe("aucun")
     expect(gesteDuChamp("   ", false)).toBe("aucun")
+  })
+
+  test("champ vidé sur un jeton posé : supprimer", () => {
+    // Le troisième état, et celui qui n'existait pas : « vidé » n'est pas
+    // « intact ». Les confondre, c'est soit perdre une clé sans le
+    // vouloir, soit ne plus pouvoir la retirer du tout.
+    expect(gesteDuChamp("", true)).toBe("supprimer")
+    expect(gesteDuChamp("   ", true)).toBe("supprimer")
+  })
+})
+
+describe("ActionsDuChamp", () => {
+  function actions(geste: Geste): string {
+    return renderToStaticMarkup(
+      <ActionsDuChamp
+        geste={geste}
+        enCours={false}
+        fait={null}
+        onEnregistrer={() => {}}
+        onSupprimer={() => {}}
+      />
+    )
+  }
+
+  test("le bouton dit lequel des deux gestes il fait", () => {
+    // Un bouton « Enregistrer » qui supprime serait le pire des deux
+    // mondes : le mot dit une chose, le clic en fait une autre.
+    expect(actions("enregistrer")).toContain("Enregistrer")
+    expect(actions("supprimer")).toContain("Supprimer")
+    expect(actions("supprimer")).not.toContain("Enregistrer")
+  })
+
+  test("aucun bouton de retrait ne double le bouton principal", () => {
+    for (const geste of ["aucun", "enregistrer", "supprimer"] as const) {
+      expect(actions(geste)).not.toContain("Retirer de la base")
+    }
+  })
+
+  test("rien à faire : le bouton est inerte ; un retrait demandé : il ne l'est pas", () => {
+    expect(boutonInerte(actions("aucun"), "Enregistrer")).toBe(true)
+    expect(boutonInerte(actions("supprimer"), "Supprimer")).toBe(false)
+    expect(boutonInerte(actions("enregistrer"), "Enregistrer")).toBe(false)
+  })
+})
+
+describe("ConfirmationRetrait", () => {
+  function confirmation(environnement: boolean): string {
+    return renderToStaticMarkup(
+      <ConfirmationRetrait
+        nom="RESEND_API_KEY"
+        environnement={environnement}
+        consequence="Les envois du site s'arrêtent, invitations comprises."
+        enCours={false}
+        onConfirmer={() => {}}
+        onAnnuler={() => {}}
+      />
+    )
+  }
+
+  test("elle nomme le jeton, dit ce que le retrait coûte, et laisse revenir", () => {
+    const html = confirmation(false)
+    expect(html).toContain("RESEND_API_KEY")
+    expect(html).toMatch(/invitations comprises/)
+    expect(html).toContain("Annuler")
+  })
+
+  test("quand la variable d'environnement existe, elle dit que rien ne changera", () => {
+    // La précédence : l'environnement l'emporte, donc retirer la ligne de
+    // base ne coupe rien. Annoncer la conséquence ici serait un mensonge
+    // qui ferait renoncer à un ménage sans risque.
+    const html = confirmation(true)
+    expect(html).toMatch(/continuera de servir/)
+    expect(html).not.toMatch(/invitations comprises/)
   })
 })
 

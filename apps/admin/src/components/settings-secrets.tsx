@@ -25,8 +25,27 @@ import { SettingsGroup } from "@/components/settings-nav"
 //      jeton — une valeur pré-remplie part dans le HTML de la page. Un
 //      jeton posé se signale par un MASQUE (`MASQUE` ci-dessous), une
 //      suite de points de longueur fixe qui ne dit rien de la valeur ;
-//   2. vide veut dire « ne change rien », jamais « efface » : pour retirer,
-//      il y a un bouton qui le dit ;
+//   2. **vider le champ demande à effacer, et il faut l'avoir vidé.**
+//
+//      La règle disait l'inverse jusqu'ici — « vide veut dire ne change
+//      rien, jamais efface : pour retirer, il faut un geste distinct » —
+//      et elle avait une raison, qu'il faut nommer avant de la retirer :
+//      le champ ARRIVAIT VIDE au chargement. « Vide » n'était donc pas un
+//      geste, c'était l'état de repos, et une sauvegarde distraite aurait
+//      effacé une clé en service sans que personne le remarque.
+//
+//      Depuis la règle 1, le champ n'arrive plus vide : il arrive masqué.
+//      Le vider demande d'effacer un masque qu'on voit, et devient une
+//      action délibérée — la raison de l'ancienne règle est tombée avec
+//      l'état de repos qui la portait. Ce qui reste du danger, une clé en
+//      service qui disparaît, est traité par une CONFIRMATION qui nomme
+//      la conséquence, et non par un bouton de retrait toujours affiché à
+//      côté d'« Enregistrer », où le geste le plus destructeur de l'écran
+//      tenait en un clic sans question.
+//
+//      Trois états, donc, et non deux — `gesteDuChamp` les nomme : masque
+//      intact (ne rien faire), champ vidé (supprimer, après
+//      confirmation), champ retapé (remplacer) ;
 //   3. rien ne s'enregistre tout seul. Un jeton à demi tapé, envoyé à
 //      chaque pause de frappe, écraserait le bon.
 //
@@ -95,18 +114,24 @@ export function sansMasque(valeur: string): string {
 }
 
 /** Ce qu'un clic sur le bouton ferait, vu l'état du champ. */
-export type Geste = "aucun" | "enregistrer"
+export type Geste = "aucun" | "enregistrer" | "supprimer"
 
 /**
- * Le champ a plus d'états qu'il n'y paraît, et les confondre coûte cher.
+ * Le champ a TROIS états, et les confondre coûte cher dans les deux sens :
+ * une clé perdue sans qu'on l'ait voulu, ou une clé qu'on ne peut plus
+ * retirer du tout.
  *
  *   • **intact** — le masque n'a pas bougé : il n'y a rien à faire ;
- *   • **vide** — sans jeton posé, il n'y a toujours rien à faire ;
+ *   • **vidé** — le masque a été effacé alors qu'une ligne existe : c'est
+ *     une demande de suppression, et le seul geste de cet écran qui
+ *     appelle une confirmation ;
  *   • **saisi** — une valeur a été tapée : elle remplace ce qui est là.
+ *
+ * Sans jeton posé, un champ vide reste l'état de repos : rien à faire.
  */
 export function gesteDuChamp(valeur: string, jetonPose: boolean): Geste {
   if (jetonPose && valeur === MASQUE) return "aucun"
-  if (valeur.trim().length === 0) return "aucun"
+  if (valeur.trim().length === 0) return jetonPose ? "supprimer" : "aucun"
   return "enregistrer"
 }
 
@@ -173,6 +198,129 @@ const BADGE: Record<
   aucune: { texte: "Absent", variant: "destructive" },
 }
 
+/** Ce qu'un appel a fait, une fois qu'il est passé. */
+export type Fait = "enregistre" | "supprime" | null
+
+/**
+ * Le bouton, et lui seul.
+ *
+ * UN bouton, dont le libellé suit l'état du champ, plutôt que deux dont
+ * l'un est toujours là. Un « Enregistrer » qui supprimerait serait le pire
+ * des deux mondes : le mot dit une chose, le clic en fait une autre.
+ *
+ * Extrait de `SecretField` pour être rendu seul dans les tests : l'état
+ * « champ vidé » naît d'une frappe, et le rendu statique
+ * (`environment: "node"`) ne sait pas frapper.
+ */
+export function ActionsDuChamp({
+  geste,
+  enCours,
+  fait,
+  onEnregistrer,
+  onSupprimer,
+}: {
+  geste: Geste
+  enCours: boolean
+  fait: Fait
+  onEnregistrer: () => void
+  onSupprimer: () => void
+}) {
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant={geste === "supprimer" ? "destructive" : "default"}
+        className="cursor-pointer"
+        // Le bouton dit en étant inerte qu'il n'y a rien à faire, plutôt
+        // qu'en envoyant au serveur une valeur qu'il refuse.
+        disabled={geste === "aucun" || enCours}
+        onClick={geste === "supprimer" ? onSupprimer : onEnregistrer}
+      >
+        {geste === "supprimer" ? "Supprimer" : "Enregistrer"}
+      </Button>
+      {fait !== null && (
+        <span role="status" className="text-sm text-muted-foreground">
+          {fait === "supprime" ? "Supprimé." : "Enregistré."}
+        </span>
+      )}
+    </>
+  )
+}
+
+/**
+ * La question posée avant de retirer un jeton.
+ *
+ * Elle existe parce que « vider le champ » suffit désormais à supprimer :
+ * le geste est délibéré — on efface un masque qu'on voit — mais sa
+ * CONSÉQUENCE, elle, ne se lit nulle part sur cet écran. Retirer la clé
+ * Resend arrête tous les envois du site, invitations comprises, et
+ * personne ne devrait l'apprendre après coup.
+ *
+ * Sauf quand la variable d'environnement existe : elle l'emporte, la
+ * ligne de base ne sert déjà à rien, et annoncer une coupure ferait
+ * renoncer à un ménage sans risque.
+ */
+export function ConfirmationRetrait({
+  nom,
+  environnement,
+  consequence,
+  enCours,
+  onConfirmer,
+  onAnnuler,
+}: {
+  nom: string
+  /** Une variable d'environnement du même nom existe et l'emporte. */
+  environnement: boolean
+  /** Ce qui s'arrête sans ce jeton. Une phrase, écrite par l'appelant. */
+  consequence?: ReactNode
+  enCours: boolean
+  onConfirmer: () => void
+  onAnnuler: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-destructive/50 p-3">
+      <p className="text-sm">
+        Retirer <code className="text-xs">{nom}</code> de la base ?{" "}
+        {environnement ? (
+          <>
+            La variable d&apos;environnement du même nom existe et{" "}
+            <strong>continuera de servir</strong> : rien ne changera pour le
+            site.
+          </>
+        ) : (
+          <>
+            Plus rien ne fournira cette valeur.{" "}
+            {consequence === undefined ? null : consequence}
+          </>
+        )}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          className="cursor-pointer"
+          disabled={enCours}
+          onClick={onConfirmer}
+        >
+          Supprimer définitivement
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="cursor-pointer"
+          disabled={enCours}
+          onClick={onAnnuler}
+        >
+          Annuler
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Une ligne : l'état d'un jeton, et de quoi le poser ou le retirer.
  *
@@ -186,6 +334,7 @@ const BADGE: Record<
 export function SecretField({
   etat,
   children,
+  consequence,
   disabled,
   onSave,
   onClear,
@@ -193,6 +342,8 @@ export function SecretField({
   etat: SecretEtat
   /** Ce que cette variable fait, et qui la lit. Une ou deux phrases. */
   children?: ReactNode
+  /** Ce qui s'arrête sans ce jeton — lu au moment de confirmer un retrait. */
+  consequence?: ReactNode
   /** Vrai pour un editor, ou tant que la clé maîtresse manque. */
   disabled: boolean
   onSave: (valeur: string) => Promise<void>
@@ -203,22 +354,33 @@ export function SecretField({
   // retient l'affichage tant que la query n'a pas répondu), donc `etat.base`
   // est connu ici — il n'y a pas de second passage à rattraper.
   const [valeur, setValeur] = useState(etat.base ? MASQUE : "")
-  const [etatAppel, setEtatAppel] = useState<"repos" | "envoi" | "fait">("repos")
+  const [enCours, setEnCours] = useState(false)
+  const [fait, setFait] = useState<Fait>(null)
+  const [confirmation, setConfirmation] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
   const badge = etat.source === "base" ? null : BADGE[etat.source]
   const champId = `secret-${etat.nom}`
   const geste = gesteDuChamp(valeur, etat.base)
 
-  async function lancer(action: () => Promise<void>, apres: string) {
+  async function lancer(
+    action: () => Promise<void>,
+    apres: string,
+    resultat: Fait
+  ) {
     setErreur(null)
-    setEtatAppel("envoi")
+    setEnCours(true)
     try {
       await action()
       setValeur(apres)
-      setEtatAppel("fait")
+      setFait(resultat)
     } catch (err) {
-      setEtatAppel("repos")
       setErreur(err instanceof Error ? err.message : String(err))
+    } finally {
+      setEnCours(false)
+      // Refermée dans les deux cas : après un retrait réussi elle n'a
+      // plus d'objet, et après un refus l'erreur est la seule chose à
+      // lire — la question reposée par-dessus la ferait relire deux fois.
+      setConfirmation(false)
     }
   }
 
@@ -251,59 +413,67 @@ export function SecretField({
       {etat.illisible ? (
         <p className="text-sm text-destructive">
           Ce jeton a été chiffré sous une autre clé maîtresse et ne se
-          déchiffre plus. Ressaisissez-le, ou retirez-le.
+          déchiffre plus. Ressaisissez-le, ou videz le champ pour le
+          retirer.
         </p>
       ) : null}
 
       {!disabled && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            id={champId}
-            type="password"
-            // Le navigateur ne doit ni proposer, ni retenir, ni compléter
-            // une clé d'API dans son gestionnaire de mots de passe.
-            autoComplete="off"
-            aria-label={`Nouvelle valeur pour ${etat.nom}`}
-            // Rien à inviter quand le champ porte déjà le masque : une
-            // invite ne s'affiche que sur un champ vide, et celui-là ne
-            // l'est pas.
-            placeholder={etat.base ? undefined : "Coller la valeur"}
-            value={valeur}
-            onChange={(event) => {
-              setValeur(sansMasque(event.target.value))
-              setEtatAppel("repos")
-            }}
-            className="max-w-xs"
-          />
-          <Button
-            type="button"
-            size="sm"
-            className="cursor-pointer"
-            // Le bouton dit en étant inerte qu'il n'y a rien à faire,
-            // plutôt qu'en envoyant au serveur une valeur qu'il refuse.
-            disabled={geste === "aucun" || etatAppel === "envoi"}
-            // Un jeton vient d'être rangé : le champ revient au masque, et
-            // non à vide, qui laisserait croire qu'il n'y a rien.
-            onClick={() => lancer(() => onSave(valeur.trim()), MASQUE)}
-          >
-            Enregistrer
-          </Button>
-          {etat.base && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="cursor-pointer"
-              disabled={etatAppel === "envoi"}
-              onClick={() => lancer(onClear, "")}
-            >
-              Retirer de la base
-            </Button>
-          )}
-          {etatAppel === "fait" && (
-            <span role="status" className="text-sm text-muted-foreground">
-              Enregistré.
-            </span>
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              id={champId}
+              type="password"
+              // Le navigateur ne doit ni proposer, ni retenir, ni compléter
+              // une clé d'API dans son gestionnaire de mots de passe.
+              autoComplete="off"
+              aria-label={`Nouvelle valeur pour ${etat.nom}`}
+              // Rien à inviter quand le champ porte déjà le masque : une
+              // invite ne s'affiche que sur un champ vide, et celui-là ne
+              // l'est pas.
+              placeholder={etat.base ? undefined : "Coller la valeur"}
+              value={valeur}
+              onChange={(event) => {
+                setValeur(sansMasque(event.target.value))
+                setFait(null)
+                // Retaper après avoir demandé un retrait annule la
+                // demande : la question porterait sur un champ qui n'est
+                // plus vide.
+                setConfirmation(false)
+              }}
+              className="max-w-xs"
+            />
+            {!confirmation && (
+              <ActionsDuChamp
+                geste={geste}
+                enCours={enCours}
+                fait={fait}
+                // Un jeton vient d'être rangé : le champ revient au
+                // masque, et non à vide, qui laisserait croire qu'il n'y a
+                // rien — et qui ferait du clic suivant une suppression.
+                onEnregistrer={() =>
+                  lancer(() => onSave(valeur.trim()), MASQUE, "enregistre")
+                }
+                // Rien ne part encore : le clic ouvre la question.
+                onSupprimer={() => setConfirmation(true)}
+              />
+            )}
+          </div>
+          {confirmation && (
+            <ConfirmationRetrait
+              nom={etat.nom}
+              environnement={etat.environnement}
+              consequence={consequence}
+              enCours={enCours}
+              onConfirmer={() => lancer(onClear, "", "supprime")}
+              onAnnuler={() => {
+                // Le masque revient : le champ retrouve l'état où il n'y a
+                // rien à faire, et non un champ vide qui redemanderait la
+                // suppression au clic suivant.
+                setConfirmation(false)
+                setValeur(MASQUE)
+              }}
+            />
           )}
         </div>
       )}

@@ -269,7 +269,16 @@ export function SectionCleResend({
           La saisie n&apos;est pas disponible sur ce déploiement.
         </p>
       )}
-      <ChampSecret bloc={secrets} nom="RESEND_API_KEY">
+      <ChampSecret
+        bloc={secrets}
+        nom="RESEND_API_KEY"
+        // Ce que la confirmation de retrait doit dire, et que rien
+        // d'autre sur cet écran ne dit : sans cette clé, plus AUCUN email
+        // ne part — pas seulement les notifications, aussi les invitations
+        // à rejoindre l'administration et les réinitialisations de mot de
+        // passe. Un déploiement dont on retire la clé se ferme.
+        consequence="Plus aucun email ne part du site : ni les notifications de contact, ni les invitations à rejoindre l'administration, ni les réinitialisations de mot de passe."
+      >
         {/* `target="_blank"` : on ne quitte pas un écran de réglages où une
             adresse est peut-être en cours de saisie. `noopener noreferrer`
             comme les autres liens sortants du dépôt (`nav-main.tsx`,
