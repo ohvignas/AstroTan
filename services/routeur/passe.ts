@@ -10,7 +10,7 @@ import { composerRoutes } from "./ecrireRoutes"
 // Tout ce qu'elle fait passe par `Ports`, injecté. C'est ce qui rend
 // éprouvable la partie où une erreur coûte le plus cher — et cette partie
 // n'est pas « le fichier est-il bien formé » (`ecrireRoutes.ts` s'en
-// charge, seul et pur), mais QUAND on écrit. Les quatre propriétés
+// charge, seul et pur), mais QUAND on écrit. Les cinq propriétés
 // ci-dessous ne s'observent pas autrement qu'en enchaînant des passes.
 //
 // 1. ANTI-BATTEMENT. Deux lectures successives concordantes avant d'écrire.
@@ -27,12 +27,44 @@ import { composerRoutes } from "./ecrireRoutes"
 //    échoue — DNS pas encore propagé, quota atteint —, et il ne reste alors
 //    que SSH. On ajoute, on vérifie, ensuite seulement on retire.
 //
-// 3. UN ÉCHEC DE LECTURE NE RÉÉCRIT RIEN. Convex injoignable laisse le
-//    routage en place, jamais vidé : sinon une coupure réseau met le site
-//    hors ligne. C'est la règle générale de ce plan — échouer FERMÉ.
+// 3. UN ÉCHEC DE LECTURE NE RÉÉCRIT RIEN — tant qu'il y a quelque chose à
+//    ne pas réécrire. Convex injoignable laisse le routage en place, jamais
+//    vidé : sinon une coupure réseau met le site hors ligne. C'est la règle
+//    générale de ce plan — échouer FERMÉ.
+//
+//    SA MOITIÉ MANQUANTE, ET ELLE A COÛTÉ UNE PANNE TOTALE. « Ne rien
+//    écrire » a deux sens, et le premier jet n'en avait raisonné qu'un.
+//    Quand le fichier existe, ne rien écrire fige le routage : c'est bien
+//    l'échec fermé. Quand il n'existe pas ENCORE — c'est-à-dire au premier
+//    démarrage de cette version, celui-là même qui a retiré les labels
+//    `traefik.http.routers.*.rule` du compose —, ne rien écrire laisse
+//    Traefik SANS AUCUN ROUTEUR : site et administration en 404 permanent,
+//    sans issue par l'interface. Ce n'est pas un échec fermé, c'est une
+//    panne totale, et trois entrées ordinaires y mènent (`ROUTING_SECRET`
+//    absent du déploiement Convex, divergent, ou `WEB_DOMAIN` absent de
+//    l'environnement CONVEX). Le compose anticipait une fenêtre vide en la
+//    croyant longue de deux passes ; elle est PERMANENTE dès que la query
+//    refuse.
+//
+//    D'où le point 5.
 //
 // 4. IL NE FAIT RIEN D'AUTRE. Pas d'API, pas de port exposé, pas de socket
 //    Docker. Il lit une query, il écrit un fichier.
+//
+// 5. IL EXISTE TOUJOURS UN ROUTAGE. Quand la lecture échoue ET qu'aucun
+//    routage n'est en place, la passe en compose un depuis l'ENVIRONNEMENT
+//    DU CONTENEUR (`hotesDeSecours`) — la même information qui alimentait
+//    les labels avant, posée par le même `.env` du VPS. Elle ne le fait
+//    QUE dans ce cas : un fichier déjà écrit n'est jamais remplacé par le
+//    repli, sans quoi une panne Convex ramènerait le domaine d'origine et
+//    déferait un changement de domaine réussi.
+//
+//    Le coût en quota Let's Encrypt est borné par construction : après
+//    cette écriture le fichier existe, donc la branche ne se reprend plus.
+//    Elle n'a pas besoin de l'anti-battement du point 1 — `process.env` ne
+//    bat pas, il est figé pour la vie du conteneur — et elle ne PEUT pas
+//    l'utiliser : une lecture en échec remet `memoire.derniere` à `null`,
+//    donc deux lectures concordantes n'arriveraient jamais.
 //
 // D'OÙ VIENT L'ÉTAT « HÔTES PRÉCÉDENTS »
 //
@@ -55,12 +87,24 @@ export type Journal = {
 
 /**
  * Tout ce que la passe fait au monde extérieur, et rien de plus. La liste
- * EST la surface du service : quatre verbes, aucun n'écoutant quoi que ce
+ * EST la surface du service : cinq verbes, aucun n'écoutant quoi que ce
  * soit.
  */
 export type Ports = {
   /** `routing.hotes`, gardée par le secret partagé. Lève si injoignable. */
   lireHotes: () => Promise<Hotes>
+  /**
+   * Les hôtes que porte l'ENVIRONNEMENT DU CONTENEUR, ou `null` s'il n'en
+   * porte aucun d'exploitable.
+   *
+   * Synchrone et sans `Promise` exprès : ce n'est ni un appel réseau ni une
+   * lecture de disque, seulement du `process.env` — c'est ce qui en fait un
+   * recours valable quand tout le reste est injoignable.
+   *
+   * Voir le point 5 de l'en-tête pour ce qui l'autorise à écrire, et
+   * surtout pour ce qui le lui interdit.
+   */
+  hotesDeSecours: () => Hotes | null
   /** Le fichier dynamique tel qu'il est, ou `null` s'il n'existe pas encore. */
   lireRoutes: () => Promise<string | null>
   /** L'écrit, entièrement ou pas du tout. */
@@ -93,8 +137,20 @@ export function memoireNeuve(): Memoire {
  * illisible, le volume en lecture seule, un YAML que `composerRoutes`
  * refuse de composer. Il est distinct de `lecture-en-échec` parce que le
  * remède ne l'est pas — l'un se règle sur le VPS, l'autre chez Convex.
+ *
+ * `routage-de-secours` est le point 5 : la lecture a échoué ET rien
+ * n'était routé, donc le repli de l'environnement du conteneur a été
+ * écrit. C'est une issue à part, et pas un `écrit`, parce qu'elle dit
+ * quelque chose que `écrit` ne dit pas — le site est debout, mais sur des
+ * hôtes que `routing.hotes` n'a jamais confirmés.
  */
-export type Issue = "lecture-en-échec" | "confirmation-attendue" | "inchangé" | "écrit" | "refus"
+export type Issue =
+  | "lecture-en-échec"
+  | "routage-de-secours"
+  | "confirmation-attendue"
+  | "inchangé"
+  | "écrit"
+  | "refus"
 
 /** Les hôtes que porte un fichier déjà écrit. Le seul format lu est celui
  *  que `composerRoutes` produit : `` Host(`…`) ``, séparés par `||`. */
@@ -115,6 +171,63 @@ function voulus(hotes: Hotes): string[] {
 const enTexte = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
 /**
+ * Le dernier recours, et seulement quand il n'existe AUCUN routage.
+ *
+ * Appelée sur le seul chemin où la question se pose : `lireHotes` vient de
+ * lever. Voir le point 5 de l'en-tête pour le raisonnement ; ce qui suit
+ * n'en est que la mise en œuvre.
+ */
+async function routageDeSecours(ports: Ports): Promise<Issue> {
+  let contenu: string | null
+  try {
+    contenu = await ports.lireRoutes()
+  } catch (cause) {
+    // On ne SAIT pas ce que le volume porte. Écrire par-dessus une lecture
+    // en échec (droits, volume non monté) risquerait d'effacer un routage
+    // correct pour lui substituer le repli — exactement ce que le point 5
+    // s'interdit. On journalise et on laisse.
+    ports.journal.erreur(`routage existant illisible, rien écrit — ${enTexte(cause)}`)
+    return "lecture-en-échec"
+  }
+
+  // Le fichier peut exister sans porter aucune route (tronqué, vidé à la
+  // main). C'est indiscernable de son absence du point de vue de Traefik,
+  // qui n'a alors pas davantage de routeur : la condition est donc « aucun
+  // hôte routé », pas « aucun fichier ».
+  if (hotesDuFichier(contenu).length > 0) return "lecture-en-échec"
+
+  const secours = ports.hotesDeSecours()
+  if (secours === null) {
+    ports.journal.erreur(
+      "AUCUN routage en place et aucun hôte dans l'environnement du conteneur : " +
+        "Traefik n'a aucun routeur et tout répond 404. Poser WEB_DOMAIN dans le `.env` du VPS, " +
+        "puis `docker compose up -d routeur` — docker/README.md §6 et §14.",
+    )
+    return "lecture-en-échec"
+  }
+
+  try {
+    // Aucun ancien hôte : il n'y avait rien à conserver, c'est la
+    // définition même de la branche.
+    await ports.ecrireRoutes(composerRoutes(secours, []))
+  } catch (cause) {
+    ports.journal.erreur(`routage de secours impossible à écrire — ${enTexte(cause)}`)
+    return "refus"
+  }
+
+  // En `erreur` et non en `info` : le site est debout, mais sur des hôtes
+  // que `routing.hotes` n'a jamais confirmés, et le domaine déclaré depuis
+  // l'administration reste sans effet tant que la query refuse. C'est une
+  // situation à réparer, pas un régime établi.
+  ports.journal.erreur(
+    `AUCUN routage n'était en place : routage de SECOURS écrit depuis l'environnement du ` +
+      `conteneur (${voulus(secours).join(", ")}). Le site répond, mais le domaine déclaré ` +
+      `depuis l'administration restera sans effet tant que la lecture échouera.`,
+  )
+  return "routage-de-secours"
+}
+
+/**
  * Une passe. Ne lève jamais : elle rend ce qu'elle a fait.
  *
  * @param memoire mutée sur place — c'est l'anti-battement, et il doit
@@ -125,13 +238,16 @@ export async function passe(ports: Ports, memoire: Memoire): Promise<Issue> {
   try {
     hotes = await ports.lireHotes()
   } catch (cause) {
-    // On ne touche PAS au fichier, et on oublie la lecture précédente :
-    // « deux lectures SUCCESSIVES » veut dire successives. Écrire ensuite
-    // sur la foi d'une lecture antérieure à l'incident, ce serait agir sur
-    // un état dont plus rien ne dit qu'il est encore vrai.
+    // On oublie la lecture précédente : « deux lectures SUCCESSIVES » veut
+    // dire successives. Écrire ensuite sur la foi d'une lecture antérieure
+    // à l'incident, ce serait agir sur un état dont plus rien ne dit qu'il
+    // est encore vrai.
     memoire.derniere = null
-    ports.journal.erreur(`lecture des hôtes impossible, routage laissé en place — ${enTexte(cause)}`)
-    return "lecture-en-échec"
+    ports.journal.erreur(`lecture des hôtes impossible — ${enTexte(cause)}`)
+    // Le routage en place n'est pas touché. Mais s'il n'y en a AUCUN, ne
+    // rien faire n'est pas échouer fermé, c'est laisser Traefik sans le
+    // moindre routeur — point 5 de l'en-tête.
+    return routageDeSecours(ports)
   }
 
   const precedente = memoire.derniere

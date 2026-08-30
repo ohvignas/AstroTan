@@ -6,6 +6,8 @@ import { memoireNeuve, passe, type Hotes, type Memoire, type Ports } from "./pas
 
 const ANCIEN: Hotes = { web: "vieux.fr", admin: "admin.vieux.fr", umami: null }
 const NOUVEAU: Hotes = { web: "neuf.fr", admin: "admin.neuf.fr", umami: null }
+/** Ce que l'environnement du conteneur porte — le `.env` du VPS. */
+const SECOURS: Hotes = { web: "secours.fr", admin: "admin.secours.fr", umami: null }
 
 /**
  * Un jeu de ports entièrement en mémoire.
@@ -22,6 +24,9 @@ function bancDEssai(depart: string | null = null) {
     hotes: NOUVEAU as Hotes,
     lectureEchoue: false,
     certificatValide: false,
+    // L'environnement du conteneur, tel que le compose le pose. `null`
+    // pour l'éprouver absent.
+    secours: SECOURS as Hotes | null,
     erreurs: [] as string[],
   }
   const ports: Ports = {
@@ -29,6 +34,7 @@ function bancDEssai(depart: string | null = null) {
       if (banc.lectureEchoue) throw new Error("fetch failed")
       return banc.hotes
     },
+    hotesDeSecours: () => banc.secours,
     lireRoutes: async () => banc.fichier,
     ecrireRoutes: async (contenu) => {
       banc.fichier = contenu
@@ -85,6 +91,122 @@ describe("un échec de lecture ne réécrit rien", () => {
     banc.lectureEchoue = false
     expect(await passe(ports, memoire)).toBe("confirmation-attendue")
     expect(banc.ecritures).toBe(0)
+  })
+})
+
+describe("il existe toujours un routage", () => {
+  // « Ne pas écrire » a deux sens, et le premier jet n'en raisonnait qu'un.
+  // Fichier présent, ne rien écrire FIGE le routage — l'échec fermé, celui
+  // qui est documenté. Fichier absent — c'est-à-dire au premier démarrage
+  // de la version qui a retiré les labels `traefik.http.routers.*.rule` —
+  // ne rien écrire laisse Traefik SANS AUCUN ROUTEUR : 404 partout, sans
+  // issue par l'interface. Les deux tests qui suivent sont la paire qui
+  // sépare ces deux sens ; retirer le repli de `passe.ts` doit faire
+  // rougir le premier, et laisser le second vert.
+
+  test("query en échec ET aucun fichier : un routage existe quand même", async () => {
+    const { banc, ports } = bancDEssai(null)
+    banc.lectureEchoue = true
+
+    const issue = await passe(ports, memoireNeuve())
+
+    expect(issue).toBe("routage-de-secours")
+    expect(banc.ecritures).toBe(1)
+    // Ce qui compte n'est pas la valeur : c'est qu'il y ait UN routeur.
+    expect(banc.fichier).toContain("Host(`secours.fr`)")
+    expect(banc.fichier).toContain("Host(`admin.secours.fr`)")
+  })
+
+  test("query en échec ET fichier existant : le fichier n'est pas touché", async () => {
+    // Le pendant, et il est aussi important : remplacer un routage en
+    // place par le repli ramènerait le domaine d'origine du `.env` et
+    // déferait un changement de domaine réussi, sur une simple panne
+    // réseau.
+    const enPlace = composerRoutes(NOUVEAU, [])
+    const { banc, ports } = bancDEssai(enPlace)
+    banc.lectureEchoue = true
+
+    expect(await passe(ports, memoireNeuve())).toBe("lecture-en-échec")
+    expect(banc.ecritures).toBe(0)
+    expect(banc.fichier).toBe(enPlace)
+    expect(banc.fichier).not.toContain("secours.fr")
+  })
+
+  test("un fichier vidé ou tronqué compte comme aucun routage", async () => {
+    // Du point de vue de Traefik, un fichier sans `Host()` et un fichier
+    // absent sont le même 404. La condition est donc « aucun hôte routé »,
+    // pas « aucun fichier ».
+    const { banc, ports } = bancDEssai("http:\n  routers:\n")
+    banc.lectureEchoue = true
+
+    expect(await passe(ports, memoireNeuve())).toBe("routage-de-secours")
+    expect(banc.fichier).toContain("Host(`secours.fr`)")
+  })
+
+  test("le repli s'écrit UNE fois, quoi qu'il arrive ensuite", async () => {
+    // Le quota Let's Encrypt, encore : cinq certificats par domaine et par
+    // semaine, échecs compris. La borne n'est pas un compteur, elle est
+    // structurelle — après cette écriture le fichier porte des hôtes, donc
+    // la branche ne se reprend plus.
+    const { banc, ports } = bancDEssai(null)
+    const memoire = memoireNeuve()
+    banc.lectureEchoue = true
+
+    await passe(ports, memoire)
+    await passe(ports, memoire)
+    await passe(ports, memoire)
+
+    expect(banc.ecritures).toBe(1)
+  })
+
+  test("sans hôte dans l'environnement, rien n'est écrit — et le remède est nommé", async () => {
+    // Le seul cas réellement sans issue. Le `${WEB_DOMAIN:?}` du compose
+    // fait que le conteneur ne démarre pas dans cet état ; si on y arrive
+    // quand même, le journal doit dire quoi taper, parce qu'il est le seul
+    // témoin.
+    const { banc, ports } = bancDEssai(null)
+    banc.lectureEchoue = true
+    banc.secours = null
+
+    expect(await passe(ports, memoireNeuve())).toBe("lecture-en-échec")
+    expect(banc.ecritures).toBe(0)
+    expect(banc.erreurs.join("\n")).toContain("WEB_DOMAIN")
+  })
+
+  test("un repli refusé par `composerRoutes` ne tue pas la boucle", async () => {
+    // Le `.env` du VPS n'est pas plus digne de confiance que le reste :
+    // une valeur douteuse doit être refusée, journalisée, et laisser le
+    // service tourner — la passe suivante réessaiera.
+    const { banc, ports } = bancDEssai(null)
+    banc.lectureEchoue = true
+    banc.secours = { web: "pas-un-hôte", admin: "admin.pas-un-hôte", umami: null }
+
+    expect(await passe(ports, memoireNeuve())).toBe("refus")
+    expect(banc.ecritures).toBe(0)
+  })
+
+  test("le repli cède la place dès que la query répond, sans laisser tomber son hôte", async () => {
+    // Ce qui se passe une fois `ROUTING_SECRET` posé sur Convex : les
+    // hôtes réels s'écrivent, et l'hôte de secours reste routé jusqu'à ce
+    // que le nouveau serve un certificat valide — la règle générale du
+    // service, appliquée telle quelle au repli.
+    const { banc, ports } = bancDEssai(null)
+    banc.lectureEchoue = true
+    await passe(ports, memoireNeuve())
+    expect(banc.fichier).toContain("Host(`secours.fr`)")
+
+    banc.lectureEchoue = false
+    banc.hotes = NOUVEAU
+    banc.certificatValide = false
+    await deuxPasses(ports, memoireNeuve())
+
+    expect(banc.fichier).toContain("Host(`neuf.fr`)")
+    expect(banc.fichier).toContain("Host(`secours.fr`)")
+
+    banc.certificatValide = true
+    await deuxPasses(ports, memoireNeuve())
+    expect(banc.fichier).toContain("Host(`neuf.fr`)")
+    expect(banc.fichier).not.toContain("secours.fr")
   })
 })
 

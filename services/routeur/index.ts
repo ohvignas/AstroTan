@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { connect } from "node:tls"
+import { normaliserHote } from "@astrotan/backend/convex/lib/hoteNu"
 import { memoireNeuve, passe, type Hotes, type Journal, type Ports } from "./passe"
 
 // Le service `routeur` : il suit le domaine déclaré et réécrit la
@@ -148,6 +149,76 @@ function valideHotes(valeur: unknown): Hotes {
   return { web: h.web, admin: h.admin, umami: h.umami ?? null }
 }
 
+/**
+ * Les hôtes que porte l'environnement de CE CONTENEUR — le dernier recours
+ * quand `routing.hotes` refuse et qu'aucun routage n'existe encore.
+ *
+ * POURQUOI CETTE FONCTION EXISTE
+ *
+ * Les labels `traefik.http.routers.{web,admin,umami}.rule` ont quitté le
+ * compose : c'est ce fichier-ci qui écrit les règles. Tant que la query
+ * répond, très bien. Quand elle refuse — `ROUTING_SECRET` absent du
+ * déploiement Convex, divergent, ou `WEB_DOMAIN` absent de l'environnement
+ * CONVEX — et que le fichier n'existe pas encore, ne rien écrire laisse
+ * Traefik SANS AUCUN ROUTEUR : 404 sur le site comme sur l'administration,
+ * et aucune issue par l'interface. C'est le premier démarrage de cette
+ * version pour chaque adoptant, et c'est un chemin ordinaire, pas un cas
+ * limite : `.github/workflows/deploy.yml` ne pose aucune variable Convex.
+ *
+ * D'OÙ VIENT L'INFORMATION
+ *
+ * Du `.env` du VPS, par `environment:` du compose — les MÊMES trois lignes
+ * qui alimentaient les labels avant. Rien de nouveau n'est demandé à
+ * l'adoptant : la donnée était déjà là, elle n'arrivait simplement pas
+ * jusqu'ici.
+ *
+ * POURQUOI LES NOMS SONT ÉCRITS EN TOUTES LETTRES, ET NON CALCULÉS
+ *
+ * `scripts/check-env-wiring.mjs` ne reconnaît que le nom écrit en toutes
+ * lettres après `process.env`. Un accès calculé — par indexation, comme le
+ * fait `convex/routing.ts`, qui a dû pour cette raison se faire déclarer à
+ * la main dans le script — traverserait le garde-fou sans que personne ne
+ * pose la variable dans le compose : c'est-à-dire un repli qui vaut la
+ * chaîne vide, donc pas de repli du tout, et le blackout intact.
+ *
+ * (Le script ne retire pas les commentaires de cet arbre-ci : écrire un
+ * nom d'exemple dans cette prose lui en ferait exiger le branchement.)
+ *
+ * POURQUOI LA RÈGLE DE DÉRIVATION EST RECOPIÉE ET NON IMPORTÉE
+ *
+ * `deriverHotes` (`convex/routing.ts`) applique la même règle, mais elle
+ * vit dans un module de fonctions Convex : l'importer tirerait
+ * `_generated/server` et `convex/values` dans un bundle qui, aujourd'hui,
+ * n'embarque aucune dépendance. Ce qui est réellement partagé — la
+ * définition d'un hôte nu — l'est : `normaliserHote` est importée, pas
+ * recopiée. Si la convention `admin.<domaine>` change, elle change aux
+ * deux endroits, et les tests des deux côtés la nomment.
+ */
+function hotesDeSecours(): Hotes | null {
+  const web = normaliserHote(process.env.WEB_DOMAIN ?? "")
+  // Sans hôte web, il n'y a rien à router du tout : ni repli, ni message
+  // utile à composer. `passe` journalise ce cas, qui est le seul vraiment
+  // sans issue — et le `${WEB_DOMAIN:?}` du compose fait en sorte qu'on
+  // n'y arrive pas : le conteneur refuse de démarrer avant.
+  if (web === null) return null
+
+  // `admin.<domaine>` est la convention documentée (`docker/.env.example`,
+  // `dns.ts`), et c'est le même repli que `deriverHotes` côté Convex.
+  // `ADMIN_DOMAIN` posée l'emporte : un déploiement existant a pu publier
+  // son dashboard ailleurs, et lui réécrire son routage sous prétexte de
+  // convention le mettrait hors ligne.
+  const admin = normaliserHote(process.env.ADMIN_DOMAIN ?? "") ?? `admin.${web}`
+
+  // Umami est OPTIONNEL, et c'est cette variable qui dit s'il est déployé.
+  // Absente, aucun routeur ne s'écrit pour lui : publier `stats.<domaine>`
+  // pour un service absent ferait demander à Traefik un certificat pour un
+  // nom sans enregistrement DNS, et chaque échec compte dans le quota
+  // Let's Encrypt (cinq par domaine et par semaine).
+  const umami = normaliserHote(process.env.UMAMI_DOMAIN ?? "")
+
+  return { web, admin, umami }
+}
+
 async function lireRoutes(): Promise<string | null> {
   try {
     return await readFile(FICHIER, "utf8")
@@ -214,6 +285,7 @@ function sertUnCertificatValide(hote: string): Promise<boolean> {
 
 const ports: Ports = {
   lireHotes,
+  hotesDeSecours,
   lireRoutes,
   ecrireRoutes,
   sertUnCertificatValide,
@@ -231,7 +303,9 @@ async function boucle(): Promise<void> {
     // ce qui est la propriété qu'on veut — un service de routage qui meurt
     // laisse le routage figé pour toujours.
     const issue = await passe(ports, memoire)
-    if (issue === "écrit") journal.info("Traefik relira le fichier de lui-même")
+    if (issue === "écrit" || issue === "routage-de-secours") {
+      journal.info("Traefik relira le fichier de lui-même")
+    }
     await attendre(INTERVALLE_MS)
   }
 }

@@ -269,6 +269,53 @@ services:
       # contient déjà, et `docker compose logs routeur` est le seul endroit
       # qui le dise.
       ROUTING_SECRET: ${ROUTING_SECRET:?ROUTING_SECRET is required}
+      # ── Le REPLI DE DERNIER RECOURS ────────────────────────────────────
+      #
+      # Ces trois lignes-ci sont ce qui garantit qu'un routage EXISTE
+      # toujours, et elles n'existent que pour ce cas-là.
+      #
+      # « Figé » et « inexistant » ne sont pas le même échec, et le premier
+      # jet de ce service ne raisonnait que le premier. Quand
+      # `routing.hotes` refuse — `ROUTING_SECRET` absent du déploiement
+      # Convex ou divergent, `WEB_DOMAIN` absente de l'environnement CONVEX
+      # — le service n'écrit rien. Si `/dynamique/routes.yml` existe déjà,
+      # le routage reste en place : c'est le bon sens de l'échec. S'il
+      # n'existe PAS ENCORE — le premier démarrage de cette version, celui
+      # qui a retiré les labels `traefik.http.routers.*.rule` — alors
+      # Traefik n'a AUCUN routeur : site et administration en 404
+      # permanent, sans issue par l'interface.
+      #
+      # Ce chemin n'est pas théorique : `.github/workflows/deploy.yml` ne
+      # pose aucune variable Convex, et `pnpm bootstrap` — seul à les
+      # poser — n'a été enrichi qu'avec cette fonctionnalité. Tout
+      # déploiement amorcé avant n'a ni `ROUTING_SECRET` ni `WEB_DOMAIN`
+      # côté Convex. Le `${ROUTING_SECRET:?}` ci-dessus fait échouer
+      # franchement `compose up`, mais la réparation évidente (ajouter la
+      # ligne au `.env`) mène droit au blackout si l'autre moitié n'est pas
+      # posée sur Convex.
+      #
+      # Avec ces trois lignes, le service compose alors le routage depuis
+      # l'environnement du conteneur — la MÊME information qui alimentait
+      # les labels avant, dans le même `.env`. Rien de nouveau n'est
+      # demandé à l'adoptant ; la donnée n'arrivait simplement pas jusqu'à
+      # ce conteneur. Une seule écriture s'ensuit : le fichier existe après
+      # elle, donc la branche ne se reprend plus (quota Let's Encrypt).
+      #
+      # `WEB_DOMAIN` en `:?` — c'est la seule sans laquelle il n'y a
+      # littéralement rien à router, et elle était déjà exigée sous cette
+      # forme avant que les labels ne partent : aucun `.env` existant n'en
+      # manque. Les deux autres ont un défaut : `admin.<WEB_DOMAIN>` par
+      # convention, et pas d'Umami publié du tout si `UMAMI_DOMAIN` est
+      # vide.
+      #
+      # ATTENTION — ces valeurs sont le REPLI, jamais le dernier mot : le
+      # service ne les emploie QUE s'il n'a aucun routage. Dès que
+      # `routing.hotes` répond, c'est le domaine déclaré depuis
+      # l'administration qui gagne, et il n'y a rien à modifier ici pour
+      # changer de domaine.
+      WEB_DOMAIN: ${WEB_DOMAIN:?WEB_DOMAIN is required}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-}
+      UMAMI_DOMAIN: ${UMAMI_DOMAIN:-}
     volumes:
       # Le SEUL montage en écriture de ce volume. Traefik le monte en
       # lecture seule.
@@ -375,12 +422,15 @@ services:
       # Voir README §13.
       #
       # Comme pour `web` et `admin`, le routeur est parti dans le fichier
-      # dynamique. `UMAMI_DOMAIN` n'est donc plus interpolée nulle part dans
-      # ce fichier — elle est désormais lue par `routing.hotes` sur le
-      # DÉPLOIEMENT CONVEX, et c'est sa seule présence là-bas qui dit qu'un
-      # tableau de bord Umami est déployé. Absente de l'environnement
-      # Convex, la query rend `umami: null` et aucun routeur ne s'écrit
-      # pour lui : Umami tournerait, sans être publié.
+      # dynamique. `UMAMI_DOMAIN` n'est plus interpolée ICI — elle est lue
+      # par `routing.hotes` sur le DÉPLOIEMENT CONVEX, et c'est sa présence
+      # là-bas qui dit qu'un tableau de bord Umami est déployé. Absente de
+      # l'environnement Convex, la query rend `umami: null` et aucun
+      # routeur ne s'écrit pour lui : Umami tournerait, sans être publié.
+      #
+      # Elle reparaît une fois dans ce fichier, et à un seul titre : dans
+      # l'`environment:` du service `routeur`, comme repli de dernier
+      # recours quand la query ne répond pas ET qu'aucun routage n'existe.
       traefik.enable: "true"
       traefik.http.services.umami.loadbalancer.server.port: "3000"
 
