@@ -262,13 +262,23 @@ export const drain = internalAction({
   handler: async (ctx) => {
     // L'origine du site public suit le domaine déclaré depuis
     // `/settings/domaine` quand il est posé (`lib/origines.ts`), et
-    // retombe sur `WEB_SITE_URL` sinon. Pointée vers l'ancien domaine,
-    // cette invalidation part sur un hôte que Traefik ne route plus : les
-    // pages du NOUVEAU domaine garderaient leur cache indéfiniment.
-    const { web: siteUrl } = deriverOrigines(
-      await ctx.runQuery(internal.settings.domaineDeclare, {}),
-    )
-    if (!siteUrl) throw new Error("WEB_SITE_URL is not set on this Convex deployment")
+    // retombe sur `WEB_SITE_URL` sinon. Juste après la bascule, cette
+    // origine n'a encore ni certificat Let's Encrypt ni routage Traefik —
+    // les deux prennent des minutes, parfois plus. `webSortantes` (même
+    // fichier, même mécanisme que `adminSortantes` pour l'authentification
+    // — voir son en-tête) porte l'ancien domaine tant qu'il reste dans sa
+    // fenêtre de 72 h : `candidats` ci-dessous essaie le déclaré D'ABORD
+    // (c'est la bonne réponse dès que le nouveau domaine sert), PUIS
+    // chaque sortant dans l'ordre — le même conteneur `web`, donc le même
+    // cache, quel que soit l'hôte par lequel Traefik a routé la requête.
+    // Sans ce repli, les six tentatives s'épuisaient sur un hôte qui ne
+    // répond pas encore, la ligne passait `failed` — état terminal, jamais
+    // rejoué — et les pages publiées pendant la bascule gardaient leur
+    // cache jusqu'à sa propre expiration.
+    const { declare, sortants } = await ctx.runQuery(internal.settings.domaineEtSortants, {})
+    const { web: siteUrl, webSortantes } = deriverOrigines(declare, process.env, sortants)
+    const candidats = [siteUrl, ...webSortantes].filter((o): o is string => o !== null)
+    if (candidats.length === 0) throw new Error("WEB_SITE_URL is not set on this Convex deployment")
     const secret = getRevalidateSecret()
 
     const rows = await ctx.runQuery(internal.revalidate.listDueRows, {})
@@ -277,40 +287,51 @@ export const drain = internalAction({
       const claimed = await ctx.runMutation(internal.revalidate.claimRow, { id: row._id })
       if (!claimed) continue // Already claimed by a concurrent `drain` invocation — see `claimRow`'s own header.
 
-      try {
-        const response = await fetch(`${siteUrl}/api/revalidate`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-revalidate-secret": secret,
-          },
-          body: JSON.stringify({ tags: row.tags }),
-          // Bounds this call to `FETCH_TIMEOUT_MS` (see `CLAIM_HOLD_MS`'s
-          // own header comment for the ordering this depends on) — a
-          // stalled-but-not-dead connection must not be allowed to run
-          // past the claim hold, or the next cron sweep re-claims and
-          // re-attempts the same row while this call is still in flight.
-          // The resulting `TimeoutError` is thrown, not returned, so it
-          // falls straight into the `catch` block below — treated exactly
-          // like any other network failure.
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        })
-        if (!response.ok) {
-          await ctx.runMutation(internal.revalidate.markAttemptFailed, {
-            id: row._id,
-            error: `HTTP ${response.status}`,
+      // Un échec par origine, dans l'ordre de `candidats`, jusqu'à la
+      // première réponse `2xx`. `erreurs` porte le détail de CHAQUE essai
+      // — pas seulement le dernier — parce que « le nouveau ne répond pas
+      // encore » et « le sortant a lui-même expiré » sont deux diagnostics
+      // différents pour l'opérateur qui relit `lastError`.
+      const erreurs: string[] = []
+      let reussi = false
+      for (const origine of candidats) {
+        try {
+          const response = await fetch(`${origine}/api/revalidate`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-revalidate-secret": secret,
+            },
+            body: JSON.stringify({ tags: row.tags }),
+            // Bounds this call to `FETCH_TIMEOUT_MS` (see `CLAIM_HOLD_MS`'s
+            // own header comment for the ordering this depends on) — a
+            // stalled-but-not-dead connection must not be allowed to run
+            // past the claim hold, or the next cron sweep re-claims and
+            // re-attempts the same row while this call is still in flight.
+            // The resulting `TimeoutError` is thrown, not returned, so it
+            // falls straight into the `catch` block below — treated exactly
+            // like any other network failure.
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           })
-          continue
+          if (response.ok) {
+            reussi = true
+            break
+          }
+          erreurs.push(`${origine}: HTTP ${response.status}`)
+        } catch (err) {
+          // A thrown `fetch` (network error, DNS failure, ...) is exactly
+          // as much "the invalidation didn't happen" as a non-2xx response
+          // — both must be recorded and the next candidate origin tried.
+          erreurs.push(`${origine}: ${err instanceof Error ? err.message : String(err)}`)
         }
+      }
+
+      if (reussi) {
         await ctx.runMutation(internal.revalidate.markDone, { id: row._id })
-      } catch (err) {
-        // A thrown `fetch` (network error, DNS failure, ...) is exactly
-        // as much "the invalidation didn't happen" as a non-2xx response
-        // — both must increment `attempts` and reschedule, never leave
-        // the row silently `pending` with no error and no next attempt.
+      } else {
         await ctx.runMutation(internal.revalidate.markAttemptFailed, {
           id: row._id,
-          error: err instanceof Error ? err.message : String(err),
+          error: erreurs.join("; "),
         })
       }
     }

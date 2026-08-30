@@ -23,7 +23,7 @@ import { normaliserHote } from "./hoteNu"
 //
 // ── CE QU'UN HÔTE SORTANT AUTORISE, ET RIEN DE PLUS ────────────────────
 //
-// Deux choses, et seulement deux.
+// Trois choses, et seulement trois.
 //
 //   1. **Honorer `x-forwarded-for`** (`routing.hotes`). La question est
 //      « ce visiteur vient-il bien par notre proxy, son adresse est-elle
@@ -31,23 +31,39 @@ import { normaliserHote } from "./hoteNu"
 //   2. **Être une origine de confiance pour ENTRER** (`auth.ts`
 //      `trustedOrigins`, via `lib/origines.ts`) : se connecter, demander
 //      une réinitialisation de mot de passe.
+//   3. **Être une cible à RÉESSAYER pour l'invalidation de cache**
+//      (`revalidate.ts` `drain`, via `lib/origines.ts` `webSortantes`).
+//      Juste après que `declaredDomain` change, l'hôte sortant est encore
+//      celui que Traefik route et celui qui sert un certificat valide — le
+//      nouveau n'a ni l'un ni l'autre tant que le routeur et Let's Encrypt
+//      n'ont pas fini leur travail. `drain` poste sur le déclaré d'abord,
+//      puis sur chaque sortant dans l'ordre, et s'arrête à la première
+//      réponse `2xx` : la même requête atteint le même conteneur `web`,
+//      donc le même cache, quel que soit l'hôte par lequel Traefik l'a
+//      routée.
 //
-// Le point 2 est une AJOUT, et ce commentaire disait auparavant le
-// contraire — « ce n'est pas une origine de confiance pour
-// l'authentification ». La raison écrite ne tenait pas au deuxième
-// changement de domaine : `[baseURL, domaine déclaré]` ne conserve que
-// l'origine du PREMIER domaine, si bien qu'un A → B → C dont le C
-// n'obtient jamais de certificat laissait `admin.B` — le seul hôte encore
-// routé — hors de la liste, et refusait en 403 `INVALID_ORIGIN` jusqu'au
-// chemin de récupération. Le raisonnement complet, et ce que
-// `trustedOrigins` autorise réellement dans better-auth 1.6.17, sont dans
-// l'en-tête de `lib/origines.ts`.
+// Les points 2 et 3 sont des AJOUTS ; ce commentaire disait auparavant le
+// contraire pour le point 2 — « ce n'est pas une origine de confiance pour
+// l'authentification » — et n'envisageait pas le point 3 du tout. La
+// raison écrite pour le point 2 ne tenait pas au deuxième changement de
+// domaine : `[baseURL, domaine déclaré]` ne conserve que l'origine du
+// PREMIER domaine, si bien qu'un A → B → C dont le C n'obtient jamais de
+// certificat laissait `admin.B` — le seul hôte encore routé — hors de la
+// liste, et refusait en 403 `INVALID_ORIGIN` jusqu'au chemin de
+// récupération. Le point 3 a le même défaut, côté invalidation : `drain`
+// ne postait que sur le déclaré, si bien qu'un changement de domaine
+// laissait échouer les six tentatives avant que le nouveau serve quoi que
+// ce soit, et la ligne passait `failed` — état terminal, jamais rejoué —
+// pendant que les pages publiées pendant la bascule gardaient leur cache
+// jusqu'à sa propre expiration. Le raisonnement complet des deux, et ce
+// que `trustedOrigins` autorise réellement dans better-auth 1.6.17, sont
+// dans l'en-tête de `lib/origines.ts`.
 //
 // Ce qu'un hôte sortant n'autorise TOUJOURS pas : un accès — Traefik
 // décide seul de ce qu'il route, et le mot de passe, la limitation de
 // débit et le contrôle de rôle restent entiers derrière le contrôle
 // d'origine — ni une origine de lien d'email, qui ne suit que le domaine
-// courant (`Origines.admin`).
+// courant (`Origines.admin`, `Origines.web`).
 //
 // ── D'OÙ VIENT LA SOURCE DE VÉRITÉ, ET POURQUOI PAS LE FICHIER ─────────
 //

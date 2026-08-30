@@ -9,6 +9,7 @@ test("sans domaine déclaré, l'environnement continue de valoir", () => {
     admin: "http://localhost:3001",
     web: "http://localhost:4321",
     adminSortantes: [],
+    webSortantes: [],
   })
   // `undefined` est ce que rend la base quand le champ n'a jamais été
   // écrit ; `null` ce que rend la query qui le normalise. Les deux
@@ -21,6 +22,7 @@ test("un domaine déclaré l'emporte sur l'environnement, et entraîne le sous-d
     admin: "https://admin.exemple.fr",
     web: "https://exemple.fr",
     adminSortantes: [],
+    webSortantes: [],
   })
 })
 
@@ -51,6 +53,7 @@ test("un domaine invalide en base REPLIE, il ne sort jamais dans un lien", () =>
       admin: ENV.SITE_URL,
       web: ENV.WEB_SITE_URL,
       adminSortantes: [],
+      webSortantes: [],
     })
   }
 })
@@ -59,7 +62,12 @@ test("sans domaine déclaré ET sans variable, l'origine vaut null — jamais un
   // `""` composerait `/accept-invite?token=…`, un chemin relatif que les
   // appelants prendraient pour une origine valide et qui partirait dans un
   // email. `null` est ce qui les fait lever.
-  expect(deriverOrigines(null, {})).toEqual({ admin: null, web: null, adminSortantes: [] })
+  expect(deriverOrigines(null, {})).toEqual({
+    admin: null,
+    web: null,
+    adminSortantes: [],
+    webSortantes: [],
+  })
 })
 
 // ── LA SÉQUENCE À TROIS DOMAINES ───────────────────────────────────────
@@ -87,6 +95,11 @@ test("premier changement A → B : l'origine de A reste de confiance", () => {
   const origines = deriverOrigines("beta.fr", {}, SORTANTS_APRES_B, CHANGE_VERS_B + HEURE)
   expect(origines.admin).toBe("https://admin.beta.fr")
   expect(origines.adminSortantes).toEqual(["https://admin.alpha.fr"])
+  // `webSortantes` est le même calcul, sans le sous-domaine `admin.` — pour
+  // `revalidate.ts`, qui réessaie l'invalidation de cache sur l'ancien
+  // domaine tant qu'il reste dans sa fenêtre.
+  expect(origines.web).toBe("https://beta.fr")
+  expect(origines.webSortantes).toEqual(["https://alpha.fr"])
 })
 
 test("deuxième changement B → C : l'origine encore ROUTÉE, admin.B, est acceptée", () => {
@@ -106,6 +119,12 @@ test("deuxième changement B → C : l'origine encore ROUTÉE, admin.B, est acce
   // l'environnement en pose une autre, et c'est le cas ici (`{}`).
   expect(origines.adminSortantes).toEqual(["https://admin.beta.fr", "https://admin.alpha.fr"])
   expect(origines.admin).toBe("https://admin.gamma.fr")
+
+  // La même chaîne, côté `web` : `revalidate.ts` `drain` doit pouvoir
+  // réessayer aussi bien sur `beta.fr` (encore routé) que sur `alpha.fr`
+  // (dans sa fenêtre, même si plus routé).
+  expect(origines.webSortantes).toEqual(["https://beta.fr", "https://alpha.fr"])
+  expect(origines.web).toBe("https://gamma.fr")
 })
 
 test("passé la fenêtre, l'origine sortante n'est plus acceptée", () => {
@@ -128,7 +147,8 @@ test("passé la fenêtre, l'origine sortante n'est plus acceptée", () => {
       .adminSortantes,
   ).toEqual([])
 
-  // Et la bascule exacte, au millième de seconde près.
+  // Et la bascule exacte, au millième de seconde près — sur les deux
+  // listes, puisqu'elles partagent le même calcul de fenêtre.
   const juste_avant = deriverOrigines(
     "gamma.fr",
     {},
@@ -136,6 +156,7 @@ test("passé la fenêtre, l'origine sortante n'est plus acceptée", () => {
     CHANGE_VERS_C + FENETRE_SORTANTE_MS - 1,
   )
   expect(juste_avant.adminSortantes).toEqual(["https://admin.beta.fr"])
+  expect(juste_avant.webSortantes).toEqual(["https://beta.fr"])
 
   const juste_apres = deriverOrigines(
     "gamma.fr",
@@ -144,6 +165,7 @@ test("passé la fenêtre, l'origine sortante n'est plus acceptée", () => {
     CHANGE_VERS_C + FENETRE_SORTANTE_MS,
   )
   expect(juste_apres.adminSortantes).toEqual([])
+  expect(juste_apres.webSortantes).toEqual([])
   expect(juste_apres.admin).toBe("https://admin.gamma.fr")
 })
 
@@ -152,6 +174,7 @@ test("un domaine repris (A → B → A) n'est pas rendu deux fois", () => {
   const origines = deriverOrigines("alpha.fr", {}, reprise, CHANGE_VERS_C + HEURE)
   expect(origines.admin).toBe("https://admin.alpha.fr")
   expect(origines.adminSortantes).toEqual(["https://admin.beta.fr"])
+  expect(origines.webSortantes).toEqual(["https://beta.fr"])
 })
 
 test("un domaine déclaré douteux n'efface pas les origines sortantes", () => {
@@ -167,13 +190,15 @@ test("un domaine déclaré douteux n'efface pas les origines sortantes", () => {
   )
   expect(origines.admin).toBe(ENV.SITE_URL)
   expect(origines.adminSortantes).toEqual(["https://admin.beta.fr", "https://admin.alpha.fr"])
+  expect(origines.web).toBe(ENV.WEB_SITE_URL)
+  expect(origines.webSortantes).toEqual(["https://beta.fr", "https://alpha.fr"])
 })
 
 test("un sortant douteux posé DIRECTEMENT en base ne devient jamais une origine", () => {
   // `settings.update` valide à l'écriture, mais ce n'est pas le seul
   // chemin qui écrit dans cette table (migration, `npx convex run`,
   // restauration de sauvegarde), et cette liste-ci décide qui peut poster
-  // sur `/sign-in/email`.
+  // sur `/sign-in/email` — ou recevoir la ré-invalidation de cache.
   const origines = deriverOrigines(
     "gamma.fr",
     {},
@@ -186,6 +211,7 @@ test("un sortant douteux posé DIRECTEMENT en base ne devient jamais une origine
     CHANGE_VERS_C + HEURE,
   )
   expect(origines.adminSortantes).toEqual(["https://admin.beta.fr"])
+  expect(origines.webSortantes).toEqual(["https://beta.fr"])
 })
 
 test("la chaîne des origines sortantes est bornée comme celle des hôtes", () => {
@@ -193,4 +219,5 @@ test("la chaîne des origines sortantes est bornée comme celle des hôtes", () 
   for (let i = 1; i < 12; i++) liste = noterSortie(liste, `hote-${i}.fr`, T0 + i * 60_000)
   const origines = deriverOrigines("courant.fr", {}, liste, T0 + 12 * 60_000)
   expect(origines.adminSortantes).toHaveLength(MAX_SORTANTS)
+  expect(origines.webSortantes).toHaveLength(MAX_SORTANTS)
 })

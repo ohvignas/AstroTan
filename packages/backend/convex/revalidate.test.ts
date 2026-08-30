@@ -321,3 +321,82 @@ test("drain lève si REVALIDATE_SECRET est trop court", async () => {
   await expect(t.action(internal.revalidate.drain, {})).rejects.toThrow(/REVALIDATE_SECRET/)
   expect(fetchMock).not.toHaveBeenCalled()
 })
+
+// ---------------------------------------------------------------------
+// Mineur 1 (relecture finale) : juste après une bascule de domaine,
+// l'origine déclarée n'a encore ni certificat ni routage Traefik, alors
+// que l'ancienne (`settings.previousDomains`, encore dans sa fenêtre de
+// 72h — `lib/hotesSortants.ts`) est toujours servie. `drain` doit
+// réessayer dessus avant d'épuiser son budget de six tentatives.
+// ---------------------------------------------------------------------
+
+async function declarerDomaine(
+  t: TestConvex<typeof schema>,
+  declaredDomain: string,
+  previousDomains: { host: string; since: number }[] = [],
+) {
+  await t.run((ctx) =>
+    ctx.db.insert("settings", { siteName: "Test", declaredDomain, previousDomains }),
+  )
+}
+
+test("drain réessaie sur l'origine sortante encore routée quand la nouvelle ne sert pas encore", async () => {
+  const t = convexTest(schema, modules)
+  await declarerDomaine(t, "nouveau.test", [{ host: "ancien.test", since: Date.now() }])
+  const id = await insertPendingRow(t)
+
+  // Le déclaré échoue (pas encore de certificat) ; le sortant, lui, répond.
+  fetchMock
+    .mockResolvedValueOnce({ ok: false, status: 503 })
+    .mockResolvedValueOnce({ ok: true, status: 200 })
+
+  await t.action(internal.revalidate.drain, {})
+
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  const [premierUrl] = fetchMock.mock.calls[0] as [string, RequestInit]
+  const [deuxiemeUrl] = fetchMock.mock.calls[1] as [string, RequestInit]
+  expect(premierUrl).toBe("https://nouveau.test/api/revalidate")
+  expect(deuxiemeUrl).toBe("https://ancien.test/api/revalidate")
+
+  const row = await getRow(t, id)
+  expect(row?.status).toBe("done")
+})
+
+test("drain n'échoue qu'une fois le déclaré ET tous les sortants épuisés", async () => {
+  const t = convexTest(schema, modules)
+  await declarerDomaine(t, "nouveau.test", [{ host: "ancien.test", since: Date.now() }])
+  const id = await insertPendingRow(t)
+
+  fetchMock.mockResolvedValue({ ok: false, status: 503 })
+
+  await t.action(internal.revalidate.drain, {})
+
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  const row = await getRow(t, id)
+  expect(row?.status).toBe("pending")
+  expect(row?.attempts).toBe(1)
+  // Les deux origines essayées sont nommées, pas seulement la dernière —
+  // « le nouveau ne répond pas encore » et « le sortant a expiré » sont
+  // deux diagnostics différents pour l'opérateur qui relit `lastError`.
+  expect(row?.lastError).toContain("nouveau.test")
+  expect(row?.lastError).toContain("ancien.test")
+})
+
+test("un sortant hors de sa fenêtre de 72h n'est pas réessayé", async () => {
+  const t = convexTest(schema, modules)
+  const HEURE = 60 * 60 * 1000
+  await declarerDomaine(t, "nouveau.test", [
+    { host: "perime.test", since: Date.now() - 73 * HEURE },
+  ])
+  const id = await insertPendingRow(t)
+
+  fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
+
+  await t.action(internal.revalidate.drain, {})
+
+  // Une seule tentative : le sortant périmé n'est même pas essayé.
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  const row = await getRow(t, id)
+  expect(row?.status).toBe("pending")
+  expect(row?.lastError).not.toContain("perime.test")
+})

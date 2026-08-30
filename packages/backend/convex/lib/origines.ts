@@ -98,9 +98,29 @@ import { sortantsValides, type HoteSortant } from "./hotesSortants"
 // **Ce qu'une origine sortante n'autorise toujours pas** : figurer dans un
 // EMAIL. `admin` et `web` ci-dessous ne suivent que le domaine COURANT, et
 // les appelants qui composent un lien (`invitations.ts`, `auth.ts`
-// `sendResetPassword`, `revalidate.ts`, `leads.ts`) ne lisent que ces
-// deux champs-là. Un lien envoyé vers un domaine qu'on est en train de
-// quitter mènerait bientôt nulle part.
+// `sendResetPassword`, `leads.ts`) ne lisent que ces deux champs-là. Un
+// lien envoyé vers un domaine qu'on est en train de quitter mènerait
+// bientôt nulle part.
+//
+// ── ET LES ORIGINES WEB SORTANTES, POUR LA MÊME RAISON ─────────────────
+//
+// `revalidate.ts` `drain` avait le même défaut que celui décrit ci-dessus
+// pour `admin`, sur `web` cette fois : il postait `/api/revalidate` sur le
+// SEUL domaine déclaré — celui qui vient d'être écrit, et qui n'a encore ni
+// certificat Let's Encrypt ni routage Traefik tant que le service `routeur`
+// et l'ACME n'ont pas fini leur travail. Les six tentatives
+// (`revalidate.ts`'s own `BACKOFF_MS`) s'épuisaient sur un hôte qui ne
+// répond pas encore, la ligne passait `failed` — état terminal, jamais
+// rejoué —, et les pages publiées pendant la bascule gardaient leur cache
+// jusqu'à sa propre expiration.
+//
+// `webSortantes` ferme cette fenêtre par le même mécanisme que
+// `adminSortantes`, et littéralement le même calcul (`sortantsValides`, 72
+// h, cinq entrées) : `drain` poste sur le déclaré d'abord, puis sur chaque
+// sortant dans l'ordre, jusqu'à la première réponse `2xx`. Ça marche parce
+// que c'est le même conteneur `web`, donc le même cache, quel que soit
+// l'hôte par lequel Traefik a routé la requête — Traefik décide seul de CE
+// routage, ce module ne fait que composer l'URL à essayer.
 
 export type Origines = {
   /** L'origine du dashboard — celle des liens d'invitation et de réinitialisation. */
@@ -117,6 +137,16 @@ export type Origines = {
    * TOUS les appelants qui composent un email.
    */
   adminSortantes: string[]
+  /**
+   * Les origines du site public des domaines SORTANTS, encore dans leur
+   * fenêtre — même liste que `adminSortantes`, sans le sous-domaine
+   * `admin.`.
+   *
+   * À RÉESSAYER pour l'invalidation de cache (`revalidate.ts` `drain`), et
+   * rien d'autre — jamais un lien d'email, qui ne suit que `web`. Vide
+   * partout où l'appelant ne passe pas `precedents`.
+   */
+  webSortantes: string[]
 }
 
 /**
@@ -164,14 +194,22 @@ export function deriverOrigines(
   // que better-auth pousse déjà de son côté depuis `baseURL`, si bien
   // qu'un doublon éventuel ne coûte qu'une entrée de plus dans une liste
   // que better-auth parcourt.
-  const adminSortantes = sortantsValides(
-    precedents ?? undefined,
-    hote === null ? [] : [hote],
-    maintenant,
-  ).map((sortant) => `https://admin.${sortant}`)
+  // Un seul calcul pour les deux listes : `adminSortantes` et
+  // `webSortantes` sont la même fenêtre, la même chaîne, la même liste de
+  // sortants — seul le préfixe d'URL diffère. Deux appels à
+  // `sortantsValides` avec les mêmes arguments donneraient le même résultat
+  // deux fois ; ce serait aussi deux endroits où le faire diverger.
+  const sortants = sortantsValides(precedents ?? undefined, hote === null ? [] : [hote], maintenant)
+  const adminSortantes = sortants.map((sortant) => `https://admin.${sortant}`)
+  const webSortantes = sortants.map((sortant) => `https://${sortant}`)
 
   if (hote === null) {
-    return { admin: env.SITE_URL ?? null, web: env.WEB_SITE_URL ?? null, adminSortantes }
+    return {
+      admin: env.SITE_URL ?? null,
+      web: env.WEB_SITE_URL ?? null,
+      adminSortantes,
+      webSortantes,
+    }
   }
-  return { admin: `https://admin.${hote}`, web: `https://${hote}`, adminSortantes }
+  return { admin: `https://admin.${hote}`, web: `https://${hote}`, adminSortantes, webSortantes }
 }
