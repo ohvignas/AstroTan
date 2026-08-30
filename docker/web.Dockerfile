@@ -68,27 +68,24 @@ ENV PUBLIC_META_PIXEL_ID=$PUBLIC_META_PIXEL_ID
 ARG PUBLIC_GOOGLE_TAG_ID
 ENV PUBLIC_GOOGLE_TAG_ID=$PUBLIC_GOOGLE_TAG_ID
 
-# Le domaine servi par ce déploiement, lu par `apps/web/astro.config.ts` pour
-# `security.allowedDomains`. Sans elle, Astro n'a aucun hôte à reconnaître,
-# ignore `x-forwarded-for`, et `clientAddress` vaut l'adresse du conteneur
-# Traefik — la MÊME pour tous les visiteurs. Les deux limiteurs de débit du
-# site (`/api/contact`, `/api/consent`) partagent alors un seul seau pour
-# tout Internet : le formulaire de contact tombe à cinq envois par heure
-# pour l'ensemble des visiteurs, et le journal de consentement cesse d'écrire
-# au vingt-et-unième enregistrement, en répondant 204. Voir
-# `apps/web/src/lib/allowedDomains.ts`.
+# `WEB_DOMAIN` N'EST PLUS UN BUILD-ARG, et son absence ici est le sujet.
 #
-# Pas `PUBLIC_`, et c'est exact : elle ne part pas dans le bundle du
-# navigateur. Elle n'en est pas moins figée AU BUILD — `astro.config.ts` est
-# lu pendant `astro build`, la poser dans le `.env` du VPS ne ferait rien.
-ARG WEB_DOMAIN
-ENV WEB_DOMAIN=$WEB_DOMAIN
+# Elle l'était pour `security.allowedDomains` (`apps/web/astro.config.ts`),
+# donc figée dans l'image : changer de domaine imposait de reconstruire.
+# La reconnaissance de l'hôte se fait maintenant au RUNTIME
+# (`apps/web/src/lib/allowedDomains.ts`, qui lit la query `routing.hotes`),
+# et plus aucun domaine n'entre dans cette image. C'est ce qui rend
+# `/settings/domaine` possible.
+#
+# Le `RUN test -n "$WEB_DOMAIN"` qui gardait ce build est parti avec elle :
+# il protégeait contre une image construite sans domaine, et il n'y a plus
+# de domaine à construire. Ce qu'il empêchait — un déploiement qui ne
+# reconnaît aucun hôte, donc un seul seau de limitation de débit pour tout
+# Internet — est repris par `${ROUTING_SECRET:?…}` dans
+# `docker/docker-compose.yml` : sans ce secret, le conteneur ne démarre pas.
+# Le refus tombe au même endroit qu'avant, au déploiement, jamais dans le
+# trafic.
 RUN test -n "$PUBLIC_CONVEX_URL" || (echo "PUBLIC_CONVEX_URL build-arg is required" && exit 1)
-# Obligatoire, contrairement aux variables facultatives ci-dessus : leur
-# absence éteint une fonctionnalité, celle-ci CASSE une protection sans rien
-# éteindre de visible. Un défaut qui ne se voit pas doit être refusé au
-# build, faute de quoi il n'est jamais refusé du tout.
-RUN test -n "$WEB_DOMAIN" || (echo "WEB_DOMAIN build-arg is required — see apps/web/src/lib/allowedDomains.ts" && exit 1)
 RUN pnpm --filter @astrotan/web build
 
 # `pnpm deploy` reconstruit un arbre autonome avec les seules dépendances
@@ -109,13 +106,6 @@ RUN pnpm deploy --legacy --filter @astrotan/web --prod /out
 # échoue au démarrage, sur un chemin qui n'existe pas. Effacer d'abord rend
 # la commande idempotente quel que soit ce que `deploy` a laissé.
 RUN rm -rf /out/dist && cp -r apps/web/dist /out/dist
-# Le point d'entrée réel du conteneur, copié explicitement plutôt que laissé
-# aux règles de `pnpm deploy` : ce qu'il embarque d'un package dépend des
-# `.gitignore` qui s'y appliquent et a déjà changé d'une version de pnpm à
-# l'autre. Un CMD qui pointe un fichier absent, c'est un conteneur qui ne
-# démarre jamais — et la seule protection contre la divergence de
-# `WEB_DOMAIN` qui disparaît en silence si on l'oublie ici.
-RUN cp apps/web/verifier-domaine.mjs /out/verifier-domaine.mjs
 
 FROM base AS runtime
 ENV NODE_ENV=production \
@@ -126,16 +116,13 @@ WORKDIR /app
 COPY --from=build --chown=node:node /out ./
 USER node
 EXPOSE 4321
-# Le domaine que ce conteneur SERT est relu au runtime (`environment:` du
-# service `web`) ; celui qu'Astro RECONNAÎT est figé dans `dist/` depuis le
-# build-arg ci-dessus. `verifier-domaine.mjs` compare les deux et refuse de
-# démarrer s'ils divergent, PUIS importe l'entrée Astro dans le même
-# processus — il reste donc PID 1, et SIGTERM continue de lui parvenir
-# directement. Le mode standalone de @astrojs/node sert les pages prérendues
-# ET exécute les routes on-demand depuis ce même processus (spec §6.1).
+# L'entrée standalone de @astrojs/node, lancée directement : elle sert les
+# pages prérendues ET exécute les routes on-demand depuis le même processus
+# (spec §6.1), et elle est PID 1, donc SIGTERM lui parvient sans relais.
 #
-# Refuser au démarrage et non à la requête est délibéré : l'échec tombe
-# pendant le déploiement, où quelqu'un regarde et où le rollback existe, et
-# jamais dans le trafic d'un site en service. Le raisonnement est en tête de
-# `apps/web/verifier-domaine.mjs`.
-CMD ["node", "./verifier-domaine.mjs"]
+# Ce `CMD` pointait `verifier-domaine.mjs`, un préambule qui comparait le
+# domaine figé au build à celui servi au runtime et refusait de démarrer sur
+# divergence. Les deux valeurs n'existent plus : rien n'est figé au build, et
+# la divergence qu'il mesurait est devenue le fonctionnement normal — un
+# domaine change sans qu'on reconstruise.
+CMD ["node", "./dist/server/entry.mjs"]

@@ -620,13 +620,13 @@ const GITHUB_SECRETS = [
   { name: "VITE_CONVEX_URL", value: g("CONVEX_CLOUD_URL") },
   { name: "VITE_CONVEX_SITE_URL", value: g("CONVEX_SITE_URL") },
   { name: "VITE_WEB_SITE_URL", value: WEB_ORIGIN },
-  // Le domaine du site, figé dans l'image `web` AU BUILD pour
-  // `security.allowedDomains` (apps/web/astro.config.ts). Sans elle, le
-  // build de l'image échoue — délibérément : son absence ne coupe aucune
-  // fonctionnalité visible, elle fait seulement que `clientAddress` vaut
-  // l'adresse de Traefik, donc que les deux limiteurs de débit du site
-  // comptent tous les visiteurs ensemble.
-  { name: "WEB_DOMAIN", value: g("WEB_DOMAIN") },
+  // `WEB_DOMAIN` N'EST PLUS ICI : elle était un secret GitHub pour le seul
+  // build-arg de l'image `web` (`security.allowedDomains`, figé au build).
+  // La reconnaissance de l'hôte est passée au runtime
+  // (apps/web/src/lib/allowedDomains.ts), `deploy.yml` ne la passe plus, et
+  // un secret que personne ne lit est un secret qu'on croit à jour. Elle
+  // reste posée sur le déploiement Convex, plus bas : c'est le repli de
+  // `routing.hotes`.
   { name: "VPS_HOST", value: g("VPS_HOST") },
   { name: "VPS_USER", value: g("VPS_USER") },
   { name: "VPS_SSH_KEY", source: "fichier", secret: true },

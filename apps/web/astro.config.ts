@@ -1,29 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises"
 import { defineConfig, memoryCache } from "astro/config"
 import node from "@astrojs/node"
 import tailwindcss from "@tailwindcss/vite"
-import { domainesAutorises } from "./src/lib/allowedDomains"
-import { NOM_ARTEFACT } from "./verifier-domaine.mjs"
-
-// `WEB_DOMAIN` est lue ICI, dans la configuration, et pas dans `src/` : elle
-// est figée AU BUILD comme une `PUBLIC_*`, et une lecture dans `src/` la
-// ferait passer pour une variable de runtime — celle que le conteneur lit au
-// démarrage — qui est précisément la confusion que
-// `scripts/check-env-wiring.mjs` existe pour attraper.
-const allowedDomains = domainesAutorises(process.env.WEB_DOMAIN)
-if (allowedDomains.length === 0) {
-  // Pas une erreur : en développement il n'y a pas de proxy, et
-  // `clientAddress` est déjà l'adresse réelle du visiteur. En revanche
-  // l'image de production refuse de se construire sans cette variable
-  // (`RUN test -n "$WEB_DOMAIN"`, docker/web.Dockerfile) — la panne qu'elle
-  // cause ne se voit pas, elle doit donc s'annoncer.
-  console.warn(
-    "[astrotan] WEB_DOMAIN absente : `x-forwarded-for` sera ignoré et " +
-      "`clientAddress` vaudra l'adresse du reverse proxy — donc la MÊME pour " +
-      "tous les visiteurs. Sans conséquence en local, inacceptable derrière " +
-      "Traefik (voir src/lib/allowedDomains.ts).",
-  )
-}
 
 // Spec §6.1 — the exact configuration the publication loop (Task 6/7) depends
 // on. `output: 'static'` prerenders everything by default; individual CMS
@@ -36,13 +13,23 @@ export default defineConfig({
   output: "static",
   adapter: node({ mode: "standalone" }),
 
-  // Les hôtes que ce déploiement reconnaît comme les siens. C'est la
-  // condition — et la seule — pour qu'Astro honore `x-forwarded-for` et que
-  // `clientAddress` soit l'adresse du VISITEUR plutôt que celle de Traefik.
-  // Les deux limiteurs de débit du site (`/api/contact`, `/api/consent`) en
-  // dépendent entièrement : le raisonnement complet est dans
-  // `src/lib/allowedDomains.ts`.
-  security: { allowedDomains },
+  // AUCUN `security.allowedDomains` ICI, ET C'EST LE POINT.
+  //
+  // Ce fichier est lu pendant `astro build` : tout ce qu'on y écrit est
+  // figé dans l'image, comme une `PUBLIC_*`. Un domaine posé ici ne pouvait
+  // donc changer qu'en RECONSTRUISANT — ce que l'écran `/settings/domaine`
+  // ne peut pas faire, et c'est précisément ce qui l'empêchait d'exister.
+  //
+  // La reconnaissance de l'hôte n'a pas disparu pour autant : elle a
+  // déménagé au runtime, dans `src/lib/allowedDomains.ts`, qui lit la même
+  // query `routing.hotes` que le service `routeur`. Les deux limiteurs de
+  // débit du site (`/api/contact`, `/api/consent`) passent par elle avant
+  // d'imputer une requête à une adresse, et l'échec y est fermé : hôte
+  // inconnu, ou hôtes illisibles, ⇒ `x-forwarded-for` n'est pas honoré.
+  //
+  // Ne pas la remettre par commodité : Astro déciderait alors AVANT nos
+  // routes, et deux mécanismes de reconnaissance qui peuvent diverger
+  // valent moins qu'un seul.
 
   // Astro's Cache API (stable as of Astro 7). `memoryCache()` is per-process
   // — the spec's assumed debt (§6.2/§7 "Rollback et migrations"): an
@@ -50,44 +37,6 @@ export default defineConfig({
   // this lot runs a single `web` replica. Scaling to N replicas requires a
   // shared provider (e.g. Redis) before this line can stay as-is.
   cache: { provider: memoryCache() },
-
-  // Ce que le build a RÉELLEMENT figé, écrit sur le disque pour que le
-  // conteneur puisse le relire au démarrage.
-  //
-  // `apps/web/verifier-domaine.mjs` — le point d'entrée du conteneur —
-  // compare cet artefact au `WEB_DOMAIN` que le compose lui donne au
-  // runtime, et refuse de démarrer s'ils divergent. Sans ça, changer le
-  // domaine d'un seul côté ne produit AUCUN symptôme : le site sert, et
-  // `clientAddress` retombe silencieusement sur l'adresse de Traefik —
-  // la même pour tout Internet (voir src/lib/allowedDomains.ts et
-  // l'en-tête de verifier-domaine.mjs).
-  //
-  // C'est `allowedDomains` — la CONSTANTE ci-dessus, celle-là même qui
-  // part dans `security` — qui est écrite, et pas une seconde lecture de
-  // `process.env.WEB_DOMAIN`. Une seconde lecture pourrait mentir ; la
-  // même valeur JavaScript, non. C'est tout l'intérêt d'écrire ce fichier
-  // ici plutôt qu'en une ligne de Dockerfile.
-  //
-  // Dans `outDir` et non dans le dossier client : il ne doit pas être
-  // servi. Il ne contient rien de secret — le domaine est dans la barre
-  // d'adresse de chaque visiteur — mais publier un artefact de build est
-  // une habitude dont on ne veut pas.
-  integrations: [
-    {
-      name: "astrotan:domaine-du-build",
-      hooks: {
-        "astro:build:done": async ({ dir }) => {
-          // `dir` est le dossier CLIENT ; l'artefact va un cran au-dessus,
-          // dans `dist/`, à côté de `server/` — c'est le chemin que
-          // `docker/web.Dockerfile` copie dans l'image, et celui que
-          // `verifier-domaine.mjs` relit.
-          const cible = new URL(`../${NOM_ARTEFACT}`, dir)
-          await mkdir(new URL("./", cible), { recursive: true })
-          await writeFile(cible, `${JSON.stringify({ allowedDomains }, null, 2)}\n`, "utf8")
-        },
-      },
-    },
-  ],
 
   // Cache *hints* per route pattern. These are read when a matching route
   // does not itself call `Astro.cache.set(...)` — they are not fetched or

@@ -11,13 +11,6 @@ services:
       dockerfile: docker/web.Dockerfile
       args:
         PUBLIC_CONVEX_URL: ${PUBLIC_CONVEX_URL:-http://host.docker.internal:3210}
-        # Obligatoire dans `web.Dockerfile` : sans elle l'image refuse de se
-        # construire. Le défaut vaut ici ce que vaut la vérification locale —
-        # aucun proxy devant le conteneur, donc aucun `x-forwarded-for` à
-        # honorer — mais il doit rester un hôte NU et valide, sinon
-        # `astro.config.ts` arrête le build (voir
-        # `apps/web/src/lib/allowedDomains.ts`).
-        WEB_DOMAIN: ${WEB_DOMAIN:-localhost.local}
     image: astrotan-web:local
     ports:
       - "4321:4321"

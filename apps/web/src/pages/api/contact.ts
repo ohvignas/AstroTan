@@ -21,6 +21,7 @@ import {
   MAX_LEAD_NAME_LENGTH,
   MAX_LEAD_SUBJECT_LENGTH,
 } from "@astrotan/backend/convex/content"
+import { adresseDuVisiteur } from "../../lib/allowedDomains"
 import { getConvexClient } from "../../lib/convexClient"
 
 /** Le nom du champ que seul un robot remplit. */
@@ -104,7 +105,16 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
   // L'adresse ne quitte jamais ce processus : seule son empreinte part.
   // C'est elle qui sert de clé au compteur d'envois, côté Convex.
-  const origin = await empreinteOrigine(clientAddress, secret)
+  // `adresseDuVisiteur` et non `clientAddress` : derrière Traefik, la
+  // seconde vaut l'adresse du PROXY, la même pour tout Internet — cinq
+  // messages par heure pour l'ensemble des visiteurs. La première n'honore
+  // `x-forwarded-for` qu'après avoir reconnu l'hôte de la requête, et
+  // retombe sur `clientAddress` quand elle ne le reconnaît pas
+  // (src/lib/allowedDomains.ts).
+  const origin = await empreinteOrigine(
+    await adresseDuVisiteur({ request, clientAddress }),
+    secret,
+  )
 
   try {
     await getConvexClient().mutation(api.leads.submit, {

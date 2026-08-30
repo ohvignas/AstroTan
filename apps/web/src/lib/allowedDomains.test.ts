@@ -1,108 +1,245 @@
 import { createRequestFromNodeRequest } from "astro/app/node"
-import { describe, expect, test } from "vitest"
-import { domainesAutorises } from "./allowedDomains"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
+import {
+  TTL_ECHEC_MS,
+  TTL_SUCCES_MS,
+  adresseDuVisiteur,
+  hoteNormalise,
+  purgerHotesConnus,
+} from "./allowedDomains"
 
 // ---------------------------------------------------------------------
 // Ce que ce fichier prouve, et pourquoi il ne suffisait pas de le lire.
 //
 // Derrière Traefik, le conteneur `web` ne voit qu'une seule adresse
-// source : celle du conteneur Traefik. `clientAddress` vaut alors la même
-// chose pour tout Internet, et les deux limiteurs de débit qui s'en
-// servent (`/api/contact`, `/api/consent`) partagent UN seau pour tous les
-// visiteurs — cinq messages par heure pour la planète entière.
+// source : celle du conteneur Traefik. Si on s'en contente, les deux
+// limiteurs de débit qui s'en servent (`/api/contact`, `/api/consent`)
+// partagent UN seau pour tous les visiteurs — cinq messages par heure pour
+// la planète entière, et le journal de consentement qui cesse d'écrire.
 //
-// Astro n'honore `x-forwarded-for` que si l'hôte de la requête a été
-// VALIDÉ, et il ne valide rien tant que `security.allowedDomains` est vide
-// (son défaut). C'est ce couplage qu'on vérifie ici, sur l'implémentation
-// réelle d'Astro plutôt que sur notre lecture de celle-ci : un test qui
-// n'exercerait que notre fonction dirait seulement qu'elle rend l'objet
-// qu'on attend, pas qu'Astro en fait ce qu'on croit.
+// `x-forwarded-for` porte la vraie adresse, mais c'est un en-tête que
+// N'IMPORTE QUI peut poser. Le lire sans condition ferait d'une limite de
+// débit un outil d'usurpation. La condition — la seule — est d'avoir
+// RECONNU l'hôte de la requête comme l'un des nôtres.
+//
+// Jusqu'ici cette reconnaissance venait d'Astro (`security.allowedDomains`)
+// et la liste était figée AU BUILD, donc changer de domaine imposait de
+// reconstruire l'image. Elle vient maintenant du runtime, et c'est ce
+// basculement que ces tests tiennent : mêmes réponses qu'avant, sur une
+// liste qui peut changer sans redéployer.
 // ---------------------------------------------------------------------
 
-/** Le symbole où Astro range l'adresse retenue (`Symbol.for`, donc global). */
-const ADRESSE = Symbol.for("astro.clientAddress")
+/** L'adresse que Traefik présente au conteneur — la même pour tout Internet. */
+const SOCKET = "172.18.0.4"
+/** L'adresse du visiteur, telle que Traefik la transmet. */
+const VISITEUR = "203.0.113.7"
 
 /**
- * Une requête telle que Traefik la présente au conteneur : HTTP en clair,
- * `Host` d'origine préservé, `x-forwarded-*` posés, et une adresse de socket
- * qui est celle du proxy — jamais celle du visiteur.
+ * Une requête telle que Traefik la présente : HTTP en clair, `Host`
+ * d'origine préservé, `x-forwarded-*` posés.
  */
-function requeteDerriereProxy(hote: string) {
+function requeteDerriereProxy(entetes: Record<string, string>) {
   return {
-    method: "GET",
-    url: "/contact",
-    headers: {
-      host: hote,
-      "x-forwarded-host": hote,
-      "x-forwarded-proto": "https",
-      "x-forwarded-for": "203.0.113.7",
-    },
-    socket: { remoteAddress: "172.18.0.4" },
-    on() {},
-    once() {},
-    off() {},
-    removeListener() {},
+    request: new Request("http://interne:4321/contact", { headers: entetes }),
+    clientAddress: SOCKET,
   }
 }
 
-function adresseVue(allowedDomains: { hostname: string }[]): string | undefined {
-  const requete = createRequestFromNodeRequest(
-    requeteDerriereProxy("exemple.fr") as never,
-    { skipBody: true, allowedDomains },
-  )
-  return Reflect.get(requete, ADRESSE) as string | undefined
+function derriere(hote: string) {
+  return requeteDerriereProxy({
+    host: hote,
+    "x-forwarded-host": hote,
+    "x-forwarded-proto": "https",
+    "x-forwarded-for": VISITEUR,
+  })
 }
 
-describe("domainesAutorises", () => {
-  test("sans domaine configuré, aucun motif n'est produit", () => {
-    expect(domainesAutorises(undefined)).toEqual([])
-    expect(domainesAutorises("")).toEqual([])
-    expect(domainesAutorises("   ")).toEqual([])
+/** Un lecteur d'hôtes qui répond, et qui compte ses appels. */
+function lecteur(...hotes: string[]) {
+  const lire = vi.fn(async () => hotes)
+  return lire
+}
+
+/** Un lecteur qui échoue, comme un Convex injoignable. */
+function lecteurEnPanne() {
+  return vi.fn(async () => {
+    throw new Error("fetch failed")
+  })
+}
+
+beforeEach(() => {
+  purgerHotesConnus()
+  vi.useFakeTimers()
+  // Le repli sur la socket s'annonce dans les journaux ; on ne veut pas
+  // qu'il bruite la sortie de la suite.
+  vi.spyOn(console, "warn").mockImplementation(() => {})
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+describe("adresseDuVisiteur", () => {
+  test("un hôte CONNU fait honorer `x-forwarded-for`", async () => {
+    expect(await adresseDuVisiteur(derriere("exemple.fr"), lecteur("exemple.fr"))).toBe(VISITEUR)
   })
 
-  test("un domaine devient un motif d'hôte, en minuscules et sans espaces", () => {
-    expect(domainesAutorises("  Exemple.FR ")).toEqual([{ hostname: "exemple.fr" }])
+  test("un hôte INCONNU ne le fait pas, et l'empreinte retombe sur la socket", async () => {
+    // C'est ici que se joue la différence entre une limite de débit et un
+    // outil d'usurpation : sans reconnaissance de l'hôte, l'en-tête ne vaut
+    // rien, et quiconque pourrait s'attribuer l'adresse de quelqu'un
+    // d'autre — ou s'en fabriquer une neuve à chaque requête.
+    expect(await adresseDuVisiteur(derriere("pirate.fr"), lecteur("exemple.fr"))).toBe(SOCKET)
   })
 
-  test("le motif ne fixe AUCUN protocole, et c'est ce qui le fait marcher", () => {
-    // Astro valide deux en-têtes contre ces motifs, et pas sous le même
-    // protocole : `Host` est confronté au protocole RÉEL de la socket —
-    // `http`, puisque Traefik termine le TLS — tandis que `X-Forwarded-Host`
-    // l'est sous `https` par défaut. Un motif qui porterait
-    // `protocol: "https"` refuserait donc le premier, et un `protocol:
-    // "http"` refuserait le second. Sans protocole, les deux passent.
-    for (const motif of domainesAutorises("exemple.fr")) {
-      expect(Object.keys(motif)).toEqual(["hostname"])
-    }
+  test("Convex injoignable ne fait pas confiance à l'en-tête", async () => {
+    // Échec FERMÉ. Un conteneur qui vient de démarrer et qui n'arrive pas à
+    // apprendre ses propres hôtes doit se comporter comme s'il n'en
+    // connaissait aucun — jamais faire confiance faute de mieux.
+    expect(await adresseDuVisiteur(derriere("exemple.fr"), lecteurEnPanne())).toBe(SOCKET)
   })
 
-  test("une valeur qui n'est pas un hôte nu est refusée bruyamment", () => {
-    // Une URL, un chemin ou un port produisent un motif qui ne correspond
-    // à RIEN — donc exactement la panne silencieuse que cette configuration
-    // existe pour fermer. Mieux vaut arrêter le build.
-    expect(() => domainesAutorises("https://exemple.fr")).toThrow(/WEB_DOMAIN/)
-    expect(() => domainesAutorises("exemple.fr/blog")).toThrow(/WEB_DOMAIN/)
-    expect(() => domainesAutorises("exemple.fr:4321")).toThrow(/WEB_DOMAIN/)
+  test("une panne APRÈS une lecture réussie garde les hôtes déjà connus", async () => {
+    // L'autre moitié de l'échec fermé, et elle compte autant : purger la
+    // liste à la première secousse réseau ferait retomber TOUS les
+    // visiteurs dans un seul seau — précisément la panne qu'on ferme.
+    // Un hôte appris reste un hôte à nous ; il ne devient pas douteux
+    // parce que Convex a hoqueté.
+    const lire = vi
+      .fn<() => Promise<string[]>>()
+      .mockResolvedValueOnce(["exemple.fr"])
+      .mockRejectedValue(new Error("fetch failed"))
+
+    expect(await adresseDuVisiteur(derriere("exemple.fr"), lire)).toBe(VISITEUR)
+    vi.advanceTimersByTime(TTL_SUCCES_MS + 1)
+    expect(await adresseDuVisiteur(derriere("exemple.fr"), lire)).toBe(VISITEUR)
+    expect(lire).toHaveBeenCalledTimes(2)
+  })
+
+  test("l'hôte est comparé sans son port", async () => {
+    expect(await adresseDuVisiteur(derriere("Exemple.FR:443"), lecteur("exemple.fr"))).toBe(VISITEUR)
+  })
+
+  test("`x-forwarded-host` seul suffit à reconnaître l'hôte", async () => {
+    // Traefik pose les deux ; on accepte l'un OU l'autre, comme le faisait
+    // Astro. Les deux viennent du même proxy, aucun n'est plus sûr que
+    // l'autre — ce qui protège, c'est que le conteneur n'est joignable que
+    // par lui.
+    const contexte = requeteDerriereProxy({
+      host: "interne:4321",
+      "x-forwarded-host": "exemple.fr",
+      "x-forwarded-for": VISITEUR,
+    })
+    expect(await adresseDuVisiteur(contexte, lecteur("exemple.fr"))).toBe(VISITEUR)
+  })
+
+  test("une chaîne de proxys : c'est le PREMIER maillon qui est le visiteur", async () => {
+    const contexte = requeteDerriereProxy({
+      host: "exemple.fr",
+      "x-forwarded-for": `${VISITEUR}, 10.0.0.1, 10.0.0.2`,
+    })
+    expect(await adresseDuVisiteur(contexte, lecteur("exemple.fr"))).toBe(VISITEUR)
   })
 })
 
-describe("l'adresse du visiteur, derrière le proxy", () => {
-  test("sans domaine autorisé, Astro rend l'adresse du PROXY", () => {
-    // Le défaut, tel qu'il est aujourd'hui en production : un seul seau de
-    // limitation de débit pour tous les visiteurs.
-    expect(adresseVue([])).toBe("172.18.0.4")
+describe("le coût de la reconnaissance", () => {
+  test("sans `x-forwarded-for`, Convex n'est PAS interrogé", async () => {
+    // Le développement local n'a pas de proxy : `clientAddress` y est déjà
+    // l'adresse réelle, et il n'y a rien à valider. Interroger Convex
+    // quand même ferait payer un aller-retour à chaque page d'un site qui
+    // n'en a aucun besoin.
+    const lire = lecteur("exemple.fr")
+    const contexte = requeteDerriereProxy({ host: "localhost:4321" })
+    expect(await adresseDuVisiteur(contexte, lire)).toBe(SOCKET)
+    expect(lire).not.toHaveBeenCalled()
   })
 
-  test("avec le domaine du site, Astro rend l'adresse du VISITEUR", () => {
-    expect(adresseVue(domainesAutorises("exemple.fr"))).toBe("203.0.113.7")
+  test("la liste est mise en cache : une seule lecture pour cent requêtes", async () => {
+    const lire = lecteur("exemple.fr")
+    for (let i = 0; i < 100; i++) {
+      expect(await adresseDuVisiteur(derriere("exemple.fr"), lire)).toBe(VISITEUR)
+    }
+    expect(lire).toHaveBeenCalledTimes(1)
   })
 
-  test("un domaine qui n'est pas le nôtre ne fait pas confiance à l'en-tête", () => {
-    // La raison de passer par le mécanisme d'Astro plutôt que de lire
-    // `x-forwarded-for` à la main : l'en-tête n'est honoré qu'après
-    // validation de l'hôte. Lu directement, il ferait d'une limite de débit
-    // un outil d'usurpation — n'importe qui pourrait se donner l'adresse
-    // de n'importe qui.
-    expect(adresseVue(domainesAutorises("autre.fr"))).toBe("172.18.0.4")
+  test("cent requêtes SIMULTANÉES sur un cache froid ne font qu'une lecture", async () => {
+    // Sans cette mise en commun, un redémarrage sous trafic enverrait
+    // autant de requêtes à Convex qu'il y a de visiteurs simultanés.
+    const lire = lecteur("exemple.fr")
+    const toutes = Array.from({ length: 100 }, () =>
+      adresseDuVisiteur(derriere("exemple.fr"), lire),
+    )
+    expect(await Promise.all(toutes)).toEqual(Array(100).fill(VISITEUR))
+    expect(lire).toHaveBeenCalledTimes(1)
+  })
+
+  test("le cache expire, pour qu'un changement de domaine prenne effet", async () => {
+    const lire = vi
+      .fn<() => Promise<string[]>>()
+      .mockResolvedValueOnce(["ancien.fr"])
+      .mockResolvedValue(["nouveau.fr"])
+
+    expect(await adresseDuVisiteur(derriere("nouveau.fr"), lire)).toBe(SOCKET)
+    vi.advanceTimersByTime(TTL_SUCCES_MS + 1)
+    expect(await adresseDuVisiteur(derriere("nouveau.fr"), lire)).toBe(VISITEUR)
+  })
+
+  test("un échec est retenu bien plus brièvement qu'un succès", async () => {
+    // Un déploiement qui vient de démarrer pendant que Convex redémarre ne
+    // doit pas rester une minute sans reconnaître son propre domaine ; et
+    // il ne doit pas non plus marteler un service en panne à chaque
+    // requête.
+    expect(TTL_ECHEC_MS).toBeLessThan(TTL_SUCCES_MS)
+
+    const lire = vi
+      .fn<() => Promise<string[]>>()
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockResolvedValue(["exemple.fr"])
+
+    expect(await adresseDuVisiteur(derriere("exemple.fr"), lire)).toBe(SOCKET)
+    vi.advanceTimersByTime(TTL_ECHEC_MS + 1)
+    expect(await adresseDuVisiteur(derriere("exemple.fr"), lire)).toBe(VISITEUR)
+  })
+})
+
+describe("hoteNormalise", () => {
+  test("rend un hôte nu, en minuscules, sans port ni point final", () => {
+    expect(hoteNormalise("  Exemple.FR.:443 ")).toBe("exemple.fr")
+  })
+
+  test("rend `null` pour ce qui n'est pas un hôte nu", () => {
+    for (const brut of ["", "   ", "exemple", "exemple.fr/blog", "http://exemple.fr", "*.exemple.fr"]) {
+      expect(hoteNormalise(brut)).toBeNull()
+    }
+  })
+})
+
+describe("l'hypothèse sur laquelle tout repose", () => {
+  test("sans `allowedDomains`, Astro rend l'adresse de la SOCKET", () => {
+    // Ce test n'exerce pas notre code : il épingle le comportement d'Astro
+    // dont dépend notre repli. `clientAddress` DOIT valoir la socket, sinon
+    // « retomber sur `clientAddress` » retomberait en fait sur
+    // `x-forwarded-for` — c'est-à-dire sur l'en-tête qu'on refuse d'honorer,
+    // et l'échec fermé de ce module deviendrait un échec ouvert sans qu'une
+    // seule ligne d'ici ne change.
+    const requete = createRequestFromNodeRequest(
+      {
+        method: "GET",
+        url: "/contact",
+        headers: {
+          host: "exemple.fr",
+          "x-forwarded-host": "exemple.fr",
+          "x-forwarded-for": VISITEUR,
+        },
+        socket: { remoteAddress: SOCKET },
+        on() {},
+        once() {},
+        off() {},
+        removeListener() {},
+      } as never,
+      { skipBody: true, allowedDomains: [] },
+    )
+    expect(Reflect.get(requete, Symbol.for("astro.clientAddress"))).toBe(SOCKET)
   })
 })

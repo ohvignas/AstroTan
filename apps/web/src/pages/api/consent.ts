@@ -17,6 +17,7 @@ export const prerender = false
 
 import type { APIRoute } from "astro"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import { adresseDuVisiteur } from "../../lib/allowedDomains"
 import { getConvexClient } from "../../lib/convexClient"
 
 /** Un enregistrement fait moins de 500 octets ; au-delà, ce n'en est pas un. */
@@ -87,7 +88,18 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   try {
     // L'adresse ne quitte jamais ce processus : seule son empreinte part.
     // C'est elle qui sert de clé au compteur d'enregistrements, côté Convex.
-    const origin = await empreinteOrigine(clientAddress, secret)
+    //
+    // `adresseDuVisiteur` et non `clientAddress` : derrière Traefik, la
+    // seconde vaut l'adresse du PROXY — la même pour tout Internet, donc un
+    // seul seau de limitation pour l'ensemble des visiteurs, et plus aucune
+    // preuve écrite au vingt-et-unième enregistrement. La première n'honore
+    // `x-forwarded-for` qu'après avoir reconnu l'hôte de la requête, et
+    // retombe sur `clientAddress` quand elle ne le reconnaît pas
+    // (src/lib/allowedDomains.ts).
+    const origin = await empreinteOrigine(
+      await adresseDuVisiteur({ request, clientAddress }),
+      secret,
+    )
     await getConvexClient().mutation(api.consent.record, {
       secret,
       consentVersion: body.consentVersion,

@@ -68,11 +68,15 @@
 //      variable de runtime, se pose comme une variable de build, et son
 //      absence ne produit ni erreur ni fonctionnalité muette — seulement un
 //      réglage qui reprend sa valeur par défaut.
-//        · `WEB_DOMAIN` lue par `apps/web/astro.config.ts` pour
-//          `security.allowedDomains` : sans elle, Astro ignore
-//          `x-forwarded-for`, `clientAddress` vaut l'adresse de Traefik, et
-//          les deux limiteurs de débit du site comptent TOUS les visiteurs
-//          dans un seul seau (apps/web/src/lib/allowedDomains.ts).
+//        · `PUBLIC_CONVEX_URL` : Astro la fige dans le bundle, y compris
+//          dans la sortie SSR. La poser dans le `.env` du VPS ne fait rien.
+//        · `WEB_DOMAIN` a QUITTÉ cette catégorie, et c'est l'exemple le
+//          plus parlant de ce qu'elle coûte : elle y était pour
+//          `security.allowedDomains`, donc le domaine était figé dans
+//          l'image et n'en changeait qu'en reconstruisant. La
+//          reconnaissance de l'hôte se fait maintenant au runtime
+//          (apps/web/src/lib/allowedDomains.ts) — écart n° 1, comme
+//          n'importe quel autre `process.env` du conteneur.
 //
 // CE QU'IL NE VÉRIFIE PAS, et qu'il ne faut donc pas croire vérifié :
 //
@@ -122,14 +126,11 @@ const CONVEX_ENV_EXAMPLE = join(ROOT, "packages", "backend", ".env.example");
 const APPS = [
   {
     name: "apps/web",
-    // `src/` — et `verifier-domaine.mjs`, qui est le vrai point d'entrée du
-    // conteneur (le `CMD` de docker/web.Dockerfile) : ses `process.env` sont
-    // des lectures runtime au même titre que celles de `src/`, exactement
-    // comme `serve.mjs` côté admin. `astro.config.ts`, lui, tourne sur le
-    // runner et reste en `buildConfigs` ci-dessous — `WEB_DOMAIN` est donc
-    // vérifiée DEUX FOIS ici, une par moitié, ce qui est précisément le
-    // point : c'est leur divergence que le garde-fou du conteneur mesure.
-    sources: ["apps/web/src", "apps/web/verifier-domaine.mjs"],
+    // `src/` seul : le `CMD` de docker/web.Dockerfile lance directement
+    // l'entrée standalone d'Astro. Il passait auparavant par
+    // `verifier-domaine.mjs`, un préambule qui comparait le domaine figé au
+    // build à celui servi au runtime ; ni l'un ni l'autre n'existe plus.
+    sources: ["apps/web/src"],
     // Lus PENDANT le build, jamais au démarrage du conteneur. Leurs
     // `process.env` sont donc des variables de build — écart n° 4.
     buildConfigs: ["apps/web/astro.config.ts"],
