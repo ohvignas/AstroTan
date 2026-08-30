@@ -9,7 +9,10 @@ import { ConvexError } from "convex/values"
 // no equivalent). Shared between the list screen and the editor screen —
 // both call the same mutations and would otherwise have to keep two
 // copies of this dictionary in sync by hand.
-const PAGE_ERROR_MESSAGES: Record<string, string> = {
+// Exporté depuis le correctif du dialogue de création : celui-ci annonce
+// la collision de slug AVANT le clic, et doit dire exactement ce que le
+// serveur dirait après — une seconde phrase écrite à côté aurait divergé.
+export const PAGE_ERROR_MESSAGES: Record<string, string> = {
   FORBIDDEN:
     "Action refusée par le serveur : vous n'avez pas l'autorité pour ceci.",
   UNAUTHENTICATED: "Votre session a expiré. Reconnectez-vous.",
@@ -17,6 +20,12 @@ const PAGE_ERROR_MESSAGES: Record<string, string> = {
   NOT_FOUND:
     "Introuvable — a peut-être déjà été modifiée ou supprimée ailleurs.",
   SLUG_ALREADY_EXISTS: "Ce slug est déjà utilisé par une autre page.",
+  // `pages.create` le lève pour les slugs de `RESERVED_PAGE_SLUGS`
+  // (« blog ») : une page qui les prendrait ne serait jamais atteinte,
+  // le fichier de route répondant avant elle. Sans cette entrée, le refus
+  // s'affichait « Une erreur inattendue est survenue. »
+  SLUG_RESERVED:
+    "Ce chemin est déjà servi par un fichier de route du site : la page ne serait jamais atteinte. Choisissez un autre slug.",
   INVALID_TITLE: "Le titre ne peut pas être vide.",
   INVALID_SLUG: "Le slug ne peut pas être vide.",
   INVALID_PREVIEW_TOKEN: "Le lien de prévisualisation n'est plus valide.",

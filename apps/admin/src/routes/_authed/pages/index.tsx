@@ -4,7 +4,14 @@ import { useMutation, useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
-import { describePageError } from "@/lib/pageErrors"
+import { PAGE_ERROR_MESSAGES, describePageError } from "@/lib/pageErrors"
+import {
+  ETAT_SLUG_INITIAL,
+  saisirSlug,
+  saisirTitre,
+  slugDejaPris,
+} from "@/lib/slugSync"
+import type { EtatSlug } from "@/lib/slugSync"
 import { RowActionButton, RowActionsMenu } from "@/components/row-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -100,7 +107,10 @@ function PagesListPage() {
               : "Créer, éditer, prévisualiser et publier les pages du site."}
           </p>
         </div>
-        <CreatePageDialog />
+        {/* Les slugs déjà pris, depuis la liste que cet écran a déjà
+            chargée : le dialogue signale la collision AVANT le clic sur
+            « Créer », sans souscrire une seconde query pour cela. */}
+        <CreatePageDialog slugsExistants={pages.map((page) => page.slug)} />
       </div>
 
       <Card>
@@ -349,19 +359,29 @@ function PageRowActions({
   )
 }
 
-function CreatePageDialog() {
+function CreatePageDialog({
+  slugsExistants,
+}: {
+  slugsExistants: readonly string[]
+}) {
   const createPage = useMutation(api.pages.create)
   const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState("")
-  const [slug, setSlug] = useState("")
+  // Un seul état pour le couple titre/slug : le slug suit le titre tant
+  // qu'on n'y a pas touché, et c'est une propriété du COUPLE, pas de l'un
+  // ou l'autre. Deux `useState` indépendants auraient obligé à porter le
+  // « a-t-on déjà édité le slug » dans un troisième, à côté des deux
+  // valeurs qu'il décrit. Les règles vivent dans `lib/slugSync.ts`, où
+  // elles sont testables sans DOM.
+  const [etat, setEtat] = useState<EtatSlug>(ETAT_SLUG_INITIAL)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const dejaPris = slugDejaPris(etat.slug, slugsExistants)
 
   function handleOpenChange(next: boolean) {
     setOpen(next)
     if (!next) {
-      setTitle("")
-      setSlug("")
+      setEtat(ETAT_SLUG_INITIAL)
       setError(null)
     }
   }
@@ -371,7 +391,7 @@ function CreatePageDialog() {
     setError(null)
     setSubmitting(true)
     try {
-      const id = await createPage({ title, slug })
+      const id = await createPage({ title: etat.titre, slug: etat.slug })
       handleOpenChange(false)
       // Full navigation to the freshly-created page's own editor route,
       // rather than staying on this list — creating a page is only ever
@@ -393,37 +413,25 @@ function CreatePageDialog() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Nouvelle page</DialogTitle>
+          {/* Ce que la phrase précédente ne disait pas assez fort : ce
+              dialogue n'écrit RIEN dans `apps/web`. Elle annonçait « elle
+              ne s'affichera que lorsque son fichier existera », ce qui est
+              vrai et se lit comme une promesse que quelque chose va
+              apparaître. Elle omettait aussi la publication, qui est
+              l'autre condition. */}
           <DialogDescription>
-            Créée comme brouillon. Elle ne s'affichera que lorsque son fichier{" "}
-            <code>{"src/pages/<slug>.astro"}</code> existera aussi — c'est lui
-            qui porte le design.
+            Crée la fiche, pas le fichier. La page s'affichera une fois
+            publiée, si <code>{"src/pages/<slug>.astro"}</code> existe.
           </DialogDescription>
         </DialogHeader>
         <form id="create-page-form" onSubmit={handleSubmit} noValidate>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="page-title">Titre</FieldLabel>
-              <Input
-                id="page-title"
-                autoComplete="off"
-                required
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="page-slug">Slug</FieldLabel>
-              <Input
-                id="page-slug"
-                autoComplete="off"
-                required
-                placeholder="a-propos"
-                value={slug}
-                onChange={(event) => setSlug(event.target.value)}
-              />
-            </Field>
-            {error && <FieldError>{error}</FieldError>}
-          </FieldGroup>
+          <CorpsNouvellePage
+            etat={etat}
+            dejaPris={dejaPris}
+            error={error}
+            onTitre={(titre) => setEtat((actuel) => saisirTitre(actuel, titre))}
+            onSlug={(slug) => setEtat((actuel) => saisirSlug(actuel, slug))}
+          />
         </form>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>
@@ -434,8 +442,9 @@ function CreatePageDialog() {
             form="create-page-form"
             disabled={
               submitting ||
-              title.trim().length === 0 ||
-              slug.trim().length === 0
+              etat.titre.trim().length === 0 ||
+              etat.slug.trim().length === 0 ||
+              dejaPris
             }
           >
             {submitting ? "Création…" : "Créer"}
@@ -443,5 +452,63 @@ function CreatePageDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Les deux champs du dialogue, pilotés de l'extérieur.
+ *
+ * Séparé du dialogue pour être rendu seul dans un test : `vitest.config.ts`
+ * est en `environment: "node"` et rend avec `renderToStaticMarkup`, sans
+ * DOM ni interaction. Ce composant-ci est ce qui relie l'état calculé par
+ * `lib/slugSync.ts` à ce que l'opérateur voit — le maillon qu'un test de
+ * fonction pure ne couvre pas.
+ */
+export function CorpsNouvellePage({
+  etat,
+  dejaPris,
+  error,
+  onTitre,
+  onSlug,
+}: {
+  etat: EtatSlug
+  dejaPris: boolean
+  error: string | null
+  onTitre: (titre: string) => void
+  onSlug: (slug: string) => void
+}) {
+  return (
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="page-title">Titre</FieldLabel>
+        <Input
+          id="page-title"
+          autoComplete="off"
+          required
+          value={etat.titre}
+          onChange={(event) => onTitre(event.target.value)}
+        />
+      </Field>
+      <Field data-invalid={dejaPris || undefined}>
+        <FieldLabel htmlFor="page-slug">Slug</FieldLabel>
+        <Input
+          id="page-slug"
+          autoComplete="off"
+          required
+          placeholder="a-propos"
+          aria-invalid={dejaPris || undefined}
+          value={etat.slug}
+          onChange={(event) => onSlug(event.target.value)}
+        />
+        {/* Le refus que `pages.create` prononcerait, dit avant le clic :
+            le champ se remplit désormais tout seul, ce qui rend deux pages
+            « Contact » plus faciles à tenter qu'avant. Même phrase que le
+            refus serveur, prise à la même source. */}
+        {dejaPris && (
+          <FieldError>{PAGE_ERROR_MESSAGES.SLUG_ALREADY_EXISTS}</FieldError>
+        )}
+      </Field>
+      {error && <FieldError>{error}</FieldError>}
+    </FieldGroup>
   )
 }
