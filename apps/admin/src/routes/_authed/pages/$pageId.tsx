@@ -1,4 +1,5 @@
 import { useState } from "react"
+import type { ReactNode } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
@@ -255,7 +256,17 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
           <div>
             <h1 className="text-lg font-medium">{page.title}</h1>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>/{page.slug}</span>
+              {/* Le chemin RÉELLEMENT servi, jamais `/{slug}` : l'accueil
+                  répond à `/` et non à `/accueil`, et cet en-tête affichait
+                  donc une adresse qui rend 404 pour la page la plus visitée
+                  du site. Même exception que `PageAnalytics` plus bas et que
+                  `pages.list`. Rien tant que les réglages ne sont pas là :
+                  `publicPath` répond « ce n'est pas l'accueil » sur
+                  `undefined`, ce qui rouvrirait le défaut le temps du
+                  chargement. */}
+              {homePageSlug !== undefined && (
+                <span>{publicPath(page.slug, homePageSlug)}</span>
+              )}
               <PublicationStatusBadge
                 status={publicationStatus}
                 pageStatus={page.status}
@@ -312,8 +323,8 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
       {!canWrite && (
         <p className="rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
           {isOwn
-            ? "Cette page est publiée : un editor ne peut plus la modifier une fois en ligne. Dépubliez-la (ou demandez à un owner/admin) pour reprendre l'édition."
-            : "Cette page appartient à un autre utilisateur : vous pouvez la consulter, pas la modifier."}
+            ? "Publiée : un editor ne la modifie plus. Dépubliez-la pour reprendre."
+            : "Page d'un autre utilisateur : lecture seule."}
         </p>
       )}
       {error && (
@@ -323,7 +334,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
       )}
       {previewUrl && (
         <p className="text-xs text-muted-foreground">
-          Le lien de prévisualisation expire dans 15 minutes.{" "}
+          Aperçu valable 15 minutes.{" "}
           <a
             href={previewUrl}
             target="_blank"
@@ -339,172 +350,187 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
           la page d'accueil répond sur `/` et non sur `/accueil`, et
           interroger le mauvais chemin rendrait zéro sans le dire. Le slug
           enregistré, pas celui en cours d'édition — la mesure porte sur ce
-          qui est en ligne. */}
+          qui est en ligne.
+
+          `undefined` n'est pas `null` ici : tant que le réglage n'est pas
+          arrivé, on ne sait pas encore si CETTE page est l'accueil, et
+          `publicPath` répondrait `/accueil` — l'adresse que la note en tête
+          de `convex/lib/publicPath.ts` compte parmi ses quatre oublis. Le
+          panneau attend plutôt que de mesurer une adresse qui n'existe
+          pas. */}
       <PageAnalytics
-        path={publicPath(page.slug, homePageSlug)}
+        path={homePageSlug === undefined ? null : publicPath(page.slug, homePageSlug)}
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Informations générales</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Field>
-            <FieldLabel htmlFor="edit-title">Titre</FieldLabel>
-            <Input
-              id="edit-title"
-              value={title}
-              maxLength={MAX_PAGE_TITLE_LENGTH}
-              disabled={!canWrite}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="edit-slug">Slug</FieldLabel>
-            <Input
-              id="edit-slug"
-              value={slug}
-              maxLength={MAX_SLUG_LENGTH}
-              disabled={!canWrite}
-              onChange={(event) => setSlug(event.target.value)}
-            />
-            <FieldDescription>
-              Chemin public — sans slash de tête ni de fin.
-            </FieldDescription>
-          </Field>
-        </CardContent>
-      </Card>
+      {/* --------------------------------------------------------------
+          Trois sections, trois questions — et l'ordre est celui dans
+          lequel on se les pose devant cet écran :
 
-      <Card>
-        <CardHeader>
-          <CardTitle>SEO</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Field>
-            <FieldLabel htmlFor="seo-title">Titre SEO</FieldLabel>
-            <Input
-              id="seo-title"
-              value={seoTitle}
-              maxLength={MAX_SEO_TITLE_LENGTH}
-              disabled={!canWrite}
-              placeholder={page.title}
-              onChange={(event) => setSeoTitle(event.target.value)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="seo-description">Description</FieldLabel>
-            <Textarea
-              id="seo-description"
-              value={seoDescription}
-              maxLength={MAX_SEO_DESCRIPTION_LENGTH}
-              disabled={!canWrite}
-              onChange={(event) => setSeoDescription(event.target.value)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="seo-canonical">URL canonique</FieldLabel>
-            <Input
-              id="seo-canonical"
-              value={seoCanonicalUrl}
-              maxLength={MAX_CANONICAL_URL_LENGTH}
-              disabled={!canWrite}
-              placeholder="https://…"
-              onChange={(event) => setSeoCanonicalUrl(event.target.value)}
-            />
-          </Field>
-          <Field orientation="horizontal">
-            <Switch
-              id="seo-noindex"
-              checked={seoNoindex}
-              disabled={!canWrite}
-              onCheckedChange={(checked) => setSeoNoindex(checked === true)}
-            />
-            <FieldLabel htmlFor="seo-noindex">
-              Exclure des moteurs de recherche (noindex)
-            </FieldLabel>
-          </Field>
-        </CardContent>
-      </Card>
+            1. comment on l'appelle, et où elle vit ;
+            2. qui la trouve en cherchant ;
+            3. qui la cite en répondant.
 
-      <Card>
-        <CardHeader>
-          <CardTitle>GEO — moteurs de réponse</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Field>
-            <FieldLabel htmlFor="geo-summary">Résumé extractible</FieldLabel>
-            <Textarea
-              id="geo-summary"
-              value={geoSummary}
-              maxLength={MAX_GEO_SUMMARY_LENGTH}
-              disabled={!canWrite}
-              onChange={(event) => setGeoSummary(event.target.value)}
-            />
-            <FieldDescription>
-              Ce qu'un moteur de réponse citera tel quel. Deux ou trois
-              phrases factuelles, qui se suffisent hors contexte.
-            </FieldDescription>
-          </Field>
+          « Est-elle en ligne » est la quatrième, et elle n'a pas de
+          section : elle est en haut, à côté du titre, parce que c'est un
+          état et deux actions — pas des champs à remplir.
 
-          <Field>
-            <FieldLabel htmlFor="geo-entities">Entités</FieldLabel>
-            <Input
-              id="geo-entities"
-              value={geoEntities}
-              disabled={!canWrite}
-              maxLength={(MAX_GEO_ENTITY_LENGTH + 2) * MAX_GEO_ENTITIES}
-              placeholder="AstroTan, Convex, Astro"
-              onChange={(event) => setGeoEntities(event.target.value)}
-            />
-            <FieldDescription>
-              Ce dont parle la page, séparé par des virgules — de quoi lever
-              une ambiguïté de nom. {MAX_GEO_ENTITIES} au maximum.
-            </FieldDescription>
-          </Field>
+          Ce que ce découpage NE fait pas : refléter les colonnes de la
+          table. `seo` et `geo` sont deux objets en base, mais ce n'est pas
+          ce qui les sépare ici — ce sont deux publics. Et aucune section ne
+          porte le CONTENU de la page : il vit dans son fichier `.astro`
+          (CLAUDE.md, invariant 5). Cet écran décide qui doit trouver la
+          page, jamais ce qu'elle raconte.
+          -------------------------------------------------------------- */}
 
-          <div className="flex flex-col gap-2">
-            <FieldLabel>Questions / réponses</FieldLabel>
-            <FieldDescription>
-              Émises en JSON-LD <code>FAQPage</code> — le format que les
-              moteurs de réponse citent le plus fidèlement.{" "}
-              {MAX_GEO_FAQ_ITEMS} au maximum.
-            </FieldDescription>
-            <RepeatableItems
-              items={geoFaq}
-              disabled={!canWrite || geoFaq.length >= MAX_GEO_FAQ_ITEMS}
-              addLabel="Ajouter une question"
-              emptyItem={{ question: "", answer: "" }}
-              fields={[
-                { key: "question", label: "Question", max: MAX_GEO_QUESTION_LENGTH },
-                {
-                  key: "answer",
-                  label: "Réponse",
-                  max: MAX_GEO_ANSWER_LENGTH,
-                  multiline: true,
-                },
-              ]}
-              onChange={setGeoFaq}
-            />
-          </div>
+      <Section title="Nom et adresse">
+        <Field>
+          <FieldLabel htmlFor="edit-title">Titre</FieldLabel>
+          <Input
+            id="edit-title"
+            value={title}
+            maxLength={MAX_PAGE_TITLE_LENGTH}
+            disabled={!canWrite}
+            onChange={(event) => setTitle(event.target.value)}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="edit-slug">Slug</FieldLabel>
+          <Input
+            id="edit-slug"
+            value={slug}
+            maxLength={MAX_SLUG_LENGTH}
+            disabled={!canWrite}
+            onChange={(event) => setSlug(event.target.value)}
+          />
+          {/* « Chemin public — sans slash de tête ni de fin. » est parti :
+              `normalizeSlug` retire ces slashs de toute façon, et le chemin
+              servi est écrit en haut de l'écran. La phrase décrivait un
+              refus qui n'existe pas. */}
+        </Field>
+      </Section>
 
-          <Field orientation="horizontal">
-            <Switch
-              id="geo-noai"
-              checked={geoNoai}
-              disabled={!canWrite}
-              onCheckedChange={(checked) => setGeoNoai(checked === true)}
-            />
-            <FieldLabel htmlFor="geo-noai">
-              Interdire la reprise par les IA génératives
-            </FieldLabel>
-          </Field>
-          <FieldDescription>
-            Distinct de <code>noindex</code> : une page peut rester indexable
-            par un moteur de recherche sans que son contenu soit repris par un
-            moteur de réponse.
-          </FieldDescription>
-        </CardContent>
-      </Card>
+      <Section title="Dans les résultats de recherche">
+        <Field>
+          <FieldLabel htmlFor="seo-title">Titre affiché</FieldLabel>
+          <Input
+            id="seo-title"
+            value={seoTitle}
+            maxLength={MAX_SEO_TITLE_LENGTH}
+            disabled={!canWrite}
+            placeholder={page.title}
+            onChange={(event) => setSeoTitle(event.target.value)}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="seo-description">Description</FieldLabel>
+          <Textarea
+            id="seo-description"
+            value={seoDescription}
+            maxLength={MAX_SEO_DESCRIPTION_LENGTH}
+            disabled={!canWrite}
+            onChange={(event) => setSeoDescription(event.target.value)}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="seo-canonical">URL canonique</FieldLabel>
+          <Input
+            id="seo-canonical"
+            value={seoCanonicalUrl}
+            maxLength={MAX_CANONICAL_URL_LENGTH}
+            disabled={!canWrite}
+            placeholder="https://…"
+            onChange={(event) => setSeoCanonicalUrl(event.target.value)}
+          />
+        </Field>
+        <Field orientation="horizontal">
+          <Switch
+            id="seo-noindex"
+            checked={seoNoindex}
+            disabled={!canWrite}
+            onCheckedChange={(checked) => setSeoNoindex(checked === true)}
+          />
+          <FieldLabel htmlFor="seo-noindex">
+            Exclure des moteurs de recherche
+          </FieldLabel>
+        </Field>
+      </Section>
+
+      <Section title="Dans les moteurs de réponse">
+        <Field>
+          {/* Ce que l'étiquette dit maintenant, dix-huit mots l'expliquaient
+              en dessous. « Extractible » ne se lisait pas ; « cité tel
+              quel » dit le même contrat et change ce qu'on tape. */}
+          <FieldLabel htmlFor="geo-summary">Résumé cité tel quel</FieldLabel>
+          <Textarea
+            id="geo-summary"
+            value={geoSummary}
+            maxLength={MAX_GEO_SUMMARY_LENGTH}
+            disabled={!canWrite}
+            onChange={(event) => setGeoSummary(event.target.value)}
+          />
+        </Field>
+
+        <Field>
+          <Compteur
+            label={
+              <FieldLabel htmlFor="geo-entities">
+                Entités, séparées par des virgules
+              </FieldLabel>
+            }
+            valeur={splitEntities(geoEntities).length}
+            max={MAX_GEO_ENTITIES}
+          />
+          <Input
+            id="geo-entities"
+            value={geoEntities}
+            disabled={!canWrite}
+            maxLength={(MAX_GEO_ENTITY_LENGTH + 2) * MAX_GEO_ENTITIES}
+            placeholder="AstroTan, Convex, Astro"
+            onChange={(event) => setGeoEntities(event.target.value)}
+          />
+        </Field>
+
+        <div className="flex flex-col gap-2">
+          <Compteur
+            label={<FieldLabel>Questions / réponses</FieldLabel>}
+            valeur={geoFaq.length}
+            max={MAX_GEO_FAQ_ITEMS}
+          />
+          <RepeatableItems
+            items={geoFaq}
+            disabled={!canWrite || geoFaq.length >= MAX_GEO_FAQ_ITEMS}
+            addLabel="Ajouter une question"
+            emptyItem={{ question: "", answer: "" }}
+            fields={[
+              { key: "question", label: "Question", max: MAX_GEO_QUESTION_LENGTH },
+              {
+                key: "answer",
+                label: "Réponse",
+                max: MAX_GEO_ANSWER_LENGTH,
+                multiline: true,
+              },
+            ]}
+            onChange={setGeoFaq}
+          />
+        </div>
+
+        {/* Les vingt-quatre mots qui distinguaient ceci de `noindex` sont
+            partis avec le mot `noindex` lui-même : les deux interrupteurs
+            vivent désormais dans deux sections qui nomment chacune son
+            public, et la distinction se lit dans le plan de l'écran plutôt
+            que dans un paragraphe sous l'un des deux. */}
+        <Field orientation="horizontal">
+          <Switch
+            id="geo-noai"
+            checked={geoNoai}
+            disabled={!canWrite}
+            onCheckedChange={(checked) => setGeoNoai(checked === true)}
+          />
+          <FieldLabel htmlFor="geo-noai">
+            Interdire la reprise par les IA génératives
+          </FieldLabel>
+        </Field>
+      </Section>
 
       {/* Pas de barre du tout en lecture seule : ni bouton à cliquer, ni
           sauvegarde automatique à déclencher. `pages.update` refuserait de
@@ -520,6 +546,55 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         />
       )}
     </div>
+  )
+}
+
+/**
+ * Une section de l'écran : son cadre et son `h2`.
+ *
+ * `CardTitle` rend un `div` — trois sections titrées par des `div` ne font
+ * pas un plan, elles font trois textes en gras. Le `h1` au-dessus est le
+ * titre de la page ; ces trois-là sont ses sous-titres, et c'est ce qui
+ * permet d'atteindre « Dans les moteurs de réponse » directement, sans
+ * parcourir les champs qui précèdent.
+ */
+/**
+ * Une étiquette et son décompte, sur la même ligne.
+ *
+ * Remplace deux phrases qui disaient « 20 au maximum » : elles se lisaient
+ * une fois puis ne servaient plus, alors que le décompte répond à la seule
+ * question qui se pose ensuite — combien il en reste. La limite est là
+ * aussi, mais à côté d'un nombre qui bouge.
+ */
+function Compteur({
+  label,
+  valeur,
+  max,
+}: {
+  label: ReactNode
+  valeur: number
+  max: number
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      {label}
+      <FieldDescription className="tabular-nums">
+        {valeur} / {max}
+      </FieldDescription>
+    </div>
+  )
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Card>
+      <CardHeader>
+        <h2 className="font-heading text-base leading-snug font-medium">
+          {title}
+        </h2>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">{children}</CardContent>
+    </Card>
   )
 }
 
