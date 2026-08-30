@@ -33,8 +33,6 @@ function etat(nom: string, patch: Partial<SecretEtat> = {}): SecretEtat {
     environnement: false,
     base: false,
     illisible: false,
-    quatreDerniers: null,
-    majAt: null,
     source: "aucune",
     ...patch,
   }
@@ -179,8 +177,6 @@ describe("la précédence, écrite à l'écran", () => {
             OPENROUTER_API_KEY: etat("OPENROUTER_API_KEY", {
               environnement: true,
               base: true,
-              quatreDerniers: "9876",
-              majAt: 1_788_000_000_000,
               source: "environnement",
             }),
           },

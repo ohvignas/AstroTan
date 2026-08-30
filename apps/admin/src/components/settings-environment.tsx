@@ -66,8 +66,6 @@ function etatDe(bloc: SecretsBloc, nom: string): SecretEtat {
       environnement: false,
       base: false,
       illisible: false,
-      quatreDerniers: null,
-      majAt: null,
       source: "aucune",
     }
   )

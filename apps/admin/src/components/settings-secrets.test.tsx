@@ -38,8 +38,6 @@ function etat(patch: Partial<SecretEtat> = {}): SecretEtat {
     environnement: false,
     base: false,
     illisible: false,
-    quatreDerniers: null,
-    majAt: null,
     source: "aucune",
     ...patch,
   }
@@ -69,7 +67,7 @@ function boutonInerte(html: string, libelle: string): boolean {
 
 describe("SecretField", () => {
   test("un jeton posé remplit le champ de points, jamais d'une valeur", () => {
-    const html = champ({ base: true, quatreDerniers: "9876", source: "base" })
+    const html = champ({ base: true, source: "base" })
     expect(html).toContain('type="password"')
     expect(html).toContain(`value="${MASQUE}"`)
     // Le masque, et aucune autre valeur : la seule façon d'afficher un
@@ -128,12 +126,53 @@ describe("SecretField", () => {
     expect(boutonInerte(champ(), "Enregistrer")).toBe(true)
   })
 
-  test("les quatre derniers caractères, et rien de plus, identifient le jeton posé", () => {
-    // La question fréquente à laquelle ce fragment répond : « celle qui est
-    // posée est-elle bien celle de mon gestionnaire de mots de passe ? »
-    const html = champ({ base: true, quatreDerniers: "9876", source: "base" })
-    expect(html).toContain("9876")
-    expect(html).toContain("Saisi ici, chiffré")
+  test("la ligne ne porte plus ni pastille « saisi ici », ni fragment, ni date", () => {
+    // Les points disent qu'un jeton est posé — la pastille le redisait.
+    // Le fragment était quatre caractères du secret, et la date répondait
+    // à une question que personne ne se pose devant ce champ. L'état est
+    // à nouveau pollué : si l'un des trois revenait, ce test rougirait.
+    const pollue = {
+      ...etat({ base: true, source: "base" }),
+      quatreDerniers: "9876",
+      majAt: 1_788_000_000_000,
+    } as unknown as SecretEtat
+    const html = renderToStaticMarkup(
+      <SecretField
+        etat={pollue}
+        disabled={false}
+        onSave={async () => {}}
+        onClear={async () => {}}
+      />
+    )
+    expect(html).not.toContain("Saisi ici")
+    expect(html).not.toContain("9876")
+    expect(html).not.toMatch(/saisi le/)
+  })
+
+  test("les pastilles qui restent disent ce que les points ne disent pas", () => {
+    // « Saisi ici, chiffré » doublait les points. Les trois autres, non :
+    // aucun point ne s'affiche pour une variable d'environnement (elle
+    // n'est pas en base), ni pour un jeton absent, et « Illisible » est
+    // un état d'erreur que rien d'autre ne porte.
+    expect(champ({ environnement: true, source: "environnement" })).toContain(
+      "Environnement"
+    )
+    expect(champ()).toContain("Absent")
+    expect(champ({ base: true, illisible: true, source: "aucune" })).toContain(
+      "Illisible"
+    )
+  })
+
+  test("l'état d'un jeton ne porte aucune chaîne, hormis son nom", () => {
+    // Ce que la query rend est un ÉTAT, pas une valeur ni un morceau de
+    // valeur. `quatreDerniers` en était un morceau : quatre caractères du
+    // secret, qui traversaient le réseau pour être affichés. `source` est
+    // une énumération de trois littéraux, pas une donnée. Ce test rougit
+    // si une chaîne de plus entre dans `SecretEtat`.
+    const chaines = Object.entries(etat({ base: true, source: "base" }))
+      .filter(([, valeur]) => typeof valeur === "string")
+      .map(([nomDuChamp]) => nomDuChamp)
+    expect(chaines).toEqual(["nom", "source"])
   })
 
   test("« Retirer de la base » n'apparaît que s'il y a quelque chose à retirer", () => {

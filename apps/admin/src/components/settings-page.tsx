@@ -141,11 +141,17 @@ export function SettingsFormShell({
  * portent — un seul appel plutôt que deux, parce qu'aucune de ces pages
  * n'a de raison de connaître l'un sans l'autre.
  *
- * `secrets.status` est réservée à owner/admin (elle rend les quatre
- * derniers caractères, qui sont un fragment de secret), d'où le `"skip"`
- * pour un editor et le `cleMaitresse: null` qui en découle : les pages
- * affichent alors une phrase à la place des champs, plutôt qu'un cadre
- * vide.
+ * `secrets.status` est réservée à owner/admin — savoir quelles clés sont
+ * posées, lesquelles manquent et laquelle est illisible dessine l'état de
+ * sécurité du déploiement — d'où le `"skip"` pour un editor et le
+ * `cleMaitresse: null` qui en découle : les pages affichent alors une
+ * phrase à la place des champs, plutôt qu'un cadre vide.
+ *
+ * Elle rend encore `quatreDerniers` et `majAt`, que plus personne
+ * n'affiche : `SecretEtat` ne les déclare plus, et les quatre derniers
+ * caractères d'une clé sont un fragment de secret qui n'a plus de raison
+ * de traverser le réseau. Les retirer de la query est un changement de
+ * backend, à faire là-bas.
  *
  * `useAction` et non `useMutation` pour l'écriture, et ce n'est pas une
  * préférence : AES-GCM exige un IV aléatoire à chaque chiffrement, or

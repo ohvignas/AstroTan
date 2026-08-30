@@ -45,10 +45,21 @@ export interface SecretEtat {
   base: boolean
   /** La ligne existe mais ne se déchiffre plus — la clé maîtresse a changé. */
   illisible: boolean
-  quatreDerniers: string | null
-  majAt: number | null
   source: SecretSource
 }
+
+// `quatreDerniers` et `majAt` VIVAIENT ICI, et n'y sont plus. Ils
+// n'existaient que pour trois mentions affichées à côté du nom — une
+// pastille « Saisi ici, chiffré », un fragment « …9876 », une date de
+// saisie — que les points du champ rendent inutiles ou qui ne
+// répondaient à aucune question posée devant ce champ.
+//
+// `quatreDerniers` est un MORCEAU DE SECRET : quatre caractères de la
+// clé, déchiffrés côté serveur, sérialisés, envoyés au navigateur. Une
+// donnée qu'on cesse d'afficher n'a plus de raison de traverser le
+// réseau. `secrets.status` les rend encore tous les deux ; les retirer
+// de la query est un changement de backend, hors du périmètre de ce
+// commit, et il est signalé dans le rapport.
 
 export type CleMaitresseEtat = "posee" | "absente" | "illisible"
 
@@ -111,13 +122,6 @@ export function Command({ children }: { children: string }) {
 export const SECRETS_KEY_COMMANDE =
   'cd packages/backend && npx convex env set SECRETS_KEY "$(openssl rand -base64 32)"'
 
-function formatDate(at: number): string {
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(at))
-}
-
 /**
  * L'état de la clé maîtresse, en tête de chaque page qui porte des jetons.
  *
@@ -154,12 +158,20 @@ export function CleMaitresseBandeau({ etat }: { etat: CleMaitresseEtat }) {
   )
 }
 
-const BADGE: Record<SecretSource, { texte: string; variant: "secondary" | "destructive" | "outline" }> =
-  {
-    environnement: { texte: "Environnement", variant: "secondary" },
-    base: { texte: "Saisi ici, chiffré", variant: "secondary" },
-    aucune: { texte: "Absent", variant: "destructive" },
-  }
+/**
+ * D'où vient la valeur qui sert — quand ce n'est pas de ce champ-ci.
+ *
+ * `base` n'y figure plus : les points du champ le disent déjà, et deux
+ * façons de dire la même chose sur la même ligne se lisent deux fois pour
+ * n'apprendre qu'une chose.
+ */
+const BADGE: Record<
+  Exclude<SecretSource, "base">,
+  { texte: string; variant: "secondary" | "destructive" | "outline" }
+> = {
+  environnement: { texte: "Environnement", variant: "secondary" },
+  aucune: { texte: "Absent", variant: "destructive" },
+}
 
 /**
  * Une ligne : l'état d'un jeton, et de quoi le poser ou le retirer.
@@ -193,7 +205,7 @@ export function SecretField({
   const [valeur, setValeur] = useState(etat.base ? MASQUE : "")
   const [etatAppel, setEtatAppel] = useState<"repos" | "envoi" | "fait">("repos")
   const [erreur, setErreur] = useState<string | null>(null)
-  const badge = BADGE[etat.source]
+  const badge = etat.source === "base" ? null : BADGE[etat.source]
   const champId = `secret-${etat.nom}`
   const geste = gesteDuChamp(valeur, etat.base)
 
@@ -214,19 +226,11 @@ export function SecretField({
     <div className="flex flex-col gap-2 border-l-2 border-border pl-3">
       <div className="flex flex-wrap items-center gap-2">
         <code className="text-xs font-medium">{etat.nom}</code>
-        <Badge variant={etat.illisible ? "destructive" : badge.variant}>
-          {etat.illisible ? "Illisible" : badge.texte}
-        </Badge>
-        {etat.quatreDerniers ? (
-          <code className="text-xs text-muted-foreground">
-            …{etat.quatreDerniers}
-          </code>
-        ) : null}
-        {etat.majAt !== null ? (
-          <span className="text-xs text-muted-foreground">
-            saisi le {formatDate(etat.majAt)}
-          </span>
-        ) : null}
+        {etat.illisible ? (
+          <Badge variant="destructive">Illisible</Badge>
+        ) : badge === null ? null : (
+          <Badge variant={badge.variant}>{badge.texte}</Badge>
+        )}
       </div>
 
       {children ? (
@@ -345,9 +349,10 @@ export function SecretHorsPortee({
 /**
  * Ce qu'un editor voit à la place des champs.
  *
- * `secrets.status` est réservée à owner/admin — elle rend les quatre
- * derniers caractères, qui sont un fragment de secret. Plutôt qu'une carte
- * vide, une phrase qui dit pourquoi.
+ * `secrets.status` est réservée à owner/admin : savoir quelles clés sont
+ * posées, lesquelles manquent et laquelle est illisible dessine l'état de
+ * sécurité du déploiement, et l'écriture est de toute façon réservée aux
+ * deux mêmes rôles. Plutôt qu'une carte vide, une phrase qui dit pourquoi.
  */
 export function SecretsReserves() {
   return (
