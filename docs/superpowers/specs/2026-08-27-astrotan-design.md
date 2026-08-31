@@ -6,13 +6,13 @@
 ## 1. Objectif
 
 Template réutilisable pour livrer un site vitrine et son back-office de gestion de
-contenu. Première instance : `illith.com` / `admin.illith.com`.
+contenu. Le template n'a pas d'instance canonique : chaque adoptant pointe ses propres domaines.
 
 Deux applications, un backend partagé :
 
 | | Site public | Dashboard |
 |---|---|---|
-| Domaine | `illith.com` | `admin.illith.com` |
+| Domaine (exemples) | `exemple.fr` | `admin.exemple.fr` |
 | Framework | Astro 7 | TanStack Start 1 |
 | Rendu | SSG + SSR sélectif avec cache | SPA/SSR authentifié |
 | Auth | **aucune** | Better Auth |
@@ -24,7 +24,7 @@ deux apps : Docker sur VPS Hostinger derrière Traefik.
 ## 2. Périmètre
 
 **Dans la v1** : pages en Markdown avec leurs réglages SEO/GEO, blog,
-brouillon/publié + preview, médias, JSON-LD, navigation header/footer, slugs et
+brouillon/publié + preview, médias, JSON-LD, navigation header/footer en code, slugs et
 redirections 301, utilisateurs et rôles, statistiques par page (Umami).
 
 **Hors v1** : multilingue, révisions/historique, page-builder drag & drop,
@@ -72,12 +72,13 @@ Tables applicatives :
 | `posts` | `slug`, `title`, `excerpt`, `coverId`, `body` (Markdown), `status`, `seo`, `geo`, `publishedAt`, `createdBy`, `updatedBy`, `tagIds[]` | `by_slug`, `by_status_published`, `by_created_by` |
 | `tags` | `name`, `slug` | `by_slug` |
 | `media` | `storageId`, `filename`, `mime`, `width`, `height`, `alt`, `size` | `by_creation` |
-| `navigation` | `key: "header" \| "footer"`, `items[]` (2 niveaux max) | `by_key` |
 | `redirects` | `from`, `to`, `code: 301 \| 302`, `enabled` | `by_from` |
 | `settings` | singleton : `siteName`, `defaultSeo`, `socials`, `logoId` | — |
 | `profiles` | `authUserId: string`, `displayName`, `avatarId` — **sans champ `role`** | `by_auth_user` |
 | `invitations` | `email`, `role`, `tokenHash`, `expiresAt`, `invitedBy`, `acceptedAt` | `by_token_hash`, `by_email` |
 | `revalidationOutbox` | cf. §6.2 | `by_status_next_attempt` |
+
+`navigation` : retirée au lot 4 — le menu n'est plus une table CMS.
 
 `createdBy` et `updatedBy` sont des `v.string()` contenant l'id de l'utilisateur
 Better Auth. Ce ne sont pas des `v.id()` : les tables Better Auth vivent dans un
@@ -170,7 +171,7 @@ Côté admin : `auth-client.ts` (plugin `convexClient()`), `auth-server.ts`
 (`convexBetterAuthReactStart()`), route proxy `src/routes/api/auth/$.ts`.
 
 Le serveur Better Auth tourne dans Convex ; l'admin le proxifie, donc les cookies
-de session restent same-origin sur `admin.illith.com`. Aucun cookie cross-site.
+de session restent same-origin sur le domaine de l'admin (ex. `admin.exemple.fr`). Aucun cookie cross-site.
 
 `profiles` ne porte que des champs applicatifs (`displayName`, `avatarId`) et
 **jamais** le rôle. Le typage exact des références d'id à travers la frontière du
@@ -180,11 +181,13 @@ composant local est à confirmer pendant le spike (§9).
 
 Trois rôles définis via `createAccessControl()` :
 
-| | pages/posts | publier | médias | navigation · redirections · settings | utilisateurs |
+| | pages/posts | publier | médias | redirections · settings | utilisateurs |
 |---|---|---|---|---|---|
 | `editor` | CRUD si `createdBy` = lui, lecture des autres | ✗ | upload | lecture | ✗ |
 | `admin` | CRUD tout | ✓ | CRUD | CRUD | inviter/éditer `editor` |
 | `owner` | CRUD tout | ✓ | CRUD | CRUD | tout, y compris `admin` |
+
+La table `navigation` a été retirée au lot 4 : header et footer vivent dans le balisage, en code.
 
 ### Application des permissions
 
@@ -297,7 +300,7 @@ imposera un provider partagé (Redis via la Cache Provider API).
 
 1. Le dashboard demande un token à une action Convex : HMAC-SHA256 de
    `{type}:{id}:{exp}` avec `PREVIEW_SECRET`, expiration 15 minutes. Ouvre
-   `https://illith.com/preview/{type}/{id}?t={token}`.
+   `https://exemple.fr/<slug>?t={token}`.
 2. Astro vérifie HMAC et expiration avant tout appel réseau.
 3. Astro appelle `previewPage({ id, token })` — **famille de fonctions distincte**
    des queries publiques — qui **revérifie le HMAC côté Convex**.
@@ -322,7 +325,7 @@ saisie plutôt que découverte en production.
 
 ### 6.5 Navigation et SEO
 
-`navigation` (header/footer, 2 niveaux) lu dans le layout, tag `navigation`. Champs
+Header et footer sont du balisage dans `Header.astro` / `Footer.astro` / `config/nav.ts`. Pas de table `navigation`. Champs
 SEO par page (`title`, `description`, `ogImage`, `canonical`, `noindex`), JSON-LD
 `Organization` global et `Article` sur les posts, `sitemap.xml` généré depuis
 Convex, `robots.txt` statique.
@@ -342,7 +345,7 @@ runtime minimal, utilisateur non-root.
   wrapper.
 
 `docker-compose.yml` : Traefik v3 (80/443, résolveur ACME Let's Encrypt), `web` sur
-`Host(illith.com)`, `admin` sur `Host(admin.illith.com)`, réseau interne,
+`Host(<WEB_DOMAIN>)`, `admin` sur `Host(<ADMIN_DOMAIN>)`, réseau interne,
 `restart: unless-stopped`, healthchecks HTTP. Pas de conteneur base de données.
 
 ### Pipeline
