@@ -118,10 +118,9 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
   },
   {
     to: "/settings/mesure",
-    label: "Mesure & pixels",
-    title: "Mesure et pixels",
-    description:
-      "Ce que le site compte sans rien demander, ce qui attend l'accord du visiteur, et les identifiants avec lesquels le dashboard lit les chiffres.",
+    label: "SEO & Pixel",
+    title: "SEO & Pixel",
+    description: "",
   },
   {
     to: "/settings/ia",

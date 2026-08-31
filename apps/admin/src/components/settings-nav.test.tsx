@@ -41,6 +41,14 @@ describe("SETTINGS_PAGES", () => {
     expect(new Set(paths).size).toBe(paths.length)
   })
 
+  test("la page mesure s'appelle SEO & Pixel", () => {
+    expect(SETTINGS_PAGES.find((p) => p.to === "/settings/mesure")).toMatchObject({
+      label: "SEO & Pixel",
+      title: "SEO & Pixel",
+      description: "",
+    })
+  })
+
   test("le titre de page commence par le libellé du menu", () => {
     // L'orientation, et c'est le reproche auquel tout ce découpage
     // répond : on doit pouvoir relier d'un coup d'œil l'entrée cliquée et
@@ -48,12 +56,14 @@ describe("SETTINGS_PAGES", () => {
     // croire qu'on a atterri ailleurs.
     //
     // La conjonction est normalisée : le menu écrit « Domaine & DNS »
-    // faute de largeur, le titre « Domaine et DNS ».
+    // faute de largeur, le titre « Domaine et DNS ». Un libellé et un
+    // titre identiques (« SEO & Pixel ») restent acceptés tels quels.
     for (const page of SETTINGS_PAGES) {
-      const label = page.label.replace(" & ", " et ")
-      expect(page.title.startsWith(label), `${page.title} / ${page.label}`).toBe(
-        true
-      )
+      const formes = [page.label, page.label.replace(" & ", " et ")]
+      expect(
+        formes.some((forme) => page.title.startsWith(forme)),
+        `${page.title} / ${page.label}`
+      ).toBe(true)
     }
   })
 })
