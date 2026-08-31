@@ -105,6 +105,19 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
       "De la mécanique de cache : des pointeurs vers des pages à réinvalider " +
       "et un compteur de tentatives. Aucun auteur, aucun destinataire.",
   },
+  seoRanks: {
+    exempt:
+      "Rang d'un mot-clé cible choisi par l'opérateur. Aucun visiteur, " +
+      "aucun cookie, aucune donnée qui désigne quelqu'un.",
+  },
+  seoSiteKeywords: {
+    exempt:
+      "Snapshot Labs des mots-clés du domaine. Contenu d'opérateur, pas un visiteur.",
+  },
+  seoSiteBacklinks: {
+    exempt:
+      "Compteurs de backlinks du domaine. Singleton site, aucun auteur.",
+  },
   jwks: {
     exempt:
       "Les clés de signature des jetons Better Auth. Du matériel " +

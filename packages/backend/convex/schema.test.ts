@@ -28,6 +28,25 @@ test("le schéma de profils ne déclare pas de champ role — il vit sur l'utili
 // The other half of the same claim: a document that *does* carry `role`
 // is rejected outright by Convex's own schema validation, not silently
 // accepted with the extra field ignored.
+test("pages et posts déclarent targetKeyword ; settings déclare le lieu SERP", () => {
+  expect(Object.keys(schema.tables.pages.validator.fields)).toContain("targetKeyword")
+  expect(Object.keys(schema.tables.posts.validator.fields)).toContain("targetKeyword")
+  expect(Object.keys(schema.tables.settings.validator.fields)).toContain(
+    "serpLocationCode",
+  )
+  expect(Object.keys(schema.tables.settings.validator.fields)).toContain(
+    "serpLanguageCode",
+  )
+})
+
+test("les trois tables DataForSEO existent avec leurs index", () => {
+  expect(schema.tables.seoRanks).toBeDefined()
+  expect(schema.tables.seoSiteKeywords).toBeDefined()
+  expect(schema.tables.seoSiteBacklinks).toBeDefined()
+  const indexNames = schema.tables.seoRanks.indexes.map((idx) => idx.indexDescriptor)
+  expect(indexNames).toEqual(expect.arrayContaining(["by_page", "by_post"]))
+})
+
 test("le schéma refuse un document profils portant un champ role", async () => {
   const t = convexTest(schema, modules)
   await expect(

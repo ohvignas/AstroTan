@@ -83,6 +83,8 @@ async function semerLaLigneEntiere(t: TestConvex<typeof appSchema>) {
       previousDomains: [{ host: "sentinelle-sortant.exemple.fr", since: 1_700_000_000_000 }],
       metaPixelId: "123456789012345",
       googleTagId: "AW-999",
+      serpLocationCode: 2250,
+      serpLanguageCode: "fr",
     }
     await ctx.db.insert("settings", ligne)
     return ligne

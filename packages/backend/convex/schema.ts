@@ -93,6 +93,9 @@ export default defineSchema({
     // Generative Engine Optimization: the abstract, FAQ and entities an
     // answer engine needs to quote the page rather than paraphrase it.
     geo: v.optional(geoValidator),
+    // Mot-clé cible pour le relevé DataForSEO. Frère de `seo`, jamais
+    // dedans : `seo` est projeté tel quel vers le site public.
+    targetKeyword: v.optional(v.string()),
     publishedAt: v.optional(v.number()),
     // `v.string()`, not `v.id()`: both hold a Better Auth user id, and
     // Better Auth's tables live in a Convex *component* (Local Install,
@@ -121,6 +124,7 @@ export default defineSchema({
     status: pageStatusValidator,
     seo: v.optional(seoValidator),
     geo: v.optional(geoValidator),
+    targetKeyword: v.optional(v.string()),
     publishedAt: v.optional(v.number()),
     tagIds: v.array(v.id("tags")),
     createdBy: v.string(),
@@ -153,6 +157,8 @@ export default defineSchema({
   leads: defineTable({
     name: v.string(),
     email: v.string(),
+    // Expand : facultatif, pour que les fiches déjà en base restent valides.
+    phone: v.optional(v.string()),
     status: leadStatusValidator,
     // Quand cette personne a écrit pour la dernière fois. Distinct de
     // `_creationTime`, qui date sa première venue : c'est le récent qui
@@ -401,6 +407,11 @@ export default defineSchema({
     // distinct de l'absence (`undefined`) qui laisse le fallback PUBLIC_*.
     metaPixelId: v.optional(v.string()),
     googleTagId: v.optional(v.string()),
+
+    // Lieu du crawl SERP. Pas un secret, pas public non plus — `getPrivate`
+    // seulement. L'absence vaut Google France (2250 / "fr").
+    serpLocationCode: v.optional(v.number()),
+    serpLanguageCode: v.optional(v.string()),
   }),
 
   // Les jetons saisis depuis l'écran des réglages — CHIFFRÉS, jamais en
@@ -567,4 +578,44 @@ export default defineSchema({
     .index("by_post_created_at", ["postId", "createdAt"])
     .index("by_status_next_attempt", ["status", "nextAttemptAt"])
     .index("by_page_created_at", ["pageId", "createdAt"]),
+
+  // Dernier relevé SERP d'une page ou d'un article. Pas d'historique au-delà
+  // du couple courant / précédent — la fiche n'a pas de courbe de rang.
+  seoRanks: defineTable({
+    kind: v.union(v.literal("page"), v.literal("post")),
+    pageId: v.optional(v.id("pages")),
+    postId: v.optional(v.id("posts")),
+    keyword: v.string(),
+    url: v.string(),
+    position: v.optional(v.number()),
+    previousPosition: v.optional(v.number()),
+    rankedUrl: v.optional(v.string()),
+    status: v.union(
+      v.literal("ranked"),
+      v.literal("out_of_top_100"),
+      v.literal("other_url"),
+    ),
+    fetchedAt: v.number(),
+    previousFetchedAt: v.optional(v.number()),
+  })
+    .index("by_page", ["pageId"])
+    .index("by_post", ["postId"]),
+
+  // Snapshot Labs, remplacé à chaque tirage hebdomadaire. Plafond 50 ;
+  // l'écran n'en montre que 5.
+  seoSiteKeywords: defineTable({
+    keyword: v.string(),
+    position: v.number(),
+    url: v.string(),
+    fetchedAt: v.number(),
+  }).index("by_fetched_at", ["fetchedAt"]),
+
+  // Singleton : une ligne, ou aucune. Overview backlinks du domaine.
+  seoSiteBacklinks: defineTable({
+    backlinks: v.number(),
+    referringDomains: v.number(),
+    backlinksPrev: v.optional(v.number()),
+    referringDomainsPrev: v.optional(v.number()),
+    fetchedAt: v.number(),
+  }),
 })
