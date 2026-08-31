@@ -120,8 +120,18 @@ test("rend les vues et visiteurs sur 7 et 30 jours, filtrés par chemin", async 
     path: "/blog/bienvenue",
   })
   expect(result.status).toBe("ok")
-  expect(result.last7).toEqual({ pageviews: 42, visitors: 7 })
-  expect(result.last30).toEqual({ pageviews: 42, visitors: 7 })
+  expect(result.last7).toEqual({
+    pageviews: 42,
+    visitors: 7,
+    pageviewsPrev: null,
+    visitorsPrev: null,
+  })
+  expect(result.last30).toEqual({
+    pageviews: 42,
+    visitors: 7,
+    pageviewsPrev: null,
+    visitorsPrev: null,
+  })
 
   // Le filtre s'appelle `path`. Umami 3 accepte `url` et l'IGNORE : la
   // réponse est alors celle du site entier, présentée comme celle de la
@@ -130,6 +140,37 @@ test("rend les vues et visiteurs sur 7 et 30 jours, filtrés par chemin", async 
   expect(statsCalls).toHaveLength(2)
   expect(statsCalls[0]).toContain(`path=${encodeURIComponent("/blog/bienvenue")}`)
   expect(statsCalls[0]).not.toContain("url=")
+  expect(statsCalls[0]).toContain("compare=prev")
+})
+
+test("forPath mappe comparison vers pageviewsPrev et visitorsPrev", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      if (String(url).includes("/api/auth/login")) {
+        return { ok: true, status: 200, json: async () => ({ token: "jeton" }) }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pageviews: 10,
+          visitors: 4,
+          comparison: { pageviews: 8, visitors: 3 },
+        }),
+      }
+    }),
+  )
+  const result = await editor.identity.action(api.analytics.forPath, { path: "/" })
+  expect(result.last7).toEqual({
+    pageviews: 10,
+    visitors: 4,
+    pageviewsPrev: 8,
+    visitorsPrev: 3,
+  })
 })
 
 test("le jeton est réutilisé plutôt que redemandé à chaque appel", async () => {

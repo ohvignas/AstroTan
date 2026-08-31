@@ -29,6 +29,8 @@ import {
 interface Stats {
   pageviews: number
   visitors: number
+  pageviewsPrev: number | null
+  visitorsPrev: number | null
 }
 
 export interface AnalyticsResult {
@@ -76,6 +78,7 @@ async function fetchStats(
     // panel showing the entire site's figures would have looked perfectly
     // plausible and been wrong on every page.
     path,
+    compare: "prev",
   })
 
   const response = await fetch(
@@ -94,6 +97,10 @@ async function fetchStats(
     stats: {
       pageviews: body.pageviews ?? 0,
       visitors: body.visitors ?? 0,
+      pageviewsPrev:
+        body.comparison?.pageviews === undefined ? null : body.comparison.pageviews,
+      visitorsPrev:
+        body.comparison?.visitors === undefined ? null : body.comparison.visitors,
     },
     unauthorized: false,
   }
