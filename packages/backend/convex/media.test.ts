@@ -433,6 +433,19 @@ test("un editor ne peut remplacer que le fichier de ses propres médias", async 
   ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } })
 })
 
+test("un editor ne peut mettre à jour que ses propres médias", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const foreign = await owner.identity.mutation(api.media.register, {
+    ...VALID,
+    storageId: await storeBlob(t),
+  })
+  const editor = await seedActor(t, "editor")
+  await expect(
+    editor.identity.mutation(api.media.update, { id: foreign, alt: "volé" }),
+  ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } })
+})
+
 test("remove refuse un média utilisé comme couverture d'article", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")

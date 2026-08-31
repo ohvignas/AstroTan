@@ -196,9 +196,10 @@ export const update = mutation({
     alt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["owner", "admin", "editor"])
+    const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
     const row = await ctx.db.get(args.id)
     if (!row) throw new ConvexError({ code: "NOT_FOUND" })
+    requireOwnDocument(authUser, row)
 
     const patch: { filename?: string; alt?: string } = {}
     if (args.alt !== undefined) patch.alt = assertAlt(args.alt)

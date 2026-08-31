@@ -61,17 +61,21 @@ async function discoverPublicQueries(): Promise<DiscoveredQuery[]> {
   return found
 }
 
-function assertNoDraftLeak(result: unknown, draftId: string, label: string) {
+function assertNoDraftLeak(result: unknown, draftIds: string[], label: string) {
   if (result === null || result === undefined) return
   if (Array.isArray(result)) {
-    const leaked = result.some((item) => (item as { _id?: unknown })?._id === draftId)
-    expect(leaked, `${label} returned the draft page inside a list`).toBe(false)
+    const leaked = result.some((item) =>
+      draftIds.some((id) => (item as { _id?: unknown })?._id === id),
+    )
+    expect(leaked, `${label} returned a draft inside a list`).toBe(false)
     return
   }
   if (typeof result === "object" && result !== null && "_id" in (result as Record<string, unknown>)) {
-    expect((result as { _id?: unknown })._id, `${label} returned the draft page directly`).not.toBe(
-      draftId,
-    )
+    const id = (result as { _id?: unknown })._id
+    expect(
+      draftIds.some((draftId) => id === draftId),
+      `${label} returned a draft directly`,
+    ).toBe(false)
     return
   }
   throw new Error(
@@ -115,19 +119,35 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
       updatedBy: "user_1",
     }),
   )
+  const draftPostId = await t.run((ctx) =>
+    ctx.db.insert("posts", {
+      slug: "article-confidentiel",
+      title: "Article confidentiel",
+      body: "<p>secret</p>",
+      status: "draft",
+      tagIds: [],
+      createdBy: "user_1",
+      updatedBy: "user_1",
+    }),
+  )
 
-  // M6 (whole-lot review): of the eight public (no-token) queries this
-  // scan discovers today, six are session-gated (`requireRole`) and throw
+  // M6 (whole-lot review): of the public (no-token) queries this scan
+  // discovers today, most are session-gated (`requireRole`) and throw
   // for the unauthenticated caller this loop always is — landing in the
   // blanket `catch { continue }` below and never reaching
-  // `assertNoDraftLeak` at all. Only these two actually run to
+  // `assertNoDraftLeak` at all. Only these four actually run to
   // completion unauthenticated. `expect(checked).toBeGreaterThan(0)`
-  // alone would still pass if one of these two were lost (a regression
-  // that made `getPublishedPage` newly session-gated, say) as long as the
-  // other kept running — this list is what turns "at least one query was
-  // checked" into "specifically the two queries this test actually knows
-  // how to exercise unauthenticated were checked."
-  const KNOWN_UNGATED_PUBLIC_QUERIES = ["pages.getPublishedPage", "pages.listPublishedPages"]
+  // alone would still pass if one of these four were lost (a regression
+  // that made `getPublishedPage` newly session-gated, say) as long as
+  // another kept running — this list is what turns "at least one query
+  // was checked" into "specifically the four queries this test actually
+  // knows how to exercise unauthenticated were checked."
+  const KNOWN_UNGATED_PUBLIC_QUERIES = [
+    "pages.getPublishedPage",
+    "pages.listPublishedPages",
+    "posts.getPublishedPost",
+    "posts.listPublishedPosts",
+  ]
 
   let checked = 0
   const checkedNames: string[] = []
@@ -149,7 +169,9 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
     if (q.argFields.length === 0) {
       args = {}
     } else if (q.argFields.length === 1 && q.argFields[0] === "slug") {
-      args = { slug: "brouillon-confidentiel" }
+      args = {
+        slug: q.file === "posts" ? "article-confidentiel" : "brouillon-confidentiel",
+      }
     } else if (q.argFields.length === 1 && q.argFields[0] === "storageId") {
       // `media.byStorageId` (Lot 3, Task 1) : session-gated comme
       // `pages.get` juste en dessous, donc l'appel non authentifié de cette
@@ -256,7 +278,7 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
     }
     checked += 1
     checkedNames.push(`${q.file}.${q.name}`)
-    assertNoDraftLeak(result, draftId, `${q.file}.${q.name}`)
+    assertNoDraftLeak(result, [draftId, draftPostId], `${q.file}.${q.name}`)
   }
 
   // Printed unconditionally (not just on failure) — a skip is expected
@@ -274,7 +296,7 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
   expect(checked).toBeGreaterThan(0)
   // `arrayContaining`, not exact equality: a future Lot that adds another
   // genuinely-ungated public query should extend `checkedNames`, not
-  // force an edit here — but losing either of these two specific,
+  // force an edit here — but losing any of these four specific,
   // already-known-ungated queries must fail this test by name, not just
   // by a falling count some other addition could mask.
   expect(checkedNames).toEqual(expect.arrayContaining(KNOWN_UNGATED_PUBLIC_QUERIES))
