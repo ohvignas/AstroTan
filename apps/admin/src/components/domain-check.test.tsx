@@ -65,7 +65,7 @@ const INDISPONIBLE: Verdict = { ...PLAN_DMARC, trouve: [], etat: "indisponible" 
  * `<wbr>` part À VIDE et non remplacé par une espace : c'est un point de
  * coupure sans largeur — il n'ajoute rien à l'œil, ni au copier-coller
  * (voir `NomDns`). Le remplacer par une espace ferait croire à ces tests
- * qu'un nom DNS s'écrit `resend. _domainkey. illith.com`.
+ * qu'un nom DNS s'écrit `resend. _domainkey. exemple.fr`.
  */
 function texte(html: string): string {
   return html

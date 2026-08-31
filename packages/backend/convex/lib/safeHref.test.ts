@@ -10,9 +10,9 @@ describe("ce qui est accepté", () => {
     "/tarifs",
     "/blog/mon-article",
     "/",
-    "https://illith.com/page",
+    "https://exemple.fr/page",
     "http://exemple.test",
-    "mailto:contact@illith.com",
+    "mailto:contact@exemple.fr",
     "tel:+33100000000",
   ])("%s", (value) => {
     expect(isSafeHref(value)).toBe(true)

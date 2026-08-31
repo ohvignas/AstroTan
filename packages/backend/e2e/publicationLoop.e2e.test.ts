@@ -18,8 +18,8 @@ import type { Id } from "../convex/_generated/dataModel"
 // `astro dev` on 4321 with `PREVIEW_SECRET`/`REVALIDATE_SECRET` exported
 // in *its own* shell (Task 7's documented wrinkle — this test process
 // never needs either secret itself, it only calls public HTTP endpoints).
-// Seeded local accounts (CLAUDE.md): `owner@illith.test` (owner),
-// `adminB@illith.test` (editor) — never real credentials, never used
+// Seeded local accounts (CLAUDE.md): `owner@exemple.test` (owner),
+// `adminB@exemple.test` (editor) — never real credentials, never used
 // against anything but 127.0.0.1/localhost. Override via
 // `E2E_CONVEX_URL`/`E2E_CONVEX_SITE_URL`/`E2E_WEB_URL`/`E2E_OWNER_EMAIL`/
 // `E2E_OWNER_PASSWORD`/`E2E_EDITOR_EMAIL`/`E2E_EDITOR_PASSWORD` for a
@@ -51,9 +51,9 @@ const CONVEX_URL = process.env.E2E_CONVEX_URL ?? "http://127.0.0.1:3210"
 const CONVEX_SITE_URL = process.env.E2E_CONVEX_SITE_URL ?? "http://127.0.0.1:3211"
 const WEB_URL = process.env.E2E_WEB_URL ?? "http://localhost:4321"
 
-const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL ?? "owner@illith.test"
+const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL ?? "owner@exemple.test"
 const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? "astrotan-local-dev-2026"
-const EDITOR_EMAIL = process.env.E2E_EDITOR_EMAIL ?? "adminB@illith.test"
+const EDITOR_EMAIL = process.env.E2E_EDITOR_EMAIL ?? "adminB@exemple.test"
 const EDITOR_PASSWORD = process.env.E2E_EDITOR_PASSWORD ?? "verif-nocturne-2026"
 
 // Better Auth's `sign-in/email` endpoint accepts any `Origin` locally;

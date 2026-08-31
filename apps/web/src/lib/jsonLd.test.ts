@@ -7,7 +7,7 @@ import {
   serializeJsonLd,
 } from "./jsonLd"
 
-const SITE = { siteName: "Illith", logoUrl: "https://illith.com/logo.png", socials: [] }
+const SITE = { siteName: "Exemple", logoUrl: "https://exemple.fr/logo.png", socials: [] }
 
 // ---------------------------------------------------------------------
 // L'injection, en premier
@@ -42,19 +42,19 @@ describe("sérialisation", () => {
 describe("organizationJsonLd", () => {
   test("porte le nom, le logo et les réseaux en sameAs", () => {
     const ld = organizationJsonLd(
-      { ...SITE, socials: [{ label: "LinkedIn", url: "https://linkedin.com/company/illith" }] },
-      "https://illith.com",
+      { ...SITE, socials: [{ label: "LinkedIn", url: "https://linkedin.com/company/exemple" }] },
+      "https://exemple.fr",
     )
     expect(ld["@type"]).toBe("Organization")
-    expect(ld!.name).toBe("Illith")
-    expect(ld!.logo).toBe("https://illith.com/logo.png")
-    expect(ld!.sameAs).toEqual(["https://linkedin.com/company/illith"])
+    expect(ld!.name).toBe("Exemple")
+    expect(ld!.logo).toBe("https://exemple.fr/logo.png")
+    expect(ld!.sameAs).toEqual(["https://linkedin.com/company/exemple"])
   })
 
   test("omet les champs absents plutôt que de les rendre vides", () => {
     // Un `logo: ""` est pire qu'un logo absent : un consommateur le lit
     // comme une URL et échoue dessus.
-    const ld = organizationJsonLd({ siteName: "Illith", logoUrl: null, socials: [] }, "https://illith.com")
+    const ld = organizationJsonLd({ siteName: "Exemple", logoUrl: null, socials: [] }, "https://exemple.fr")
     expect("logo" in ld).toBe(false)
     expect("sameAs" in ld).toBe(false)
   })
@@ -70,16 +70,16 @@ describe("articleJsonLd", () => {
     slug: "bienvenue",
     excerpt: "Un résumé.",
     publishedAt: 1_700_000_000_000,
-    coverUrl: "https://illith.com/couv.jpg",
+    coverUrl: "https://exemple.fr/couv.jpg",
   }
 
   test("porte le titre, les dates et l'image", () => {
-    const ld = articleJsonLd(post, SITE, "https://illith.com/blog/bienvenue")
+    const ld = articleJsonLd(post, SITE, "https://exemple.fr/blog/bienvenue")
     expect(ld!["@type"]).toBe("Article")
     expect(ld!.headline).toBe("Bienvenue")
     expect(ld!.datePublished).toBe(new Date(post.publishedAt).toISOString())
     expect(ld!.image).toBe(post.coverUrl)
-    expect((ld!.publisher as { name: string }).name).toBe("Illith")
+    expect((ld!.publisher as { name: string }).name).toBe("Exemple")
   })
 
   test("n'invente pas de date pour un article sans publishedAt", () => {
@@ -133,9 +133,9 @@ describe("breadcrumbJsonLd", () => {
   test("numérote les positions à partir de 1", () => {
     const ld = breadcrumbJsonLd(
       [
-        { name: "Accueil", url: "https://illith.com/" },
-        { name: "Blog", url: "https://illith.com/blog" },
-        { name: "Bienvenue", url: "https://illith.com/blog/bienvenue" },
+        { name: "Accueil", url: "https://exemple.fr/" },
+        { name: "Blog", url: "https://exemple.fr/blog" },
+        { name: "Bienvenue", url: "https://exemple.fr/blog/bienvenue" },
       ],
     )
     expect(ld?.itemListElement.map((i) => i.position)).toEqual([1, 2, 3])

@@ -312,8 +312,8 @@ function LigneEnregistrement({ ligne }: { ligne: LigneDns }) {
  * Le nom de l'enregistrement, cassable AUX POINTS.
  *
  * À 390 px la colonne « Nom » fait une centaine de pixels, et
- * `wrap-anywhere` seul y brisait `resend._domainkey.illith.com` en
- * `resend._dom` / `ainkey.illith.c` / `om` — trois morceaux dont aucun
+ * `wrap-anywhere` seul y brisait `resend._domainkey.exemple.fr` en
+ * `resend._dom` / `ainkey.exemple.f` / `r` — trois morceaux dont aucun
  * n'est une étiquette DNS, sur la valeur qu'on recopie chez l'hébergeur.
  * Les noms du plan (`_dmarc.exemple.fr`) tenaient encore ; ceux de Resend,
  * plus longs d'un cran, ne tenaient plus.
@@ -321,7 +321,7 @@ function LigneEnregistrement({ ligne }: { ligne: LigneDns }) {
  * Un `<wbr>` après les points de tête — jamais après celui du domaine
  * enregistrable, qu'on garde d'un bloc — donne au navigateur des coupures
  * qui tombent là où l'œil recompose : `resend.` / `_domainkey.` /
- * `illith.com`. `wrap-anywhere` reste sur la cellule, en dernier recours,
+ * `exemple.fr`. `wrap-anywhere` reste sur la cellule, en dernier recours,
  * pour l'étiquette qui serait à elle seule plus large que la colonne.
  *
  * `<wbr>` est un élément SANS largeur : il ne met pas d'espace, ni à l'œil
@@ -331,7 +331,7 @@ function LigneEnregistrement({ ligne }: { ligne: LigneDns }) {
 function NomDns({ nom }: { nom: string }) {
   const etiquettes = nom.split(".")
   // Les deux dernières étiquettes sont le domaine enregistrable
-  // (`illith.com`) : aucune coupure entre elles.
+  // (`exemple.fr`) : aucune coupure entre elles.
   const coupures = Math.max(etiquettes.length - 2, 0)
   return (
     <>

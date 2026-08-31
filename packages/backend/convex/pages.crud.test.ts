@@ -763,10 +763,10 @@ test("update refuse une URL canonique à schéma exécutable", async () => {
 
   await owner.identity.mutation(api.pages.update, {
     id,
-    seo: { canonicalUrl: "https://illith.com/canonique" },
+    seo: { canonicalUrl: "https://exemple.fr/canonique" },
   })
   expect((await t.run((ctx) => ctx.db.get(id)))?.seo?.canonicalUrl).toBe(
-    "https://illith.com/canonique",
+    "https://exemple.fr/canonique",
   )
 })
 

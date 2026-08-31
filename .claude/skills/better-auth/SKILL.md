@@ -78,7 +78,7 @@ l'utilisateur authentifié avant Convex ; une query lancée dans cet intervalle
 
 Le serveur Better Auth tourne dans Convex ; l'admin le proxifie via
 `src/routes/api/auth/$.ts`, donc les cookies restent same-origin sur
-`admin.illith.com`. Si un jour l'admin appelle Convex directement pour l'auth, les
+`admin.exemple.fr`. Si un jour l'admin appelle Convex directement pour l'auth, les
 cookies deviennent cross-site et cette hypothèse tombe.
 
 ## Tests

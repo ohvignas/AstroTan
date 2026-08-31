@@ -25,7 +25,7 @@ const OK: SiteSummary = {
 }
 
 const SHARED: UmamiLinks = {
-  dashboard: "https://umami.illith.test/share/demo",
+  dashboard: "https://umami.exemple.test/share/demo",
   shared: true,
 }
 
@@ -166,7 +166,7 @@ describe("SiteDashboard", () => {
 
   test("sans partage, le lien mène à la racine et le dit", () => {
     const html = render(OK, {
-      dashboard: "https://umami.illith.test",
+      dashboard: "https://umami.exemple.test",
       shared: false,
     })
     expect(html).toContain("Ouvrir Umami")
@@ -175,7 +175,7 @@ describe("SiteDashboard", () => {
 
   test("sans Umami configuré, aucun lien mort", () => {
     const html = render(OK, null)
-    expect(html).not.toContain("umami.illith.test")
+    expect(html).not.toContain("umami.exemple.test")
   })
 
   test.each([

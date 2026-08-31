@@ -67,7 +67,7 @@ describe("les mots de passe qui ont l'air complexes et ne le sont pas", () => {
 
   test("un mot de passe fabriqué à partir de l'email qu'il protège est plafonné", () => {
     const { score, issues } = scorePassword("Antoine2026!", {
-      email: "antoine@illith.com",
+      email: "antoine@exemple.fr",
     })
     expect(issues).toContain("DERIVED_FROM_EMAIL")
     expect(score).toBeLessThan(MIN_PASSWORD_SCORE)
@@ -83,7 +83,7 @@ describe("les mots de passe qui ont l'air complexes et ne le sont pas", () => {
 
   test("une partie locale de moins de 3 caractères ne déclenche pas le rapprochement", () => {
     // Otherwise "al" inside "Kx7#alpaca9" would read as derived from `al@…`.
-    const { issues } = scorePassword("Kx7#alpaca9", { email: "al@illith.com" })
+    const { issues } = scorePassword("Kx7#alpaca9", { email: "al@exemple.fr" })
     expect(issues).not.toContain("DERIVED_FROM_EMAIL")
   })
 })

@@ -17,8 +17,8 @@ import {
 // end-to-end path through `/api/auth/sign-in/email`.
 
 test("la clé combine l'origine et l'email normalisé — ni l'un ni l'autre seul", () => {
-  const a = buildSignInRateLimitKey("owner@illith.test", "1.2.3.4")
-  const b = buildSignInRateLimitKey("owner@illith.test", "5.6.7.8")
+  const a = buildSignInRateLimitKey("owner@exemple.test", "1.2.3.4")
+  const b = buildSignInRateLimitKey("owner@exemple.test", "5.6.7.8")
   const c = buildSignInRateLimitKey("attacker@example.com", "1.2.3.4")
 
   // Same email, different origin: different key. This is the mechanism
@@ -36,8 +36,8 @@ test("la clé combine l'origine et l'email normalisé — ni l'un ni l'autre seu
 })
 
 test("l'email est normalisé (casse, espaces) — un attaquant ne peut pas contourner la limite en faisant varier la casse", () => {
-  const normalized = buildSignInRateLimitKey("owner@illith.test", "1.2.3.4")
-  const paddedUpper = buildSignInRateLimitKey("  Owner@Illith.TEST  ", "1.2.3.4")
+  const normalized = buildSignInRateLimitKey("owner@exemple.test", "1.2.3.4")
+  const paddedUpper = buildSignInRateLimitKey("  Owner@Exemple.TEST  ", "1.2.3.4")
   expect(paddedUpper).toBe(normalized)
 })
 
@@ -77,13 +77,13 @@ test("la config est un 'fixed window' borné — bornes cohérentes avec la prop
 // C1: the origin-independent backstop, pure layer.
 
 test("C1 : la clé du compteur par email seul ignore l'origine — même clé quelle que soit l'IP prétendue", () => {
-  expect(buildSignInEmailRateLimitKey("owner@illith.test")).toBe(
-    buildSignInEmailRateLimitKey("owner@illith.test"),
+  expect(buildSignInEmailRateLimitKey("owner@exemple.test")).toBe(
+    buildSignInEmailRateLimitKey("owner@exemple.test"),
   )
   // Normalisation identique à la clé (origine, email) — pas une seconde
   // implémentation qui pourrait diverger.
-  expect(buildSignInEmailRateLimitKey("  Owner@Illith.TEST  ")).toBe(
-    buildSignInEmailRateLimitKey("owner@illith.test"),
+  expect(buildSignInEmailRateLimitKey("  Owner@Exemple.TEST  ")).toBe(
+    buildSignInEmailRateLimitKey("owner@exemple.test"),
   )
 })
 

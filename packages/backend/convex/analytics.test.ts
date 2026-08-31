@@ -41,7 +41,7 @@ async function seedActor(
 }
 
 function configure() {
-  process.env.UMAMI_API_URL = "https://umami.illith.test"
+  process.env.UMAMI_API_URL = "https://umami.exemple.test"
   process.env.UMAMI_API_WEBSITE_ID = "site-1"
   process.env.UMAMI_API_USERNAME = "lecture"
   process.env.UMAMI_API_PASSWORD = "secret"
@@ -183,7 +183,7 @@ test("umamiLinks rend les adresses, sans jamais les identifiants", async () => {
 
   const links = await editor.identity.query(api.analytics.umamiLinks, {})
   expect(links).toEqual({
-    dashboard: "https://umami.illith.test",
+    dashboard: "https://umami.exemple.test",
     shared: false,
   })
   // Ce que le navigateur reçoit, ce sont des adresses publiques, rien d'autre.
@@ -359,7 +359,7 @@ test("le partage change où l'on consulte, jamais où l'on administre", async ()
   // Umami se fait depuis Umami, et le lien « administrer » qui doublait
   // celui-ci a été retiré de l'écran.
   expect(links).toEqual({
-    dashboard: "https://umami.illith.test/share/astrotan-demo",
+    dashboard: "https://umami.exemple.test/share/astrotan-demo",
     shared: true,
   })
 })
@@ -374,7 +374,7 @@ test("sans partage activé, consulter passe aussi par la connexion", async () =>
   // porteur, et l'activer par défaut exposerait des statistiques que
   // personne n'a choisi de publier.
   const links = await editor.identity.query(api.analytics.umamiLinks, {})
-  expect(links?.dashboard).toBe("https://umami.illith.test")
+  expect(links?.dashboard).toBe("https://umami.exemple.test")
   expect(links?.shared).toBe(false)
 })
 
@@ -416,7 +416,7 @@ test("ssoLink frappe un jeton d'échange et construit le lien", async () => {
   // s'arrête sur un écran vide. Elle vise le site mesuré, pas l'accueil
   // d'Umami — on vient de l'éditeur d'un site précis.
   expect(link).toBe(
-    "https://umami.illith.test/sso?url=%2Fwebsites%2Fsite-1&token=echange%2F%2Bjeton",
+    "https://umami.exemple.test/sso?url=%2Fwebsites%2Fsite-1&token=echange%2F%2Bjeton",
   )
   // Ce qui voyage est le jeton d'ÉCHANGE, jamais celui du compte.
   expect(link).not.toContain("compte")

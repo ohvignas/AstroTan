@@ -2,7 +2,7 @@ import { DOMParser } from "@xmldom/xmldom"
 import { describe, expect, test } from "vitest"
 import { buildLlmsTxt, buildSitemap } from "./feeds"
 
-const ORIGIN = "https://illith.com"
+const ORIGIN = "https://exemple.fr"
 
 const PAGE = {
   slug: "contact",
@@ -77,7 +77,7 @@ describe("buildSitemap — échappement", () => {
 
     expect(erreurs).toEqual([])
     expect(doc.getElementsByTagName("loc")[0]?.textContent).toBe(
-      "https://illith.com/offre&promo",
+      "https://exemple.fr/offre&promo",
     )
   })
 })
@@ -134,12 +134,12 @@ describe("buildLlmsTxt", () => {
   test("liste le site, ses pages et ses articles avec leur résumé", () => {
     const txt = buildLlmsTxt({
       origin: ORIGIN,
-      siteName: "Illith",
+      siteName: "Exemple",
       pages: [{ ...PAGE, geo: { summary: "Comment nous joindre." } }],
       posts: [POST],
       servedPaths: ["/contact"],
     })
-    expect(txt).toContain("# Illith")
+    expect(txt).toContain("# Exemple")
     expect(txt).toContain("Comment nous joindre.")
     // À défaut de résumé GEO, l'extrait de l'article fait l'affaire.
     expect(txt).toContain("Un résumé.")
@@ -151,7 +151,7 @@ describe("buildLlmsTxt", () => {
     // sur un contenu dont l'opérateur a demandé qu'il ne le soit pas.
     const txt = buildLlmsTxt({
       origin: ORIGIN,
-      siteName: "Illith",
+      siteName: "Exemple",
       pages: [{ ...PAGE, geo: { summary: "Secret.", noai: true } }],
       posts: [{ ...POST, geo: { noai: true } }],
       servedPaths: ["/contact"],
@@ -163,7 +163,7 @@ describe("buildLlmsTxt", () => {
   test("exclut une page publiée sans fichier de route", () => {
     const txt = buildLlmsTxt({
       origin: ORIGIN,
-      siteName: "Illith",
+      siteName: "Exemple",
       pages: [{ ...PAGE, slug: "fantome" }],
       posts: [],
       servedPaths: ["/contact"],
@@ -191,7 +191,7 @@ describe("la page d'accueil, dont le slug et le chemin diffèrent", () => {
   test("et dans llms.txt à la racine également", () => {
     const txt = buildLlmsTxt({
       origin: ORIGIN,
-      siteName: "Illith",
+      siteName: "Exemple",
       pages: [{ ...PAGE, slug: "accueil" }],
       posts: [],
       servedPaths: ["/"],

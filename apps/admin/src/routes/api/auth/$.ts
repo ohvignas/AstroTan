@@ -10,7 +10,7 @@ import { handler } from "@/lib/auth-server"
 // This is not a convenience shim — it is what keeps the session cookie
 // same-origin. Better Auth's cookie is scoped to whatever origin answers
 // these requests; proxied through here, that's this app's own origin
-// (`admin.illith.com` in production, `localhost:3001` in dev). Delete this
+// (`admin.exemple.fr` in production, `localhost:3001` in dev). Delete this
 // route and point the client straight at the Convex site URL instead, and
 // the cookie becomes cross-site — rejected by default `SameSite=Lax`
 // cookies on the very sign-in redirect that's supposed to set it.

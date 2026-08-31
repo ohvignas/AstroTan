@@ -47,14 +47,14 @@ test("update crée la ligne au premier enregistrement, puis la modifie", async (
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
 
-  await owner.identity.mutation(api.settings.update, { siteName: "Illith" })
-  expect((await t.query(api.settings.get, {}))?.siteName).toBe("Illith")
+  await owner.identity.mutation(api.settings.update, { siteName: "Exemple" })
+  expect((await t.query(api.settings.get, {}))?.siteName).toBe("Exemple")
 
-  await owner.identity.mutation(api.settings.update, { siteName: "Illith École" })
+  await owner.identity.mutation(api.settings.update, { siteName: "Exemple École" })
   const rows = await t.run((ctx) => ctx.db.query("settings").collect())
   // Singleton : modifier, jamais empiler une seconde ligne.
   expect(rows).toHaveLength(1)
-  expect(rows[0]?.siteName).toBe("Illith École")
+  expect(rows[0]?.siteName).toBe("Exemple École")
 })
 
 // Relecture finale, correctif 1 : `emailFrom` n'est plus dans `get`, la
@@ -67,7 +67,7 @@ test("update accepte emailFrom ; getPrivate l'expose, get ne l'expose plus", asy
   const owner = await seedActor(t, "owner")
 
   await owner.identity.mutation(api.settings.update, {
-    siteName: "Illith",
+    siteName: "Exemple",
     emailFrom: "AstroTan <bonjour@exemple.fr>",
   })
   expect((await owner.identity.query(api.settings.getPrivate, {}))?.emailFrom).toBe(
