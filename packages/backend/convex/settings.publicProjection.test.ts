@@ -13,6 +13,8 @@ const AUTORISES = [
   "homePageSlug",
   "defaultSeo",
   "socials",
+  "metaPixelId",
+  "googleTagId",
 ]
 
 // Les champs autorisés dans la projection du DASHBOARD. Les deux champs
@@ -32,6 +34,8 @@ const AUTORISES_PRIVE = [
   "leadWebhookLastAt",
   "emailFrom",
   "declaredDomain",
+  "metaPixelId",
+  "googleTagId",
 ]
 
 // Toute la table, LUE DU SCHÉMA et non recopiée à la main — même motif que
@@ -77,6 +81,8 @@ async function semerLaLigneEntiere(t: TestConvex<typeof appSchema>) {
       // d'égalité ci-dessous le voient réellement (Convex retire les
       // champs `undefined` avant l'envoi).
       previousDomains: [{ host: "sentinelle-sortant.exemple.fr", since: 1_700_000_000_000 }],
+      metaPixelId: "123456789012345",
+      googleTagId: "AW-999",
     }
     await ctx.db.insert("settings", ligne)
     return ligne
@@ -380,4 +386,23 @@ test("aucun champ de la table n'entre dans la projection du dashboard sans être
   ).toEqual([...AUTORISES_PRIVE].sort())
 
   expect(JSON.stringify(privee)).not.toContain("sentinelle-secret-de-signature")
+})
+
+// `null` = jamais saisi (repli PUBLIC_*). `""` = retiré volontairement.
+// Confondre les deux ferait revenir le fallback de build après un retrait.
+test("un ID retiré est rendu comme chaîne vide, pas null", async () => {
+  const t = makeTestConvex()
+  await t.run(async (ctx) => {
+    await ctx.db.insert("settings", {
+      siteName: "AstroTan",
+      metaPixelId: "",
+      googleTagId: "",
+    })
+  })
+
+  const publique = await t.query(api.settings.get, {})
+  expect(publique?.metaPixelId).toBe("")
+  expect(publique?.googleTagId).toBe("")
+  expect(publique?.metaPixelId).not.toBeNull()
+  expect(publique?.googleTagId).not.toBeNull()
 })

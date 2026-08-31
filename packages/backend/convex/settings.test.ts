@@ -164,3 +164,44 @@ test("renommer une page ordinaire ne touche pas à la page d'accueil", async () 
   await owner.identity.mutation(api.pages.update, { id: autre, slug: "autre-renomme" })
   expect(await t.query(api.settings.homePageSlug, {})).toBe("accueil")
 })
+
+test("get expose metaPixelId et googleTagId : null si jamais saisis, \"\" si retirés", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.update, { siteName: "Exemple" })
+  const vide = await t.query(api.settings.get, {})
+  expect(vide?.metaPixelId).toBeNull()
+  expect(vide?.googleTagId).toBeNull()
+
+  await owner.identity.mutation(api.settings.update, {
+    metaPixelId: "123456789012345",
+    googleTagId: "AW-999",
+  })
+  const plein = await t.query(api.settings.get, {})
+  expect(plein?.metaPixelId).toBe("123456789012345")
+  expect(plein?.googleTagId).toBe("AW-999")
+
+  await owner.identity.mutation(api.settings.update, { metaPixelId: null })
+  const retire = await t.query(api.settings.get, {})
+  expect(retire?.metaPixelId).toBe("")
+  expect(retire?.googleTagId).toBe("AW-999")
+  const privee = await owner.identity.query(api.settings.getPrivate, {})
+  expect(privee?.metaPixelId).toBe("")
+  expect(privee?.googleTagId).toBe("AW-999")
+})
+
+test("un editor lit les IDs et ne peut pas les écrire", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.update, {
+    siteName: "Exemple",
+    metaPixelId: "123456789012345",
+  })
+  const editor = await seedActor(t, "editor")
+  expect((await editor.identity.query(api.settings.getPrivate, {}))?.metaPixelId).toBe(
+    "123456789012345",
+  )
+  await expect(
+    editor.identity.mutation(api.settings.update, { metaPixelId: "99999" }),
+  ).rejects.toThrow()
+})

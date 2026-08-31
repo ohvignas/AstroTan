@@ -16,6 +16,7 @@ import { estAdresseValide } from "./lib/expediteur"
 import { normaliserHote } from "./lib/hoteNu"
 import { noterSortie, type HoteSortant } from "./lib/hotesSortants"
 import { deriverOrigines } from "./lib/origines"
+import { normaliserPixelId } from "./lib/pixelId"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // Site-wide settings: one row, or none.
@@ -94,6 +95,11 @@ export const get = query({
       homePageSlug: settings.homePageSlug,
       defaultSeo: settings.defaultSeo,
       socials: settings.socials,
+      // `??` et non `||` : une chaîne vide est un retrait volontaire, pas
+      // une absence. `||` la transformerait en `null` et le site public
+      // reprendrait le fallback `PUBLIC_*` figé au build.
+      metaPixelId: settings.metaPixelId ?? null,
+      googleTagId: settings.googleTagId ?? null,
       // `emailFrom` N'EST PAS ICI (relecture finale, correctif 1) : c'est
       // l'adresse d'expédition du site, elle n'a aucune utilité pour
       // `apps/web` — `grep -rn "emailFrom" apps/` n'y trouve aucun
@@ -166,6 +172,8 @@ export const getPrivate = query({
       // `undefined` — l'écran de vérification DNS doit pouvoir distinguer
       // « pas encore déclaré » de « la requête a échoué ».
       declaredDomain: settings.declaredDomain ?? null,
+      metaPixelId: settings.metaPixelId ?? null,
+      googleTagId: settings.googleTagId ?? null,
     }
   },
 })
@@ -394,6 +402,11 @@ export const update = mutation({
     // troisième façon de dire l'une des deux, donc la source du prochain
     // malentendu.
     declaredDomain: v.optional(v.union(v.string(), v.null())),
+    // `| null` comme `leadWebhookUrl` : absent = laisse tel quel, `null` =
+    // retire. La chaîne vide arrive ensuite via `normaliserPixelId` — jamais
+    // `undefined`, qui effacerait le champ et ferait revenir PUBLIC_*.
+    metaPixelId: v.optional(v.union(v.string(), v.null())),
+    googleTagId: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     // Site-wide settings are not an editor's call: the name, the logo and
@@ -465,6 +478,8 @@ export const update = mutation({
       leadWebhookUrl,
       leadWebhookSecret: _ignore,
       declaredDomain,
+      metaPixelId,
+      googleTagId,
       ...rest
     } = args
     void _ignore
@@ -495,6 +510,17 @@ export const update = mutation({
         ? {}
         : { leadWebhookSecret: leadWebhookSecret ?? undefined }
 
+    // Jamais `?? undefined` : `normaliserPixelId(null)` rend `""`, et c'est
+    // cette chaîne qu'il faut écrire. `undefined` effacerait le champ, et
+    // le site public reprendrait le `PUBLIC_*` figé au build.
+    const pixelPatch: { metaPixelId?: string; googleTagId?: string } = {}
+    if (metaPixelId !== undefined) {
+      pixelPatch.metaPixelId = normaliserPixelId("metaPixelId", metaPixelId)
+    }
+    if (googleTagId !== undefined) {
+      pixelPatch.googleTagId = normaliserPixelId("googleTagId", googleTagId)
+    }
+
     const patch = {
       ...rest,
       ...(logoId !== undefined ? { logoId: logoId ?? undefined } : {}),
@@ -506,6 +532,7 @@ export const update = mutation({
         ? { declaredDomain: declaredDomain ?? undefined }
         : {}),
       ...secretPatch,
+      ...pixelPatch,
     }
 
     const existing = await ctx.db.query("settings").first()

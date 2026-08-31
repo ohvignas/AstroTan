@@ -395,6 +395,12 @@ export default defineSchema({
     previousDomains: v.optional(
       v.array(v.object({ host: v.string(), since: v.number() })),
     ),
+
+    // IDs de pixels publicitaires. Optionnels (expand) : les déploiements
+    // existants n'en portent pas. Chaîne vide = retiré volontairement,
+    // distinct de l'absence (`undefined`) qui laisse le fallback PUBLIC_*.
+    metaPixelId: v.optional(v.string()),
+    googleTagId: v.optional(v.string()),
   }),
 
   // Les jetons saisis depuis l'écran des réglages — CHIFFRÉS, jamais en
