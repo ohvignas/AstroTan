@@ -21,6 +21,8 @@ import {
 } from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
 import { describeContentProblem, splitEntities } from "@/lib/contentGuards"
+import { buildSeo } from "@/lib/buildSeo"
+import { OgImageField } from "@/components/OgImageField"
 import { PageAnalytics } from "@/components/analytics-panel"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 // Lived in this file until the settings screen needed the same widget for
@@ -110,6 +112,9 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
     page.seo?.canonicalUrl ?? ""
   )
   const [seoNoindex, setSeoNoindex] = useState(page.seo?.noindex ?? false)
+  const [seoOgImageId, setSeoOgImageId] = useState<Id<"_storage"> | null>(
+    page.seo?.ogImageId ?? null
+  )
 
   const [geoSummary, setGeoSummary] = useState(page.geo?.summary ?? "")
   const [geoFaq, setGeoFaq] = useState<{ question: string; answer: string }[]>(
@@ -151,12 +156,16 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   // frappe laisserait derrière elle `/tar`, `/tari`, `/tarif`…
   const autoFields = {
     title,
-    seo: {
-      title: seoTitle.trim() || undefined,
-      description: seoDescription.trim() || undefined,
-      canonicalUrl: seoCanonicalUrl.trim() || undefined,
-      noindex: seoNoindex,
-    },
+    seo: buildSeo({
+      existing: page.seo,
+      fields: {
+        title: seoTitle,
+        description: seoDescription,
+        canonicalUrl: seoCanonicalUrl,
+        noindex: seoNoindex,
+        ogImageId: seoOgImageId,
+      },
+    }),
     geo: {
       summary: geoSummary.trim() || undefined,
       // Drop rows the operator started and left blank rather than
@@ -453,6 +462,11 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
             Exclure des moteurs de recherche
           </FieldLabel>
         </Field>
+        <OgImageField
+          value={seoOgImageId}
+          disabled={!canWrite}
+          onChange={setSeoOgImageId}
+        />
       </Section>
 
       <Section title="Dans les moteurs de réponse">

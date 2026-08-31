@@ -8,7 +8,10 @@ import {
   MAX_SEO_DESCRIPTION_LENGTH,
   MAX_SEO_TITLE_LENGTH,
 } from "@astrotan/backend/convex/content"
+import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import { describeSettingsError } from "@/lib/settingsErrors"
+import { buildSeo } from "@/lib/buildSeo"
+import { OgImageField } from "@/components/OgImageField"
 import { useAutoSave } from "@/components/save-bar"
 import { SettingsGroup } from "@/components/settings-nav"
 import {
@@ -55,20 +58,21 @@ function ReferencementForm({
     settings?.defaultSeo?.canonicalUrl ?? ""
   )
   const [noindex, setNoindex] = useState(settings?.defaultSeo?.noindex ?? false)
+  const [ogImageId, setOgImageId] = useState<Id<"_storage"> | null>(
+    settings?.defaultSeo?.ogImageId ?? null
+  )
 
   const autoFields = {
-    defaultSeo: {
-      title: title.trim() || undefined,
-      description: description.trim() || undefined,
-      canonicalUrl: canonicalUrl.trim() || undefined,
-      noindex,
-      // Reconduit tel quel. `settings.update` remplace `defaultSeo` en
-      // entier, et cet écran n'a pas de contrôle pour l'image OG par
-      // défaut — l'omettre ici la supprimerait à chaque enregistrement.
-      ...(settings?.defaultSeo?.ogImageId === undefined
-        ? {}
-        : { ogImageId: settings.defaultSeo.ogImageId }),
-    },
+    defaultSeo: buildSeo({
+      existing: settings?.defaultSeo,
+      fields: {
+        title,
+        description,
+        canonicalUrl,
+        noindex,
+        ogImageId,
+      },
+    }),
   }
 
   const autoSave = useAutoSave({
@@ -143,6 +147,11 @@ function ReferencementForm({
           Activé ici, c'est le site entier qui sort de l'index — à réserver à
           une mise en ligne qui n'est pas encore publique.
         </FieldDescription>
+        <OgImageField
+          value={ogImageId}
+          disabled={!canWrite}
+          onChange={setOgImageId}
+        />
       </SettingsGroup>
     </SettingsFormShell>
   )

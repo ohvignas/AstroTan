@@ -32,6 +32,8 @@ import {
 } from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
 import { describeContentProblem, splitEntities } from "@/lib/contentGuards"
+import { buildSeo } from "@/lib/buildSeo"
+import { OgImageField } from "@/components/OgImageField"
 import { MediaPicker } from "@/components/media-picker"
 import { PageAnalytics } from "@/components/analytics-panel"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
@@ -179,6 +181,7 @@ type PostFormValues = {
   seoDescription: string
   seoCanonicalUrl: string
   seoNoindex: boolean
+  seoOgImageId: Id<"_storage"> | null
   geoSummary: string
   geoEntities: string
   geoFaq: { question: string; answer: string }[]
@@ -197,6 +200,7 @@ function initialValues(post: PostDoc): PostFormValues {
     seoDescription: post.seo?.description ?? "",
     seoCanonicalUrl: post.seo?.canonicalUrl ?? "",
     seoNoindex: post.seo?.noindex ?? false,
+    seoOgImageId: post.seo?.ogImageId ?? null,
     geoSummary: post.geo?.summary ?? "",
     // Held as one comma-separated string rather than an array of inputs:
     // entities are short single words, and a row of add/remove buttons for
@@ -227,12 +231,15 @@ function autoFieldsOf(values: PostFormValues) {
     // current mutation — reported rather than faked here.
     ...(values.coverId === null ? {} : { coverId: values.coverId }),
     tagIds: values.tagIds,
-    seo: {
-      title: values.seoTitle.trim() || undefined,
-      description: values.seoDescription.trim() || undefined,
-      canonicalUrl: values.seoCanonicalUrl.trim() || undefined,
-      noindex: values.seoNoindex,
-    },
+    seo: buildSeo({
+      fields: {
+        title: values.seoTitle,
+        description: values.seoDescription,
+        canonicalUrl: values.seoCanonicalUrl,
+        noindex: values.seoNoindex,
+        ogImageId: values.seoOgImageId,
+      },
+    }),
     geo: {
       summary: values.geoSummary.trim() || undefined,
       // Drop rows the operator started and left blank rather than
@@ -697,6 +704,16 @@ function PostEditor({
                   Exclure des moteurs de recherche (noindex)
                 </FieldLabel>
               </Field>
+            )}
+          />
+          <form.Field
+            name="seoOgImageId"
+            children={(field) => (
+              <OgImageField
+                value={field.state.value}
+                disabled={!canWrite}
+                onChange={(next) => field.handleChange(next)}
+              />
             )}
           />
         </CardContent>
