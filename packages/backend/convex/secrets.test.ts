@@ -104,6 +104,18 @@ test("un admin peut poser un jeton", async () => {
   expect(ligne?.base).toBe(true)
 })
 
+test("DATAFORSEO_LOGIN et DATAFORSEO_PASSWORD sont des noms autorisés", async () => {
+  const { identity } = await seedActor("owner")
+  delete process.env.DATAFORSEO_LOGIN
+  delete process.env.DATAFORSEO_PASSWORD
+  await identity.action(api.secrets.set, { nom: "DATAFORSEO_LOGIN", valeur: "login@exemple.fr" })
+  await identity.action(api.secrets.set, { nom: "DATAFORSEO_PASSWORD", valeur: "mot-de-passe-api" })
+  const etat = await identity.query(api.secrets.status, {})
+  expect(etat.secrets.find((s) => s.nom === "DATAFORSEO_LOGIN")?.source).toBe("base")
+  expect(etat.secrets.find((s) => s.nom === "DATAFORSEO_PASSWORD")?.source).toBe("base")
+  expect(JSON.stringify(etat)).not.toContain("mot-de-passe-api")
+})
+
 // ---------------------------------------------------------------------
 // Aucune valeur ne ressort
 // ---------------------------------------------------------------------

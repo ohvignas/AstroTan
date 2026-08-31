@@ -65,6 +65,8 @@ export const SECRET_NOMS = [
   "UMAMI_API_USERNAME",
   "UMAMI_API_PASSWORD",
   "UMAMI_API_SHARE_ID",
+  "DATAFORSEO_LOGIN",
+  "DATAFORSEO_PASSWORD",
 ] as const
 
 export type SecretNom = (typeof SECRET_NOMS)[number]
@@ -82,7 +84,9 @@ const nomValidator = v.union(
   v.literal("UMAMI_API_WEBSITE_ID"),
   v.literal("UMAMI_API_USERNAME"),
   v.literal("UMAMI_API_PASSWORD"),
-  v.literal("UMAMI_API_SHARE_ID")
+  v.literal("UMAMI_API_SHARE_ID"),
+  v.literal("DATAFORSEO_LOGIN"),
+  v.literal("DATAFORSEO_PASSWORD")
 )
 
 // Les deux listes disent la même chose, et `tsc` échoue si l'une prend un
