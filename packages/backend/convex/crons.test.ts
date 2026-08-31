@@ -35,10 +35,22 @@ test("un cron mensuel 'retention-purge' appelle internal.retention.purge", () =>
   expect(job!.name).toBe(getFunctionName(internal.retention.purge))
 })
 
-test("le planning ne contient que ces deux tâches", () => {
-  // Une tâche ajoutée sans test est une tâche que personne ne relit.
+test("un cron hebdomadaire 'seo-weekly' appelle internal.seoRanks.refreshWeekly", () => {
+  const job = crons.crons["seo-weekly"]
+  expect(job).toBeDefined()
+  expect(job!.schedule).toEqual({
+    type: "weekly",
+    dayOfWeek: "monday",
+    hourUTC: 4,
+    minuteUTC: 15,
+  })
+  expect(job!.name).toBe(getFunctionName(internal.seoRanks.refreshWeekly))
+})
+
+test("le planning contient exactement ces trois tâches", () => {
   expect(Object.keys(crons.crons).sort()).toEqual([
     "retention-purge",
     "revalidate-sweep",
+    "seo-weekly",
   ])
 })

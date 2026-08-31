@@ -38,4 +38,10 @@ crons.monthly(
   internal.retention.purge,
 )
 
+crons.weekly(
+  "seo-weekly",
+  { dayOfWeek: "monday", hourUTC: 4, minuteUTC: 15 },
+  internal.seoRanks.refreshWeekly,
+)
+
 export default crons
