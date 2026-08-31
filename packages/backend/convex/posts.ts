@@ -199,7 +199,7 @@ export const update = mutation({
     slug: v.optional(v.string()),
     body: v.optional(v.string()),
     excerpt: v.optional(v.string()),
-    coverId: v.optional(v.id("_storage")),
+    coverId: v.optional(v.union(v.id("_storage"), v.null())),
     tagIds: v.optional(v.array(v.id("tags"))),
     seo: v.optional(seoValidator),
     geo: v.optional(geoValidator),
@@ -241,10 +241,6 @@ export const update = mutation({
       await assertTagsResolvable(ctx, args.tagIds)
       patch.tagIds = args.tagIds
     }
-    if (args.coverId !== undefined) {
-      await assertCoverResolvable(ctx, args.coverId)
-      patch.coverId = args.coverId
-    }
 
     // Bounds every text field that will land on the row after this patch —
     // the value just validated where the caller sent one, the already-
@@ -258,7 +254,20 @@ export const update = mutation({
       geo: patch.geo ?? post.geo,
     })
 
-    await ctx.db.patch(args.id, patch)
+    // `patch({ coverId: undefined })` and `patch({ coverId: null })` do
+    // not unset an optional field — the first is a no-op, the second
+    // fails the schema. `replace` without the key is the only way out.
+    const { _id, _creationTime, coverId: _oldCover, ...kept } = post
+    const next = { ...kept, ...patch }
+    if (args.coverId === null) {
+      delete (next as { coverId?: unknown }).coverId
+    } else if (args.coverId !== undefined) {
+      await assertCoverResolvable(ctx, args.coverId)
+      next.coverId = args.coverId
+    } else if (_oldCover !== undefined) {
+      next.coverId = _oldCover
+    }
+    await ctx.db.replace(args.id, next)
 
     // Renommer le slug d'un article *publié* abandonnerait ses lecteurs à
     // une 404 : l'ancienne URL est partagée, indexée, mise en favori. Une

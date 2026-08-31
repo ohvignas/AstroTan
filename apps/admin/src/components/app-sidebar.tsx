@@ -1,6 +1,7 @@
 import type { FunctionReturnType } from "convex/server"
 import { useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import { leadsBadge } from "@/lib/leadsBadge"
 import astrotanIcon from "@/assets/icon_astrotan.png"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
@@ -125,6 +126,11 @@ export function AppSidebar({
 }) {
   // `undefined` pendant le chargement, `null` si Umami n'est pas configuré.
   const umami = useQuery(api.analytics.umamiLinks)
+  const newLeads = useQuery(api.leads.newCount)
+  const leadsItem = {
+    ...LEADS_ITEM,
+    ...(leadsBadge(newLeads) === undefined ? {} : { badge: leadsBadge(newLeads) }),
+  }
 
   const base =
     profile?.role === "owner" || profile?.role === "admin"
@@ -135,11 +141,11 @@ export function AppSidebar({
           PAGES_ITEM,
           POSTS_ITEM,
           MEDIA_ITEM,
-          LEADS_ITEM,
+          leadsItem,
           USERS_ITEM,
           REDIRECTS_ITEM,
         ]
-      : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, LEADS_ITEM]
+      : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, leadsItem]
   const canSso = profile?.role === "owner" || profile?.role === "admin"
   // Même périmètre que l'ancienne place des réglages dans la liste : un
   // éditeur ne les voyait pas, et déplacer l'entrée ne doit pas les lui

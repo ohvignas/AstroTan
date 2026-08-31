@@ -33,6 +33,7 @@ import {
 import { describePageError } from "@/lib/pageErrors"
 import { describeContentProblem, splitEntities } from "@/lib/contentGuards"
 import { buildSeo } from "@/lib/buildSeo"
+import { coverPatch } from "@/lib/coverPatch"
 import { OgImageField } from "@/components/OgImageField"
 import { MediaPicker } from "@/components/media-picker"
 import { PageAnalytics } from "@/components/analytics-panel"
@@ -225,11 +226,7 @@ function autoFieldsOf(values: PostFormValues) {
     title: values.title,
     body: values.body,
     excerpt: values.excerpt,
-    // `undefined` means "leave alone" to `posts.update`, so a cover
-    // is only ever sent when one is actually selected. Clearing a
-    // cover back to none is therefore not expressible against the
-    // current mutation — reported rather than faked here.
-    ...(values.coverId === null ? {} : { coverId: values.coverId }),
+    ...coverPatch(values.coverId),
     tagIds: values.tagIds,
     seo: buildSeo({
       fields: {
@@ -972,7 +969,7 @@ function CoverField({
         </div>
       )}
       {!disabled && (
-        <div>
+        <div className="flex flex-wrap gap-2">
           <Button
             type="button"
             variant="outline"
@@ -982,6 +979,16 @@ function CoverField({
             <ImageIcon data-icon="inline-start" />
             {value === null ? "Choisir une image" : "Changer d'image"}
           </Button>
+          {value !== null && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onChange(null)}
+            >
+              Retirer
+            </Button>
+          )}
         </div>
       )}
       <MediaPicker

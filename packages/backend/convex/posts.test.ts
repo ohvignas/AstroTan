@@ -219,6 +219,21 @@ test("update refuse une couverture dont le fichier n'existe pas", async () => {
   ).rejects.toMatchObject({ data: { code: "UNKNOWN_MEDIA" } })
 })
 
+test("update accepte coverId: null et retire la couverture", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "Avec couverture",
+    slug: "avec-couverture",
+  })
+  const storageId = await t.run(async (ctx) => ctx.storage.store(new Blob(["x"])))
+  await owner.identity.mutation(api.posts.update, { id, coverId: storageId })
+  expect((await t.run((ctx) => ctx.db.get(id)))?.coverId).toBe(storageId)
+
+  await owner.identity.mutation(api.posts.update, { id, coverId: null })
+  expect((await t.run((ctx) => ctx.db.get(id)))?.coverId).toBeUndefined()
+})
+
 // ---------------------------------------------------------------------
 // Suppression d'un tag encore porté
 // ---------------------------------------------------------------------

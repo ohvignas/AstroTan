@@ -8,6 +8,7 @@ import {
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -31,6 +32,7 @@ export function NavMain({
     isActive?: boolean
     /** Quitte l'admin : rendu en `<a>`, jamais en `<Link>` du routeur. */
     external?: boolean
+    badge?: number
     items?: {
       title: string
       url: string
@@ -88,6 +90,9 @@ export function NavMain({
               >
                 {item.icon}
                 <span>{item.title}</span>
+                {typeof item.badge === "number" && item.badge > 0 && (
+                  <SidebarMenuBadge>{item.badge}</SidebarMenuBadge>
+                )}
                 {/* Poussée tout à droite, à la place du chevron d'un menu
                     dépliant : c'est là que l'œil cherche ce qui va se
                     passer. Elle prévient qu'on quitte l'administration —
