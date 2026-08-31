@@ -102,6 +102,24 @@ export const MAX_SEO_TITLE_LENGTH = 70
 export const MAX_SEO_DESCRIPTION_LENGTH = 160
 export const MAX_CANONICAL_URL_LENGTH = 2048
 
+// Mot-clé cible d'une page ou d'un article — frère de `seo`, jamais dedans.
+// Une chaîne vide (après trim) est un retrait, pas un mot-clé. Pas de
+// minuscule forcée : DataForSEO / Google reçoivent le texte tel quel.
+export const MAX_TARGET_KEYWORD_LENGTH = 80
+
+export function assertTargetKeyword(value: string): string | undefined {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return undefined
+  if (trimmed.length > MAX_TARGET_KEYWORD_LENGTH) {
+    throw new ConvexError({
+      code: "FIELD_TOO_LONG",
+      field: "targetKeyword",
+      max: MAX_TARGET_KEYWORD_LENGTH,
+    })
+  }
+  return trimmed
+}
+
 // `pages.geo` — Generative Engine Optimization: what an answer engine
 // needs in order to quote this page correctly rather than paraphrase it
 // wrongly. Every field here exists because it maps onto something a
@@ -259,6 +277,9 @@ export const MAX_LEAD_NAME_LENGTH = 120
 export const MAX_LEAD_EMAIL_LENGTH = 254 // la limite d'une adresse (RFC 5321)
 export const MAX_LEAD_SUBJECT_LENGTH = 200
 export const MAX_LEAD_BODY_LENGTH = 5_000
+// E.164 tient en 15 chiffres ; 32 laisse la place aux espaces, au « + »
+// et à un poste. Au-delà ce n'est plus un numéro qu'on rappellerait.
+export const MAX_LEAD_PHONE_LENGTH = 32
 
 /**
  * Une validation d'adresse volontairement grossière.
