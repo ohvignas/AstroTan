@@ -1,0 +1,57 @@
+---
+import { mainNav } from "../config/nav"
+---
+
+<section class="container not-found">
+  <p class="not-found__code">Erreur 404</p>
+  <h1>Cette page n'existe pas</h1>
+  <p class="not-found__lead">
+    L'adresse demandée ne correspond à aucune page de ce site. Elle a pu
+    être déplacée, ou ne jamais avoir existé.
+  </p>
+
+  <nav aria-label="Retour au site">
+    <ul class="not-found__links">
+      {
+        mainNav.map((item) => (
+          <li>
+            <a href={item.href}>{item.label}</a>
+          </li>
+        ))
+      }
+    </ul>
+  </nav>
+</section>
+
+<style>
+  .not-found {
+    padding-block: var(--space-3xl);
+    max-width: 40rem;
+  }
+
+  .not-found__code {
+    margin: 0 0 var(--space-sm);
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .not-found h1 {
+    margin: 0 0 var(--space-md);
+  }
+
+  .not-found__lead {
+    margin: 0 0 var(--space-xl);
+    color: var(--color-text-secondary);
+  }
+
+  .not-found__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+</style>

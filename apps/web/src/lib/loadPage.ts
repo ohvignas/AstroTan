@@ -37,7 +37,7 @@ export interface PageRecord {
 }
 
 export interface LoadedPage {
-  /** `null` when the page is not live — the caller renders its 404 body. */
+  /** `null` when the page is not live. BaseLayout renders NotFoundBody when Astro.response.status === 404. */
   page: PageRecord | null
   /** `true` when reached through a valid preview token rather than published. */
   preview: boolean

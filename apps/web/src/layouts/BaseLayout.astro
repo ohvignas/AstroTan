@@ -18,6 +18,7 @@ import PageHead from "../components/PageHead.astro"
 import Analytics from "../components/Analytics.astro"
 import Header from "../components/layout/Header.astro"
 import Footer from "../components/layout/Footer.astro"
+import NotFoundBody from "../components/NotFoundBody.astro"
 import GoogleConsentMode from "../components/consent/GoogleConsentMode.astro"
 import ConsentBanner from "../components/consent/ConsentBanner.astro"
 import type { PageRecord } from "../lib/loadPage"
@@ -112,7 +113,7 @@ const nonce = Astro.locals.nonce
     <Header />
 
     <main id="main-content" class="site-main">
-      <slot />
+      {Astro.response.status === 404 ? <NotFoundBody /> : <slot />}
     </main>
 
     <Footer />

@@ -65,3 +65,25 @@ test("le 404 est en français et porte la mise en page du site", async () => {
   // Un chemin de retour, et pas seulement un constat.
   expect(html).toContain('href="/"')
 })
+
+test("BaseLayout rend le corps 404 quand le statut est 404, même si le slot a du contenu", async () => {
+  const container = await AstroContainer.create()
+  const { default: Page } = await import("./Status404Slot.astro")
+  const html = await container.renderToString(Page, {
+    locals: { nonce: "test-nonce" },
+  })
+  expect(html).toContain("Cette page n'existe pas")
+  expect(html).not.toContain("CONTENU-INTERDIT-EN-404")
+})
+
+test("/blog avec page=null n'est pas un 404", async () => {
+  const container = await AstroContainer.create()
+  const { default: Page } = await import("./BlogIndexSlot.astro")
+  const response = await container.renderToResponse(Page, {
+    locals: { nonce: "test-nonce" },
+  })
+  expect(response.status).toBe(200)
+  const html = await response.text()
+  expect(html).toContain("<h1>Blog</h1>")
+  expect(html).not.toContain("Cette page n'existe pas")
+})

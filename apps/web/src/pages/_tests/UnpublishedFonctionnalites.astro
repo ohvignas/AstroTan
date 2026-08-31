@@ -1,0 +1,14 @@
+---
+import { loadPage } from "../../lib/loadPage"
+import BaseLayout from "../../layouts/BaseLayout.astro"
+import Hero from "../../components/hero/Hero.astro"
+const { page } = await loadPage(Astro)
+---
+<BaseLayout page={page} fallbackTitle="Fonctionnalités">
+  <Hero
+    variant="centered"
+    size="md"
+    eyebrow="Fonctionnalités"
+    headline="Tout ce qui est déjà résolu"
+  />
+</BaseLayout>
