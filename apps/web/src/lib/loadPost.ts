@@ -117,6 +117,11 @@ export async function loadPost(
  * un `.astro` n'est pas importable de façon fiable : le composant se charge,
  * le type non, et l'erreur ne sort qu'au `astro check`.
  */
+export interface PublicTag {
+  name: string
+  slug: string
+}
+
 export interface PostSummary {
   slug: string
   title: string
@@ -125,4 +130,5 @@ export interface PostSummary {
   coverUrl?: string | null
   coverAlt?: string
   publishedAt?: number
+  tagIds?: string[]
 }

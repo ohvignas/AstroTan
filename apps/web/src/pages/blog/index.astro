@@ -8,15 +8,14 @@
 // un par un. Cette route lit donc de vraies lignes, là où `index.astro` ne
 // lit que ses propres réglages.
 //
-// Retiré du template, et chaque fois pour la même raison — l'information
-// n'existe pas côté public :
+// Les pastilles viennent de `tags.listPublic` : projection `_id` / `name` /
+// `slug`, sans session. On n'appelle Convex que s'il y a au moins un id —
+// une liste vide n'a rien à résoudre.
 //
-//   - le filtre par étiquette. Un article porte des `tagIds` ; `tags.list`
-//     exige un rôle, et le site public n'a ni session ni clé
-//     d'administration. Des pastilles affichant des identifiants bruts
-//     auraient été pires que pas de pastilles. Les rétablir demande une
-//     query publique qui rende les libellés — un ajout au backend, pas un
-//     portage de design.
+// Retiré du template :
+//
+//   - le filtre par étiquette. Les pastilles affichent le libellé ; elles
+//     ne filtrent pas. Un index `/blog/tag/<slug>` n'existe pas encore.
 //   - la pagination. `listPublishedPosts` rend au plus un plafond fixe
 //     d'articles et prévient dans les logs quand il est atteint ; la
 //     pagination est une dette assumée du backend (voir `posts.ts`), pas
@@ -28,9 +27,10 @@
 export const prerender = false
 
 import { api } from "@astrotan/backend/convex/_generated/api"
+import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import { getConvexClient } from "../../lib/convexClient"
 import { htmlToPlainText } from "../../lib/markdown"
-import type { PostSummary } from "../../lib/loadPost"
+import type { PostSummary, PublicTag } from "../../lib/loadPost"
 import BaseLayout from "../../layouts/BaseLayout.astro"
 import BlogCard from "../../components/blog/BlogCard.astro"
 
@@ -43,6 +43,17 @@ const posts = (await getConvexClient().query(
   {}
 )) as PostSummary[]
 
+const tagIds = [...new Set(posts.flatMap((post) => post.tagIds ?? []))]
+const publicTags =
+  tagIds.length === 0
+    ? []
+    : ((await getConvexClient().query(api.tags.listPublic, {
+        ids: tagIds as Id<"tags">[],
+      })) as { _id: string; name: string; slug: string }[])
+const tagsById = new Map<string, PublicTag>(
+  publicTags.map((tag) => [tag._id, { name: tag.name, slug: tag.slug }]),
+)
+
 // L'étiquette `posts` de la route : la boîte d'envoi de `publishPost`
 // l'invalide. Toute publication touche `posts`, donc cette liste est
 // périmée pendant des secondes, pas pendant `maxAge`.
@@ -53,6 +64,9 @@ Astro.cache.set({ maxAge: 300, swr: 600, tags: ["posts"] })
 const withExcerpts = posts.map((post) => ({
   ...post,
   excerpt: post.excerpt || htmlToPlainText(post.body, 180),
+  tags: (post.tagIds ?? [])
+    .map((id) => tagsById.get(id))
+    .filter((tag): tag is PublicTag => tag !== undefined),
 }))
 
 // Le plus récent passe en pleine largeur. Le template choisit un article
@@ -93,13 +107,13 @@ const rest = withExcerpts.slice(1)
     ) : (
       <>
         <section class="blog-list__featured" aria-label="Article à la une">
-          <BlogCard post={featured} variant="list" headingLevel="h2" />
+          <BlogCard post={featured} tags={featured.tags} variant="list" headingLevel="h2" />
         </section>
 
         {rest.length > 0 && (
           <section class="blog-list__grid">
             {rest.map((post) => (
-              <BlogCard post={post} variant="grid" headingLevel="h2" />
+              <BlogCard post={post} tags={post.tags} variant="grid" headingLevel="h2" />
             ))}
           </section>
         )}

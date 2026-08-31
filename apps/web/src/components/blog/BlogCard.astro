@@ -2,17 +2,11 @@
 // La carte d'article, portée de `src/components/blog/BlogCard.astro`
 // d'`astro-emdash` : deux variantes, `grid` (vignette au-dessus) et `list`
 // (la mise en avant, en deux colonnes).
-//
-// Retiré du template : `TagList`. Les étiquettes d'un article sont des
-// `tagIds` dans Convex, et `tags.list` exige un rôle — le site public n'a
-// ni session ni clé d'administration. Afficher des identifiants bruts
-// aurait été pire que ne rien afficher. Les rétablir demande une query
-// publique qui rende les libellés ; c'est un ajout au backend, pas un
-// portage de design.
 import { Card } from "../ui/index"
 import PostCover from "./PostCover.astro"
+import TagPills from "./TagPills.astro"
 import { readingTime } from "../../lib/toc"
-import type { PostSummary } from "../../lib/loadPost"
+import type { PostSummary, PublicTag } from "../../lib/loadPost"
 
 export interface Props {
   post: PostSummary
@@ -21,6 +15,8 @@ export interface Props {
   headingLevel?: "h2" | "h3"
   /** Texte de repli quand l'article n'a pas de résumé saisi. */
   fallbackExcerpt?: string
+  /** Libellés déjà résolus par `tags.listPublic` — jamais des ids bruts. */
+  tags?: PublicTag[]
 }
 
 const {
@@ -28,6 +24,7 @@ const {
   variant = "grid",
   headingLevel = "h3",
   fallbackExcerpt = "",
+  tags = [],
 } = Astro.props as Props
 
 const Heading = headingLevel
@@ -57,6 +54,7 @@ const excerpt = raw.length > 180 ? `${raw.slice(0, 177)}…` : raw
       <span>{readingTime(post.body)} min de lecture</span>
     </p>
     <Heading class="blog-card__title"><a href={href}>{post.title}</a></Heading>
+    <TagPills tags={tags} />
     {excerpt && <p class="blog-card__excerpt">{excerpt}</p>}
   </div>
 </Card>

@@ -1,0 +1,44 @@
+---
+// Pastilles de tags sous le titre d'une carte. Les libellés viennent de
+// `tags.listPublic` — projection `_id` / `name` / `slug`, sans session.
+// Pas de lien : le filtre par étiquette n'existe pas encore côté public.
+// Le type vit dans `loadPost.ts` : un export depuis un `.astro` n'est pas
+// importable de façon fiable (astro check le découvre trop tard).
+import type { PublicTag } from "../../lib/loadPost"
+
+interface Props {
+  tags: PublicTag[]
+}
+
+const { tags } = Astro.props as Props
+---
+
+{
+  tags.length > 0 && (
+    <ul class="tag-pills">
+      {tags.map((tag) => (
+        <li class="tag-pills__item">{tag.name}</li>
+      ))}
+    </ul>
+  )
+}
+
+<style>
+  .tag-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .tag-pills__item {
+    padding: 0.15rem 0.65rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+</style>

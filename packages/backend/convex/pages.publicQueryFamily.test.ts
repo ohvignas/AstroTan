@@ -206,6 +206,8 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
       // session-gated queries in general. `draftId` is reused rather than
       // a second insert, purely so this branch doesn't need its own id.
       args = { id: draftId }
+    } else if (q.argFields.length === 1 && q.argFields[0] === "ids") {
+      args = { ids: [] }
     } else {
       // Not a permissive default (e.g. silently calling with `{}`
       // regardless of shape): a public query whose argument shape this

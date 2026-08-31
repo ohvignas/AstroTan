@@ -174,3 +174,35 @@ test("list rend les tags par ordre alphabétique de nom", async () => {
   const rows = await owner.identity.query(api.tags.list, {})
   expect(rows.map((r) => r.name)).toEqual(["Astro", "Convex", "Tailwind"])
 })
+
+// ---------------------------------------------------------------------
+// listPublic — query publique, projection minimale, sans session
+// ---------------------------------------------------------------------
+
+test("listPublic n'exige pas de session et ne rend que _id, name, slug", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  const id = await editor.identity.mutation(api.tags.create, { name: "Astro" })
+
+  const rows = await t.query(api.tags.listPublic, {})
+  expect(rows).toEqual([
+    expect.objectContaining({ _id: id, name: "Astro", slug: "astro" }),
+  ])
+  expect(Object.keys(rows[0]!).sort()).toEqual(["_id", "name", "slug"])
+})
+
+test("listPublic filtre aux ids demandés", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  const keep = await editor.identity.mutation(api.tags.create, { name: "Gardé" })
+  await editor.identity.mutation(api.tags.create, { name: "Ignoré" })
+
+  const rows = await t.query(api.tags.listPublic, { ids: [keep] })
+  expect(rows).toHaveLength(1)
+  expect(rows[0]?._id).toBe(keep)
+})
+
+test("list exige encore une session", async () => {
+  const t = makeTestConvex()
+  await expect(t.query(api.tags.list, {})).rejects.toThrow()
+})

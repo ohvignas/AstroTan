@@ -77,6 +77,25 @@ export const list = query({
   },
 })
 
+// Public projection: `_id`, `name`, `slug` only, no session. The site has
+// neither a Convex admin key nor a session (CLAUDE.md invariant 1) — this
+// is what lets `/blog` render pills without leaking `_creationTime` or any
+// other row field. `list` stays behind a role.
+export const listPublic = query({
+  args: { ids: v.optional(v.array(v.id("tags"))) },
+  handler: async (ctx, args) => {
+    const rows =
+      args.ids === undefined
+        ? await ctx.db.query("tags").collect()
+        : (
+            await Promise.all(args.ids.map((id) => ctx.db.get(id)))
+          ).filter((row): row is NonNullable<typeof row> => row !== null)
+    return rows
+      .map(({ _id, name, slug }) => ({ _id, name, slug }))
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"))
+  },
+})
+
 export const create = mutation({
   args: { name: v.string() },
   handler: async (ctx, args) => {
