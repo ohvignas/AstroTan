@@ -206,9 +206,9 @@ export function actionSurLigne({
   modifie,
 }: {
   /** La ligne dépliée, ou `null`. */
-  ouverte: CleEmail | null
+  ouverte: string | null
   /** Celle sur laquelle on vient de cliquer. */
-  cible: CleEmail
+  cible: string
   /** `gabaritEnCoursModifie` du texte en cours. */
   modifie: boolean
 }): ActionLigne {

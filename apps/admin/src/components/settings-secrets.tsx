@@ -380,6 +380,7 @@ export function SecretField({
   etat,
   children,
   consequence,
+  sansRetrait = false,
   disabled,
   onSave,
   onClear,
@@ -389,6 +390,8 @@ export function SecretField({
   children?: ReactNode
   /** Ce qui s'arrête sans ce jeton — lu au moment de confirmer un retrait. */
   consequence?: ReactNode
+  /** Masque le geste « vider = supprimer » : un bouton de ligne s'en charge. */
+  sansRetrait?: boolean
   /** Vrai pour un editor, ou tant que la clé maîtresse manque. */
   disabled: boolean
   onSave: (valeur: string) => Promise<void>
@@ -405,7 +408,8 @@ export function SecretField({
   const [erreur, setErreur] = useState<string | null>(null)
   const badge = etat.source === "base" ? null : BADGE[etat.source]
   const champId = `secret-${etat.nom}`
-  const geste = gesteDuChamp(valeur, etat.base)
+  const gesteBrut = gesteDuChamp(valeur, etat.base)
+  const geste = sansRetrait && gesteBrut === "supprimer" ? "aucun" : gesteBrut
 
   async function lancer(
     action: () => Promise<void>,

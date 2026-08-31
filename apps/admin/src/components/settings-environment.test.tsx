@@ -1,5 +1,5 @@
-// Les trois pages qui portent les JETONS et les variables de déploiement —
-// Mesure & pixels, IA, et Envoi des emails.
+// Les pages qui portent les JETONS et les variables de déploiement —
+// IA, et Envoi des emails. SEO & Pixel vit dans `settings-seo-pixel.tsx`.
 //
 // La troisième vit dans `email-templates.tsx` et est importée ici quand
 // même, parce que les invariants gardés plus bas — jamais un jeton en
@@ -22,7 +22,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import type { ReactElement } from "react"
 import { describe, expect, test } from "vitest"
-import { AiPage, MeasurementPage } from "./settings-environment"
+import { AiPage } from "./settings-environment"
 import { SectionCleResend } from "./email-templates"
 import type { SecretsBloc } from "./settings-environment"
 import type { SecretEtat } from "./settings-secrets"
@@ -53,21 +53,10 @@ function render(element: ReactElement): string {
   return renderToStaticMarkup(element)
 }
 
-const UMAMI_CONFIGURE = {
-  configured: true,
-  url: "https://stats.exemple.fr",
-  shared: true,
-}
-const UMAMI_ABSENT = { configured: false, url: null, shared: false }
-
 function pages(secrets: SecretsBloc): [string, ReactElement][] {
   return [
     ["IA", <AiPage secrets={secrets} />],
     ["Envoi des emails", <SectionCleResend secrets={secrets} />],
-    [
-      "Mesure & pixels",
-      <MeasurementPage umamiApi={UMAMI_CONFIGURE} secrets={secrets} />,
-    ],
   ]
 }
 
@@ -107,42 +96,6 @@ describe("le corps d'une page", () => {
   )
 })
 
-describe("les variables hors de portée", () => {
-  test("aucune des variables PUBLIC_* n'a de champ", () => {
-    // Astro les fige au build de l'image du site : un champ ici n'aurait
-    // aucun effet, en silence.
-    const html = render(
-      <MeasurementPage umamiApi={UMAMI_ABSENT} secrets={bloc()} />
-    )
-    for (const nom of [
-      "PUBLIC_UMAMI_URL",
-      "PUBLIC_UMAMI_WEBSITE_ID",
-      "PUBLIC_UMAMI_RECORDER",
-      "PUBLIC_META_PIXEL_ID",
-      "PUBLIC_GOOGLE_TAG_ID",
-    ]) {
-      expect(html).toContain(nom)
-      expect(html).not.toContain(`secret-${nom}`)
-    }
-    expect(html).toMatch(/reconstru/i)
-    expect(html).toMatch(/ne peut pas.*savoir|Ne se règle pas ici/i)
-  })
-
-  // `test("SITE_URL se lit, ne se saisit pas")` était ici, et son composant
-  // (`OrigineDesLiens`) est parti avec la refonte de « Envoi des emails » :
-  // un bloc qui n'était qu'une explication et une commande, sur un écran
-  // qui ne doit montrer que des états, des étiquettes et des actions.
-  //
-  // Ce qu'il gardait reste vrai et n'est plus dit qu'à un seul endroit :
-  // `SITE_URL` compose les liens contenus DANS les emails, et une valeur
-  // saisie à l'écran arriverait toujours trop tard (elle est lue au
-  // chargement des modules Convex) — le raisonnement complet est conservé
-  // en commentaire dans `email-templates.tsx`. `OrigineDesLiens` a rejoint
-  // `« Domaine et DNS »` (`components/domain-check.tsx`, rendu par
-  // `routes/_authed/settings/domaine.tsx`), qui portait déjà la même
-  // vérification pour `WEB_SITE_URL` — testé là-bas, pas ici.
-})
-
 describe("la précédence, écrite à l'écran", () => {
   // « Envoi des emails » ne l'écrit plus, et c'est une décision, pas un
   // oubli : cet écran s'adresse à quelqu'un qui vient d'installer le
@@ -159,7 +112,7 @@ describe("la précédence, écrite à l'écran", () => {
   // tableau.
   test("chaque page qui liste plusieurs jetons dit que l'environnement gagne", () => {
     const listes = pages(bloc()).filter(([nom]) => nom !== "Envoi des emails")
-    expect(listes.length).toBe(2)
+    expect(listes.length).toBe(1)
     for (const [nom, element] of listes) {
       expect(render(element), nom).toMatch(
         /variable d(&#x27;|')environnement du même nom l(&#x27;|')emporte/
@@ -255,61 +208,3 @@ describe("AiPage", () => {
 // `/settings/emails` rend réellement. La seule assertion sans héritière
 // est celle de `WEB_SITE_URL` — voir le bloc « Domaine & emails —
 // RETIRÉE » de `settings-environment.tsx`.
-
-describe("MeasurementPage", () => {
-  test("sépare le script qui compte des identifiants qui lisent les chiffres", () => {
-    const rendu = render(
-      <MeasurementPage umamiApi={UMAMI_CONFIGURE} secrets={bloc()} />
-    )
-    expect(rendu).toContain("PUBLIC_UMAMI_URL")
-    expect(rendu).toContain("UMAMI_API_USERNAME")
-    expect(rendu).toContain("https://stats.exemple.fr")
-  })
-
-  test("les quatre identifiants de lecture ont chacun leur champ", () => {
-    // « Les quatre ensemble ou rien » : un seul champ manquant rendrait
-    // l'intégration insaisissable depuis l'écran.
-    const rendu = render(
-      <MeasurementPage umamiApi={UMAMI_ABSENT} secrets={bloc()} />
-    )
-    for (const nom of [
-      "UMAMI_API_URL",
-      "UMAMI_API_WEBSITE_ID",
-      "UMAMI_API_USERNAME",
-      "UMAMI_API_PASSWORD",
-    ]) {
-      expect(rendu, nom).toContain(`secret-${nom}`)
-    }
-  })
-
-  test("garde la frontière du consentement du bon côté", () => {
-    // La seule décision subtile du dossier RGPD : le comptage est exempté,
-    // le rejeu de session ne l'est pas. L'écran doit dire laquelle des
-    // deux est laquelle.
-    const rendu = render(
-      <MeasurementPage umamiApi={UMAMI_CONFIGURE} secrets={bloc()} />
-    )
-    expect(rendu).toContain("PUBLIC_UMAMI_RECORDER")
-    expect(rendu).toMatch(/attend le consentement/)
-  })
-
-  test("dit que les identifiants Umami sont bien lus depuis la base, derrière l'environnement", () => {
-    const rendu = render(
-      <MeasurementPage umamiApi={UMAMI_CONFIGURE} secrets={bloc()} />
-    )
-    expect(rendu).toMatch(/la base est lue/i)
-    expect(rendu).toContain("secrets.lireSecret")
-  })
-
-  test("dit que la base peut compléter un environnement Umami incomplet", () => {
-    // `environment.umamiApi.configured` ne voit que l'ENVIRONNEMENT
-    // (c'est une `query`, qui ne peut pas appeler `lireSecret`) : un
-    // environnement incomplet ne veut plus dire « non configuré », depuis
-    // que `analytics.ts` retombe sur la base pour chaque identifiant
-    // manquant.
-    const rendu = render(
-      <MeasurementPage umamiApi={UMAMI_ABSENT} secrets={bloc()} />
-    )
-    expect(rendu).toMatch(/si la base ne complète pas/i)
-  })
-})
