@@ -17,6 +17,7 @@ import { normaliserHote } from "./lib/hoteNu"
 import { noterSortie, type HoteSortant } from "./lib/hotesSortants"
 import { deriverOrigines } from "./lib/origines"
 import { normaliserPixelId } from "./lib/pixelId"
+import { assertSerpLocale } from "./lib/serpLocale"
 import { insertOutboxRow } from "./revalidate"
 import { MUTATION_REGISTRY } from "./_registry"
 
@@ -175,6 +176,8 @@ export const getPrivate = query({
       declaredDomain: settings.declaredDomain ?? null,
       metaPixelId: settings.metaPixelId ?? null,
       googleTagId: settings.googleTagId ?? null,
+      serpLocationCode: settings.serpLocationCode ?? null,
+      serpLanguageCode: settings.serpLanguageCode ?? null,
     }
   },
 })
@@ -408,6 +411,8 @@ export const update = mutation({
     // `undefined`, qui effacerait le champ et ferait revenir PUBLIC_*.
     metaPixelId: v.optional(v.union(v.string(), v.null())),
     googleTagId: v.optional(v.union(v.string(), v.null())),
+    serpLocationCode: v.optional(v.union(v.number(), v.null())),
+    serpLanguageCode: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     // Site-wide settings are not an editor's call: the name, the logo and
@@ -452,6 +457,11 @@ export const update = mutation({
     // doit faire échouer la mutation entière, pas seulement se voir écarté
     // en silence. `null` traverse tel quel — c'est « efface », pas une
     // valeur à normaliser.
+    const serp = assertSerpLocale({
+      serpLocationCode: args.serpLocationCode,
+      serpLanguageCode: args.serpLanguageCode,
+    })
+
     if (args.declaredDomain !== undefined && args.declaredDomain !== null) {
       const hote = normaliserHote(args.declaredDomain)
       if (hote === null) {
@@ -481,8 +491,12 @@ export const update = mutation({
       declaredDomain,
       metaPixelId,
       googleTagId,
+      serpLocationCode: _serpLocation,
+      serpLanguageCode: _serpLanguage,
       ...rest
     } = args
+    void _serpLocation
+    void _serpLanguage
     void _ignore
     // `let` d'un type large : la valeur finale est calculée juste en
     // dessous, puis rétrécie explicitement avant d'entrer dans le patch —
@@ -534,6 +548,12 @@ export const update = mutation({
         : {}),
       ...secretPatch,
       ...pixelPatch,
+      ...(args.serpLocationCode !== undefined
+        ? { serpLocationCode: serp.serpLocationCode }
+        : {}),
+      ...(args.serpLanguageCode !== undefined
+        ? { serpLanguageCode: serp.serpLanguageCode }
+        : {}),
     }
 
     const existing = await ctx.db.query("settings").first()

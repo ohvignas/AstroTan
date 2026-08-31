@@ -113,6 +113,50 @@ test("declaredDomain n'accepte qu'un hôte nu, et une chaîne vide l'efface", as
   expect((await owner.identity.query(api.settings.getPrivate, {}))?.declaredDomain).toBeNull()
 })
 
+test("settings.get ne porte ni serpLocationCode ni serpLanguageCode", async () => {
+  const t = makeTestConvex()
+  await t.run((ctx) =>
+    ctx.db.insert("settings", {
+      siteName: "AstroTan",
+      serpLocationCode: 2250,
+      serpLanguageCode: "fr",
+    }),
+  )
+  const pub = await t.query(api.settings.get, {})
+  expect(pub).not.toHaveProperty("serpLocationCode")
+  expect(pub).not.toHaveProperty("serpLanguageCode")
+})
+
+test("un language_code hors [a-z]{2} lève INVALID_SERP_LOCALE", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await expect(
+    owner.identity.mutation(api.settings.update, { serpLanguageCode: "FR" }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_SERP_LOCALE" } })
+})
+
+test("un location_code ≤ 0 lève INVALID_SERP_LOCALE", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await expect(
+    owner.identity.mutation(api.settings.update, { serpLocationCode: 0 }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_SERP_LOCALE" } })
+})
+
+test("getPrivate rend le lieu SERP ; update l'écrit", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.update, { siteName: "AstroTan" })
+  expect((await owner.identity.query(api.settings.getPrivate, {}))?.serpLocationCode).toBeNull()
+  await owner.identity.mutation(api.settings.update, {
+    serpLocationCode: 2250,
+    serpLanguageCode: "fr",
+  })
+  const privee = await owner.identity.query(api.settings.getPrivate, {})
+  expect(privee?.serpLocationCode).toBe(2250)
+  expect(privee?.serpLanguageCode).toBe("fr")
+})
+
 test("setHomePage refuse une page qui n'existe pas", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")

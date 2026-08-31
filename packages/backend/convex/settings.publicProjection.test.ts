@@ -36,6 +36,8 @@ const AUTORISES_PRIVE = [
   "declaredDomain",
   "metaPixelId",
   "googleTagId",
+  "serpLocationCode",
+  "serpLanguageCode",
 ]
 
 // Toute la table, LUE DU SCHÉMA et non recopiée à la main — même motif que
