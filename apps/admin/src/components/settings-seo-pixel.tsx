@@ -6,6 +6,7 @@ import {
   LignePixel,
 } from "@/components/seo-pixel-ligne"
 import { SettingsGroup } from "@/components/settings-nav"
+import { SerpLieuSelect } from "@/components/serp-lieu-select"
 import type { SecretsBloc } from "@/components/settings-environment"
 import { describeSettingsError } from "@/lib/settingsErrors"
 
@@ -29,17 +30,26 @@ export function SeoPixelPage({
   secrets,
   metaPixelId,
   googleTagId,
+  serpLocationCode,
+  serpLanguageCode,
   onSaveSecret,
   onClearSecret,
   onSavePixel,
+  onSaveSerp,
 }: {
   canWrite: boolean
   secrets: SecretsBloc
   metaPixelId: string | null
   googleTagId: string | null
+  serpLocationCode: number | null
+  serpLanguageCode: string | null
   onSaveSecret: (nom: string, valeur: string) => Promise<void>
   onClearSecret: (nom: string) => Promise<void>
   onSavePixel: (patch: PixelPatch) => Promise<unknown>
+  onSaveSerp: (patch: {
+    serpLocationCode: number
+    serpLanguageCode: string
+  }) => Promise<unknown>
 }) {
   const bloc: SecretsBloc = { ...secrets, onSave: onSaveSecret, onClear: onClearSecret }
   const [ouverte, setOuverte] = useState<string | null>(null)
@@ -131,6 +141,12 @@ export function SeoPixelPage({
           onModifie={() => setSecretsModifies(true)}
           onDemanderRetrait={() => setRetraitDataForSeo(true)}
           retraitEnCours={busy === "retrait"}
+        />
+        <SerpLieuSelect
+          canWrite={canWrite}
+          serpLocationCode={serpLocationCode}
+          serpLanguageCode={serpLanguageCode}
+          onSave={onSaveSerp}
         />
         {([
           ["meta", "Pixel Meta", metaPixelId, brouillonMeta, setBrouillonMeta, "123456789012345", erreurMeta, "metaPixelId"],

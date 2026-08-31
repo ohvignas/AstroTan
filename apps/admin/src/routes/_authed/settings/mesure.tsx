@@ -28,9 +28,12 @@ function MesureRoute() {
         secrets={secrets}
         metaPixelId={settings?.metaPixelId ?? null}
         googleTagId={settings?.googleTagId ?? null}
+        serpLocationCode={settings?.serpLocationCode ?? null}
+        serpLanguageCode={settings?.serpLanguageCode ?? null}
         onSaveSecret={secrets.onSave}
         onClearSecret={secrets.onClear}
         onSavePixel={(patch) => update(patch)}
+        onSaveSerp={(patch) => update(patch)}
       />
     </SettingsPageShell>
   )

@@ -10,6 +10,12 @@ const blocVide = {
   onClear: async () => {},
 }
 
+const serp = {
+  serpLocationCode: null as number | null,
+  serpLanguageCode: null as string | null,
+  onSaveSerp: async () => {},
+}
+
 test("les trois lignes sont là, Umami n'y est plus", () => {
   const html = renderToStaticMarkup(
     <SeoPixelPage
@@ -20,11 +26,14 @@ test("les trois lignes sont là, Umami n'y est plus", () => {
       onSaveSecret={async () => {}}
       onClearSecret={async () => {}}
       onSavePixel={async () => {}}
+      {...serp}
     />,
   )
   expect(html).toContain("DataForSEO")
   expect(html).toContain("Pixel Meta")
   expect(html).toContain("Google Ads")
+  expect(html).toContain("France (Google)")
+  expect(html).toContain("Lieu SERP")
   expect(html).not.toContain("UMAMI_API")
   expect(html).not.toContain("PUBLIC_UMAMI")
   expect(html).not.toContain("PUBLIC_META_PIXEL_ID")
@@ -51,6 +60,7 @@ test("un editor voit l'ID et aucun bouton d'écriture", () => {
       onSaveSecret={async () => {}}
       onClearSecret={async () => {}}
       onSavePixel={async () => {}}
+      {...serp}
     />,
   )
   expect(html).toMatch(/réservé/i)
