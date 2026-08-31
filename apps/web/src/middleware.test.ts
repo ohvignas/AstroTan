@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
+import { getFunctionName } from "convex/server"
+import { api } from "@astrotan/backend/convex/_generated/api"
 
 // Le middleware s'exécute avant toute route : ce qu'il avale n'atteint
 // jamais la page qui l'aurait servi. Ces tests portent sur les trois
@@ -7,11 +9,25 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 const listActive = vi.fn()
 
 vi.mock("./lib/convexClient", () => ({
-  getConvexClient: () => ({ query: listActive }),
+  getConvexClient: () => ({
+    query: (fn: unknown) => {
+      // `anyApi` rend un nouvel objet à chaque accès : `===` est toujours
+      // faux. `getFunctionName` compare la référence Convex (`settings:get`),
+      // pas une sous-chaîne.
+      if (
+        getFunctionName(fn as Parameters<typeof getFunctionName>[0]) ===
+        getFunctionName(api.settings.get)
+      ) {
+        return Promise.resolve(null)
+      }
+      return listActive()
+    },
+  }),
 }))
 
 let onRequest: typeof import("./middleware").onRequest
 let purgeRedirectMemo: typeof import("./middleware").purgeRedirectMemo
+let purgePixelMemo: typeof import("./middleware").purgePixelMemo
 
 beforeEach(async () => {
   vi.resetModules()
@@ -22,7 +38,9 @@ beforeEach(async () => {
   const mod = await import("./middleware")
   onRequest = mod.onRequest
   purgeRedirectMemo = mod.purgeRedirectMemo
+  purgePixelMemo = mod.purgePixelMemo
   purgeRedirectMemo()
+  purgePixelMemo()
 })
 
 afterEach(() => {

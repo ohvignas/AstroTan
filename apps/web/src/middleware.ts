@@ -1,6 +1,7 @@
 import type { APIContext, MiddlewareHandler, MiddlewareNext } from "astro"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { getConvexClient } from "./lib/convexClient"
+import { fusionnerPixels, type PixelSettings } from "./lib/pixelIds"
 import { enTetesSecurite, nouveauNonce } from "./lib/securityHeaders"
 
 // Redirects, resolved before any route runs.
@@ -31,6 +32,26 @@ let memo: { rows: Redirect[]; expiresAt: number } | null = null
  */
 export function purgeRedirectMemo(): void {
   memo = null
+}
+
+let pixelMemo: { settings: PixelSettings | null; expiresAt: number } | null = null
+
+/**
+ * Même horloge que les redirections : une publication qui change un ID
+ * pixel doit ouvrir (ou fermer) la CSP tout de suite, pas dans 60 s.
+ */
+export function purgePixelMemo(): void {
+  pixelMemo = null
+}
+
+async function cachedSettings(): Promise<PixelSettings | null> {
+  if (pixelMemo !== null && pixelMemo.expiresAt > Date.now()) return pixelMemo.settings
+  const settings = (await getConvexClient().query(
+    api.settings.get,
+    {},
+  )) as PixelSettings | null
+  pixelMemo = { settings, expiresAt: Date.now() + MEMO_TTL_MS }
+  return settings
 }
 
 async function activeRedirects(): Promise<Redirect[]> {
@@ -135,8 +156,9 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
 
   const response = await router(context, next)
 
+  const fused = fusionnerPixels(await cachedSettings(), import.meta.env)
   for (const [nom, valeur] of Object.entries(
-    enTetesSecurite(nonce, import.meta.env, enHttps(context)),
+    enTetesSecurite(nonce, fused, enHttps(context)),
   )) {
     response.headers.set(nom, valeur)
   }

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest"
+import { fusionnerPixels } from "./pixelIds"
 import { enTetesSecurite, nouveauNonce } from "./securityHeaders"
 
 const ENV = { PUBLIC_CONVEX_URL: "https://exemple.convex.cloud" }
@@ -187,6 +188,13 @@ describe("la CSP et les traceurs soumis à consentement", () => {
     // `frame-src` n'est pas déclaré : les iframes retombent sur
     // `default-src 'self'`, ce qui est la politique stricte voulue.
     expect(directive(ENV, "frame-src")).toBeUndefined()
+  })
+
+  test("un ID venu de settings ouvre la CSP Meta, le PUBLIC_* vide ne compte pas", () => {
+    const fused = fusionnerPixels({ metaPixelId: "123456789012345", googleTagId: null }, ENV)
+    const csp = enTetesSecurite("abc123", fused)["Content-Security-Policy"]!
+    expect(csp).toContain("facebook")
+    expect(csp).not.toContain("google")
   })
 
   test("avec le pixel Meta, ses trois surfaces sont ouvertes", () => {

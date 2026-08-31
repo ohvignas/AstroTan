@@ -15,7 +15,7 @@
 export const prerender = false
 
 import type { APIRoute } from "astro"
-import { purgeRedirectMemo } from "../../middleware"
+import { purgePixelMemo, purgeRedirectMemo } from "../../middleware"
 import { createHash, timingSafeEqual } from "node:crypto"
 
 // Same floor as `PREVIEW_SECRET`'s own guard (`../../lib/previewToken.ts`)
@@ -160,6 +160,7 @@ export const POST: APIRoute = async (context) => {
   //  - une invalidation LÉGITIME ne purgeait rien, donc la redirection
   //    fraîchement créée restait invisible jusqu'à une minute.
   purgeRedirectMemo()
+  purgePixelMemo()
 
   return new Response(null, { status: 200 })
 }

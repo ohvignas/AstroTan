@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import type { APIContext } from "astro"
 import { POST } from "../revalidate"
 import * as revalidateEndpoint from "../revalidate"
+import * as middleware from "../../../middleware"
 
 const TEST_SECRET = "test-revalidate-secret-please-do-not-use-x"
 
@@ -65,6 +66,7 @@ function fakeContext(options: {
 
 describe("POST /api/revalidate", () => {
   test("le bon secret avec un corps valide invalide le cache et répond 200", async () => {
+    const pixel = vi.spyOn(middleware, "purgePixelMemo")
     const { context, cacheSet, cacheInvalidate } = fakeContext({
       headers: { "x-revalidate-secret": TEST_SECRET, "content-type": "application/json" },
       body: { tags: ["pages", "page:home"] },
@@ -79,6 +81,7 @@ describe("POST /api/revalidate", () => {
     // The exact tags from the body, unmodified — the same value that was
     // validated is the value that was acted on.
     expect(cacheInvalidate).toHaveBeenCalledWith({ tags: ["pages", "page:home"] })
+    expect(pixel).toHaveBeenCalled()
   })
 
   test("un secret manquant est refusé et n'invalide rien", async () => {
