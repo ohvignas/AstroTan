@@ -42,13 +42,19 @@
 // aucune.
 //
 // https://developers.google.com/tag-platform/security/concepts/consent-mode
+import { api } from "@astrotan/backend/convex/_generated/api"
 import { consentModeDefault } from "../../lib/consent"
 import { consentConfig } from "../../config/consent"
+import { getConvexClient } from "../../lib/convexClient"
+import { fusionnerPixels } from "../../lib/pixelIds"
+
+const settings = await getConvexClient().query(api.settings.get, {})
+const fused = fusionnerPixels(settings, import.meta.env)
 
 // Rien à faire tant qu'aucune balise Google n'existe sur ce site : un bloc
 // de consentement sans destinataire est du code mort dans chaque page.
 const enabled =
-  consentConfig.googleConsentMode.enabled && Boolean(import.meta.env.PUBLIC_GOOGLE_TAG_ID)
+  consentConfig.googleConsentMode.enabled && Boolean(fused.PUBLIC_GOOGLE_TAG_ID)
 const code = enabled ? consentModeDefault(consentConfig) : null
 
 // Le nonce de la CSP, lu ici plutôt que directement dans la balise.

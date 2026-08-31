@@ -19,18 +19,23 @@
 // Le script est bundlé (pas `is:inline`) pour importer la logique de
 // `lib/consent.ts`, qui est testée. Un bandeau dont la décision vit dans une
 // chaîne de caractères en ligne n'est vérifiable qu'à l'œil.
+import { api } from "@astrotan/backend/convex/_generated/api"
 import {
   CATEGORY_LABELS,
   activeCategories,
   shouldAskConsent,
 } from "../../lib/consent"
 import { consentConfig } from "../../config/consent"
+import { getConvexClient } from "../../lib/convexClient"
+import { fusionnerPixels } from "../../lib/pixelIds"
 
-const categories = activeCategories(import.meta.env, consentConfig.googleConsentMode.enabled)
+const settings = await getConvexClient().query(api.settings.get, {})
+const fused = fusionnerPixels(settings, import.meta.env)
+const categories = activeCategories(fused, consentConfig.googleConsentMode.enabled)
 // Aucun tiers configuré : pas de bandeau. Demander l'autorisation de faire
 // une chose qu'on ne fait pas est une nuisance, et une description fausse du
 // site.
-const ask = shouldAskConsent(import.meta.env, consentConfig.googleConsentMode.enabled)
+const ask = shouldAskConsent(fused, consentConfig.googleConsentMode.enabled)
 ---
 
 {
@@ -39,6 +44,8 @@ const ask = shouldAskConsent(import.meta.env, consentConfig.googleConsentMode.en
       <div
         class:list={["consent-banner", `consent-banner--${consentConfig.position}`]}
         data-consent-banner
+        data-meta-pixel-id={fused.PUBLIC_META_PIXEL_ID ?? ""}
+        data-google-tag-id={fused.PUBLIC_GOOGLE_TAG_ID ?? ""}
         role="dialog"
         aria-modal="false"
         aria-labelledby="consent-title"
@@ -142,6 +149,7 @@ const ask = shouldAskConsent(import.meta.env, consentConfig.googleConsentMode.en
     type ConsentRecord,
   } from "../../lib/consent"
   import { consentConfig } from "../../config/consent"
+  import { envDepuisBandeau } from "../../lib/consentClientEnv"
 
   /**
    * `gtag` est posé par `GoogleConsentMode.astro`, en ligne dans le `<head>` :
@@ -157,19 +165,17 @@ const ask = shouldAskConsent(import.meta.env, consentConfig.googleConsentMode.en
     }
   }
 
-  // Un objet explicite plutôt que `import.meta.env` en bloc : ce qui part
-  // dans le bundle du navigateur est alors la liste écrite ici, et rien
-  // d'autre ne peut s'y glisser par inadvertance.
-  const env = {
+  const banner = document.querySelector<HTMLElement>("[data-consent-banner]")
+  const dialog = document.querySelector<HTMLDialogElement>("[data-consent-dialog]")
+
+  // Pixels depuis le dataset du bandeau, jamais depuis le `PUBLIC_*` du
+  // build : un attribut vide est un retrait, pas un repli. Umami, lui,
+  // reste figé au build.
+  const env = envDepuisBandeau(banner?.dataset ?? {}, {
     PUBLIC_UMAMI_URL: import.meta.env.PUBLIC_UMAMI_URL,
     PUBLIC_UMAMI_WEBSITE_ID: import.meta.env.PUBLIC_UMAMI_WEBSITE_ID,
     PUBLIC_UMAMI_RECORDER: import.meta.env.PUBLIC_UMAMI_RECORDER,
-    PUBLIC_META_PIXEL_ID: import.meta.env.PUBLIC_META_PIXEL_ID,
-    PUBLIC_GOOGLE_TAG_ID: import.meta.env.PUBLIC_GOOGLE_TAG_ID,
-  }
-
-  const banner = document.querySelector<HTMLElement>("[data-consent-banner]")
-  const dialog = document.querySelector<HTMLDialogElement>("[data-consent-dialog]")
+  })
 
   // Le site peut n'avoir aucun tiers : le composant ne rend alors rien, et
   // ce script n'a rien à piloter.

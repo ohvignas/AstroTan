@@ -20,9 +20,12 @@ export const prerender = false
 import { loadPage } from "../lib/loadPage"
 import BaseLayout from "../layouts/BaseLayout.astro"
 import CookiesBody from "../components/legal/CookiesBody.astro"
+import { api } from "@astrotan/backend/convex/_generated/api"
 import { consentTags, shouldAskConsent } from "../lib/consent"
 import { consentConfig } from "../config/consent"
 import { ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED, legalEntity } from "../config/legal"
+import { getConvexClient } from "../lib/convexClient"
+import { fusionnerPixels } from "../lib/pixelIds"
 
 const { page: loadedPage } = await loadPage(Astro)
 
@@ -32,8 +35,10 @@ const page =
     ? { ...loadedPage, seo: { ...loadedPage.seo, noindex: true } }
     : loadedPage
 
-const tags = consentTags(import.meta.env, consentConfig.googleConsentMode.enabled)
-const ask = shouldAskConsent(import.meta.env, consentConfig.googleConsentMode.enabled)
+const settings = await getConvexClient().query(api.settings.get, {})
+const fused = fusionnerPixels(settings, import.meta.env)
+const tags = consentTags(fused, consentConfig.googleConsentMode.enabled)
+const ask = shouldAskConsent(fused, consentConfig.googleConsentMode.enabled)
 const umami = Boolean(
   import.meta.env.PUBLIC_UMAMI_URL && import.meta.env.PUBLIC_UMAMI_WEBSITE_ID,
 )
