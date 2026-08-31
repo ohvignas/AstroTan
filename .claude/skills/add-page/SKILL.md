@@ -34,9 +34,12 @@ pas en réintroduire un.**
 export const prerender = false
 
 import { loadPage } from "../lib/loadPage"
-import PageHead from "../components/PageHead.astro"
-const { page } = await loadPage(Astro, "<slug>")
+import BaseLayout from "../layouts/BaseLayout.astro"
+const { page } = await loadPage(Astro)
 ```
+
+Omettre le slug. `loadPage` le dérive du chemin. Le seul appelant légitime
+d'un slug explicite est `index.astro`, parce que `/` n'a pas de segment.
 
 `loadPage` fait tout le reste : la recherche publiée, l'aperçu par `?t=`, le
 statut 404, et les tags de cache. `PageHead` rend le titre, la description,
@@ -44,18 +47,17 @@ le canonique, `robots`, l'Open Graph et les champs GEO.
 
 Prendre `apps/web/src/pages/contact.astro` comme modèle minimal.
 
-### 2. Rendre le 404 et le contenu séparément
+### 2. Envelopper dans `BaseLayout`
 
 ```astro
-{page === null ? (
-  <main>…404…</main>
-) : (
-  <main>…votre page…</main>
-)}
+<BaseLayout page={page} fallbackTitle="…">
+  <!-- le contenu de la page -->
+</BaseLayout>
 ```
 
-Servir le balisage avec un statut 404 est incohérent : le corps et le statut
-doivent dire la même chose.
+`loadPage` pose le statut 404 quand la ligne n'est pas publiée. `BaseLayout`
+rend alors le corps 404 à la place du slot — **aucun ternaire n'est requis**.
+Un vibecodeur qui oublie `{page === null ? …}` n'expose pas un brouillon.
 
 ### 3. Créer la ligne dans l'admin
 

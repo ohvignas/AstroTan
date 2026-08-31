@@ -2,21 +2,9 @@
 // La page de contact. Sa ligne doit exister dans le dashboard avec le slug
 // `contact`, et être publiée — sinon cette route répond 404, délibérément.
 //
-// Le template a ici un formulaire complet, branché sur une action Astro qui
-// appelle Resend. Il n'est PAS porté : nous n'avons ni endpoint d'envoi, ni
-// clé de service, et un formulaire dont le bouton ne fait rien est pire
-// qu'une adresse écrite en clair. Ce qu'il resterait à faire, le jour où on
-// le veut :
-//
-//   1. `src/pages/api/contact.ts` — un endpoint POST qui valide le corps,
-//      limite le débit par IP, et refuse tout ce qui n'a pas d'origine
-//      attendue ;
-//   2. le service d'envoi de son choix, sa clé posée en variable
-//      d'environnement du conteneur `web` et jamais exposée au navigateur ;
-//   3. un champ piège masqué, ou un contrôle équivalent — un formulaire
-//      public sans anti-spam se remplit tout seul en quelques jours ;
-//   4. ici, un `<form method="post" action="/api/contact">` : sans
-//      JavaScript, un envoi natif du navigateur suffit.
+// Le formulaire poste vers `/api/contact`, qui valide le corps, limite
+// le débit, et écrit un lead. Pas de JavaScript : un envoi HTTP natif
+// suffit.
 export const prerender = false
 
 import { loadPage } from "../lib/loadPage"

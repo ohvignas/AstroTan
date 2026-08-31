@@ -1,6 +1,7 @@
 // The Astro-side half of design spec §6.3's "two independent barriers":
-// this is what `src/pages/preview/[type]/[id].astro` calls *before* it
-// makes any network call to Convex at all — barrier 1, entirely local.
+// this is what `loadPage` / `loadPost` call *before* any network call
+// to Convex — barrier 1, entirely local. Preview opens on the real URL
+// with `?t=`, never a parallel `/preview/...` route.
 // Convex's own copy (`packages/backend/convex/lib/previewToken.ts`)
 // re-verifies independently once this barrier passes; that file's own
 // header explains why the two never share an implementation: "sharing

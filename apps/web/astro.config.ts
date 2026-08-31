@@ -41,7 +41,7 @@ export default defineConfig({
   // Cache *hints* per route pattern. These are read when a matching route
   // does not itself call `Astro.cache.set(...)` — they are not fetched or
   // applied to routes that must never be cached (`/api/revalidate`,
-  // `/preview/[type]/[id]`, Task 7). Those call `Astro.cache.set(false)` /
+  // les routes d'aperçu (loadPage / loadPost quand ?t= est valide), Task 7). Those call `Astro.cache.set(false)` /
   // `context.cache.set(false)` in the route itself: the documented opt-out
   // is the explicit call, not an absence of a `routeRules` entry.
   // No `routeRules` entry: every page sets its own cache through
