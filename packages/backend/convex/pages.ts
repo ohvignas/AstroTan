@@ -5,15 +5,21 @@ import type { Id } from "./_generated/dataModel"
 import { verifyPreviewToken, signPreviewToken, PREVIEW_TOKEN_TTL_MS } from "./lib/previewToken"
 import { requireRole, requireOwnDocument, requirePublishedPageWritable } from "./lib/authz"
 import { authComponent } from "./auth"
-import { insertOutboxRow } from "./revalidate"
-import { geoValidator, seoValidator, assertPageTextWithinLimits } from "./content"
+import { enqueuePropagationRetry, insertOutboxRow } from "./revalidate"
+import {
+  geoValidator,
+  seoValidator,
+  assertPageTextWithinLimits,
+  assertTargetKeyword,
+} from "./content"
+import { omitTargetKeyword } from "./lib/omitTargetKeyword"
 // Le normaliseur de chemin vit dans `lib/slug.ts`, aux côtés de `slugify`
 // qui fait un travail voisin mais différent — voir l'en-tête de ce module
 // pour la distinction, et pourquoi les confondre est un bug.
 import { normalizeSlug } from "./lib/slug"
 import { RESERVED_PAGE_SLUGS } from "./posts"
 import { mintRenameRedirect } from "./redirects"
-import { isServedByRoute } from "./lib/servedPaths"
+import { cmsSlugsFromServedPaths, isServedByRoute } from "./lib/servedPaths"
 import { publicPath } from "./lib/publicPath"
 import { REQUIRED_PAGE_REASON, isRequiredPage } from "./lib/requiredPages"
 import { MUTATION_REGISTRY } from "./_registry"
@@ -69,7 +75,7 @@ export const getPublishedPage = query({
       .unique()
     if (page === null) return null
     if (page.status !== "published") return null
-    return page
+    return omitTargetKeyword(page)
   },
 })
 
@@ -89,7 +95,9 @@ export const listPublishedPages = query({
       .query("pages")
       .withIndex("by_status", (q) => q.eq("status", "published"))
       .collect()
-    return pages.filter((page) => page.status === "published")
+    return pages
+      .filter((page) => page.status === "published")
+      .map(omitTargetKeyword)
   },
 })
 
@@ -128,10 +136,11 @@ export const previewPage = query({
     if (!valid) {
       throw new ConvexError({ code: "INVALID_PREVIEW_TOKEN" })
     }
-    return ctx.db
+    const page = await ctx.db
       .query("pages")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .unique()
+    return page === null ? null : omitTargetKeyword(page)
   },
 })
 
@@ -183,7 +192,8 @@ export const list = query({
     const settings = await ctx.db.query("settings").first()
     const homeSlug = settings?.homePageSlug
 
-    return pages.map((page) => {
+    const present = new Set(pages.map((page) => page.slug))
+    const listed = pages.map((page) => {
       // Le chemin réel vient de `lib/publicPath`, jamais recalculé ici :
       // l'exception de l'accueil a déjà été oubliée quatre fois, à quatre
       // endroits, et la recopier une cinquième aurait produit une cinquième
@@ -193,8 +203,30 @@ export const list = query({
         ...page,
         path,
         servedByRoute: isServedByRoute(path),
+        missingRow: false as const,
       }
     })
+
+    // Un fichier `.astro` sans ligne ne doit pas disparaître du menu :
+    // c'est le filet qui rend visible toute page du site, même si l'agent
+    // qui a écrit le fichier a oublié `pages.create`.
+    for (const slug of cmsSlugsFromServedPaths()) {
+      if (present.has(slug)) continue
+      listed.push({
+        _id: null,
+        slug,
+        title: slug,
+        status: "draft",
+        path: `/${slug}`,
+        servedByRoute: true,
+        missingRow: true,
+        createdBy: "",
+        updatedBy: "",
+        _creationTime: 0,
+      })
+    }
+
+    return listed
   },
 })
 
@@ -410,6 +442,7 @@ export const update = mutation({
     slug: v.optional(v.string()),
     seo: v.optional(seoValidator),
     geo: v.optional(geoValidator),
+    targetKeyword: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
@@ -441,8 +474,10 @@ export const update = mutation({
       slug?: string
       seo?: typeof args.seo
       geo?: typeof args.geo
+      targetKeyword?: string
       updatedBy: string
     } = { updatedBy: authUser._id }
+    let clearTargetKeyword = false
 
     if (args.title !== undefined) {
       const title = args.title.trim()
@@ -473,6 +508,11 @@ export const update = mutation({
     }
     if (args.seo !== undefined) patch.seo = args.seo
     if (args.geo !== undefined) patch.geo = args.geo
+    if (args.targetKeyword !== undefined) {
+      const next = assertTargetKeyword(args.targetKeyword)
+      if (next === undefined) clearTargetKeyword = true
+      else patch.targetKeyword = next
+    }
 
     // Bounds every text field that will actually land on the row after
     // this patch — the value just validated above where the caller sent
@@ -488,7 +528,12 @@ export const update = mutation({
       geo: patch.geo ?? page.geo,
     })
 
-    await ctx.db.patch(args.id, patch)
+    if (clearTargetKeyword) {
+      const { _id, _creationTime, targetKeyword: _dropped, ...kept } = page
+      await ctx.db.replace(args.id, { ...kept, ...patch })
+    } else {
+      await ctx.db.patch(args.id, patch)
+    }
 
     // Renommer le slug d'une page *publiée* abandonnerait ses visiteurs à
     // une 404 : l'ancienne URL est dans des favoris, des liens entrants,
@@ -694,6 +739,23 @@ export const publishPage = mutation({
   },
 })
 
+// A failed outbox row is terminal — six POSTs already died. This does
+// not republish: it only enqueues a fresh pending row and kicks `drain`,
+// same fast path as `publishPage`, leaving `status`/`publishedAt` alone.
+export const retryPropagation = mutation({
+  args: { id: v.id("pages") },
+  handler: async (ctx, args) => {
+    const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
+    const page = await ctx.db.get(args.id)
+    if (!page) throw new ConvexError({ code: "NOT_FOUND" })
+    requireOwnDocument(authUser, page)
+    await enqueuePropagationRetry(ctx, { kind: "page", pageId: args.id }, [
+      "pages",
+      `page:${page.slug}`,
+    ])
+  },
+})
+
 // Required by `_registry.test.ts`'s exhaustiveness check: every public
 // mutation must be declared here. `publishPage` is the first mutation
 // `pages.ts` exports — `owner`/`admin` only, `editor` refused with
@@ -824,6 +886,37 @@ MUTATION_REGISTRY.push(
         }),
       )
       return t.mutation(api.pages.mintPreviewToken, { id })
+    },
+  },
+  {
+    name: "pages.retryPropagation",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: async (t) => {
+      const ownerId = await registryActorId(t)
+      const slug = `registry-retry-${Date.now()}-${Math.random()}`
+      const id = await t.run((ctx: any) =>
+        ctx.db.insert("pages", {
+          slug,
+          title: "Registry Check",
+          status: "published",
+          publishedAt: Date.now(),
+          createdBy: ownerId,
+          updatedBy: ownerId,
+        }),
+      )
+      await t.run((ctx: any) =>
+        ctx.db.insert("revalidationOutbox", {
+          tags: ["pages", `page:${slug}`],
+          kind: "page",
+          pageId: id,
+          status: "failed",
+          attempts: 6,
+          nextAttemptAt: Date.now(),
+          lastError: "registry",
+          createdAt: Date.now(),
+        }),
+      )
+      return t.mutation(api.pages.retryPropagation, { id })
     },
   },
 )

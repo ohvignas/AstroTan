@@ -1,7 +1,8 @@
 import type { TestConvex } from "convex-test"
 import { afterEach, beforeEach, expect, test } from "vitest"
 import schema from "./schema"
-import { api } from "./_generated/api"
+import { api, internal } from "./_generated/api"
+import { getFunctionName } from "convex/server"
 import { MAX_EXCERPT_LENGTH, MAX_POST_BODY_LENGTH } from "./posts"
 import {
   ORIGIN,
@@ -89,6 +90,37 @@ test("update refuse un extrait au-delà de sa borne", async () => {
       excerpt: "x".repeat(MAX_EXCERPT_LENGTH + 1),
     }),
   ).rejects.toMatchObject({ data: { code: "FIELD_TOO_LONG", field: "excerpt" } })
+})
+
+test("targetKeyword : 80 passent, 81 lèvent, vide retire", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "Mot-clé",
+    slug: "mot-cle",
+  })
+
+  await owner.identity.mutation(api.posts.update, {
+    id,
+    targetKeyword: "a".repeat(80),
+  })
+  expect((await owner.identity.query(api.posts.get, { id }))?.targetKeyword).toBe(
+    "a".repeat(80),
+  )
+
+  await expect(
+    owner.identity.mutation(api.posts.update, {
+      id,
+      targetKeyword: "a".repeat(81),
+    }),
+  ).rejects.toMatchObject({
+    data: { code: "FIELD_TOO_LONG", field: "targetKeyword", max: 80 },
+  })
+
+  await owner.identity.mutation(api.posts.update, { id, targetKeyword: "  " })
+  expect(
+    (await owner.identity.query(api.posts.get, { id }))?.targetKeyword,
+  ).toBeUndefined()
 })
 
 // ---------------------------------------------------------------------
@@ -352,6 +384,14 @@ test("previewPost ouvre le brouillon avec son propre jeton, et refuse celui d'un
   const post = await t.query(api.posts.previewPost, { slug: "cible", token })
   expect(post?.status).toBe("draft")
 
+  await owner.identity.mutation(api.posts.update, {
+    id: cible,
+    targetKeyword: "agence web lyon",
+  })
+  const avecMotCle = await t.query(api.posts.previewPost, { slug: "cible", token })
+  expect(JSON.stringify(avecMotCle)).not.toContain("targetKeyword")
+  expect(JSON.stringify(avecMotCle)).not.toContain("agence web lyon")
+
   await expect(
     t.query(api.posts.previewPost, { slug: "autre", token }),
   ).rejects.toMatchObject({ data: { code: "INVALID_PREVIEW_TOKEN" } })
@@ -527,6 +567,59 @@ test("publicationStatus rend l'état réel de la propagation", async () => {
   await t.run((ctx) => ctx.db.patch(rowId, { status: "failed", lastError: "boom" }))
   const failed = await owner.identity.query(api.posts.publicationStatus, { id })
   expect(failed?.state).toBe("failed")
+})
+
+test("retryPropagation enfile une nouvelle ligne pending et planifie drain, sans toucher au statut de publication", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "Retry",
+    slug: "retry-post",
+  })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+  const first = (await outboxRows(t))[0]!
+  await t.run((ctx) =>
+    ctx.db.patch(first._id, { status: "failed", attempts: 6, lastError: "HTTP 500" }),
+  )
+  const publishedAtBefore = (await t.run((ctx) => ctx.db.get(id)))?.publishedAt
+
+  await owner.identity.mutation(api.posts.retryPropagation, { id })
+
+  const post = await t.run((ctx) => ctx.db.get(id))
+  expect(post?.status).toBe("published")
+  expect(post?.publishedAt).toBe(publishedAtBefore)
+
+  const rows = await outboxRows(t)
+  expect(rows).toHaveLength(2)
+  expect(rows.find((row) => row._id === first._id)?.status).toBe("failed")
+  const pending = rows.find((row) => row._id !== first._id)
+  expect(pending?.status).toBe("pending")
+  expect(pending?.attempts).toBe(0)
+  expect(pending?.kind).toBe("post")
+  expect(pending?.postId).toBe(id)
+  expect(pending?.tags).toEqual(["posts", "post:retry-post"])
+
+  const expectedName = getFunctionName(internal.revalidate.drain)
+  const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())
+  expect(scheduled.filter((job) => job.name === expectedName).length).toBeGreaterThanOrEqual(1)
+})
+
+test("retryPropagation refuse un editor sur l'article d'un autre", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const editor = await seedActor(t, "editor")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "Pas à toi",
+    slug: "pas-a-toi",
+  })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+  const first = (await outboxRows(t))[0]!
+  await t.run((ctx) => ctx.db.patch(first._id, { status: "failed", attempts: 6, lastError: "boom" }))
+
+  await expect(editor.identity.mutation(api.posts.retryPropagation, { id })).rejects.toMatchObject({
+    data: { code: "FORBIDDEN" },
+  })
+  expect(await outboxRows(t)).toHaveLength(1)
 })
 
 test("publier un article ne perturbe pas le statut de propagation d'une page", async () => {

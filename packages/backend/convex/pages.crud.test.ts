@@ -5,6 +5,7 @@ import { api, internal } from "./_generated/api"
 import { getFunctionName } from "convex/server"
 import { verifyPreviewToken } from "./lib/previewToken"
 import { MAX_GEO_SUMMARY_LENGTH } from "./content"
+import { cmsSlugsFromServedPaths } from "./lib/servedPaths"
 import { ORIGIN, identityFor, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
 
 // Task 8 — the page editor screen's own mutations/queries: `create`,
@@ -310,6 +311,34 @@ test("update enregistre les champs GEO et les borne", async () => {
   ).rejects.toMatchObject({ data: { code: "FIELD_TOO_LONG", field: "geo.summary" } })
 })
 
+test("targetKeyword : 80 passent, 81 lèvent, vide retire", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, { slug: "mot-cle", createdBy: owner.id })
+
+  await owner.identity.mutation(api.pages.update, {
+    id,
+    targetKeyword: "a".repeat(80),
+  })
+  expect((await owner.identity.query(api.pages.get, { id }))?.targetKeyword).toBe(
+    "a".repeat(80),
+  )
+
+  await expect(
+    owner.identity.mutation(api.pages.update, {
+      id,
+      targetKeyword: "a".repeat(81),
+    }),
+  ).rejects.toMatchObject({
+    data: { code: "FIELD_TOO_LONG", field: "targetKeyword", max: 80 },
+  })
+
+  await owner.identity.mutation(api.pages.update, { id, targetKeyword: "  " })
+  expect(
+    (await owner.identity.query(api.pages.get, { id }))?.targetKeyword,
+  ).toBeUndefined()
+})
+
 test("update refuse de changer le slug vers un slug déjà pris par une autre page", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
@@ -534,7 +563,32 @@ test("list renvoie toutes les pages à un editor, y compris celles des autres", 
   await insertOwnedPage(t, { slug: "page-editor", createdBy: editorActor.id })
 
   const pages = await editorActor.identity.query(api.pages.list, {})
-  expect(pages.map((p) => p.slug).sort()).toEqual(["page-editor", "page-owner"])
+  expect(pages.map((p) => p.slug)).toEqual(
+    expect.arrayContaining(["page-editor", "page-owner"]),
+  )
+})
+
+test("list montre chaque page du site, même sans fiche", async () => {
+  const t = makeTestConvex()
+  const { identity: owner } = await seedActor(t, "owner")
+
+  const list = await owner.query(api.pages.list, {})
+  const slugs = list.map((page) => page.slug)
+
+  for (const slug of cmsSlugsFromServedPaths()) {
+    const row = list.find((page) => page.slug === slug)
+    expect(slugs, `le menu omet /${slug}`).toContain(slug)
+    expect(row?.servedByRoute).toBe(true)
+    expect(row?.missingRow).toBe(true)
+    expect(row?._id).toBeNull()
+  }
+
+  await owner.mutation(api.pages.create, { title: "Contact", slug: "contact" })
+  const after = await owner.query(api.pages.list, {})
+  const contact = after.find((page) => page.slug === "contact")
+  expect(contact?.missingRow).toBe(false)
+  expect(contact?._id).not.toBeNull()
+  expect(after.filter((page) => page.slug === "contact")).toHaveLength(1)
 })
 
 test("get renvoie la page de quelqu'un d'autre à un editor (lecture ouverte)", async () => {
@@ -743,6 +797,96 @@ test("publicationStatus renvoie published (pas unknown) pour une page publiée s
   })
   const status = await owner.identity.query(api.pages.publicationStatus, { id })
   expect(status?.state).toBe("published")
+})
+
+// ---------------------------------------------------------------------
+// retryPropagation — relancer l'invalidation sans republier
+// ---------------------------------------------------------------------
+
+async function insertFailedOutbox(
+  t: TestConvex<typeof schema>,
+  pageId: Awaited<ReturnType<typeof insertOwnedPage>>,
+  slug: string,
+) {
+  return t.run((ctx) =>
+    ctx.db.insert("revalidationOutbox", {
+      tags: ["pages", `page:${slug}`],
+      kind: "page",
+      pageId,
+      status: "failed",
+      attempts: 6,
+      nextAttemptAt: Date.now(),
+      lastError: "HTTP 500",
+      createdAt: Date.now(),
+    }),
+  )
+}
+
+test("retryPropagation enfile une nouvelle ligne pending et planifie drain, sans toucher au statut de publication", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, {
+    slug: "retry-page",
+    createdBy: owner.id,
+    status: "published",
+  })
+  const failedId = await insertFailedOutbox(t, id, "retry-page")
+  const publishedAtBefore = (await t.run((ctx) => ctx.db.get(id)))?.publishedAt
+
+  await owner.identity.mutation(api.pages.retryPropagation, { id })
+
+  const page = await t.run((ctx) => ctx.db.get(id))
+  expect(page?.status).toBe("published")
+  expect(page?.publishedAt).toBe(publishedAtBefore)
+
+  const rows = await t.run((ctx) => ctx.db.query("revalidationOutbox").collect())
+  expect(rows).toHaveLength(2)
+  const failed = rows.find((row) => row._id === failedId)
+  const pending = rows.find((row) => row._id !== failedId)
+  expect(failed?.status).toBe("failed")
+  expect(pending?.status).toBe("pending")
+  expect(pending?.attempts).toBe(0)
+  expect(pending?.kind).toBe("page")
+  expect(pending?.pageId).toBe(id)
+  expect(pending?.tags).toEqual(["pages", "page:retry-page"])
+
+  const expectedName = getFunctionName(internal.revalidate.drain)
+  const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())
+  expect(scheduled.filter((job) => job.name === expectedName).length).toBeGreaterThanOrEqual(1)
+})
+
+test("retryPropagation refuse un appel non authentifié", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const id = await insertOwnedPage(t, {
+    slug: "retry-anon",
+    createdBy: owner.id,
+    status: "published",
+  })
+  await insertFailedOutbox(t, id, "retry-anon")
+
+  await expect(t.mutation(api.pages.retryPropagation, { id })).rejects.toMatchObject({
+    data: { code: "UNAUTHENTICATED" },
+  })
+})
+
+test("un editor ne relance pas la page d'un autre", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const editor = await seedActor(t, "editor")
+  const id = await insertOwnedPage(t, {
+    slug: "retry-pas-a-moi",
+    createdBy: owner.id,
+    status: "published",
+  })
+  await insertFailedOutbox(t, id, "retry-pas-a-moi")
+
+  await expect(editor.identity.mutation(api.pages.retryPropagation, { id })).rejects.toMatchObject({
+    data: { code: "FORBIDDEN" },
+  })
+  const rows = await t.run((ctx) => ctx.db.query("revalidationOutbox").collect())
+  expect(rows).toHaveLength(1)
+  expect(rows[0]?.status).toBe("failed")
 })
 
 test("update refuse une URL canonique à schéma exécutable", async () => {

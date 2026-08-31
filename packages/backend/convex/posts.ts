@@ -9,7 +9,9 @@ import {
   assertPageTextWithinLimits,
   MAX_POST_BODY_LENGTH,
   MAX_EXCERPT_LENGTH,
+  assertTargetKeyword,
 } from "./content"
+import { omitTargetKeyword } from "./lib/omitTargetKeyword"
 import {
   requireRole,
   requireOwnDocument,
@@ -21,7 +23,7 @@ import {
   signPreviewToken,
   verifyPreviewToken,
 } from "./lib/previewToken"
-import { insertOutboxRow } from "./revalidate"
+import { enqueuePropagationRetry, insertOutboxRow } from "./revalidate"
 import { mintRenameRedirect } from "./redirects"
 import { MUTATION_REGISTRY } from "./_registry"
 import { journaliser } from "./lib/auditEvent"
@@ -203,6 +205,7 @@ export const update = mutation({
     tagIds: v.optional(v.array(v.id("tags"))),
     seo: v.optional(seoValidator),
     geo: v.optional(geoValidator),
+    targetKeyword: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
@@ -237,6 +240,12 @@ export const update = mutation({
     if (args.excerpt !== undefined) patch.excerpt = args.excerpt
     if (args.seo !== undefined) patch.seo = args.seo
     if (args.geo !== undefined) patch.geo = args.geo
+    let clearTargetKeyword = false
+    if (args.targetKeyword !== undefined) {
+      const keyword = assertTargetKeyword(args.targetKeyword)
+      if (keyword === undefined) clearTargetKeyword = true
+      else patch.targetKeyword = keyword
+    }
     if (args.tagIds !== undefined) {
       await assertTagsResolvable(ctx, args.tagIds)
       patch.tagIds = args.tagIds
@@ -266,6 +275,9 @@ export const update = mutation({
       next.coverId = args.coverId
     } else if (_oldCover !== undefined) {
       next.coverId = _oldCover
+    }
+    if (clearTargetKeyword) {
+      delete (next as { targetKeyword?: unknown }).targetKeyword
     }
     await ctx.db.replace(args.id, next)
 
@@ -428,7 +440,7 @@ export const getPublishedPost = query({
     // both "no such slug" and "a draft with that slug" — from the public
     // site's point of view those are the same outcome, deliberately.
     if (post.status !== "published") return null
-    return withCover(ctx, post)
+    return omitTargetKeyword(await withCover(ctx, post))
   },
 })
 
@@ -454,7 +466,9 @@ export const listPublishedPosts = query({
       )
     }
     return Promise.all(
-      posts.slice(0, PUBLISHED_POSTS_LIMIT).map((post) => withCover(ctx, post))
+      posts
+        .slice(0, PUBLISHED_POSTS_LIMIT)
+        .map(async (post) => omitTargetKeyword(await withCover(ctx, post))),
     )
   },
 })
@@ -477,10 +491,11 @@ export const previewPost = query({
     })
     if (!valid) throw new ConvexError({ code: "INVALID_PREVIEW_TOKEN" })
 
-    return ctx.db
+    const post = await ctx.db
       .query("posts")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .unique()
+    return post === null ? null : omitTargetKeyword(post)
   },
 })
 
@@ -624,6 +639,22 @@ export const publicationStatus = query({
   },
 })
 
+// Failed outbox rows are terminal. This only enqueues a fresh pending
+// row and kicks `drain` — it does not flip `status` or `publishedAt`.
+export const retryPropagation = mutation({
+  args: { id: v.id("posts") },
+  handler: async (ctx, args) => {
+    const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
+    const post = await ctx.db.get(args.id)
+    if (!post) throw new ConvexError({ code: "NOT_FOUND" })
+    requireOwnDocument(authUser, post)
+    await enqueuePropagationRetry(ctx, { kind: "post", postId: args.id }, [
+      "posts",
+      `post:${post.slug}`,
+    ])
+  },
+})
+
 MUTATION_REGISTRY.push(
   {
     name: "posts.publishPost",
@@ -646,5 +677,30 @@ MUTATION_REGISTRY.push(
       })
       return t.mutation(api.posts.unpublishPost, { id })
     },
-  }
+  },
+  {
+    name: "posts.retryPropagation",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: async (t) => {
+      const slug = `registry-retry-${Date.now()}-${Math.random()}`
+      const id = await t.mutation(api.posts.create, {
+        title: "Registry post",
+        slug,
+      })
+      await t.run(async (ctx: any) => {
+        await ctx.db.patch(id, { status: "published", publishedAt: Date.now() })
+        await ctx.db.insert("revalidationOutbox", {
+          tags: ["posts", `post:${slug}`],
+          kind: "post",
+          postId: id,
+          status: "failed",
+          attempts: 6,
+          nextAttemptAt: Date.now(),
+          lastError: "registry",
+          createdAt: Date.now(),
+        })
+      })
+      return t.mutation(api.posts.retryPropagation, { id })
+    },
+  },
 )

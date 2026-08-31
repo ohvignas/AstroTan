@@ -22,6 +22,7 @@ afterEach(() => {
 function pageDoc(overrides: {
   slug: string
   status: "draft" | "published"
+  targetKeyword?: string
 }) {
   return {
     slug: overrides.slug,
@@ -29,12 +30,15 @@ function pageDoc(overrides: {
     status: overrides.status,
     createdBy: "user_1",
     updatedBy: "user_1",
+    ...(overrides.targetKeyword !== undefined
+      ? { targetKeyword: overrides.targetKeyword }
+      : {}),
   }
 }
 
 async function insertPage(
   t: TestConvex<typeof schema>,
-  overrides: { slug: string; status: "draft" | "published" },
+  overrides: { slug: string; status: "draft" | "published"; targetKeyword?: string },
 ) {
   return t.run((ctx) => ctx.db.insert("pages", pageDoc(overrides)))
 }
@@ -103,6 +107,23 @@ test("previewPage renvoie un brouillon avec un jeton valide émis pour son slug 
   const result = await t.query(api.pages.previewPage, { slug: "brouillon", token })
   expect(result?.slug).toBe("brouillon")
   expect(result?.status).toBe("draft")
+})
+
+test("previewPage omet targetKeyword", async () => {
+  const t = convexTest(schema, modules)
+  await insertPage(t, {
+    slug: "brouillon",
+    status: "draft",
+    targetKeyword: "agence web lyon",
+  })
+  const token = await signPreviewToken({
+    type: "page",
+    id: "brouillon",
+    expiresAt: Date.now() + PREVIEW_TOKEN_TTL_MS,
+  })
+  const result = await t.query(api.pages.previewPage, { slug: "brouillon", token })
+  expect(JSON.stringify(result)).not.toContain("targetKeyword")
+  expect(JSON.stringify(result)).not.toContain("agence web lyon")
 })
 
 test("previewPage renvoie aussi une page déjà publiée avec un jeton valide", async () => {

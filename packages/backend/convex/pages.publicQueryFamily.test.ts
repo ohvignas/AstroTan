@@ -301,3 +301,41 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
   // by a falling count some other addition could mask.
   expect(checkedNames).toEqual(expect.arrayContaining(KNOWN_UNGATED_PUBLIC_QUERIES))
 })
+
+test("aucune query publique sans token ne rend targetKeyword", async () => {
+  const t = convexTest(schema, modules)
+  await t.run((ctx) =>
+    ctx.db.insert("pages", {
+      slug: "publiee-mot-cle",
+      title: "Publiée",
+      status: "published",
+      targetKeyword: "agence web lyon",
+      createdBy: "user_1",
+      updatedBy: "user_1",
+    }),
+  )
+  await t.run((ctx) =>
+    ctx.db.insert("posts", {
+      slug: "article-mot-cle",
+      title: "Article",
+      body: "<p>ok</p>",
+      status: "published",
+      publishedAt: 1,
+      tagIds: [],
+      targetKeyword: "agence web lyon",
+      createdBy: "user_1",
+      updatedBy: "user_1",
+    }),
+  )
+
+  const page = await t.query(api.pages.getPublishedPage, { slug: "publiee-mot-cle" })
+  const post = await t.query(api.posts.getPublishedPost, { slug: "article-mot-cle" })
+  const pages = await t.query(api.pages.listPublishedPages, {})
+  const posts = await t.query(api.posts.listPublishedPosts, {})
+  expect(page).not.toBeNull()
+  expect(post).not.toBeNull()
+  for (const payload of [page, post, pages, posts]) {
+    expect(JSON.stringify(payload)).not.toContain("targetKeyword")
+    expect(JSON.stringify(payload)).not.toContain("agence web lyon")
+  }
+})
