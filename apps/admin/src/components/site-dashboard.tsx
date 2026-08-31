@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { useAction } from "convex/react"
+import { useAction, useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type {
   Metric,
@@ -7,6 +7,8 @@ import type {
   SiteSummary,
   UmamiLinks,
 } from "@astrotan/backend/convex/analytics"
+import type { SiteSnapshot } from "@astrotan/backend/convex/lib/seoSnapshot"
+import { ColonnePastillesSeo, listesSeo } from "@/components/pastille-seo"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ExternalLinkIcon } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -88,16 +90,22 @@ function Figure({
 function Ranking({
   title,
   items,
+  missingDomain,
 }: {
   title: string
   items: { label: string; visits: number }[] | null
+  missingDomain?: boolean
 }) {
   return (
     <div className="flex flex-col gap-2">
       <span className="text-xs uppercase tracking-wide text-muted-foreground">
         {title}
       </span>
-      {items === null ? (
+      {missingDomain ? (
+        <a href="/settings/domaine" className="text-sm underline">
+          Déclarez le domaine
+        </a>
+      ) : items === null ? (
         // Une liste absente le dit. Une liste vide affichée comme telle se
         // lirait « personne », ce qui n'est pas ce qui s'est passé.
         <span className="text-sm text-muted-foreground">
@@ -128,14 +136,18 @@ export function SiteDashboard({
   umami,
   periode,
   onPeriode,
+  snapshot,
 }: {
   /** `undefined` tant que l'action est en vol. */
   summary: SiteSummary | undefined
   umami: UmamiLinks | null | undefined
   periode: Periode
   onPeriode: (p: Periode) => void
+  snapshot?: SiteSnapshot | null
 }) {
   const fenetre = LIBELLES_PERIODE[periode].fenetre
+  const showSeo = snapshot?.configured === true
+  const seo = snapshot && showSeo ? listesSeo(snapshot) : null
   return (
     <Card>
       {/* Le titre et le sélecteur sur la même ligne : le second dit de quoi
@@ -175,23 +187,45 @@ export function SiteDashboard({
               </div>
             )}
 
-            {summary.status === "ok" && summary.series ? (
-              <CourbeAudience series={summary.series} periode={periode} />
-            ) : (
-              <CadreSansMesure etat={etatDuCadre(summary)} />
-            )}
+            <div
+              className={
+                showSeo ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_14rem]" : undefined
+              }
+            >
+              {summary.status === "ok" && summary.series ? (
+                <CourbeAudience series={summary.series} periode={periode} />
+              ) : (
+                <CadreSansMesure etat={etatDuCadre(summary)} />
+              )}
+              {showSeo && snapshot ? (
+                <ColonnePastillesSeo snapshot={snapshot} />
+              ) : null}
+            </div>
 
-            {/* Les palmarès ne se rendent que quand la mesure a répondu :
-                sinon leur « Liste indisponible » répéterait, deux fois, ce
-                que le cadre vient de dire une fois. */}
             {summary.status === "ok" && (
-              <div className="grid gap-6 sm:grid-cols-2">
-                {/* « visitées » et non « vues » : Umami compte ici une visite
-                    par session, pas chaque affichage. Le chiffre était juste,
-                    l'intitulé mentait — mesuré, `/` sortait à 2 visites pour
-                    5 vues. */}
+              <div
+                className={
+                  showSeo
+                    ? "grid gap-6 lg:grid-cols-4"
+                    : "grid gap-6 sm:grid-cols-2"
+                }
+              >
                 <Ranking title="Pages les plus visitées" items={summary.topPages} />
                 <Ranking title="D'où viennent-ils" items={summary.topReferrers} />
+                {showSeo && seo ? (
+                  <>
+                    <Ranking
+                      title="Mots-clés qui amènent"
+                      items={seo.keywords}
+                      missingDomain={seo.domaineManquant}
+                    />
+                    <Ranking
+                      title="Pages qui sortent déjà"
+                      items={seo.pages}
+                      missingDomain={seo.domaineManquant}
+                    />
+                  </>
+                ) : null}
               </div>
             )}
           </>
@@ -226,6 +260,7 @@ export function SiteDashboardPanel({
   umami: UmamiLinks | null | undefined
 }) {
   const siteSummary = useAction(api.analytics.siteSummary)
+  const snapshot = useQuery(api.seoRanks.siteSnapshot)
   // « 30 jours » par défaut, et non « 7 jours » : sur un site neuf ou peu
   // visité, sept points suffisent rarement à faire une courbe lisible, et
   // l'écran ouvrirait sur un graphique presque plat.
@@ -271,6 +306,7 @@ export function SiteDashboardPanel({
       umami={umami}
       periode={periode}
       onPeriode={setPeriode}
+      snapshot={snapshot ?? null}
     />
   )
 }

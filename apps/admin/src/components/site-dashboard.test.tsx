@@ -4,6 +4,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import type { SiteSummary, UmamiLinks } from "@astrotan/backend/convex/analytics"
+import type { SiteSnapshot } from "@astrotan/backend/convex/lib/seoSnapshot"
 import { SiteDashboard, trend } from "./site-dashboard"
 
 const OK: SiteSummary = {
@@ -29,9 +30,30 @@ const SHARED: UmamiLinks = {
   shared: true,
 }
 
-function render(summary: SiteSummary | undefined, umami: UmamiLinks | null = null) {
+const SNAPSHOT: SiteSnapshot = {
+  configured: true,
+  declaredDomain: "exemple.fr",
+  averagePosition: 8,
+  averagePositionPrev: 11,
+  backlinks: { value: 42, prev: 30, fetchedAt: 1 },
+  referringDomains: { value: 12, prev: 10 },
+  keywords: [{ keyword: "agence web", position: 4 }],
+  rankingPages: [{ path: "/", position: 4 }],
+}
+
+function render(
+  summary: SiteSummary | undefined,
+  umami: UmamiLinks | null = null,
+  snapshot: SiteSnapshot | null = null,
+) {
   return renderToStaticMarkup(
-    <SiteDashboard summary={summary} umami={umami} periode="mois" onPeriode={() => {}} />
+    <SiteDashboard
+      summary={summary}
+      umami={umami}
+      periode="mois"
+      onPeriode={() => {}}
+      snapshot={snapshot}
+    />,
   )
 }
 
@@ -195,5 +217,30 @@ describe("SiteDashboard", () => {
     expect(html).toContain("indisponible")
     // Les chiffres principaux, eux, sont toujours là.
     expect(html).toContain("44")
+  })
+
+  test("sans DataForSEO : pas de pastille, deux listes Umami", () => {
+    const html = render(OK, null, { ...SNAPSHOT, configured: false })
+    expect(html).not.toContain("Position moyenne")
+    expect(html).not.toContain("Mots-clés qui amènent")
+    expect(html).toContain("Pages les plus visitées")
+    expect(html).toContain("viennent-ils")
+    expect(html).toContain("sm:grid-cols-2")
+    expect(html).not.toContain("lg:grid-cols-4")
+    expect(html).toContain("--color-pageviews")
+    expect(html).not.toContain("--color-rank")
+  })
+
+  test("avec DataForSEO : pastilles et quatre listes, aucun axe de rang", () => {
+    const html = render(OK, null, SNAPSHOT)
+    expect(html).toContain("Position moyenne")
+    expect(html).toContain("Backlinks")
+    expect(html).toContain("Domaines référents")
+    expect(html).toContain("Mots-clés qui amènent")
+    expect(html).toContain("Pages qui sortent déjà")
+    expect(html).toContain("agence web")
+    expect(html).toContain("lg:grid-cols-4")
+    expect(html).toContain("--color-pageviews")
+    expect(html).not.toContain("--color-rank")
   })
 })
