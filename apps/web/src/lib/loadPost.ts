@@ -89,6 +89,7 @@ export async function loadPost(
     if (post !== null) {
       astro.cache.set(false)
       astro.response.headers.set("x-robots-tag", "noindex, nofollow")
+      astro.locals.preview = true
       return { post, preview: true }
     }
   }

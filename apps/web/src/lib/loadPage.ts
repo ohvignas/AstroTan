@@ -103,6 +103,7 @@ export async function loadPage(
       // crawled must not become the version everyone sees.
       astro.cache.set(false)
       astro.response.headers.set("x-robots-tag", "noindex, nofollow")
+      astro.locals.preview = true
       return { page, preview: true }
     }
   }

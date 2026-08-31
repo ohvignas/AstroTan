@@ -42,7 +42,7 @@ const {
   coverAlt,
   canonicalUrl,
   relatedPosts,
-  preview,
+  preview: _preview,
 } = Astro.props as Props
 
 const hasToc = headings.length >= 2
@@ -58,13 +58,6 @@ const hasToc = headings.length >= 2
     coverUrl,
   }}
 >
-  {preview && (
-    <p class="preview-banner">
-      Aperçu — cet article n'est pas publié. Le lien expire au bout de 15
-      minutes.
-    </p>
-  )}
-
   <article class="blog-layout container">
     <ArticleHero
       title={post.title}
@@ -103,16 +96,6 @@ const hasToc = headings.length >= 2
 </BaseLayout>
 
 <style>
-  .preview-banner {
-    margin: 0;
-    padding: 0.6rem 1rem;
-    text-align: center;
-    font-size: 0.875rem;
-    color: var(--foreground);
-    background: color-mix(in srgb, var(--warning) 25%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
-  }
-
   .blog-layout {
     display: grid;
     gap: var(--space-2xl);

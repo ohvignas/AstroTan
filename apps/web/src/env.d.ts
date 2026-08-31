@@ -34,5 +34,10 @@ declare namespace App {
      * `nonce={undefined}` n'écrit simplement pas l'attribut.
      */
     nonce?: string
+    /**
+     * `true` quand `loadPage` / `loadPost` ont accepté un jeton d'aperçu.
+     * Le bandeau vit une seule fois, dans `BaseLayout`.
+     */
+    preview?: boolean
   }
 }
