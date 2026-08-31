@@ -1,7 +1,8 @@
 import type { TestConvex } from "convex-test"
+import { getFunctionName } from "convex/server"
 import { afterEach, beforeEach, expect, test } from "vitest"
 import schema from "./schema"
-import { api } from "./_generated/api"
+import { api, internal } from "./_generated/api"
 import { MAX_SITE_NAME_LENGTH } from "./settings"
 import {
   ORIGIN,
@@ -188,6 +189,29 @@ test("get expose metaPixelId et googleTagId : null si jamais saisis, \"\" si ret
   const privee = await owner.identity.query(api.settings.getPrivate, {})
   expect(privee?.metaPixelId).toBe("")
   expect(privee?.googleTagId).toBe("AW-999")
+})
+
+test("changer un pixel enfile une outbox site et planifie drain", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.update, { siteName: "Exemple" })
+  await owner.identity.mutation(api.settings.update, { metaPixelId: "123456789012345" })
+  const rows = await t.run(async (ctx) => ctx.db.query("revalidationOutbox").collect())
+  const site = rows.filter((r) => r.kind === "site")
+  expect(site).toHaveLength(1)
+  expect(site[0]?.tags).toEqual(["pages", "posts"])
+  const expectedName = getFunctionName(internal.revalidate.drain)
+  const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())
+  expect(scheduled.some((job) => job.name === expectedName)).toBe(true)
+})
+
+test("renommer le site n'enfile pas d'outbox site", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.update, { siteName: "Exemple" })
+  await owner.identity.mutation(api.settings.update, { siteName: "Autre nom" })
+  const rows = await t.run(async (ctx) => ctx.db.query("revalidationOutbox").collect())
+  expect(rows.filter((r) => r.kind === "site")).toHaveLength(0)
 })
 
 test("un editor lit les IDs et ne peut pas les écrire", async () => {

@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { ConvexError, v } from "convex/values"
 import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
@@ -93,6 +93,7 @@ function getRevalidateSecret(): string {
 export type OutboxTarget =
   | { kind: "page"; pageId: Id<"pages"> | undefined }
   | { kind: "post"; postId: Id<"posts"> }
+  | { kind: "site" }
 
 export async function insertOutboxRow(
   ctx: MutationCtx,
@@ -110,6 +111,40 @@ export async function insertOutboxRow(
     nextAttemptAt: now,
     createdAt: now,
   })
+}
+
+async function latestOutboxRow(ctx: MutationCtx, target: OutboxTarget) {
+  if (target.kind === "page") {
+    if (target.pageId === undefined) return null
+    return ctx.db
+      .query("revalidationOutbox")
+      .withIndex("by_page_created_at", (q) => q.eq("pageId", target.pageId))
+      .order("desc")
+      .first()
+  }
+  if (target.kind === "site") return null
+  return ctx.db
+    .query("revalidationOutbox")
+    .withIndex("by_post_created_at", (q) => q.eq("postId", target.postId))
+    .order("desc")
+    .first()
+}
+
+// Failed outbox rows are terminal (`markAttemptFailed` never leaves
+// `failed`). Retrying means a *new* pending row plus the same fast-path
+// `drain` publish already schedules — never patching the dead one, and
+// never flipping `pages`/`posts` status.
+export async function enqueuePropagationRetry(
+  ctx: MutationCtx,
+  target: OutboxTarget,
+  tags: string[],
+): Promise<void> {
+  const latest = await latestOutboxRow(ctx, target)
+  if (!latest || latest.status !== "failed") {
+    throw new ConvexError({ code: "NOTHING_TO_RETRY" })
+  }
+  await insertOutboxRow(ctx, target, tags)
+  await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
 }
 
 // Read-only half of "claim the due rows": an index range scan on
@@ -269,15 +304,24 @@ export const drain = internalAction({
     // — voir son en-tête) porte l'ancien domaine tant qu'il reste dans sa
     // fenêtre de 72 h : `candidats` ci-dessous essaie le déclaré D'ABORD
     // (c'est la bonne réponse dès que le nouveau domaine sert), PUIS
-    // chaque sortant dans l'ordre — le même conteneur `web`, donc le même
-    // cache, quel que soit l'hôte par lequel Traefik a routé la requête.
+    // chaque sortant, PUIS `WEB_SITE_URL` s'il n'y figure pas déjà —
+    // le même conteneur `web` en prod, et `astro dev` en local quand le
+    // déclaré pointe vers un hôte qui ne sert pas cette instance.
     // Sans ce repli, les six tentatives s'épuisaient sur un hôte qui ne
     // répond pas encore, la ligne passait `failed` — état terminal, jamais
     // rejoué — et les pages publiées pendant la bascule gardaient leur
     // cache jusqu'à sa propre expiration.
     const { declare, sortants } = await ctx.runQuery(internal.settings.domaineEtSortants, {})
     const { web: siteUrl, webSortantes } = deriverOrigines(declare, process.env, sortants)
-    const candidats = [siteUrl, ...webSortantes].filter((o): o is string => o !== null)
+    // `deriverOrigines` remplace WEB_SITE_URL dès qu'un domaine est déclaré.
+    // En local ce déclaré est souvent le domaine de prod (Traefik ailleurs) :
+    // sans le repli env, drain n'atteint jamais `astro dev` et le badge
+    // reste « Propagation en cours ». Dédupliqué : en prod les deux
+    // coïncident souvent, un seul POST suffit.
+    const envWeb = process.env.WEB_SITE_URL ?? null
+    const candidats = [siteUrl, ...webSortantes, envWeb].filter(
+      (o, i, all): o is string => o !== null && all.indexOf(o) === i,
+    )
     if (candidats.length === 0) throw new Error("WEB_SITE_URL is not set on this Convex deployment")
     const secret = getRevalidateSecret()
 

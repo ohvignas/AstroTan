@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values"
 import { internalQuery, mutation, query } from "./_generated/server"
-import { api } from "./_generated/api"
+import { api, internal } from "./_generated/api"
 import {
   MAX_SITE_NAME_LENGTH,
   MAX_SOCIALS,
@@ -17,6 +17,7 @@ import { normaliserHote } from "./lib/hoteNu"
 import { noterSortie, type HoteSortant } from "./lib/hotesSortants"
 import { deriverOrigines } from "./lib/origines"
 import { normaliserPixelId } from "./lib/pixelId"
+import { insertOutboxRow } from "./revalidate"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // Site-wide settings: one row, or none.
@@ -234,9 +235,9 @@ export const environment = query({
     const env = process.env
     const origines = deriverOrigines((await ctx.db.query("settings").first())?.declaredDomain, env)
     return {
-      // Aucune fonction de ce dépôt ne lit encore cette clé : l'écran le
-      // dit, plutôt que d'afficher une pastille verte pour une
-      // fonctionnalité qui n'existe pas.
+      // `ai.generateSeoGeo` lit la clé via `lireSecret` (environnement
+      // d'abord, base chiffrée ensuite). Cette query ne voit que
+      // l'environnement : une clé saisie à l'écran n'apparaît pas ici.
       openRouter: { configured: Boolean(env.OPENROUTER_API_KEY) },
       resend: {
         configured: Boolean(env.RESEND_API_KEY),
@@ -576,13 +577,29 @@ export const update = mutation({
     // dont une fois avec un nom que l'opérateur ne reconnaîtrait pas.
     const patchSortants = sortantsApresChangement(existing, declaredDomain)
 
+    let id
     if (existing) {
       await ctx.db.patch(existing._id, { ...patch, ...patchSortants })
-      return existing._id
+      id = existing._id
+    } else {
+      // Upsert rather than requiring a separate "initialise" step: a freshly
+      // cloned template has no row, and the first save should just work.
+      id = await ctx.db.insert("settings", { siteName: "Mon site", ...patch, ...patchSortants })
     }
-    // Upsert rather than requiring a separate "initialise" step: a freshly
-    // cloned template has no row, and the first save should just work.
-    return ctx.db.insert("settings", { siteName: "Mon site", ...patch, ...patchSortants })
+
+    // Un pixel vit dans le HTML de chaque page et article publiés. Le
+    // changer sans invalider laisserait le cache servir l'ancien ID
+    // jusqu'à l'expiration de `maxAge`. Le nom du site n'y figure pas
+    // de la même façon : le header le relit à chaque requête.
+    if (
+      champsModifies.includes("metaPixelId") ||
+      champsModifies.includes("googleTagId")
+    ) {
+      await insertOutboxRow(ctx, { kind: "site" }, ["pages", "posts"])
+      await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
+    }
+
+    return id
   },
 })
 

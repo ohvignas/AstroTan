@@ -550,7 +550,7 @@ export default defineSchema({
     tags: v.array(v.string()),
     // Ce sur quoi porte la ligne. Optionnel : les lignes antérieures à ce
     // champ n'en portent pas — voir `OutboxTarget` dans `revalidate.ts`.
-    kind: v.optional(v.union(v.literal("page"), v.literal("post"))),
+    kind: v.optional(v.union(v.literal("page"), v.literal("post"), v.literal("site"))),
     pageId: v.optional(v.id("pages")),
     postId: v.optional(v.id("posts")),
     status: outboxStatusValidator,
