@@ -29,7 +29,7 @@ export const prerender = false
 
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { getConvexClient } from "../../lib/convexClient"
-import { markdownToPlainText } from "../../lib/markdown"
+import { htmlToPlainText } from "../../lib/markdown"
 import type { PostSummary } from "../../lib/loadPost"
 import BaseLayout from "../../layouts/BaseLayout.astro"
 import BlogCard from "../../components/blog/BlogCard.astro"
@@ -49,10 +49,10 @@ const posts = (await getConvexClient().query(
 Astro.cache.set({ maxAge: 300, swr: 600, tags: ["posts"] })
 
 // Un article sans résumé saisi doit quand même se lire dans une carte :
-// `markdownToPlainText` garde le texte des liens et jette leurs URL.
+// `htmlToPlainText` garde le texte des liens et jette leurs URL.
 const withExcerpts = posts.map((post) => ({
   ...post,
-  excerpt: post.excerpt || markdownToPlainText(post.body, 180),
+  excerpt: post.excerpt || htmlToPlainText(post.body, 180),
 }))
 
 // Le plus récent passe en pleine largeur. Le template choisit un article

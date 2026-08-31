@@ -11,7 +11,7 @@ import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import { getConvexClient } from "../../lib/convexClient"
 import { loadPost, type PostSummary } from "../../lib/loadPost"
-import { renderStoredHtml, markdownToPlainText } from "../../lib/markdown"
+import { renderStoredHtml, htmlToPlainText } from "../../lib/markdown"
 import { extractHeadings } from "../../lib/toc"
 import BaseLayout from "../../layouts/BaseLayout.astro"
 import BlogLayout from "../../layouts/BlogLayout.astro"
@@ -72,7 +72,7 @@ const canonicalUrl =
     relatedPosts={related.map((entry) => ({
       ...entry,
       // Un article sans résumé doit quand même se lire dans une carte.
-      excerpt: entry.excerpt || markdownToPlainText(entry.body, 160),
+      excerpt: entry.excerpt || htmlToPlainText(entry.body, 160),
     }))}
     preview={preview}
   >

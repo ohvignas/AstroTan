@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest"
 import {
+  htmlToPlainText,
   markdownToPlainText,
   renderInline,
   renderMarkdown,
@@ -69,8 +70,8 @@ describe("ce qui doit survivre", () => {
   })
 
   test("un lien https garde son href et reçoit rel=noopener", () => {
-    const html = renderMarkdown("[AstroTan](https://illith.com)")
-    expect(html).toContain('href="https://illith.com"')
+    const html = renderMarkdown("[AstroTan](https://exemple.fr)")
+    expect(html).toContain('href="https://exemple.fr"')
     expect(html).toContain('rel="noopener noreferrer"')
   })
 
@@ -93,7 +94,7 @@ describe("ce qui doit survivre", () => {
 describe("markdownToPlainText", () => {
   test("retire le balisage et garde le texte des liens, pas leur URL", () => {
     // A meta description wants the words, never the address.
-    const text = markdownToPlainText("# Titre\n\nVoir [le site](https://illith.com).")
+    const text = markdownToPlainText("# Titre\n\nVoir [le site](https://exemple.fr).")
     expect(text).toBe("Titre Voir le site.")
   })
 
@@ -114,12 +115,29 @@ describe("markdownToPlainText", () => {
   })
 })
 
+describe("htmlToPlainText", () => {
+  test("retire les balises HTML et insère un blanc entre les blocs", () => {
+    const text = htmlToPlainText(
+      '<h2>Titre</h2><p>Voir <a href="https://exemple.fr">le site</a>.</p>',
+    )
+    expect(text).toBe("Titre Voir le site.")
+  })
+
+  test("coupe sur un mot entier", () => {
+    expect(htmlToPlainText("alpha bravo charlie delta", 14)).toBe("alpha bravo…")
+  })
+
+  test("n'exécute pas le Markdown : un # reste un #", () => {
+    expect(htmlToPlainText("# pas-un-titre")).toBe("# pas-un-titre")
+  })
+})
+
 describe("renderInline — les champs de contenu déclarés « rich »", () => {
   test("rend le gras et l'italique", () => {
     expect(renderInline("**4,8/5** sur les avis Google")).toBe(
       "<strong>4,8/5</strong> sur les avis Google"
     )
-    expect(renderInline("_ILLITH_")).toContain("<em>ILLITH</em>")
+    expect(renderInline("_Exemple_")).toContain("<em>Exemple</em>")
   })
 
   test("n'émet jamais de balise de bloc, même si le texte en demande une", () => {
@@ -138,8 +156,8 @@ describe("renderInline — les champs de contenu déclarés « rich »", () => {
   })
 
   test("laisse passer un lien légitime, avec rel=noopener", () => {
-    const html = renderInline("[ILLITH](https://illith.com)")
-    expect(html).toContain('href="https://illith.com"')
+    const html = renderInline("[Exemple](https://exemple.fr)")
+    expect(html).toContain('href="https://exemple.fr"')
     expect(html).toContain('rel="noopener noreferrer"')
   })
 })
@@ -147,7 +165,7 @@ describe("renderInline — les champs de contenu déclarés « rich »", () => {
 describe("renderStoredHtml — le corps d'article, désormais du HTML", () => {
   test("laisse passer le balisage que l'éditeur produit", () => {
     const html = renderStoredHtml(
-      '<h2>Titre</h2><p>Un <strong>mot</strong> et un <a href="https://illith.com">lien</a>.</p><ul><li>un</li></ul>'
+      '<h2>Titre</h2><p>Un <strong>mot</strong> et un <a href="https://exemple.fr">lien</a>.</p><ul><li>un</li></ul>'
     )
     expect(html).toContain("<h2>Titre</h2>")
     expect(html).toContain("<strong>mot</strong>")
@@ -164,7 +182,7 @@ describe("renderStoredHtml — le corps d'article, désormais du HTML", () => {
   })
 
   test("ajoute rel=noopener aux liens, comme l'autre chemin", () => {
-    expect(renderStoredHtml('<a href="https://illith.com">x</a>')).toContain(
+    expect(renderStoredHtml('<a href="https://exemple.fr">x</a>')).toContain(
       'rel="noopener noreferrer"'
     )
   })

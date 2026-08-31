@@ -86,18 +86,12 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
 }
 
 /**
- * A plain-text excerpt of a Markdown body, for meta descriptions and the
- * GEO summary's fallback. Renders then strips every tag rather than
- * regex-ing the Markdown source — that way link text survives and link
- * URLs don't, which is what a description wants.
+ * Collapse the whitespace tag-stripping leaves behind, decode the entities
+ * `sanitize-html` emits for bare `&` and quotes, then cut on a word
+ * boundary rather than mid-word.
  */
-export function markdownToPlainText(body: string, maxLength = 200): string {
-  const text = sanitizeHtml(marked.parse(body, { async: false }), {
-    allowedTags: [],
-    allowedAttributes: {},
-  })
-    // Collapse the whitespace the tag-stripping leaves behind, and decode
-    // the entities `sanitize-html` emits for bare `&` and quotes.
+function collapseAndTrim(text: string, maxLength: number): string {
+  const collapsed = text
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
@@ -106,11 +100,34 @@ export function markdownToPlainText(body: string, maxLength = 200): string {
     .replace(/\s+/g, " ")
     .trim()
 
-  if (text.length <= maxLength) return text
-  // Cut on a word boundary rather than mid-word, then add the ellipsis.
-  const cut = text.slice(0, maxLength)
+  if (collapsed.length <= maxLength) return collapsed
+  const cut = collapsed.slice(0, maxLength)
   const lastSpace = cut.lastIndexOf(" ")
   return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
+}
+
+// Compact Tiptap HTML has no whitespace between block tags. Inserting a
+// gap *before* stripping is what keeps "Titre</h2><p>Voir" from becoming
+// "TitreVoir".
+const BLOCK_GAP = /<\/(p|div|h[1-6]|li|tr|blockquote|pre)>/gi
+
+/**
+ * A plain-text excerpt of an HTML body, for meta descriptions and card
+ * fallbacks. Strips every tag rather than regex-ing the source — that way
+ * link text survives and link URLs don't.
+ */
+export function htmlToPlainText(body: string, maxLength = 200): string {
+  const withGaps = body.replace(BLOCK_GAP, " ")
+  const text = sanitizeHtml(withGaps, { allowedTags: [], allowedAttributes: {} })
+  return collapseAndTrim(text, maxLength)
+}
+
+/**
+ * A plain-text excerpt of a Markdown body. Renders then delegates to
+ * `htmlToPlainText` so the cut and the entity decode stay in one place.
+ */
+export function markdownToPlainText(body: string, maxLength = 200): string {
+  return htmlToPlainText(marked.parse(body, { async: false }) as string, maxLength)
 }
 
 /**
