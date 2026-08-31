@@ -58,6 +58,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { assignableRoles, canEditTargetRole } from "@/lib/assignableRoles"
 import { BanIcon, UserMinusIcon, UserPlusIcon } from "lucide-react"
 
 export const Route = createFileRoute("/_authed/users")({
@@ -75,17 +76,16 @@ const ROLE_LABELS: Record<Role, string> = {
   editor: "Éditeur",
 }
 
-// `owner` deliberately excluded: it's never an assignable role here — not
-// on an existing user's row (the single-owner invariant refuses every path
-// that would try) and not on an invitation (`invitations.create` refuses
-// `role: "owner"` unconditionally, Task 8). Passed as `items` to `<Select>`
-// so `<SelectValue>` renders the French label instead of the raw stored
-// value — Base UI's `Select.Value`, unlike Radix's, only tracks a selected
-// item's rendered label automatically when the root is given `items`.
-const EDITABLE_ROLE_ITEMS: Record<"admin" | "editor", string> = {
-  admin: ROLE_LABELS.admin,
-  editor: ROLE_LABELS.editor,
-}
+// `owner` is never assignable here — not on an existing user's row (the
+// single-owner invariant refuses every path that would try) and not on an
+// invitation (`invitations.create` refuses `role: "owner"` unconditionally).
+// What *is* assignable depends on the actor: an owner may pick admin or
+// editor; an admin may only pick editor. `assignableRoles` is the single
+// source for both the row Select and the invite dialog. Passed as `items`
+// to `<Select>` so `<SelectValue>` renders the French label instead of the
+// raw stored value — Base UI's `Select.Value`, unlike Radix's, only tracks
+// a selected item's rendered label automatically when the root is given
+// `items`.
 
 // Every code any of this screen's mutations can throw — `users.setRole`/
 // `remove` (packages/backend/convex/users.ts), `invitations.create`/`revoke`
@@ -164,10 +164,18 @@ function UsersPage() {
     )
   }
 
-  return <UsersScreen selfAuthUserId={profile.authUserId} />
+  return (
+    <UsersScreen selfAuthUserId={profile.authUserId} actorRole={profile.role} />
+  )
 }
 
-function UsersScreen({ selfAuthUserId }: { selfAuthUserId: string }) {
+function UsersScreen({
+  selfAuthUserId,
+  actorRole,
+}: {
+  selfAuthUserId: string
+  actorRole: Role
+}) {
   const users = useQuery(api.users.list)
   const invitations = useQuery(api.invitations.list)
 
@@ -180,7 +188,7 @@ function UsersScreen({ selfAuthUserId }: { selfAuthUserId: string }) {
             Gérer les comptes et les invitations en attente.
           </p>
         </div>
-        <InviteDialog />
+        <InviteDialog actorRole={actorRole} />
       </div>
 
       <Card>
@@ -188,7 +196,11 @@ function UsersScreen({ selfAuthUserId }: { selfAuthUserId: string }) {
           <CardTitle>Comptes</CardTitle>
         </CardHeader>
         <CardContent>
-          <UsersTable users={users} selfAuthUserId={selfAuthUserId} />
+          <UsersTable
+            users={users}
+            selfAuthUserId={selfAuthUserId}
+            actorRole={actorRole}
+          />
         </CardContent>
       </Card>
 
@@ -196,9 +208,8 @@ function UsersScreen({ selfAuthUserId }: { selfAuthUserId: string }) {
         <CardHeader>
           <CardTitle>Invitations en attente</CardTitle>
           <CardDescription>
-            Le lien est la voie de récupération documentée si l'envoi de l'email
-            échoue — aujourd'hui, il échoue systématiquement (aucune clé Resend
-            n'est configurée).
+            Le lien est la voie de récupération si l'email n'arrive pas. L'envoi
+            dépend de Resend, configuré depuis Réglages → E-mails.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -212,9 +223,11 @@ function UsersScreen({ selfAuthUserId }: { selfAuthUserId: string }) {
 function UsersTable({
   users,
   selfAuthUserId,
+  actorRole,
 }: {
   users: UserRow[] | undefined
   selfAuthUserId: string
+  actorRole: Role
 }) {
   const setRole = useMutation(api.users.setRole)
   const removeUser = useMutation(api.users.remove)
@@ -270,6 +283,7 @@ function UsersTable({
             <UserTableRow
               key={user.id}
               user={user}
+              actorRole={actorRole}
               isSelf={user.id === selfAuthUserId}
               pending={pendingId === user.id}
               onRoleChange={(role) => handleRoleChange(user.id, role)}
@@ -284,12 +298,14 @@ function UsersTable({
 
 function UserTableRow({
   user,
+  actorRole,
   isSelf,
   pending,
   onRoleChange,
   onRemove,
 }: {
   user: UserRow
+  actorRole: Role
   isSelf: boolean
   pending: boolean
   onRoleChange: (role: Role) => void
@@ -301,15 +317,14 @@ function UserTableRow({
   // que ce soit.
   const [removeOpen, setRemoveOpen] = useState(false)
   const role = user.role
-  // Courtesy, not enforcement: an owner row can never legitimately change
-  // role or be removed by this screen's actions — the single-owner
-  // invariant (`assertOwnerInvariant`, `databaseHooks`) refuses every path
-  // that would try, for every caller, always. Showing an inert badge
-  // instead of a control that would only ever come back refused is what
-  // "hiding is a courtesy" means here; `setRole`/`remove` refuse it
-  // server-side regardless of what renders.
-  const canChangeRole = role !== null && role !== "owner"
-  const canRemove = !isSelf && role !== "owner"
+  // Courtesy, not enforcement: the server re-checks every mutation. An
+  // owner row can never change role or be removed (single-owner invariant).
+  // An admin cannot change or remove another admin (`users.setRole` /
+  // `remove` refuse it). Showing a Badge instead of a Select that would
+  // only ever come back refused is what "hiding is a courtesy" means here.
+  const canChangeRole = canEditTargetRole(actorRole, role)
+  const canRemove = !isSelf && canEditTargetRole(actorRole, role)
+  const roleItems = assignableRoles(actorRole)
 
   return (
     <TableRow>
@@ -323,7 +338,7 @@ function UserTableRow({
       <TableCell>
         {canChangeRole ? (
           <Select
-            items={EDITABLE_ROLE_ITEMS}
+            items={roleItems}
             value={role}
             disabled={pending}
             onValueChange={(value) => onRoleChange(value as Role)}
@@ -332,8 +347,11 @@ function UserTableRow({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="admin">{ROLE_LABELS.admin}</SelectItem>
-              <SelectItem value="editor">{ROLE_LABELS.editor}</SelectItem>
+              {Object.entries(roleItems).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         ) : (
@@ -480,11 +498,12 @@ function InvitationsTable({
   )
 }
 
-function InviteDialog() {
+function InviteDialog({ actorRole }: { actorRole: Role }) {
   const createInvitation = useMutation(api.invitations.create)
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<"admin" | "editor">("editor")
+  const roleItems = assignableRoles(actorRole)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{
@@ -607,7 +626,7 @@ function InviteDialog() {
               <Field>
                 <FieldLabel htmlFor="invite-role">Rôle</FieldLabel>
                 <Select
-                  items={EDITABLE_ROLE_ITEMS}
+                  items={roleItems}
                   value={role}
                   onValueChange={(value) =>
                     setRole(value as "admin" | "editor")
@@ -617,11 +636,15 @@ function InviteDialog() {
                     <SelectValue />
                   </SelectTrigger>
                   {/* `owner` is deliberately absent: `invitations.create`
-                      refuses `role: "owner"` unconditionally (Task 8) — the
-                      owner is bootstrapped out of band, never invited. */}
+                      refuses `role: "owner"` unconditionally — the owner is
+                      bootstrapped out of band, never invited. An admin's
+                      items stop at editor; the server refuses admin too. */}
                   <SelectContent>
-                    <SelectItem value="admin">{ROLE_LABELS.admin}</SelectItem>
-                    <SelectItem value="editor">{ROLE_LABELS.editor}</SelectItem>
+                    {Object.entries(roleItems).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </Field>
