@@ -82,3 +82,13 @@ import "../convex/leads"
 import "../convex/consent"
 import "../convex/analytics"
 import "../convex/dns"
+// `ai.ts` n'est importé par aucun module de production — c'est l'éditeur
+// de page/article qui appelle son action. Sans cette ligne, la matrice de
+// `lib/authz.test.ts` (qui lit le registre à la COLLECTE) n'exercerait
+// pas `ai.generateSeoGeo`.
+import "../convex/ai"
+// `dataforseo.ts` n'est importé par aucun module de production — c'est
+// l'écran `/settings/mesure` qui appelle son action. Sans cette ligne,
+// la matrice de `lib/authz.test.ts` n'exercerait pas `dataforseo.enregistrer`.
+import "../convex/dataforseo"
+import "../convex/seoRanks"

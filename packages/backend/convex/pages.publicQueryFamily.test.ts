@@ -230,6 +230,10 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
       args = { id: draftId }
     } else if (q.argFields.length === 1 && q.argFields[0] === "ids") {
       args = { ids: [] }
+    } else if (q.argFields.includes("kind") && q.argFields.includes("pageId")) {
+      // `seoRanks.forDocument` : session-gated. L'appel non authentifié
+      // lève avant lecture ; la forme doit être déclarée ici.
+      args = { kind: "page", pageId: draftId }
     } else {
       // Not a permissive default (e.g. silently calling with `{}`
       // regardless of shape): a public query whose argument shape this
