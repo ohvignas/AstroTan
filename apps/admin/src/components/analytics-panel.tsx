@@ -1,106 +1,121 @@
 import { useEffect, useState } from "react"
-import { useAction } from "convex/react"
+import { useAction, useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import type { AnalyticsResult } from "@astrotan/backend/convex/analytics"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import type { DocumentRank } from "@astrotan/backend/convex/lib/seoRankState"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Indicateur } from "@/components/indicateur"
+import { sensPourVolume } from "@/components/fleche-tendance"
+import { phraseRelever, RangIndicateurs } from "@/components/rang-indicateur"
 import { LIBELLES_ETAT } from "@/lib/dashboardFormat"
 
-// Audience figures beside the editor of the page they measure.
-//
-// Split in two on purpose. `AnalyticsPanel` is a pure function of a result
-// — every state it can show is reachable from its props alone, which is
-// what makes the states testable without a network, a session, or a DOM.
-// `PageAnalytics` is the thin container that fetches; there is nothing in
-// it worth asserting that the action's own tests do not already cover.
-//
-// What each non-`ok` status means is in `lib/dashboardFormat` — one copy,
-// shared with the site dashboard. Every one of them is a sentence about
-// the *system*, not about the page: a page with no configured analytics
-// has not "had zero visitors", and saying so would be a lie the writer
-// could act on.
-
-function Window({
-  label,
-  stats,
-}: {
-  label: string
-  stats: { pageviews: number; visitors: number }
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <div className="flex items-baseline gap-3">
-        {/* `tabular-nums` so the two windows' digits line up in the column
-            rather than drifting with the glyph widths. */}
-        <span className="text-2xl font-semibold tabular-nums">
-          {stats.pageviews}
-        </span>
-        <span className="text-sm text-muted-foreground">
-          vues · {stats.visitors} visiteurs
-        </span>
-      </div>
-    </div>
-  )
-}
+// Quatre indicateurs purs — Umami + rang. `PageAnalytics` cherche ;
+// Relever n'existe qu'au clic, jamais au montage.
 
 export function AnalyticsPanel({
   result,
+  rank,
+  onRelever,
+  releverBusy,
+  releverError,
 }: {
-  /** `undefined` while the action is in flight. */
   result: AnalyticsResult | undefined
+  rank: DocumentRank | undefined
+  onRelever?: () => void
+  releverBusy?: boolean
+  releverError?: string | null
 }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>Audience</CardTitle>
+        <CardAction>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!rank?.canRelever || Boolean(releverBusy)}
+            onClick={onRelever}
+          >
+            {releverBusy ? "Relevé…" : "Relever"}
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 text-sm">
-        {result === undefined ? (
-          <span className="text-muted-foreground">Chargement…</span>
-        ) : result.status !== "ok" ? (
-          <span className="text-muted-foreground">
-            {LIBELLES_ETAT[result.status]}
-          </span>
-        ) : (
-          <>
-            {result.last7 && <Window label="7 derniers jours" stats={result.last7} />}
-            {result.last30 && (
-              <Window label="30 derniers jours" stats={result.last30} />
-            )}
-          </>
-        )}
+        {releverError ? (
+          <p role="alert" className="text-destructive">
+            {releverError}
+          </p>
+        ) : null}
+        <div className="grid gap-4 sm:grid-cols-4">
+          {result === undefined ? (
+            <span className="col-span-2 text-muted-foreground">Chargement…</span>
+          ) : result.status !== "ok" ? (
+            <span className="col-span-2 text-muted-foreground">
+              {LIBELLES_ETAT[result.status]}
+            </span>
+          ) : (
+            <>
+              <Indicateur
+                label="Vues 7 j"
+                value={result.last7!.pageviews}
+                sens={sensPourVolume(
+                  result.last7!.pageviews,
+                  result.last7!.pageviewsPrev,
+                )}
+              />
+              <Indicateur
+                label="Visiteurs 30 j"
+                value={result.last30!.visitors}
+                sens={sensPourVolume(
+                  result.last30!.visitors,
+                  result.last30!.visitorsPrev,
+                )}
+              />
+            </>
+          )}
+          <RangIndicateurs rank={rank} />
+        </div>
       </CardContent>
     </Card>
   )
 }
 
-export function PageAnalytics({ path }: { path: string | null }) {
+export function PageAnalytics({
+  path,
+  kind,
+  pageId,
+  postId,
+}: {
+  path: string | null
+  kind: "page" | "post"
+  pageId?: Id<"pages">
+  postId?: Id<"posts">
+}) {
   const forPath = useAction(api.analytics.forPath)
+  const relever = useAction(api.seoRanks.relever)
+  const rankArgs =
+    kind === "page" && pageId
+      ? { kind, pageId }
+      : kind === "post" && postId
+        ? { kind, postId }
+        : "skip"
+  const rank = useQuery(api.seoRanks.forDocument, rankArgs)
   const [result, setResult] = useState<AnalyticsResult | undefined>(undefined)
+  const [releverBusy, setReleverBusy] = useState(false)
+  const [releverError, setReleverError] = useState<string | null>(null)
 
   useEffect(() => {
-    // An action is not reactive, so this fires once per path rather than on
-    // every render — which is the reason the figures live behind an action
-    // and not a query in the first place.
     let current = true
     setResult(undefined)
-    // `null` means the caller does not know the path *yet* — on the page
-    // editor it waits for `settings.homePageSlug`, without which the home
-    // page reads as `/accueil` and Umami is asked about an address that is
-    // never served. The panel stays in its loading state rather than
-    // spending a round trip on a question with a known-wrong answer.
     if (path === null) return
     forPath({ path })
       .then((value) => {
         if (current) setResult(value)
       })
       .catch(() => {
-        // The action already converts every foreseeable failure into a
-        // status. Anything reaching here is unforeseen, and the editor
-        // still has to work: report it as unreachable rather than letting
-        // it escape into an error boundary that would hide the form.
         if (current) {
           setResult({ last7: null, last30: null, status: "unreachable" })
         }
@@ -110,5 +125,28 @@ export function PageAnalytics({ path }: { path: string | null }) {
     }
   }, [forPath, path])
 
-  return <AnalyticsPanel result={result} />
+  async function handleRelever() {
+    setReleverError(null)
+    setReleverBusy(true)
+    try {
+      const out = await relever({ kind, pageId, postId })
+      if (!out.ok) {
+        setReleverError(phraseRelever(out.reason))
+      }
+    } catch {
+      setReleverError(phraseRelever("unreachable"))
+    } finally {
+      setReleverBusy(false)
+    }
+  }
+
+  return (
+    <AnalyticsPanel
+      result={result}
+      rank={rank}
+      onRelever={() => void handleRelever()}
+      releverBusy={releverBusy}
+      releverError={releverError}
+    />
+  )
 }
