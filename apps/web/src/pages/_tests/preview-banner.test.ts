@@ -11,7 +11,7 @@ test("BaseLayout affiche le bandeau d'aperçu quand locals.preview est vrai", as
   const html = await container.renderToString(Page, {
     locals: { nonce: "test-nonce", preview: true },
   })
-  expect(html).toContain("Aperçu — cet article n'est pas publié")
+  expect(html).toContain("Aperçu — cette page n'est pas publiée")
   expect(html).toContain("corps-visible")
   expect(html).toContain("preview-banner")
 })
