@@ -30,7 +30,7 @@ la §14.1 est neuve et décrit exactement le déplacement du routage. Les réser
 assumées sont dans
 `.superpowers/sdd/2026-08-30-changer-de-domaine-depuis-le-dashboard/progress.md`.
 
-**Branche :** `lot1-socle`. **Spec :**
+**Branche :** `dev` (branche de travail ; `main` est la branche qui déploie). **Spec :**
 [`docs/superpowers/specs/2026-08-27-astrotan-design.md`](../specs/2026-08-27-astrotan-design.md).
 
 ---
@@ -122,7 +122,7 @@ au milieu d'un déploiement à moitié fait.
 
   ```bash
   cd /chemin/vers/AstroTan
-  git checkout lot1-socle && git pull
+  git checkout dev && git pull
   pnpm install --frozen-lockfile
   pnpm typecheck && pnpm lint && pnpm test
   ```
@@ -773,7 +773,7 @@ ordre qui n'est pas négociable :
 - [ ] **5.3 — Déclencher le premier déploiement.**
 
   ```bash
-  git push origin lot1-socle:main
+  git push origin dev:main
   # ou, si main existe déjà : Actions → Deploy → Run workflow
   ```
 
