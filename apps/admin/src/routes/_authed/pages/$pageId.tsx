@@ -18,6 +18,7 @@ import {
   MAX_SEO_DESCRIPTION_LENGTH,
   MAX_SEO_TITLE_LENGTH,
   MAX_SLUG_LENGTH,
+  MAX_TARGET_KEYWORD_LENGTH,
 } from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
 import { describeContentProblem, splitEntities } from "@/lib/contentGuards"
@@ -115,6 +116,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   const [seoOgImageId, setSeoOgImageId] = useState<Id<"_storage"> | null>(
     page.seo?.ogImageId ?? null
   )
+  const [targetKeyword, setTargetKeyword] = useState(page.targetKeyword ?? "")
 
   const [geoSummary, setGeoSummary] = useState(page.geo?.summary ?? "")
   const [geoFaq, setGeoFaq] = useState<{ question: string; answer: string }[]>(
@@ -156,6 +158,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   // frappe laisserait derrière elle `/tar`, `/tari`, `/tarif`…
   const autoFields = {
     title,
+    targetKeyword,
     seo: buildSeo({
       existing: page.seo,
       fields: {
@@ -369,6 +372,8 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
           pas. */}
       <PageAnalytics
         path={homePageSlug === undefined ? null : publicPath(page.slug, homePageSlug)}
+        kind="page"
+        pageId={page._id}
       />
 
       {/* --------------------------------------------------------------
@@ -419,6 +424,16 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
       </Section>
 
       <Section title="Dans les résultats de recherche">
+        <Field>
+          <FieldLabel htmlFor="target-keyword">Mot-clé cible</FieldLabel>
+          <Input
+            id="target-keyword"
+            value={targetKeyword}
+            maxLength={MAX_TARGET_KEYWORD_LENGTH}
+            disabled={!canWrite}
+            onChange={(event) => setTargetKeyword(event.target.value)}
+          />
+        </Field>
         <Field>
           <FieldLabel htmlFor="seo-title">Titre affiché</FieldLabel>
           <Input

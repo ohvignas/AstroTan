@@ -28,6 +28,7 @@ import {
   MAX_SEO_DESCRIPTION_LENGTH,
   MAX_SEO_TITLE_LENGTH,
   MAX_SLUG_LENGTH,
+  MAX_TARGET_KEYWORD_LENGTH,
   MAX_TAG_NAME_LENGTH,
 } from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
@@ -178,6 +179,7 @@ type PostFormValues = {
   body: string
   coverId: Id<"_storage"> | null
   tagIds: Id<"tags">[]
+  targetKeyword: string
   seoTitle: string
   seoDescription: string
   seoCanonicalUrl: string
@@ -197,6 +199,7 @@ function initialValues(post: PostDoc): PostFormValues {
     body: post.body,
     coverId: post.coverId ?? null,
     tagIds: post.tagIds,
+    targetKeyword: post.targetKeyword ?? "",
     seoTitle: post.seo?.title ?? "",
     seoDescription: post.seo?.description ?? "",
     seoCanonicalUrl: post.seo?.canonicalUrl ?? "",
@@ -228,6 +231,7 @@ function autoFieldsOf(values: PostFormValues) {
     excerpt: values.excerpt,
     ...coverPatch(values.coverId),
     tagIds: values.tagIds,
+    targetKeyword: values.targetKeyword,
     seo: buildSeo({
       fields: {
         title: values.seoTitle,
@@ -478,7 +482,11 @@ function PostEditor({
 
       {/* Un article répond toujours sous `/blog/`, et sur son slug
           enregistré : c'est ce qui est en ligne qui a été mesuré. */}
-      <PageAnalytics path={`/blog/${post.slug}`} />
+      <PageAnalytics
+        path={`/blog/${post.slug}`}
+        kind="post"
+        postId={post._id}
+      />
 
       <Card>
         <CardHeader>
@@ -632,6 +640,23 @@ function PostEditor({
           <CardTitle>SEO</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <form.Field
+            name="targetKeyword"
+            children={(field) => (
+              <Field>
+                <FieldLabel htmlFor="target-keyword">Mot-clé cible</FieldLabel>
+                <Input
+                  id="target-keyword"
+                  name={field.name}
+                  value={field.state.value}
+                  maxLength={MAX_TARGET_KEYWORD_LENGTH}
+                  disabled={!canWrite}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              </Field>
+            )}
+          />
           <form.Field
             name="seoTitle"
             children={(field) => (
