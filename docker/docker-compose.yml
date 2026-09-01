@@ -150,6 +150,11 @@ services:
       # plutôt qu'un défaut vide : mieux vaut un `compose up` qui refuse de
       # démarrer en nommant la variable qu'un site debout et muet.
       LEAD_SUBMIT_SECRET: ${LEAD_SUBMIT_SECRET:?LEAD_SUBMIT_SECRET is required}
+      # Clé HMAC des jetons de session chat, identique à celle posée sur
+      # Convex. ABSENTE, `lib/chatSessionToken.ts` lève au premier
+      # `verify` — `/api/chat/message` et `/api/chat/messages` répondent
+      # alors 503 `indisponible`. Même raison pour le `:?`.
+      CHAT_SESSION_SECRET: ${CHAT_SESSION_SECRET:?CHAT_SESSION_SECRET is required}
       # Clé HMAC du journal de consentement, elle aussi identique côté
       # Convex. Absente, `pages/api/consent.ts` répond 204 et n'écrit rien —
       # alors que `src/config/consent.ts` pose `traceability.enabled: true`,
