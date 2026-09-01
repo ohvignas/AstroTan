@@ -641,6 +641,38 @@ test("lire l'historique exige une session", async () => {
   await expect(t.query(api.leads.timeline, { id })).rejects.toThrow()
 })
 
+test("un handover ne se rend pas comme created", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+  const id = (await admin.query(api.leads.board, {})).new[0]!._id
+
+  await t.run(async (ctx: any) => {
+    await ctx.db.insert("leadEvents", {
+      leadId: id,
+      type: "handover",
+      from: "ai",
+      to: "staff",
+      actorName: "Actor admin",
+    })
+    await ctx.db.insert("leadEvents", {
+      leadId: id,
+      type: "chat_started",
+    })
+  })
+
+  const { entries } = await admin.query(api.leads.timeline, { id })
+  const handover = entries.find((entry) => entry.kind === "handover")
+  expect(handover).toMatchObject({
+    kind: "handover",
+    from: "ai",
+    to: "staff",
+    actorName: "Actor admin",
+  })
+  expect(entries.some((entry) => entry.kind === "chat_started")).toBe(true)
+  expect(entries.filter((entry) => entry.kind === "created")).toHaveLength(1)
+})
+
 // --- Le gabarit de l'écran « envoi des emails » --------------------------
 //
 // La notification de lead est le seul des deux envois du dépôt qui compose

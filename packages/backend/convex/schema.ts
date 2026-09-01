@@ -165,6 +165,10 @@ export default defineSchema({
     // décide de l'ordre de la colonne, pas l'ancienneté.
     lastMessageAt: v.number(),
     messageCount: v.number(),
+    threadId: v.optional(v.string()),
+    controller: v.optional(v.union(v.literal("ai"), v.literal("staff"))),
+    visitorLastSeenAt: v.optional(v.number()),
+    source: v.optional(v.union(v.literal("contact"), v.literal("chat"))),
   })
     // L'unicité se joue sur l'email : c'est ce qui fait qu'un habitué reste
     // une seule carte. Convex n'a pas de contrainte d'unicité — cet index
@@ -210,11 +214,17 @@ export default defineSchema({
   // lecteur, un seul endroit — qui recompose la forme typée à la lecture.
   leadEvents: defineTable({
     leadId: v.id("leads"),
-    type: v.union(v.literal("created"), v.literal("message"), v.literal("status")),
+    type: v.union(
+      v.literal("created"),
+      v.literal("message"),
+      v.literal("status"),
+      v.literal("chat_started"),
+      v.literal("handover"),
+    ),
     // Le couple qui manquait. `from` absent sur `created` : rien ne
-    // précède la création.
-    from: v.optional(leadStatusValidator),
-    to: v.optional(leadStatusValidator),
+    // précède la création. Élargi à ai/staff pour les événements handover.
+    from: v.optional(v.union(leadStatusValidator, v.literal("ai"), v.literal("staff"))),
+    to: v.optional(v.union(leadStatusValidator, v.literal("ai"), v.literal("staff"))),
     // Le message que cet événement accompagne. Le CORPS n'est pas recopié
     // ici : il vit dans `leadMessages` et nulle part ailleurs, sans quoi
     // deux copies du même texte finiraient par diverger.
@@ -412,6 +422,10 @@ export default defineSchema({
     // seulement. L'absence vaut Google France (2250 / "fr").
     serpLocationCode: v.optional(v.number()),
     serpLanguageCode: v.optional(v.string()),
+    agentEnabled: v.optional(v.boolean()),
+    agentDisplayName: v.optional(v.string()),
+    agentInstructions: v.optional(v.string()),
+    agentKnowledge: v.optional(v.string()),
   }),
 
   // Les jetons saisis depuis l'écran des réglages — CHIFFRÉS, jamais en
@@ -618,4 +632,20 @@ export default defineSchema({
     referringDomainsPrev: v.optional(v.number()),
     fetchedAt: v.number(),
   }),
+
+  chatSessions: defineTable({
+    leadId: v.id("leads"),
+    threadId: v.string(),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+  })
+    .index("by_lead", ["leadId"])
+    .index("by_thread", ["threadId"])
+    .index("by_tokenHash", ["tokenHash"]),
+
+  chatPresence: defineTable({
+    threadId: v.string(),
+    actorId: v.string(),
+    lastSeenAt: v.number(),
+  }).index("by_thread", ["threadId"]),
 })

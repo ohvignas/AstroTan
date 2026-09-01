@@ -280,6 +280,9 @@ export const MAX_LEAD_BODY_LENGTH = 5_000
 // E.164 tient en 15 chiffres ; 32 laisse la place aux espaces, au « + »
 // et à un poste. Au-delà ce n'est plus un numéro qu'on rappellerait.
 export const MAX_LEAD_PHONE_LENGTH = 32
+export const MAX_AGENT_DISPLAY_NAME = 80
+export const MAX_AGENT_INSTRUCTIONS = 4_000
+export const MAX_AGENT_KNOWLEDGE = 20_000
 
 /**
  * Une validation d'adresse volontairement grossière.

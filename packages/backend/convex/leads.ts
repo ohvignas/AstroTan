@@ -260,6 +260,14 @@ export type LeadTimelineEntry =
       /** `null` quand le geste vient du visiteur et non de l'équipe. */
       actorName: string | null
     }
+  | { kind: "chat_started"; at: number }
+  | {
+      kind: "handover"
+      at: number
+      from: "ai" | "staff"
+      to: "ai" | "staff"
+      actorName: string | null
+    }
 
 export type LeadTimeline = {
   /** Du plus récent au plus ancien — l'ordre dans lequel on relit. */
@@ -279,9 +287,15 @@ export type LeadTimeline = {
 // la boucle. Une relance produit d'un seul coup le retour en colonne
 // Nouveau et le message : « a écrit » se lit au-dessus de « repassé en
 // Nouveau », parce que le second est la conséquence du premier.
+function isLeadStatus(value: string): value is LeadStatus {
+  return (LEAD_STATUSES as readonly string[]).includes(value)
+}
+
 const RANG: Record<LeadTimelineEntry["kind"], number> = {
   created: 0,
+  chat_started: 0,
   status: 1,
+  handover: 1,
   message: 2,
 }
 
@@ -332,8 +346,21 @@ export const timeline = query({
         // sens que pour ce type — c'est ici, au seul point de lecture, que
         // la forme typée se recompose.
         if (event.from === undefined || event.to === undefined) continue
+        if (!isLeadStatus(event.from) || !isLeadStatus(event.to)) continue
         entries.push({
           kind: "status",
+          at: event._creationTime,
+          from: event.from,
+          to: event.to,
+          actorName: event.actorName ?? null,
+        })
+      } else if (event.type === "chat_started") {
+        entries.push({ kind: "chat_started", at: event._creationTime })
+      } else if (event.type === "handover") {
+        if (event.from !== "ai" && event.from !== "staff") continue
+        if (event.to !== "ai" && event.to !== "staff") continue
+        entries.push({
+          kind: "handover",
           at: event._creationTime,
           from: event.from,
           to: event.to,

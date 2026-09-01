@@ -47,6 +47,8 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
   leads: { declaredAs: "Répondre à un message envoyé par le formulaire de contact" },
   leadMessages: { declaredAs: "Répondre à un message envoyé par le formulaire de contact" },
   leadEvents: { declaredAs: "Suivre, dans l'administration, le traitement d'une demande" },
+  chatSessions: { declaredAs: "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande" },
+  chatPresence: { declaredAs: "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande" },
   consentRecords: { declaredAs: "Enregistrer le choix exprimé sur les cookies" },
 
   // ── Les comptes d'administration ─────────────────────────────────────
