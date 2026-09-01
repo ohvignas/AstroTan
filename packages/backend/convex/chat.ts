@@ -79,6 +79,7 @@ export const start = mutation({
         messageCount: 0,
         lastMessageAt: now,
       })
+      await ctx.db.insert("leadEvents", { leadId, type: "created", to: "new" })
       const candidats = await listerCandidats(ctx)
       await ecrireCloches(ctx, {
         cle: "leadNotification",
@@ -103,6 +104,7 @@ export const start = mutation({
     } else {
       leadId = existing._id
       threadId = existing.threadId
+      await ctx.db.patch(leadId, { lastMessageAt: now })
     }
 
     if (!threadId) {

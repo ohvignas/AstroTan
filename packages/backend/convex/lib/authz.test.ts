@@ -58,6 +58,7 @@ beforeEach(() => {
   // `leads.submit` du registre refuse tout quand ce secret manque — même
   // raison que la ligne au-dessus : la matrice appelle la vraie mutation.
   process.env.LEAD_SUBMIT_SECRET = "test-lead-secret-please-do-not-use-in-prod-x"
+  process.env.CHAT_SESSION_SECRET = "test-chat-session-secret-please-do-not-use"
   // `consent.record` (registre, ajouté au barrel dans le même correctif)
   // suit la même construction que `leads.submit` : `assertSharedSecret`
   // lève `NOT_CONFIGURED` — pas `FORBIDDEN` — quand ce secret est absent,
