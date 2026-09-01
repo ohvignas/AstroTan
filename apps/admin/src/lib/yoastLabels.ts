@@ -1,0 +1,38 @@
+const LABELS: Record<string, string> = {
+  introductionKeyword: "Le mot-clé n’apparaît pas assez tôt dans le texte.",
+  keyphraseLength: "Le mot-clé cible est absent ou trop long.",
+  keywordDensity: "Densité du mot-clé à ajuster dans le corps.",
+  keyphraseDensity: "Densité du mot-clé à ajuster dans le corps.",
+  metaDescriptionKeyword: "Le mot-clé n’est pas dans la meta description.",
+  metaDescriptionLength: "La meta description est trop courte ou trop longue.",
+  textCompetingLinks: "Un lien sortant concurrence le mot-clé.",
+  internalLinks: "Ajoutez au moins un lien interne.",
+  titleKeyword: "Le mot-clé n’est pas dans le titre SEO.",
+  keyphraseInSEOTitle: "Le mot-clé n’est pas dans le titre SEO.",
+  urlKeyword: "Le mot-clé n’est pas dans le slug.",
+  slugKeyword: "Le mot-clé n’est pas dans le slug.",
+  textLength: "Le corps est trop court pour ce mot-clé.",
+  outboundLinks: "Ajoutez un lien sortant pertinent.",
+  externalLinks: "Ajoutez un lien sortant pertinent.",
+  functionWordsInKeyphrase: "Le mot-clé est surtout fait de mots vides.",
+  singleH1: "Un H1 dans le corps double le titre public.",
+  subheadingsKeyword: "Le mot-clé n’apparaît pas dans un intertitre.",
+  imageKeyphrase: "Le mot-clé n’est pas dans le texte alternatif d’une image.",
+  textImages: "Le corps n’a pas assez d’images.",
+  images: "Le corps n’a pas assez d’images.",
+  textPresence: "Le corps est vide.",
+  sentenceLengthInText: "Trop de phrases longues.",
+  textSentenceLength: "Trop de phrases longues.",
+  paragraphTooLong: "Un paragraphe est trop long.",
+  textParagraphTooLong: "Un paragraphe est trop long.",
+  subheadingDistributionTooLong: "Une section sans intertitre est trop longue.",
+  subheadingsTooLong: "Une section sans intertitre est trop longue.",
+  transitionWords: "Pas assez de mots de transition.",
+  textTransitionWords: "Pas assez de mots de transition.",
+  passiveVoice: "Trop de voix passive.",
+  sentenceBeginnings: "Trop de phrases commencent pareil.",
+}
+
+export function phraseFinding(identifier: string): string {
+  return LABELS[identifier] ?? `Point à revoir (${identifier}).`
+}
