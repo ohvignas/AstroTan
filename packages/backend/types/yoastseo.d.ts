@@ -30,17 +30,16 @@ declare module "yoastseo" {
       score: number,
     ) => "error" | "feedback" | "bad" | "ok" | "good"
   }
+  export type YoastAssessmentResult = {
+    getIdentifier: () => string
+    getScore: () => number
+    getText: () => string
+  }
 }
 
-declare module "yoastseo/build/languageProcessing/languages/fr/Researcher" {
+declare module "yoastseo/build/languageProcessing/languages/fr/Researcher.js" {
   import type { Paper } from "yoastseo"
   export default class FrenchResearcher {
     constructor(paper: Paper)
   }
-}
-
-export type YoastAssessmentResult = {
-  getIdentifier: () => string
-  getScore: () => number
-  getText: () => string
 }

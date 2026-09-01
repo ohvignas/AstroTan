@@ -87,8 +87,14 @@ import "../convex/dns"
 // `lib/authz.test.ts` (qui lit le registre à la COLLECTE) n'exercerait
 // pas `ai.generateSeoGeo`.
 import "../convex/ai"
+import "../convex/aiImage"
 // `dataforseo.ts` n'est importé par aucun module de production — c'est
 // l'écran `/settings/mesure` qui appelle son action. Sans cette ligne,
 // la matrice de `lib/authz.test.ts` n'exercerait pas `dataforseo.enregistrer`.
 import "../convex/dataforseo"
 import "../convex/seoRanks"
+import "../convex/revalidate"
+import "../convex/apiTokens"
+import "../convex/notifications"
+import "../convex/chat"
+import "../convex/seoAnalyze"

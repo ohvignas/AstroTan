@@ -1,7 +1,9 @@
+"use node"
+/// <reference path="../../types/yoastseo.d.ts" />
 // yoastseo (GPL-3.0) — backend / action Node uniquement.
 // Ne jamais importer ce module depuis apps/admin ou apps/web.
 import { ContentAssessor, interpreters, Paper, SeoAssessor } from "yoastseo"
-import FrenchResearcher from "yoastseo/build/languageProcessing/languages/fr/Researcher"
+import FrenchResearcher from "yoastseo/build/languageProcessing/languages/fr/Researcher.js"
 import { paperAttributes, type PaperFields } from "./yoastPaper"
 import { toFindings, type RawAssessment, type SeoFinding } from "./yoastFindings"
 

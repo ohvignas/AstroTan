@@ -64,6 +64,7 @@ beforeEach(() => {
   // ce qui ferait échouer le cas "autorisé" de la matrice pour une raison
   // qui n'a rien à voir avec le rôle appelant.
   process.env.CONSENT_LOG_SECRET = "test-consent-secret-please-do-not-use-in-prod-x"
+  process.env.SEO_ANALYZE_STUB = "1"
 })
 
 afterEach(() => {
@@ -285,22 +286,65 @@ describe("matrice de permissions", () => {
   // laisse `checkSite`/`checkEmail` se résoudre sans erreur pour un rôle
   // autorisé, ce qui est tout ce qu'il faut ici.
   //
-  // Aucune autre entrée du registre n'appelle `fetch` pendant cette
-  // matrice : `leads.submit` planifie son webhook et sa notification par
-  // `ctx.scheduler.runAfter`, que `convex-test` n'exécute pas tant que
-  // `t.finishInProgressScheduledFunctions()` n'est pas appelé (jamais ici) ;
-  // `analytics.forPath`/`siteSummary`/`ssoLink` renvoient `not-configured`
-  // sans réseau tant qu'aucune variable `UMAMI_API_*` n'est posée, ce que ce
-  // fichier ne fait pas. Le stub ci-dessous est donc sans effet sur eux.
+  // `ai.generateSeoGeo` appelle OpenRouter dès qu'une clé est posée — le
+  // stub ci-dessous lui rend un JSON de complétion. Le reste n'atteint
+  // pas le réseau : `leads.submit` planifie son webhook (`ctx.scheduler`),
+  // que `convex-test` n'exécute pas ici ; `analytics.*` rend
+  // `not-configured` tant qu'aucune variable `UMAMI_API_*` n'est posée.
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ Status: 3 }), {
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url
+        // `ai.generateSeoGeo` appelle OpenRouter dès que le rôle est
+        // autorisé et qu'une clé est posée (l'entrée du registre en pose
+        // une). Sans cette branche, le stub DNS ci-dessous ferait échouer
+        // le parse JSON et la matrice lirait ça comme un refus de rôle.
+        if (url.includes("/api/v1/images")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  b64_json:
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+                  media_type: "image/png",
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          )
+        }
+        if (url.includes("openrouter.ai")) {
+          return new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      seoTitle: "Titre registre",
+                      seoDescription: "Description registre.",
+                      geoSummary: "Résumé registre.",
+                      geoFaq: [],
+                      geoEntities: ["AstroTan"],
+                      geoNoai: false,
+                    }),
+                  },
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          )
+        }
+        return new Response(JSON.stringify({ Status: 3 }), {
           status: 200,
           headers: { "content-type": "application/json" },
-        }),
-      ),
+        })
+      }),
     )
   })
 
