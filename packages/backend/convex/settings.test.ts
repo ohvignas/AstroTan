@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test } from "vitest"
 import schema from "./schema"
 import { api, internal } from "./_generated/api"
 import { MAX_SITE_NAME_LENGTH } from "./settings"
+import { MAX_AGENT_KNOWLEDGE } from "./content"
 import {
   ORIGIN,
   identityFor,
@@ -271,5 +272,42 @@ test("un editor lit les IDs et ne peut pas les écrire", async () => {
   )
   await expect(
     editor.identity.mutation(api.settings.update, { metaPixelId: "99999" }),
+  ).rejects.toThrow()
+})
+
+test("settings.get rend agentEnabled et jamais agentKnowledge", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.updateAgent, {
+    agentEnabled: true,
+    agentDisplayName: "Aide",
+    agentInstructions: "Sois bref.",
+    agentKnowledge: "Horaires : 9h-18h",
+  })
+  const pub = await t.query(api.settings.get, {})
+  expect(pub).toMatchObject({ agentEnabled: true })
+  expect(pub).not.toHaveProperty("agentKnowledge")
+  expect(pub).not.toHaveProperty("agentInstructions")
+  expect(pub).not.toHaveProperty("agentDisplayName")
+})
+
+test("agentKnowledge trop long lève FIELD_TOO_LONG", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await expect(
+    admin.identity.mutation(api.settings.updateAgent, {
+      agentEnabled: true,
+      agentDisplayName: "Aide",
+      agentInstructions: "Sois bref.",
+      agentKnowledge: "x".repeat(MAX_AGENT_KNOWLEDGE + 1),
+    }),
+  ).rejects.toMatchObject({ data: { code: "FIELD_TOO_LONG", field: "agentKnowledge" } })
+})
+
+test("un editor ne pose pas l'agent", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  await expect(
+    editor.identity.mutation(api.settings.updateAgent, { agentEnabled: true }),
   ).rejects.toThrow()
 })

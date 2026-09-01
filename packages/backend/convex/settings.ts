@@ -2,6 +2,9 @@ import { ConvexError, v } from "convex/values"
 import { internalQuery, mutation, query } from "./_generated/server"
 import { api, internal } from "./_generated/api"
 import {
+  MAX_AGENT_DISPLAY_NAME,
+  MAX_AGENT_INSTRUCTIONS,
+  MAX_AGENT_KNOWLEDGE,
   MAX_SITE_NAME_LENGTH,
   MAX_SOCIALS,
   MAX_SOCIAL_LABEL_LENGTH,
@@ -102,6 +105,7 @@ export const get = query({
       // reprendrait le fallback `PUBLIC_*` figé au build.
       metaPixelId: settings.metaPixelId ?? null,
       googleTagId: settings.googleTagId ?? null,
+      agentEnabled: settings.agentEnabled === true,
       // `emailFrom` N'EST PAS ICI (relecture finale, correctif 1) : c'est
       // l'adresse d'expédition du site, elle n'a aucune utilité pour
       // `apps/web` — `grep -rn "emailFrom" apps/` n'y trouve aucun
@@ -178,6 +182,10 @@ export const getPrivate = query({
       googleTagId: settings.googleTagId ?? null,
       serpLocationCode: settings.serpLocationCode ?? null,
       serpLanguageCode: settings.serpLanguageCode ?? null,
+      agentEnabled: settings.agentEnabled === true,
+      agentDisplayName: settings.agentDisplayName ?? null,
+      agentInstructions: settings.agentInstructions ?? null,
+      agentKnowledge: settings.agentKnowledge ?? null,
     }
   },
 })
@@ -708,6 +716,46 @@ export const setHomePage = mutation({
   },
 })
 
+export const updateAgent = mutation({
+  args: {
+    agentEnabled: v.optional(v.boolean()),
+    agentDisplayName: v.optional(v.string()),
+    agentInstructions: v.optional(v.string()),
+    agentKnowledge: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin"])
+
+    if (args.agentDisplayName !== undefined) {
+      assertLength(args.agentDisplayName, MAX_AGENT_DISPLAY_NAME, "agentDisplayName")
+    }
+    if (args.agentInstructions !== undefined) {
+      assertLength(args.agentInstructions, MAX_AGENT_INSTRUCTIONS, "agentInstructions")
+    }
+    if (args.agentKnowledge !== undefined) {
+      assertLength(args.agentKnowledge, MAX_AGENT_KNOWLEDGE, "agentKnowledge")
+    }
+
+    const patch = {
+      ...(args.agentEnabled !== undefined ? { agentEnabled: args.agentEnabled } : {}),
+      ...(args.agentDisplayName !== undefined
+        ? { agentDisplayName: args.agentDisplayName }
+        : {}),
+      ...(args.agentInstructions !== undefined
+        ? { agentInstructions: args.agentInstructions }
+        : {}),
+      ...(args.agentKnowledge !== undefined ? { agentKnowledge: args.agentKnowledge } : {}),
+    }
+
+    const existing = await ctx.db.query("settings").first()
+    if (existing) {
+      await ctx.db.patch(existing._id, patch)
+      return existing._id
+    }
+    return ctx.db.insert("settings", { siteName: "Mon site", ...patch })
+  },
+})
+
 MUTATION_REGISTRY.push(
   {
     name: "settings.update",
@@ -722,5 +770,10 @@ MUTATION_REGISTRY.push(
       await t.mutation(api.pages.create, { title: "Registry home", slug })
       return t.mutation(api.settings.setHomePage, { slug })
     },
-  }
+  },
+  {
+    name: "settings.updateAgent",
+    allowedRoles: ["owner", "admin"],
+    invoke: (t) => t.mutation(api.settings.updateAgent, { agentEnabled: true }),
+  },
 )

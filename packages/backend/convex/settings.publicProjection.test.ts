@@ -15,6 +15,7 @@ const AUTORISES = [
   "socials",
   "metaPixelId",
   "googleTagId",
+  "agentEnabled",
 ]
 
 // Les champs autorisés dans la projection du DASHBOARD. Les deux champs
@@ -38,6 +39,10 @@ const AUTORISES_PRIVE = [
   "googleTagId",
   "serpLocationCode",
   "serpLanguageCode",
+  "agentEnabled",
+  "agentDisplayName",
+  "agentInstructions",
+  "agentKnowledge",
 ]
 
 // Toute la table, LUE DU SCHÉMA et non recopiée à la main — même motif que
@@ -87,6 +92,10 @@ async function semerLaLigneEntiere(t: TestConvex<typeof appSchema>) {
       googleTagId: "AW-999",
       serpLocationCode: 2250,
       serpLanguageCode: "fr",
+      agentEnabled: true,
+      agentDisplayName: "Aide",
+      agentInstructions: "Sois bref.",
+      agentKnowledge: "Horaires : 9h-18h",
     }
     await ctx.db.insert("settings", ligne)
     return ligne
