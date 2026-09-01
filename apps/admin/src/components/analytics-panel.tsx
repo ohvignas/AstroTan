@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useAction, useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import type { AnalyticsResult } from "@astrotan/backend/convex/analytics"
 import type { DocumentRank } from "@astrotan/backend/convex/lib/seoRankState"
+import { usePostAnalytics } from "@/lib/usePostAnalytics"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Indicateur } from "@/components/indicateur"
+import { RefreshReleve } from "@/components/refresh-releve"
 import { sensPourVolume } from "@/components/fleche-tendance"
 import { phraseRelever, RangIndicateurs } from "@/components/rang-indicateur"
 import { LIBELLES_ETAT } from "@/lib/dashboardFormat"
+import { estThrottleReleve, raisonReleveInactif } from "@/lib/refreshReleve"
 
 // Quatre indicateurs purs — Umami + rang. `PageAnalytics` cherche ;
 // Relever n'existe qu'au clic, jamais au montage.
@@ -32,15 +34,13 @@ export function AnalyticsPanel({
       <CardHeader>
         <CardTitle>Audience</CardTitle>
         <CardAction>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!rank?.canRelever || Boolean(releverBusy)}
-            onClick={onRelever}
-          >
-            {releverBusy ? "Relevé…" : "Relever"}
-          </Button>
+          <RefreshReleve
+            busy={Boolean(releverBusy)}
+            disabled={estThrottleReleve(rank)}
+            disabledReason={raisonReleveInactif(rank)}
+            lastRefreshedAt={rank?.fetchedAt}
+            onClick={() => onRelever?.()}
+          />
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 text-sm">
@@ -94,7 +94,6 @@ export function PageAnalytics({
   pageId?: Id<"pages">
   postId?: Id<"posts">
 }) {
-  const forPath = useAction(api.analytics.forPath)
   const relever = useAction(api.seoRanks.relever)
   const rankArgs =
     kind === "page" && pageId
@@ -103,27 +102,9 @@ export function PageAnalytics({
         ? { kind, postId }
         : "skip"
   const rank = useQuery(api.seoRanks.forDocument, rankArgs)
-  const [result, setResult] = useState<AnalyticsResult | undefined>(undefined)
+  const result = usePostAnalytics(path)
   const [releverBusy, setReleverBusy] = useState(false)
   const [releverError, setReleverError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let current = true
-    setResult(undefined)
-    if (path === null) return
-    forPath({ path })
-      .then((value) => {
-        if (current) setResult(value)
-      })
-      .catch(() => {
-        if (current) {
-          setResult({ last7: null, last30: null, status: "unreachable" })
-        }
-      })
-    return () => {
-      current = false
-    }
-  }, [forPath, path])
 
   async function handleRelever() {
     setReleverError(null)
