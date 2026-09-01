@@ -111,6 +111,36 @@ test("send sans jeton refuse INVALID_SESSION", async () => {
   ).rejects.toMatchObject({ data: { code: "INVALID_SESSION" } })
 })
 
+test("send refuse AGENT_DISABLED si l'agent n'est pas allumé", async () => {
+  const t = makeTestConvex()
+  const { token } = await t.mutation(api.chat.start, {
+    secret: SECRET,
+    email: "disabled@example.com",
+    name: "Ada",
+    origin: "gg".repeat(32),
+  })
+  await expect(
+    t.mutation(api.chat.send, { secret: SECRET, token, body: "bonjour" }),
+  ).rejects.toMatchObject({ data: { code: "AGENT_DISABLED" } })
+})
+
+test("send planifie stream quand le contrôleur est l'IA", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.mutation(api.settings.updateAgent, { agentEnabled: true })
+  const { token } = await t.mutation(api.chat.start, {
+    secret: SECRET,
+    email: "ai-ctrl@example.com",
+    name: "Ada",
+    origin: "hh".repeat(32),
+  })
+  const before = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())
+  await t.mutation(api.chat.send, { secret: SECRET, token, body: "bonjour" })
+  const after = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())
+  const nouveaux = after.filter((job) => !before.some((b) => b._id === job._id))
+  expect(nouveaux.map((job) => job.name).join(",")).toMatch(/stream/i)
+})
+
 test("send avec controller staff ne planifie pas stream", async () => {
   const t = makeTestConvex()
   const { token, leadId } = await t.mutation(api.chat.start, {

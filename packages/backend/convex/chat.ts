@@ -136,6 +136,14 @@ export const send = mutation({
     if (lead === null) throw new ConvexError({ code: "INVALID_SESSION" })
     await assertChatMessageBudget(ctx, args.origin, lead.email)
 
+    const controller = lead.controller ?? "ai"
+    if (controller === "ai") {
+      const settings = await ctx.db.query("settings").first()
+      if (settings?.agentEnabled !== true) {
+        throw new ConvexError({ code: "AGENT_DISABLED" })
+      }
+    }
+
     const { messageId } = await saveMessage(ctx, components.agent, {
       threadId: session.threadId,
       prompt: body,
@@ -143,11 +151,7 @@ export const send = mutation({
     await ctx.db.patch(lead._id, { lastMessageAt: Date.now() })
     await renewChatSessionTtl(ctx, session.sessionId)
 
-    if ((lead.controller ?? "ai") === "ai") {
-      const settings = await ctx.db.query("settings").first()
-      if (settings?.agentEnabled === false) {
-        throw new ConvexError({ code: "AGENT_DISABLED" })
-      }
+    if (controller === "ai") {
       await ctx.scheduler.runAfter(0, internal.chatStream.stream, {
         threadId: session.threadId,
         promptMessageId: messageId,
