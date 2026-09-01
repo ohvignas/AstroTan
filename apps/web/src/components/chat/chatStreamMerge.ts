@@ -163,6 +163,9 @@ export function reducePoll(prev: PollState, payload: unknown): PollState {
   if (streamRec?.kind === "list") {
     const ids = openStreamIds(streamRec)
     if (ids.length > 0) {
+      for (const streamId of ids) {
+        if (cursors[streamId] === undefined) cursors[streamId] = 0
+      }
       streamArgs = {
         kind: "deltas",
         cursors: ids.map((streamId) => ({ streamId, cursor: cursors[streamId] ?? 0 })),

@@ -192,6 +192,19 @@ describe("fusion des deltas", () => {
     expect(more.messages.at(-1)).toMatchObject({ text: "Réponse", streaming: true })
   })
 
+  test("reducePoll : premier deltas vide (TTFT) garde 400 ms", () => {
+    const listed = reducePoll(initialPollState(), {
+      page: [{ id: "u1", role: "user", text: "Q" }],
+      streams: { kind: "list", messages: [{ streamId: "s1", status: "streaming" }] },
+    })
+    const quiet = reducePoll(listed, {
+      page: [{ id: "u1", role: "user", text: "Q" }],
+      streams: { kind: "deltas", deltas: [] },
+    })
+    expect(quiet.intervalMs).toBe(POLL_STREAMING_MS)
+    expect(quiet.streamArgs).toEqual({ kind: "list" })
+  })
+
   test("reducePoll : deltas vides gardent 400 ms et reviennent à list", () => {
     const listed = reducePoll(initialPollState(), {
       page: [{ id: "u1", role: "user", text: "Q" }],
