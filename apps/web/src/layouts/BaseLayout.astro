@@ -21,6 +21,7 @@ import Footer from "../components/layout/Footer.astro"
 import NotFoundBody from "../components/NotFoundBody.astro"
 import GoogleConsentMode from "../components/consent/GoogleConsentMode.astro"
 import ConsentBanner from "../components/consent/ConsentBanner.astro"
+import ChatBubble from "../components/chat/ChatBubble.astro"
 import type { PageRecord } from "../lib/loadPage"
 import "../styles/global.css"
 
@@ -40,6 +41,7 @@ export interface Props {
     excerpt?: string
     publishedAt?: number
     coverUrl?: string | null
+    coverAlt?: string
   }
 }
 
@@ -129,6 +131,9 @@ const nonce = Astro.locals.nonce
         rendu. Il ne s'affiche que si ce site charge réellement un traceur
         soumis à consentement — sinon le composant ne rend rien du tout. */}
     <ConsentBanner />
+    {/* Sous le bandeau cookies (z-index 60) et sous le `<dialog>` modal
+        (couche supérieure du navigateur). La bulle reste à 45. */}
+    <ChatBubble />
 
     <style>
       .site-body {

@@ -1,5 +1,6 @@
 import { defineConfig, memoryCache } from "astro/config"
 import node from "@astrojs/node"
+import react from "@astrojs/react"
 import tailwindcss from "@tailwindcss/vite"
 
 // Spec §6.1 — the exact configuration the publication loop (Task 6/7) depends
@@ -12,6 +13,7 @@ import tailwindcss from "@tailwindcss/vite"
 export default defineConfig({
   output: "static",
   adapter: node({ mode: "standalone" }),
+  integrations: [react()],
 
   // AUCUN `security.allowedDomains` ICI, ET C'EST LE POINT.
   //
