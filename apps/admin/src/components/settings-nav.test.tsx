@@ -23,7 +23,7 @@ import {
 } from "./settings-nav"
 
 describe("SETTINGS_PAGES", () => {
-  test("porte les huit pages attendues, dans l'ordre du menu", () => {
+  test("porte les neuf pages attendues, dans l'ordre du menu", () => {
     expect(SETTINGS_PAGES.map((page) => page.to)).toEqual([
       "/settings/identite",
       "/settings/referencement",
@@ -33,7 +33,14 @@ describe("SETTINGS_PAGES", () => {
       "/settings/emails",
       "/settings/mesure",
       "/settings/ia",
+      "/settings/agent",
     ])
+  })
+
+  test("la page agent s'appelle Agent", () => {
+    expect(SETTINGS_PAGES.find((p) => p.to === "/settings/agent")).toMatchObject({
+      label: "Agent",
+    })
   })
 
   test("aucun chemin en double", () => {

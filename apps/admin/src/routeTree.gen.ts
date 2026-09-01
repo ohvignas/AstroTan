@@ -28,6 +28,7 @@ import { Route as AuthedPagesPageIdRouteImport } from './routes/_authed/pages/$p
 import { Route as AuthedPostsIndexRouteImport } from './routes/_authed/posts/index'
 import { Route as AuthedPostsPostIdRouteImport } from './routes/_authed/posts/$postId'
 import { Route as AuthedSettingsIndexRouteImport } from './routes/_authed/settings/index'
+import { Route as AuthedSettingsAgentRouteImport } from './routes/_authed/settings/agent'
 import { Route as AuthedSettingsDomaineRouteImport } from './routes/_authed/settings/domaine'
 import { Route as AuthedSettingsEmailsRouteImport } from './routes/_authed/settings/emails'
 import { Route as AuthedSettingsIaRouteImport } from './routes/_authed/settings/ia'
@@ -132,6 +133,11 @@ const AuthedSettingsIndexRoute = AuthedSettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthedSettingsRoute,
 } as any)
+const AuthedSettingsAgentRoute = AuthedSettingsAgentRouteImport.update({
+  id: '/agent',
+  path: '/agent',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
 const AuthedSettingsDomaineRoute = AuthedSettingsDomaineRouteImport.update({
   id: '/domaine',
   path: '/domaine',
@@ -195,6 +201,7 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/posts/$postId': typeof AuthedPostsPostIdRoute
+  '/settings/agent': typeof AuthedSettingsAgentRoute
   '/settings/domaine': typeof AuthedSettingsDomaineRoute
   '/settings/emails': typeof AuthedSettingsEmailsRoute
   '/settings/ia': typeof AuthedSettingsIaRoute
@@ -223,6 +230,7 @@ export interface FileRoutesByTo {
   '/': typeof AuthedIndexRoute
   '/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/posts/$postId': typeof AuthedPostsPostIdRoute
+  '/settings/agent': typeof AuthedSettingsAgentRoute
   '/settings/domaine': typeof AuthedSettingsDomaineRoute
   '/settings/emails': typeof AuthedSettingsEmailsRoute
   '/settings/ia': typeof AuthedSettingsIaRoute
@@ -254,6 +262,7 @@ export interface FileRoutesById {
   '/_authed/': typeof AuthedIndexRoute
   '/_authed/pages/$pageId': typeof AuthedPagesPageIdRoute
   '/_authed/posts/$postId': typeof AuthedPostsPostIdRoute
+  '/_authed/settings/agent': typeof AuthedSettingsAgentRoute
   '/_authed/settings/domaine': typeof AuthedSettingsDomaineRoute
   '/_authed/settings/emails': typeof AuthedSettingsEmailsRoute
   '/_authed/settings/ia': typeof AuthedSettingsIaRoute
@@ -285,6 +294,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/pages/$pageId'
     | '/posts/$postId'
+    | '/settings/agent'
     | '/settings/domaine'
     | '/settings/emails'
     | '/settings/ia'
@@ -313,6 +323,7 @@ export interface FileRouteTypes {
     | '/'
     | '/pages/$pageId'
     | '/posts/$postId'
+    | '/settings/agent'
     | '/settings/domaine'
     | '/settings/emails'
     | '/settings/ia'
@@ -343,6 +354,7 @@ export interface FileRouteTypes {
     | '/_authed/'
     | '/_authed/pages/$pageId'
     | '/_authed/posts/$postId'
+    | '/_authed/settings/agent'
     | '/_authed/settings/domaine'
     | '/_authed/settings/emails'
     | '/_authed/settings/ia'
@@ -502,6 +514,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsIndexRouteImport
       parentRoute: typeof AuthedSettingsRoute
     }
+    '/_authed/settings/agent': {
+      id: '/_authed/settings/agent'
+      path: '/agent'
+      fullPath: '/settings/agent'
+      preLoaderRoute: typeof AuthedSettingsAgentRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
     '/_authed/settings/domaine': {
       id: '/_authed/settings/domaine'
       path: '/domaine'
@@ -569,6 +588,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthedSettingsRouteChildren {
+  AuthedSettingsAgentRoute: typeof AuthedSettingsAgentRoute
   AuthedSettingsDomaineRoute: typeof AuthedSettingsDomaineRoute
   AuthedSettingsEmailsRoute: typeof AuthedSettingsEmailsRoute
   AuthedSettingsIaRoute: typeof AuthedSettingsIaRoute
@@ -581,6 +601,7 @@ interface AuthedSettingsRouteChildren {
 }
 
 const AuthedSettingsRouteChildren: AuthedSettingsRouteChildren = {
+  AuthedSettingsAgentRoute: AuthedSettingsAgentRoute,
   AuthedSettingsDomaineRoute: AuthedSettingsDomaineRoute,
   AuthedSettingsEmailsRoute: AuthedSettingsEmailsRoute,
   AuthedSettingsIaRoute: AuthedSettingsIaRoute,

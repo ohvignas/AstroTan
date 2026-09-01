@@ -35,6 +35,7 @@ export type SettingsPath =
   | "/settings/emails"
   | "/settings/mesure"
   | "/settings/ia"
+  | "/settings/agent"
 
 export interface SettingsPageDef {
   to: SettingsPath
@@ -128,6 +129,13 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
     title: "IA : la clé OpenRouter",
     description:
       "La clé d'un fournisseur de modèles. Posée ici, elle est chiffrée avant d'entrer en base ; posée dans l'environnement Convex, elle n'y entre pas du tout — et c'est celle-là qui gagne.",
+  },
+  {
+    to: "/settings/agent",
+    label: "Agent",
+    title: "Agent",
+    description:
+      "Le nom, les consignes et la base de savoir de la bulle sur le site public.",
   },
 ]
 
