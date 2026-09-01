@@ -68,14 +68,17 @@ function textFromMessage(msg: JsonRecord): string {
   return inner ? textFromMessage(inner) : ""
 }
 
+function isStreaming(item: unknown): boolean {
+  return asRecord(item)?.status === "streaming"
+}
+
 export function hasOpenStream(streams: unknown): boolean {
   if (streams == null) return false
-  if (Array.isArray(streams)) return streams.length > 0
+  if (Array.isArray(streams)) return streams.some(isStreaming)
   if (typeof streams !== "object") return false
   const body = streams as Record<string, unknown>
   if (body.status === "streaming") return true
-  if (Array.isArray(body.messages) && body.messages.length > 0) return true
-  if (Array.isArray(body.deltas) && body.deltas.length > 0) return true
+  if (Array.isArray(body.messages)) return body.messages.some(isStreaming)
   return false
 }
 
@@ -166,6 +169,7 @@ export function reducePoll(prev: PollState, payload: unknown): PollState {
       }
     } else {
       for (const key of Object.keys(drafts)) delete drafts[key]
+      for (const key of Object.keys(cursors)) delete cursors[key]
     }
   } else if (streamRec?.kind === "deltas") {
     const deltas = Array.isArray(streamRec.deltas) ? streamRec.deltas : []
@@ -178,11 +182,16 @@ export function reducePoll(prev: PollState, payload: unknown): PollState {
     }
   }
 
+  const midStreamQuietTick =
+    streamRec?.kind === "deltas" && Object.keys(cursors).length > 0
+
   return {
     messages: attachDrafts(page, drafts),
     streamArgs,
     intervalMs:
-      hasOpenStream(streams) || streamArgs.kind === "deltas" ? POLL_STREAMING_MS : POLL_IDLE_MS,
+      hasOpenStream(streams) || streamArgs.kind === "deltas" || midStreamQuietTick
+        ? POLL_STREAMING_MS
+        : POLL_IDLE_MS,
     draftByStream: drafts,
     cursors,
   }

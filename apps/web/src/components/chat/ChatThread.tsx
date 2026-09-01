@@ -33,27 +33,36 @@ export function ChatThread({ token, onSessionLost }: Props) {
 
     async function tick() {
       const current = pollRef.current
-      const result = await listChatMessages(token, current.streamArgs)
-      if (cancelled) return
-      if (!result.ok) {
-        if (isSessionCode(result.code)) {
-          onSessionLost()
+      try {
+        const result = await listChatMessages(token, current.streamArgs)
+        if (cancelled) return
+        if (!result.ok) {
+          if (isSessionCode(result.code)) {
+            onSessionLost()
+            return
+          }
+          setBanner(bannerForCode(result.code) ?? "L'assistant est indisponible.")
+          timer = setTimeout(() => void tick(), current.intervalMs)
           return
         }
-        setBanner(bannerForCode(result.code) ?? "L'assistant est indisponible.")
+        setBanner(null)
+        const next = reducePoll(current, result.data)
+        pollRef.current = next
+        setPoll(next)
+        setOptimistic((pending) =>
+          pending.filter(
+            (local) =>
+              !next.messages.some(
+                (message) => message.role === local.role && message.text === local.text,
+              ),
+          ),
+        )
+        timer = setTimeout(() => void tick(), next.intervalMs)
+      } catch {
+        if (cancelled) return
+        setBanner("L'assistant est indisponible.")
         timer = setTimeout(() => void tick(), current.intervalMs)
-        return
       }
-      const next = reducePoll(current, result.data)
-      pollRef.current = next
-      setPoll(next)
-      setOptimistic((pending) =>
-        pending.filter(
-          (local) =>
-            !next.messages.some((message) => message.role === local.role && message.text === local.text),
-        ),
-      )
-      timer = setTimeout(() => void tick(), next.intervalMs)
     }
 
     timer = setTimeout(() => void tick(), 0)
@@ -113,7 +122,7 @@ export function ChatThread({ token, onSessionLost }: Props) {
           {banner}
         </p>
       ) : null}
-      <div className="chat-widget__log" ref={listRef} aria-live="polite">
+      <div className="chat-widget__log" ref={listRef}>
         {messages.length === 0 ? (
           <p className="chat-widget__empty">{EMPTY_THREAD_PROMPT}</p>
         ) : (
@@ -124,6 +133,7 @@ export function ChatThread({ token, onSessionLost }: Props) {
                 message.role === "user" ? "chat-widget__bubble chat-widget__bubble--me" : "chat-widget__bubble"
               }
               data-streaming={message.streaming ? "true" : undefined}
+              {...(message.streaming ? { "aria-live": "polite" as const } : {})}
             >
               {message.text}
             </p>

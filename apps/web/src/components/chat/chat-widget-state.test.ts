@@ -39,20 +39,25 @@ describe("pollIntervalMs", () => {
     expect(pollIntervalMs({ kind: "list", messages: [{ streamId: "s1", status: "streaming" }] })).toBe(
       POLL_STREAMING_MS,
     )
-    expect(pollIntervalMs({ kind: "deltas", deltas: [{ streamId: "s1" }] })).toBe(POLL_STREAMING_MS)
   })
 
   test("aucun flux → 2000 ms", () => {
     expect(pollIntervalMs(null)).toBe(POLL_IDLE_MS)
     expect(pollIntervalMs({ kind: "list", messages: [] })).toBe(POLL_IDLE_MS)
+    expect(pollIntervalMs({ kind: "list", messages: [{ streamId: "s1", status: "done" }] })).toBe(
+      POLL_IDLE_MS,
+    )
     expect(pollIntervalMs({ kind: "deltas", deltas: [] })).toBe(POLL_IDLE_MS)
   })
 })
 
 describe("hasOpenStream", () => {
-  test("tableau de flux non vide", () => {
-    expect(hasOpenStream([{ streamId: "s1" }])).toBe(true)
+  test("seul un flux en status streaming compte", () => {
+    expect(hasOpenStream([{ streamId: "s1", status: "streaming" }])).toBe(true)
+    expect(hasOpenStream([{ streamId: "s1" }])).toBe(false)
+    expect(hasOpenStream([{ streamId: "s1", status: "done" }])).toBe(false)
     expect(hasOpenStream([])).toBe(false)
+    expect(hasOpenStream({ kind: "deltas", deltas: [{ streamId: "s1" }] })).toBe(false)
   })
 })
 
@@ -185,5 +190,53 @@ describe("fusion des deltas", () => {
       },
     })
     expect(more.messages.at(-1)).toMatchObject({ text: "Réponse", streaming: true })
+  })
+
+  test("reducePoll : deltas vides gardent 400 ms et reviennent à list", () => {
+    const listed = reducePoll(initialPollState(), {
+      page: [{ id: "u1", role: "user", text: "Q" }],
+      streams: { kind: "list", messages: [{ streamId: "s1", status: "streaming" }] },
+    })
+    const streamed = reducePoll(listed, {
+      page: [{ id: "u1", role: "user", text: "Q" }],
+      streams: {
+        kind: "deltas",
+        deltas: [{ streamId: "s1", start: 0, end: 2, parts: [{ type: "text-delta", delta: "Ré" }] }],
+      },
+    })
+    const quiet = reducePoll(streamed, {
+      page: [{ id: "u1", role: "user", text: "Q" }],
+      streams: { kind: "deltas", deltas: [] },
+    })
+    expect(quiet.intervalMs).toBe(POLL_STREAMING_MS)
+    expect(quiet.streamArgs).toEqual({ kind: "list" })
+    expect(quiet.messages.at(-1)).toMatchObject({ text: "Ré", streaming: true })
+  })
+
+  test("reducePoll : list sans flux ouvert revient à 2 s et jette les brouillons", () => {
+    const listed = reducePoll(initialPollState(), {
+      page: [{ id: "u1", role: "user", text: "Q" }],
+      streams: { kind: "list", messages: [{ streamId: "s1", status: "streaming" }] },
+    })
+    const streamed = reducePoll(listed, {
+      page: [{ id: "u1", role: "user", text: "Q" }],
+      streams: {
+        kind: "deltas",
+        deltas: [{ streamId: "s1", start: 0, end: 2, parts: [{ type: "text-delta", delta: "Ré" }] }],
+      },
+    })
+    const done = reducePoll(streamed, {
+      page: [
+        { id: "u1", role: "user", text: "Q" },
+        { id: "a1", role: "assistant", text: "Réponse" },
+      ],
+      streams: { kind: "list", messages: [] },
+    })
+    expect(done.intervalMs).toBe(POLL_IDLE_MS)
+    expect(done.streamArgs).toEqual({ kind: "list" })
+    expect(done.messages).toEqual([
+      { id: "u1", role: "user", text: "Q" },
+      { id: "a1", role: "assistant", text: "Réponse" },
+    ])
   })
 })
