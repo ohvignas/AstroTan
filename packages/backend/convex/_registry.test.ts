@@ -46,7 +46,13 @@ test("toute mutation ET action publique exportée est déclarée dans le registr
   // importable est maintenant un **échec** du test (l'`await load()` lève),
   // pas une disparition silencieuse de la couverture.
   const SKIP_PREFIXES = ["_generated/", "betterAuth/"]
-  const SKIP_FILES = new Set(["convex.config.ts", "http.ts"])
+  const SKIP_FILES = new Set([
+    "convex.config.ts",
+    "http.ts",
+    // CJS yoastseo (~5 Mo) : le glob `load()` tourne en edge-runtime et
+    // casserait toute la suite. Aucune mutation publique ici.
+    "lib/yoastRun.ts",
+  ])
   const all = import.meta.glob("./**/*.ts")
   // Collected as `{file}.{name}` candidates first, *not* filtered against
   // `declared` inline — see below for why.
