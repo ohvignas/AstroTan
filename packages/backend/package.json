@@ -11,13 +11,17 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@convex-dev/agent": "^0.7.1",
     "@convex-dev/better-auth": "0.12.5",
     "@convex-dev/rate-limiter": "0.3.2",
     "@convex-dev/resend": "0.2.7",
+    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "ai": "^7.0.89",
     "better-auth": "1.6.17",
     "convex": "1.45.0",
     "convex-helpers": "0.1.123",
-    "marked": "18.0.11"
+    "marked": "18.0.11",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@edge-runtime/vm": "5.0.0",

@@ -5,6 +5,7 @@ import { createAuth } from "../convex/auth"
 import { components } from "../convex/_generated/api"
 import resendTest from "@convex-dev/resend/test"
 import rateLimiterTest from "@convex-dev/rate-limiter/test"
+import agentTest from "@convex-dev/agent/test"
 
 // Fixture partagée entre `lib/authz.test.ts` (la matrice de permissions du
 // registre), `profiles.test.ts` (les triggers Better Auth) et
@@ -64,6 +65,10 @@ export function makeTestConvex(): TestConvex<typeof schema> {
   // through this component. Same registration pattern as `resendTest`
   // above: the component's own `/test` helper, not a hand-rolled one.
   rateLimiterTest.register(t)
+  // Same pattern as resend and the rate limiter: the component's own
+  // `/test` helper, registered under `"agent"` (the default of
+  // `register(t)`), matching `app.use(agent)` → `components.agent`.
+  agentTest.register(t)
   return t
 }
 
