@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "vitest"
-import { api } from "./_generated/api"
+import { afterEach, beforeEach, expect, test, vi } from "vitest"
+import { api, internal } from "./_generated/api"
 import {
   ORIGIN,
   identityFor,
@@ -25,6 +25,7 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = originalEnv
+  vi.unstubAllGlobals()
 })
 
 async function seedActor(
@@ -101,4 +102,49 @@ test("e-mail invalide lève INVALID_EMAIL", async () => {
       origin: "cc".repeat(32),
     }),
   ).rejects.toMatchObject({ data: { code: "INVALID_EMAIL" } })
+})
+
+test("send sans jeton refuse INVALID_SESSION", async () => {
+  const t = makeTestConvex()
+  await expect(
+    t.mutation(api.chat.send, { secret: SECRET, token: "x", body: "bonjour" }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_SESSION" } })
+})
+
+test("send avec controller staff ne planifie pas stream", async () => {
+  const t = makeTestConvex()
+  const { token, leadId } = await t.mutation(api.chat.start, {
+    secret: SECRET,
+    email: "staff-ctrl@example.com",
+    name: "Ada",
+    origin: "dd".repeat(32),
+  })
+  await t.run((ctx) => ctx.db.patch(leadId, { controller: "staff" }))
+  const before = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())
+  await t.mutation(api.chat.send, {
+    secret: SECRET,
+    token,
+    body: "besoin d'un humain",
+  })
+  const after = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())
+  const streamJobs = (jobs: typeof after) =>
+    jobs.filter((job) => job.name.includes("chatStream.stream"))
+  expect(streamJobs(after).length).toBe(streamJobs(before).length)
+})
+
+test("stream sans clé OpenRouter lève AGENT_UNCONFIGURED et n'appelle pas le réseau", async () => {
+  delete process.env.OPENROUTER_API_KEY
+  const fetchSpy = vi.fn()
+  vi.stubGlobal("fetch", fetchSpy)
+  const t = makeTestConvex()
+  const { threadId } = await t.mutation(api.chat.start, {
+    secret: SECRET,
+    email: "no-key@example.com",
+    name: "Ada",
+    origin: "ee".repeat(32),
+  })
+  await expect(
+    t.action(internal.chatStream.stream, { threadId, promptMessageId: "missing" }),
+  ).rejects.toMatchObject({ data: { code: "AGENT_UNCONFIGURED" } })
+  expect(fetchSpy).not.toHaveBeenCalled()
 })

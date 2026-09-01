@@ -1,33 +1,28 @@
-import { ConvexError, v } from "convex/values"
-import { mutation } from "./_generated/server"
-import type { Id } from "./_generated/dataModel"
-import { api, components, internal } from "./_generated/api"
-import { MUTATION_REGISTRY } from "./_registry"
-import { createThread } from "@convex-dev/agent"
+import { createThread, saveMessage } from "@convex-dev/agent"
 import { RateLimiter } from "@convex-dev/rate-limiter"
-import { ecrireCloches } from "./lib/notifier"
-import { listerCandidats } from "./notifications"
-import { assertSharedSecret } from "./lib/sharedSecret"
+import { ConvexError, v } from "convex/values"
+import { api, components, internal } from "./_generated/api"
+import type { Id } from "./_generated/dataModel"
+import { mutation } from "./_generated/server"
+import { MUTATION_REGISTRY } from "./_registry"
+import { MAX_LEAD_BODY_LENGTH, MAX_LEAD_EMAIL_LENGTH, MAX_LEAD_NAME_LENGTH, looksLikeEmail } from "./content"
+import { assertChatMessageBudget } from "./lib/chatRateLimit"
+import { issueChatSession, renewChatSessionTtl, resolveVisitorSession } from "./lib/chatSession"
 import {
   LEAD_EMAIL_LIMIT_CONFIG,
   LEAD_EMAIL_LIMIT_NAME,
   LEAD_ORIGIN_LIMIT_CONFIG,
   LEAD_ORIGIN_LIMIT_NAME,
 } from "./lib/leadRateLimit"
+import { ecrireCloches } from "./lib/notifier"
 import { origineDeComptage } from "./lib/originFingerprint"
-import { CHAT_SESSION_TTL_MS, signChatSessionToken } from "./lib/chatSessionToken"
-import { MAX_LEAD_EMAIL_LENGTH, MAX_LEAD_NAME_LENGTH, looksLikeEmail } from "./content"
+import { assertSharedSecret } from "./lib/sharedSecret"
+import { listerCandidats } from "./notifications"
 
 const limiteur = new RateLimiter(components.rateLimiter, {
   [LEAD_ORIGIN_LIMIT_NAME]: LEAD_ORIGIN_LIMIT_CONFIG,
   [LEAD_EMAIL_LIMIT_NAME]: LEAD_EMAIL_LIMIT_CONFIG,
 })
-
-async function sha256Hex(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value)
-  const digest = await crypto.subtle.digest("SHA-256", bytes)
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")
-}
 
 function assertBounded(value: string, max: number, field: string): void {
   if (value.length > max) throw new ConvexError({ code: "TOO_LONG", field })
@@ -116,24 +111,54 @@ export const start = mutation({
       await ctx.db.insert("leadEvents", { leadId, type: "chat_started" })
     }
 
-    const expiresAt = Date.now() + CHAT_SESSION_TTL_MS
-    const token = await signChatSessionToken({
-      leadId: String(leadId),
-      threadId,
-      expiresAt,
-    })
-    await ctx.db.insert("chatSessions", {
-      leadId,
-      threadId,
-      tokenHash: await sha256Hex(token),
-      expiresAt,
-    })
+    const { token, expiresAt } = await issueChatSession(ctx, leadId, threadId)
     return { token, leadId, threadId, expiresAt }
   },
 })
 
+export const send = mutation({
+  args: {
+    secret: v.string(),
+    token: v.string(),
+    body: v.string(),
+    origin: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await assertSharedSecret(args.secret, process.env.LEAD_SUBMIT_SECRET)
+    const session = await resolveVisitorSession(ctx, args.token)
+    if (session === null) throw new ConvexError({ code: "INVALID_SESSION" })
+
+    const body = args.body.trim()
+    if (body.length === 0) throw new ConvexError({ code: "EMPTY" })
+    assertBounded(body, MAX_LEAD_BODY_LENGTH, "body")
+
+    const lead = await ctx.db.get(session.leadId)
+    if (lead === null) throw new ConvexError({ code: "INVALID_SESSION" })
+    await assertChatMessageBudget(ctx, args.origin, lead.email)
+
+    const { messageId } = await saveMessage(ctx, components.agent, {
+      threadId: session.threadId,
+      prompt: body,
+    })
+    await ctx.db.patch(lead._id, { lastMessageAt: Date.now() })
+    await renewChatSessionTtl(ctx, session.sessionId)
+
+    if ((lead.controller ?? "ai") === "ai") {
+      const settings = await ctx.db.query("settings").first()
+      if (settings?.agentEnabled === false) {
+        throw new ConvexError({ code: "AGENT_DISABLED" })
+      }
+      await ctx.scheduler.runAfter(0, internal.chatStream.stream, {
+        threadId: session.threadId,
+        promptMessageId: messageId,
+      })
+    }
+    return { messageId }
+  },
+})
+
 // Porte secrète, comme `leads.submit` : aucun rôle n'est ce que `start`
-// vérifie. Les trois rôles l'enregistrent honnêtement — aucun n'est refusé.
+// et `send` vérifient. Les trois rôles les enregistrent honnêtement.
 MUTATION_REGISTRY.push({
   name: "chat.start",
   allowedRoles: ["owner", "admin", "editor"],
@@ -143,4 +168,21 @@ MUTATION_REGISTRY.push({
       email: `registry-chat-${Date.now()}-${Math.random()}@example.com`,
       name: "Registre",
     }),
+})
+
+MUTATION_REGISTRY.push({
+  name: "chat.send",
+  allowedRoles: ["owner", "admin", "editor"],
+  invoke: async (t) => {
+    const { token } = await t.mutation(api.chat.start, {
+      secret: process.env.LEAD_SUBMIT_SECRET ?? "",
+      email: `registry-send-${Date.now()}-${Math.random()}@example.com`,
+      name: "Registre",
+    })
+    return t.mutation(api.chat.send, {
+      secret: process.env.LEAD_SUBMIT_SECRET ?? "",
+      token,
+      body: "message registre",
+    })
+  },
 })
