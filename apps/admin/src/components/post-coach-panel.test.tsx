@@ -2,6 +2,7 @@ import { expect, test, vi } from "vitest"
 
 vi.mock("convex/react", () => ({
   useAction: () => vi.fn(async () => ({ findings: [] })),
+  useQuery: () => undefined,
 }))
 
 test("le module panneau se charge sans tirer yoastseo", async () => {

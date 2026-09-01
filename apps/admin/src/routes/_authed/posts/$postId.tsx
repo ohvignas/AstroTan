@@ -683,8 +683,19 @@ function PostEditor({
               seoTitle: state.values.seoTitle,
               seoDescription: state.values.seoDescription,
               slug: state.values.slug,
+              geoSummary: state.values.geoSummary,
+              geoEntities: state.values.geoEntities,
+              geoFaq: state.values.geoFaq,
+              geoNoai: state.values.geoNoai,
             })}
-            children={(fields) => <PostCoachPanel fields={fields} />}
+            children={(fields) => (
+              <PostCoachPanel
+                fields={fields}
+                postId={post._id}
+                path={`/blog/${post.slug}`}
+                publishedAt={post.publishedAt}
+              />
+            )}
           />
         </CardContent>
       </Card>

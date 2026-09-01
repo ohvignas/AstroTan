@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react"
-import { useAction } from "convex/react"
+import { useAction, useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import type { SeoFinding } from "@astrotan/backend/convex/lib/yoastFindings"
+import { splitEntities } from "@/lib/contentGuards"
+import { geoChecklist } from "@/lib/geoChecklist"
+import { factsForPost } from "@/lib/postSeoFacts"
 import { useDebouncedValue } from "@/lib/useDebouncedValue"
+import { usePostAnalytics } from "@/lib/usePostAnalytics"
+import { PostGeoChecklist } from "@/components/post-geo-checklist"
+import { PostSeoFacts } from "@/components/post-seo-facts"
 import { PostSeoFindings } from "@/components/post-seo-findings"
 
 export type CoachFields = {
@@ -13,15 +20,32 @@ export type CoachFields = {
   seoTitle: string
   seoDescription: string
   slug: string
+  geoSummary: string
+  geoEntities: string
+  geoFaq: { question: string; answer: string }[]
+  geoNoai: boolean
 }
 
-export function PostCoachPanel({ fields }: { fields: CoachFields }) {
+export function PostCoachPanel({
+  fields,
+  postId,
+  path,
+  publishedAt,
+}: {
+  fields: CoachFields
+  postId: Id<"posts">
+  path: string
+  publishedAt?: number
+}) {
   const analyze = useAction(api.seoAnalyze.analyze)
   const debounced = useDebouncedValue(fields)
   const [findings, setFindings] = useState<SeoFinding[]>([])
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">(
     "idle",
   )
+  const rank = useQuery(api.seoRanks.forDocument, { kind: "post", postId })
+  const snapshot = useQuery(api.seoRanks.siteSnapshot)
+  const umami = usePostAnalytics(path)
 
   useEffect(() => {
     let cancelled = false
@@ -48,16 +72,33 @@ export function PostCoachPanel({ fields }: { fields: CoachFields }) {
     }
   }, [analyze, debounced])
 
+  const facts = factsForPost({
+    path,
+    targetKeyword: fields.targetKeyword,
+    rank,
+    umami,
+    snapshot,
+  })
+  const geoItems = geoChecklist({
+    summary: fields.geoSummary,
+    entities: splitEntities(fields.geoEntities),
+    faq: fields.geoFaq,
+    noai: fields.geoNoai,
+    publishedAt,
+  })
+
   return (
     <aside
-      className="rounded-lg border border-input bg-muted/30 p-3"
+      className="flex flex-col gap-4 rounded-lg border border-input bg-muted/30 p-3"
       aria-label="Aide à la rédaction"
     >
-      <p className="mb-2 text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Ce panneau juge, il n’écrit pas. « Générer avec l’IA » remplit les
         champs SEO/GEO.
       </p>
+      <PostSeoFacts facts={facts} />
       <PostSeoFindings findings={findings} status={status} />
+      <PostGeoChecklist items={geoItems} />
     </aside>
   )
 }
