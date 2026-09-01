@@ -311,6 +311,7 @@ const expandHome = (p) => (p.startsWith("~/") || p === "~" ? join(homedir(), p.s
 const GENERATED = [
   { key: "BETTER_AUTH_SECRET", gen: ["rand", "-base64", "32"], minLength: 32 },
   { key: "PREVIEW_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
+  { key: "CHAT_SESSION_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
   { key: "REVALIDATE_SECRET", gen: ["rand", "-hex", "32"], minLength: 32 },
   // Les deux clés HMAC du site public. Même nature que les précédentes —
   // vérifiées des deux côtés d'une frontière, donc n'ayant de sens
@@ -564,6 +565,7 @@ const CONVEX_VARS = [
   { name: "BETTER_AUTH_SECRET", value: g("BETTER_AUTH_SECRET"), secret: true },
   { name: "SITE_URL", value: ADMIN_ORIGIN }, // le dashboard : c'est lui qui porte la session Better Auth
   { name: "PREVIEW_SECRET", value: g("PREVIEW_SECRET"), secret: true },
+  { name: "CHAT_SESSION_SECRET", value: g("CHAT_SESSION_SECRET"), secret: true },
   { name: "REVALIDATE_SECRET", value: g("REVALIDATE_SECRET"), secret: true },
   { name: "WEB_SITE_URL", value: WEB_ORIGIN }, // le site public : cible des POST /api/revalidate
   // Les deux clés que `apps/web` présente à Convex depuis ses routes
@@ -838,7 +840,7 @@ const LOCAL_TARGETS = [
   {
     example: join(ROOT, "apps", "web", ".env.example"),
     target: join(ROOT, "apps", "web", ".env.local"),
-    values: { PREVIEW_SECRET: g("PREVIEW_SECRET"), REVALIDATE_SECRET: g("REVALIDATE_SECRET") },
+    values: { PREVIEW_SECRET: g("PREVIEW_SECRET"), REVALIDATE_SECRET: g("REVALIDATE_SECRET"), CHAT_SESSION_SECRET: g("CHAT_SESSION_SECRET") },
   },
   {
     example: join(ROOT, "apps", "admin", ".env.example"),
@@ -862,7 +864,7 @@ for (const t of LOCAL_TARGETS) {
 }
 summary.push(["Dev local", DRY ? "2 fichiers (dry-run)" : "apps/web/.env.local, apps/admin/.env.local"]);
 
-info("rappel: `astro dev` ne charge PAS PREVIEW_SECRET/REVALIDATE_SECRET dans process.env — les exporter dans le shell (apps/web/.env.example, note de fin)");
+info("rappel: `astro dev` ne charge PAS PREVIEW_SECRET/REVALIDATE_SECRET/CHAT_SESSION_SECRET dans process.env — les exporter dans le shell (apps/web/.env.example, note de fin)");
 
 // ── 6. Bloc pour le `.env` du VPS ───────────────────────────────────────────
 
@@ -910,6 +912,7 @@ VITE_CONVEX_SITE_URL=${g("CONVEX_SITE_URL")}
 PREVIEW_SECRET=${g("PREVIEW_SECRET")}
 REVALIDATE_SECRET=${g("REVALIDATE_SECRET")}
 LEAD_SUBMIT_SECRET=${g("LEAD_SUBMIT_SECRET")}
+CHAT_SESSION_SECRET=${g("CHAT_SESSION_SECRET")}
 CONSENT_LOG_SECRET=${g("CONSENT_LOG_SECRET")}
 
 # La clé du service \`routeur\`, qui suit le domaine déclaré et réécrit le
