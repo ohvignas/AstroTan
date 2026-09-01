@@ -19,6 +19,7 @@ import { resoudreExpediteur } from "./lib/expediteur"
 import { escapeHtml, rendreHtml, rendreTexte, singleLine } from "./lib/gabarit"
 import { lireSecret } from "./secrets"
 import { listUsersWithRole } from "./users"
+import { deleteLeadCascade } from "./lib/leadCascade"
 import { assertSharedSecret } from "./lib/sharedSecret"
 import { journaliser, nomDeLAuteur } from "./lib/auditEvent"
 import { deriverOrigines } from "./lib/origines"
@@ -440,24 +441,7 @@ export const remove = mutation({
     const lead = await ctx.db.get(args.id)
     if (lead === null) throw new ConvexError({ code: "NOT_FOUND" })
 
-    // Les messages partent avec la fiche. Les laisser derrière serait une
-    // fuite silencieuse : plus personne ne les verrait, et ils resteraient.
-    const messages = await ctx.db
-      .query("leadMessages")
-      .withIndex("by_lead", (q) => q.eq("leadId", args.id))
-      .collect()
-    for (const message of messages) await ctx.db.delete(message._id)
-
-    // L'historique part avec, pour la même raison : des événements qui
-    // désignent une fiche disparue ne se rendent nulle part et ne se
-    // suppriment plus.
-    const events = await ctx.db
-      .query("leadEvents")
-      .withIndex("by_lead", (q) => q.eq("leadId", args.id))
-      .collect()
-    for (const event of events) await ctx.db.delete(event._id)
-
-    await ctx.db.delete(args.id)
+    await deleteLeadCascade(ctx, args.id)
     // L'IDENTIFIANT de la fiche, et rien d'autre : ni l'adresse, ni le nom.
     // `/confidentialite` promet l'effacement et CETTE MUTATION (`leads.remove`,
     // ci-dessus) le rend exécutable — pas `dataSubject.ts`, qui n'exporte

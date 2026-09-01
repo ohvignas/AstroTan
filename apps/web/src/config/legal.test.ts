@@ -264,6 +264,11 @@ test("la durée publiée pour le chat est celle que le cron applique", () => {
 
   expect(ligne!.retention).not.toMatch(/aucune purge/i)
   expect(ligne!.retention).not.toMatch(/sans limite/i)
+  expect(ligne!.data).toMatch(/adresse électronique/i)
+  expect(ligne!.data).toMatch(/horodatage/i)
+  expect(ligne!.data).toMatch(/identifiant de fil/i)
+  expect(ligne!.data).toMatch(/empreinte d'origine/i)
+  expect(ligne!.data).toMatch(/user-agent/i)
 })
 
 test("la durée publiée pour les preuves de consentement est celle que le cron applique", () => {

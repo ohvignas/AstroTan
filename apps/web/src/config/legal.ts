@@ -243,10 +243,11 @@ export const processings: Processing[] = [
     purpose:
       "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande",
     data:
-      "Le fil de conversation — questions du visiteur et réponses de " +
-      "l'assistant —, l'empreinte du jeton de session, et la présence " +
-      "en ligne sur ce fil. Le nom et l'adresse électronique vivent sur " +
-      "la fiche de contact à laquelle le fil se rattache",
+      "Adresse électronique, nom le cas échéant, contenu des messages, " +
+      "horodatages, identifiant de fil, empreinte d'origine — le condensé " +
+      "de l'adresse IP et d'un secret, jamais l'adresse elle-même —, et le " +
+      "user-agent s'il est transmis. L'adresse électronique figure aussi " +
+      "en titre du fil côté assistant",
     basis: "Intérêt légitime — répondre à quelqu'un qui nous écrit",
     // Même durée que la fiche : le fil part avec elle, via
     // `deleteLeadCascade`. `legal.test.ts` relit `LEAD_RETENTION_DAYS`.

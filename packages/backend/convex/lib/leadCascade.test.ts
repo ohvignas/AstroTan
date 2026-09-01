@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { api, components } from "../_generated/api"
-import { ORIGIN, makeTestConvex } from "../../testing/betterAuthFixture"
+import {
+  ORIGIN,
+  identityFor,
+  makeTestConvex,
+  seedUser,
+  signIn,
+} from "../../testing/betterAuthFixture"
+import type { TestConvex } from "convex-test"
+import type schema from "../schema"
 import { deleteLeadCascade } from "./leadCascade"
 
 const SECRET = "s".repeat(32)
@@ -22,6 +30,14 @@ afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
+
+async function seedActor(t: TestConvex<typeof schema>) {
+  const email = `cascade-admin-${Date.now()}-${Math.random()}@example.com`
+  const password = "correct horse battery staple cascade"
+  const user = await seedUser(t, { email, password, name: "Admin cascade", role: "admin" })
+  await signIn(t, email, password)
+  return await identityFor(t, user.id)
+}
 
 test("deleteLeadCascade supprime session, présence et thread du chat", async () => {
   const t = makeTestConvex()
@@ -66,4 +82,27 @@ test("deleteLeadCascade supprime session, présence et thread du chat", async ()
 
   const thread = await t.query(components.agent.threads.getThread, { threadId })
   expect(thread).toBeNull()
+})
+
+test("leads.remove passe par la cascade et efface le thread", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t)
+  const { leadId, threadId } = await t.mutation(api.chat.start, {
+    secret: SECRET,
+    email: "cascade-remove@example.com",
+    name: "Ada",
+    origin: "bb".repeat(32),
+  })
+
+  await admin.mutation(api.leads.remove, { id: leadId })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(await t.query(components.agent.threads.getThread, { threadId })).toBeNull()
+  const sessions = await t.run((ctx) =>
+    ctx.db
+      .query("chatSessions")
+      .withIndex("by_lead", (q) => q.eq("leadId", leadId))
+      .collect(),
+  )
+  expect(sessions).toEqual([])
 })

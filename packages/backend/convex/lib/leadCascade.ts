@@ -13,11 +13,9 @@ import type { MutationCtx } from "../_generated/server"
  * le jour où une table s'ajoute, et l'oubli ne se voit pas : les lignes
  * orphelines ne s'affichent plus nulle part, elles restent seulement.
  *
- * `leads.remove` porte encore sa propre copie de cette logique, mot pour
- * mot ; elle doit être remplacée par un appel à cette fonction. Ce n'était
- * pas faisable dans le même passage (`leads.ts` était édité ailleurs au
- * même moment), et c'est exactement la situation que cette fonction existe
- * pour clore.
+ * `leads.remove` et `retention.purge` appellent cette fonction : une
+ * suppression admin efface tout de suite, thread compris, comme
+ * `/confidentialite` le promet.
  *
  * NON BORNÉE, volontairement, et c'est la limite à connaître : une fiche
  * qui aurait reçu des dizaines de milliers de messages ferait dépasser la
