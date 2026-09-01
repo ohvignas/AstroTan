@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery } from "convex/react"
+import { useAction, useMutation, useQuery } from "convex/react"
 import { ConvexError } from "convex/values"
 import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
@@ -29,21 +29,22 @@ import {
   MAX_SEO_TITLE_LENGTH,
   MAX_SLUG_LENGTH,
   MAX_TARGET_KEYWORD_LENGTH,
-  MAX_TAG_NAME_LENGTH,
 } from "@astrotan/backend/convex/content"
 import { describePageError } from "@/lib/pageErrors"
 import { describeContentProblem, splitEntities } from "@/lib/contentGuards"
 import { buildSeo } from "@/lib/buildSeo"
+import type { SeoGeoDraft } from "@astrotan/backend/convex/lib/seoGeoDraft"
 import { coverPatch } from "@/lib/coverPatch"
-import { OgImageField } from "@/components/OgImageField"
-import { MediaPicker } from "@/components/media-picker"
+import { postEditorActions } from "@/lib/postEditorActions"
+import { GenerateSeoGeoButton } from "@/components/generate-seo-geo-button"
+import { PostCoachPanel } from "@/components/post-coach-panel"
+import { CoverField } from "@/components/cover-field"
 import { PageAnalytics } from "@/components/analytics-panel"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 import { RichTextEditor } from "@/components/rich-text-editor"
 import { SaveBar, useAutoSave } from "@/components/save-bar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,12 +57,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
   Field,
   FieldDescription,
   FieldLabel,
@@ -73,11 +68,8 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   ArrowLeftIcon,
   ExternalLinkIcon,
-  ImageIcon,
   PlusIcon,
-  TagIcon,
   Trash2Icon,
-  XIcon,
 } from "lucide-react"
 
 export const Route = createFileRoute("/_authed/posts/$postId")({
@@ -85,8 +77,9 @@ export const Route = createFileRoute("/_authed/posts/$postId")({
 })
 
 type Profile = FunctionReturnType<typeof api.profiles.me>
-type PostDoc = NonNullable<FunctionReturnType<typeof api.posts.get>>
-type TagRow = FunctionReturnType<typeof api.tags.list>[number]
+type PostDoc = NonNullable<FunctionReturnType<typeof api.posts.get>> & {
+  hasUnpublishedChanges?: boolean
+}
 
 // ---------------------------------------------------------------------
 // Error messages
@@ -101,16 +94,7 @@ type TagRow = FunctionReturnType<typeof api.tags.list>[number]
 // the same reason that file exists separately from `users.tsx`'s own map.
 const POST_ERROR_MESSAGES: Record<string, string> = {
   SLUG_ALREADY_EXISTS: "Ce slug est déjà utilisé par un autre article.",
-  // Both of these are unreachable through this screen — tags are picked
-  // from `tags.list` and toggled in a set, so an id is always known and
-  // never repeated. They are mapped anyway: the mutation is the
-  // enforcement, and an unmapped code would surface as "erreur
-  // inattendue" if some future control ever reintroduced the case.
-  DUPLICATE_TAG: "Le même tag a été ajouté deux fois.",
-  UNKNOWN_TAG: "Ce tag n'existe plus — retirez-le et enregistrez à nouveau.",
   UNKNOWN_MEDIA: "Cette image n'existe plus dans la médiathèque.",
-  SLUG_TAKEN: "Un tag portant ce nom existe déjà.",
-  INVALID_NAME: "Ce nom de tag est invalide — il doit contenir des lettres.",
 }
 
 function describePostError(error: unknown): string {
@@ -136,9 +120,8 @@ function PostEditorPage() {
   // Already subscribed by `AppShell`.
   const profile = useQuery(api.profiles.me)
   const post = useQuery(api.posts.get, { id })
-  const tags = useQuery(api.tags.list)
 
-  if (profile === undefined || post === undefined || tags === undefined) {
+  if (profile === undefined || post === undefined) {
     return <p className="text-sm text-muted-foreground">Chargement…</p>
   }
 
@@ -161,7 +144,7 @@ function PostEditorPage() {
   // on its first render. `api.posts.get` is a live subscription, so
   // reseeding on every update would let a concurrent editor — or this
   // screen's own `update` resolving — wipe out a body being typed.
-  return <PostEditor post={post} profile={profile} tags={tags} />
+  return <PostEditor post={post} profile={profile} />
 }
 
 // ---------------------------------------------------------------------
@@ -178,13 +161,11 @@ type PostFormValues = {
   excerpt: string
   body: string
   coverId: Id<"_storage"> | null
-  tagIds: Id<"tags">[]
   targetKeyword: string
   seoTitle: string
   seoDescription: string
   seoCanonicalUrl: string
   seoNoindex: boolean
-  seoOgImageId: Id<"_storage"> | null
   geoSummary: string
   geoEntities: string
   geoFaq: { question: string; answer: string }[]
@@ -198,13 +179,11 @@ function initialValues(post: PostDoc): PostFormValues {
     excerpt: post.excerpt ?? "",
     body: post.body,
     coverId: post.coverId ?? null,
-    tagIds: post.tagIds,
     targetKeyword: post.targetKeyword ?? "",
     seoTitle: post.seo?.title ?? "",
     seoDescription: post.seo?.description ?? "",
     seoCanonicalUrl: post.seo?.canonicalUrl ?? "",
     seoNoindex: post.seo?.noindex ?? false,
-    seoOgImageId: post.seo?.ogImageId ?? null,
     geoSummary: post.geo?.summary ?? "",
     // Held as one comma-separated string rather than an array of inputs:
     // entities are short single words, and a row of add/remove buttons for
@@ -224,21 +203,23 @@ function initialValues(post: PostDoc): PostFormValues {
  * mortes que personne ne relierait à leur cause, et qui occuperaient
  * ensuite ces chemins pour de bon.
  */
-function autoFieldsOf(values: PostFormValues) {
+function autoFieldsOf(
+  values: PostFormValues,
+  existing?: { ogImageId?: Id<"_storage"> },
+) {
   return {
     title: values.title,
     body: values.body,
     excerpt: values.excerpt,
     ...coverPatch(values.coverId),
-    tagIds: values.tagIds,
     targetKeyword: values.targetKeyword,
     seo: buildSeo({
+      existing,
       fields: {
         title: values.seoTitle,
         description: values.seoDescription,
         canonicalUrl: values.seoCanonicalUrl,
         noindex: values.seoNoindex,
-        ogImageId: values.seoOgImageId,
       },
     }),
     geo: {
@@ -258,17 +239,19 @@ function autoFieldsOf(values: PostFormValues) {
 function PostEditor({
   post,
   profile,
-  tags,
 }: {
   post: PostDoc
   profile: Profile
-  tags: TagRow[]
 }) {
+  const generateSeoGeo = useAction(api.ai.generateSeoGeo)
+  const generatePostCover = useAction(api.aiImage.generatePostCover)
   const updatePost = useMutation(api.posts.update)
   const removePost = useMutation(api.posts.remove)
   const publishPost = useMutation(api.posts.publishPost)
   const unpublishPost = useMutation(api.posts.unpublishPost)
+  const discardWorkingCopy = useMutation(api.posts.discardWorkingCopy)
   const mintPreviewToken = useMutation(api.posts.mintPostPreviewToken)
+  const retryPropagation = useMutation(api.posts.retryPropagation)
   const publicationStatus = useQuery(api.posts.publicationStatus, {
     id: post._id,
   })
@@ -278,6 +261,8 @@ function PostEditor({
   // mutations that are not a save (publish, preview, delete), and the one
   // error line the whole screen shares.
   const [busy, setBusy] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [generatingCover, setGeneratingCover] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
@@ -301,7 +286,7 @@ function PostEditor({
     await updatePost({
       id: post._id,
       ...(options.withSlug ? { slug: values.slug } : {}),
-      ...autoFieldsOf(values),
+      ...autoFieldsOf(values, { ogImageId: post.seo?.ogImageId }),
     })
   }
 
@@ -342,21 +327,44 @@ function PostEditor({
   // flag here would grey out a form the server would happily accept.
   const canWrite = profile.role !== "editor" || isOwn
   const canPublish = profile.role === "owner" || profile.role === "admin"
+  const canRetryPropagation = canPublish || isOwn
+  const hasUnpublishedChanges = post.hasUnpublishedChanges === true
+  const actions = postEditorActions({
+    status: post.status,
+    hasUnpublishedChanges,
+    canPublish,
+    canWrite,
+  })
 
-  async function handlePublishToggle() {
+  async function runAction(action: () => Promise<void>) {
     setError(null)
     setBusy(true)
     try {
-      if (post.status === "published") {
-        await unpublishPost({ id: post._id })
-      } else {
-        await publishPost({ id: post._id })
-      }
+      await action()
     } catch (err) {
       setError(describePostError(err))
     } finally {
       setBusy(false)
     }
+  }
+
+  async function handlePublish() {
+    await runAction(async () => {
+      await publishPost({ id: post._id })
+    })
+  }
+
+  async function handleUnpublish() {
+    await runAction(async () => {
+      await unpublishPost({ id: post._id })
+    })
+  }
+
+  async function handleDiscard() {
+    await runAction(async () => {
+      const live = await discardWorkingCopy({ id: post._id })
+      form.reset(initialValues(live))
+    })
   }
 
   async function handlePreview() {
@@ -384,6 +392,51 @@ function PostEditor({
     }
   }
 
+  function applyDraft(draft: SeoGeoDraft) {
+    form.setFieldValue("seoTitle", draft.seo.title)
+    form.setFieldValue("seoDescription", draft.seo.description)
+    form.setFieldValue("geoSummary", draft.geo.summary)
+    form.setFieldValue("geoEntities", draft.geo.entities.join(", "))
+    form.setFieldValue("geoFaq", draft.geo.faq)
+    form.setFieldValue("geoNoai", draft.geo.noai)
+    if (draft.excerpt !== undefined && draft.excerpt.length > 0) {
+      form.setFieldValue("excerpt", draft.excerpt)
+    }
+  }
+
+  async function handleGenerateCover() {
+    setError(null)
+    setGeneratingCover(true)
+    try {
+      const result = await generatePostCover({ postId: post._id })
+      form.setFieldValue("coverId", result.storageId)
+    } catch (err) {
+      setError(describePostError(err))
+    } finally {
+      setGeneratingCover(false)
+    }
+  }
+
+  async function handleGenerate() {
+    setError(null)
+    setGenerating(true)
+    try {
+      applyDraft(await generateSeoGeo({ postId: post._id }))
+    } catch (err) {
+      setError(describePostError(err))
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const generateButton = (
+    <GenerateSeoGeoButton
+      disabled={!canWrite}
+      busy={generating}
+      onClick={() => void handleGenerate()}
+    />
+  )
+
   return (
     <form
       className="flex flex-col gap-4"
@@ -409,6 +462,11 @@ function PostEditor({
               <PublicationStatusBadge
                 status={publicationStatus}
                 pageStatus={post.status}
+                onRetry={
+                  canRetryPropagation
+                    ? () => retryPropagation({ id: post._id })
+                    : undefined
+                }
               />
             </div>
           </div>
@@ -424,15 +482,37 @@ function PostEditor({
             <ExternalLinkIcon data-icon="inline-start" />
             Prévisualiser
           </Button>
-          {canPublish && (
+          {actions.showPublish && (
             <Button
               type="button"
-              variant={post.status === "published" ? "outline" : "default"}
+              variant="default"
               size="sm"
               disabled={busy}
-              onClick={handlePublishToggle}
+              onClick={() => void handlePublish()}
             >
-              {post.status === "published" ? "Dépublier" : "Publier"}
+              Publier
+            </Button>
+          )}
+          {actions.showDiscard && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => void handleDiscard()}
+            >
+              Annuler les modifications
+            </Button>
+          )}
+          {actions.showUnpublish && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => void handleUnpublish()}
+            >
+              Dépublier
             </Button>
           )}
           {(canPublish || isOwn) && (
@@ -561,7 +641,7 @@ function PostEditor({
         <CardHeader>
           <CardTitle>Contenu</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
           <form.Field
             name="body"
             children={(field) => (
@@ -594,6 +674,18 @@ function PostEditor({
               </Field>
             )}
           />
+          <form.Subscribe
+            selector={(state) => ({
+              title: state.values.title,
+              excerpt: state.values.excerpt,
+              body: state.values.body,
+              targetKeyword: state.values.targetKeyword,
+              seoTitle: state.values.seoTitle,
+              seoDescription: state.values.seoDescription,
+              slug: state.values.slug,
+            })}
+            children={(fields) => <PostCoachPanel fields={fields} />}
+          />
         </CardContent>
       </Card>
 
@@ -608,27 +700,9 @@ function PostEditor({
               <CoverField
                 value={field.state.value}
                 disabled={!canWrite}
+                generating={generatingCover}
                 onChange={field.handleChange}
-              />
-            )}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Tags</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form.Field
-            name="tagIds"
-            children={(field) => (
-              <TagsField
-                tags={tags}
-                value={field.state.value}
-                disabled={!canWrite}
-                onChange={field.handleChange}
-                onError={setError}
+                onGenerate={() => void handleGenerateCover()}
               />
             )}
           />
@@ -638,6 +712,7 @@ function PostEditor({
       <Card>
         <CardHeader>
           <CardTitle>SEO</CardTitle>
+          {canWrite ? <CardAction>{generateButton}</CardAction> : null}
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form.Field
@@ -728,22 +803,13 @@ function PostEditor({
               </Field>
             )}
           />
-          <form.Field
-            name="seoOgImageId"
-            children={(field) => (
-              <OgImageField
-                value={field.state.value}
-                disabled={!canWrite}
-                onChange={(next) => field.handleChange(next)}
-              />
-            )}
-          />
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
           <CardTitle>GEO — moteurs de réponse</CardTitle>
+          {canWrite ? <CardAction>{generateButton}</CardAction> : null}
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form.Field
@@ -937,252 +1003,6 @@ function PostSaveBar({
       canSave={autoSave.canSave}
       onSave={autoSave.saveNow}
     />
-  )
-}
-
-// ---------------------------------------------------------------------
-// Cover
-// ---------------------------------------------------------------------
-
-function CoverField({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: Id<"_storage"> | null
-  disabled: boolean
-  onChange: (value: Id<"_storage"> | null) => void
-}) {
-  const [pickerOpen, setPickerOpen] = useState(false)
-  // `api.media.list` rather than `api.media.byStorageId`: only the list
-  // resolves a storage URL server-side, and a thumbnail without one is
-  // just a filename. Subscribed only while a cover is actually set.
-  const media = useQuery(api.media.list, value === null ? "skip" : {})
-  const selected = media?.find((item) => item.storageId === value) ?? null
-
-  return (
-    <div className="flex flex-col gap-3">
-      {value === null ? (
-        <p className="text-sm text-muted-foreground">
-          Aucune image de couverture.
-        </p>
-      ) : (
-        <div className="flex items-center gap-3">
-          <div className="flex size-20 items-center justify-center overflow-hidden rounded-lg border border-input bg-muted">
-            {selected?.url ? (
-              <img
-                src={selected.url}
-                alt={selected.alt}
-                className="size-full object-cover"
-              />
-            ) : (
-              <ImageIcon className="size-5 text-muted-foreground" />
-            )}
-          </div>
-          <div className="min-w-0 text-sm">
-            <p className="truncate font-medium">
-              {selected?.filename ?? "Fichier hors médiathèque"}
-            </p>
-            <p className="truncate text-muted-foreground">
-              {/* A `storageId` can exist with no `media` row — a file
-                  uploaded outside the library. `media.ts` calls that an
-                  ordinary answer, not a failure, so it reads as a missing
-                  alt rather than an error. */}
-              {selected?.alt ?? "Texte alternatif inconnu"}
-            </p>
-          </div>
-        </div>
-      )}
-      {!disabled && (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setPickerOpen(true)}
-          >
-            <ImageIcon data-icon="inline-start" />
-            {value === null ? "Choisir une image" : "Changer d'image"}
-          </Button>
-          {value !== null && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onChange(null)}
-            >
-              Retirer
-            </Button>
-          )}
-        </div>
-      )}
-      <MediaPicker
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        onSelect={onChange}
-        selectedStorageId={value}
-        title="Image de couverture"
-        description="Elle illustre la carte de l'article sur /blog et son partage social."
-      />
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------
-// Tags
-// ---------------------------------------------------------------------
-
-function TagsField({
-  tags,
-  value,
-  disabled,
-  onChange,
-  onError,
-}: {
-  tags: TagRow[]
-  value: Id<"tags">[]
-  disabled: boolean
-  onChange: (value: Id<"tags">[]) => void
-  onError: (message: string | null) => void
-}) {
-  const createTag = useMutation(api.tags.create)
-  const [newName, setNewName] = useState("")
-  const [creating, setCreating] = useState(false)
-
-  const tagsById = new Map(tags.map((tag) => [tag._id, tag]))
-  const selected = new Set(value)
-
-  // `posts.update` refuses a repeated id (`DUPLICATE_TAG`) and an id no
-  // tag holds (`UNKNOWN_TAG`). Neither is reachable from here by
-  // construction: every id comes out of `tags.list`, and membership is
-  // toggled in a set, so it is present at most once.
-  function toggle(tagId: Id<"tags">) {
-    onError(null)
-    onChange(
-      selected.has(tagId)
-        ? value.filter((id) => id !== tagId)
-        : [...value, tagId]
-    )
-  }
-
-  // Guards `tags.create`'s `SLUG_TAKEN` before the round trip, on the case
-  // an operator actually hits: retyping a name already in the list. It is
-  // not the same check the server makes — that one compares *slugs*, so
-  // "Astro" and "astro !" collide here without matching — which is why the
-  // error is still mapped and displayed rather than assumed away.
-  const trimmedName = newName.trim()
-  const alreadyExists = tags.some(
-    (tag) =>
-      tag.name.localeCompare(trimmedName, "fr", {
-        sensitivity: "base",
-      }) === 0
-  )
-
-  async function handleCreate() {
-    if (trimmedName.length === 0) return
-    onError(null)
-    setCreating(true)
-    try {
-      const tagId = await createTag({ name: trimmedName })
-      onChange([...value, tagId])
-      setNewName("")
-    } catch (err) {
-      onError(describePostError(err))
-    } finally {
-      setCreating(false)
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-3">
-      {value.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Aucun tag.</p>
-      ) : (
-        <div className="flex flex-wrap gap-1.5">
-          {value.map((tagId) => (
-            <Badge key={tagId} variant="secondary" className="gap-1 pr-1">
-              {tagsById.get(tagId)?.name ?? tagId}
-              {!disabled && (
-                <button
-                  type="button"
-                  aria-label={`Retirer le tag ${tagsById.get(tagId)?.name ?? tagId}`}
-                  className="rounded-sm opacity-60 hover:opacity-100"
-                  onClick={() => toggle(tagId)}
-                >
-                  <XIcon className="size-3" />
-                </button>
-              )}
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      {!disabled && (
-        <div className="flex flex-wrap items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button type="button" variant="outline" size="sm" />}
-            >
-              <TagIcon data-icon="inline-start" />
-              Choisir des tags
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="max-h-72 overflow-y-auto">
-              {tags.length === 0 ? (
-                <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                  Aucun tag — créez-en un ci-contre.
-                </p>
-              ) : (
-                tags.map((tag) => (
-                  <DropdownMenuCheckboxItem
-                    key={tag._id}
-                    checked={selected.has(tag._id)}
-                    closeOnClick={false}
-                    onCheckedChange={() => toggle(tag._id)}
-                  >
-                    {tag.name}
-                  </DropdownMenuCheckboxItem>
-                ))
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Input
-            aria-label="Nouveau tag"
-            className="h-7 w-48 text-[0.8rem]"
-            placeholder="Nouveau tag"
-            autoComplete="off"
-            maxLength={MAX_TAG_NAME_LENGTH}
-            value={newName}
-            onChange={(event) => setNewName(event.target.value)}
-            onKeyDown={(event) => {
-              // Enter inside a nested control would otherwise submit the
-              // whole editor form — creating a tag is its own action.
-              if (event.key === "Enter") {
-                event.preventDefault()
-                if (!creating && trimmedName.length > 0 && !alreadyExists) {
-                  void handleCreate()
-                }
-              }
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={creating || trimmedName.length === 0 || alreadyExists}
-            onClick={handleCreate}
-          >
-            <PlusIcon data-icon="inline-start" />
-            {creating ? "Création…" : "Créer"}
-          </Button>
-          {alreadyExists && (
-            <span className="text-xs text-muted-foreground">
-              Ce tag existe déjà — choisissez-le dans la liste.
-            </span>
-          )}
-        </div>
-      )}
-    </div>
   )
 }
 
