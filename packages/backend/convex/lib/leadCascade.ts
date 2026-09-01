@@ -1,9 +1,10 @@
+import { components } from "../_generated/api"
 import type { Id } from "../_generated/dataModel"
 import type { MutationCtx } from "../_generated/server"
 
 /**
  * Ce qui part avec une fiche de contact — la fiche, ses messages, son
- * historique — et rien d'autre.
+ * historique, sa session de chat et le thread Agent.
  *
  * Extrait ici parce qu'il y a désormais DEUX chemins de suppression : le
  * geste d'un administrateur (`leads.remove`) et la purge automatique des
@@ -31,6 +32,8 @@ export async function deleteLeadCascade(
   ctx: MutationCtx,
   leadId: Id<"leads">,
 ): Promise<{ messages: number; events: number }> {
+  const lead = await ctx.db.get(leadId)
+
   // Les messages partent avec la fiche. Les laisser derrière serait une
   // fuite silencieuse : plus personne ne les verrait, et ils resteraient.
   const messages = await ctx.db
@@ -47,6 +50,28 @@ export async function deleteLeadCascade(
     .withIndex("by_lead", (q) => q.eq("leadId", leadId))
     .collect()
   for (const event of events) await ctx.db.delete(event._id)
+
+  const sessions = await ctx.db
+    .query("chatSessions")
+    .withIndex("by_lead", (q) => q.eq("leadId", leadId))
+    .collect()
+  const threadIds = new Set<string>()
+  if (lead?.threadId) threadIds.add(lead.threadId)
+  for (const session of sessions) threadIds.add(session.threadId)
+  for (const session of sessions) await ctx.db.delete(session._id)
+
+  for (const threadId of threadIds) {
+    const presence = await ctx.db
+      .query("chatPresence")
+      .withIndex("by_thread", (q) => q.eq("threadId", threadId))
+      .collect()
+    for (const row of presence) await ctx.db.delete(row._id)
+    // `@convex-dev/agent@0.7.1` n'a pas `deleteThreadsByUserId`.
+    // `deleteAllForThreadIdAsync` planifie : les tests avancent les minuteurs.
+    await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
+      threadId,
+    })
+  }
 
   await ctx.db.delete(leadId)
   return { messages: messages.length, events: events.length }

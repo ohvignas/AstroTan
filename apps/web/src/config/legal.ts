@@ -238,6 +238,29 @@ export const processings: Processing[] = [
       "Convex, Inc. (hébergement de la base, États-Unis), et le service " +
       "d'automatisation configuré le cas échéant (webhook de lead)",
   },
+  // Tables : `chatSessions`, `chatPresence`, et le thread du composant Agent.
+  {
+    purpose:
+      "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande",
+    data:
+      "Le fil de conversation — questions du visiteur et réponses de " +
+      "l'assistant —, l'empreinte du jeton de session, et la présence " +
+      "en ligne sur ce fil. Le nom et l'adresse électronique vivent sur " +
+      "la fiche de contact à laquelle le fil se rattache",
+    basis: "Intérêt légitime — répondre à quelqu'un qui nous écrit",
+    // Même durée que la fiche : le fil part avec elle, via
+    // `deleteLeadCascade`. `legal.test.ts` relit `LEAD_RETENTION_DAYS`.
+    retention:
+      "3 ans après le dernier message reçu — 1095 jours exactement, " +
+      "appliqués par une purge automatique mensuelle qui supprime la fiche " +
+      "avec tout son historique. Avant ce terme, une suppression depuis " +
+      "l'administration l'efface immédiatement.",
+    recipients:
+      "Convex, Inc. (hébergement de la base, États-Unis) ; OpenRouter, Inc. " +
+      "(acheminement des réponses de l'assistant) ; et, le cas échéant, les " +
+      "services que le responsable a connectés depuis l'administration " +
+      "(agenda, serveurs d'assistance)",
+  },
   // Table : `leadEvents`.
   {
     purpose: "Suivre, dans l'administration, le traitement d'une demande",

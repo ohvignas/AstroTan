@@ -246,6 +246,26 @@ test("la durée publiée pour les fiches de contact est celle que le cron appliq
   expect(ligne!.retention).not.toMatch(/sans limite/i)
 })
 
+test("la durée publiée pour le chat est celle que le cron applique", () => {
+  const { LEAD_RETENTION_DAYS } = constantesDeRetention()
+  expect(LEAD_RETENTION_DAYS, "LEAD_RETENTION_DAYS introuvable dans retention.ts").toBeGreaterThan(0)
+
+  const ligne = processings.find(
+    (p) =>
+      p.purpose ===
+      "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande",
+  )
+  expect(ligne, "la finalité chat doit être publiée").toBeDefined()
+  expect(ligne!.retention).toContain("1095")
+
+  const jours = ligne!.retention.match(/(\d+)\s*jours/)
+  expect(jours, "la ligne chat doit nommer sa durée en jours").not.toBeNull()
+  expect(Number(jours![1])).toBe(LEAD_RETENTION_DAYS)
+
+  expect(ligne!.retention).not.toMatch(/aucune purge/i)
+  expect(ligne!.retention).not.toMatch(/sans limite/i)
+})
+
 test("la durée publiée pour les preuves de consentement est celle que le cron applique", () => {
   const { CONSENT_RETENTION_DAYS } = constantesDeRetention()
   expect(CONSENT_RETENTION_DAYS, "CONSENT_RETENTION_DAYS introuvable dans retention.ts").toBeGreaterThan(0)
