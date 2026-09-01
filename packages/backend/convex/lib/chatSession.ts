@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values"
 import type { Id } from "../_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "../_generated/server"
 import { CHAT_SESSION_TTL_MS, signChatSessionToken, verifyChatSessionToken } from "./chatSessionToken"
@@ -49,6 +50,19 @@ export async function resolveVisitorSession(
     return null
   }
   return { leadId: row.leadId, threadId: row.threadId, sessionId: row._id }
+}
+
+export async function requireChatSession(
+  ctx: QueryCtx | MutationCtx,
+  token: string,
+): Promise<{
+  leadId: Id<"leads">
+  threadId: string
+  sessionId: Id<"chatSessions">
+}> {
+  const session = await resolveVisitorSession(ctx, token)
+  if (session === null) throw new ConvexError({ code: "INVALID_SESSION" })
+  return session
 }
 
 // TTL renouvelé sans tourner le hash : l'îlot garde le jeton en

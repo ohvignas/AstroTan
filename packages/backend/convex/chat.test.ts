@@ -162,6 +162,18 @@ test("send avec controller staff ne planifie pas stream", async () => {
   expect(streamJobs(after).length).toBe(streamJobs(before).length)
 })
 
+test("listVisitorMessages sans jeton refuse", async () => {
+  const t = makeTestConvex()
+  await expect(
+    t.query(api.chat.listVisitorMessages, {
+      secret: SECRET,
+      token: "nope",
+      paginationOpts: { numItems: 10, cursor: null },
+      streamArgs: { kind: "list" },
+    }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_SESSION" } })
+})
+
 test("stream sans clé OpenRouter lève AGENT_UNCONFIGURED et n'appelle pas le réseau", async () => {
   delete process.env.OPENROUTER_API_KEY
   const fetchSpy = vi.fn()
