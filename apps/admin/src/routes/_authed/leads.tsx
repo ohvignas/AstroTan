@@ -5,10 +5,10 @@ import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Doc, Id } from "@astrotan/backend/convex/_generated/dataModel"
 import {
   LEAD_STATUSES,
-  LEAD_STATUS_LABELS
-  
+  LEAD_STATUS_EMPTY,
+  LEAD_STATUS_LABELS,
+  type LeadStatus,
 } from "@astrotan/backend/convex/content"
-import type {LeadStatus} from "@astrotan/backend/convex/content";
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -36,6 +36,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { CopyButton } from "@/components/copy-button"
+import { CopyLeadContact } from "@/components/copy-lead-contact"
+import { LeadChatPanel } from "@/components/lead-chat-panel"
+import { LeadNouveauPastille } from "@/components/lead-nouveau-pastille"
+import { LeadOnlineDot } from "@/components/lead-online-dot"
+import { LeadSourceIcon } from "@/components/lead-source-icon"
+import { countryFlag, formatLeadLocation, leadHeadline } from "@/lib/leadLocation"
+import { leadOrigin } from "@/lib/leadOrigin"
 import { RowActionButton } from "@/components/row-actions"
 import { describeLeadError } from "@/lib/leadErrors"
 
@@ -76,6 +84,7 @@ function LeadsPage() {
   const profile = useQuery(api.profiles.me)
   const move = useMutation(api.leads.move)
   const remove = useMutation(api.leads.remove)
+  const marquerVu = useMutation(api.leads.marquerVu)
   const [openLead, setOpenLead] = useState<Doc<"leads"> | null>(null)
   // Le refus du serveur, montré à l'écran. Sans lui, un déplacement rejeté
   // est indiscernable d'un geste raté.
@@ -105,7 +114,9 @@ function LeadsPage() {
   const filtre = (lead: Doc<"leads">) =>
     requete === "" ||
     lead.name.toLowerCase().includes(requete) ||
-    lead.email.toLowerCase().includes(requete)
+    (lead.email ?? "").toLowerCase().includes(requete) ||
+    (lead.ip ?? "").toLowerCase().includes(requete) ||
+    (lead.phone ?? "").toLowerCase().includes(requete)
 
   const colonnes = Object.fromEntries(
     LEAD_STATUSES.map((status) => [status, board[status].filter(filtre)]),
@@ -119,20 +130,13 @@ function LeadsPage() {
 
   const total = LEAD_STATUSES.reduce((sum, status) => sum + colonnes[status].length, 0)
 
-  if (total === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Leads</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          {/* Un écran vide doit dire qu'il est vide, et pourquoi — sinon il
-              ressemble à un écran cassé. */}
-          Personne n'a encore écrit depuis le formulaire de contact. Les
-          messages arriveront ici, le plus récent en tête.
-        </CardContent>
-      </Card>
-    )
+  function ouvrirFiche(lead: Doc<"leads">) {
+    // La fiche d'abord. Marquer vu est un à-côté : s'il échoue (timeout
+    // d'auth, réseau), le dialogue reste ouvert. On n'affiche rien —
+    // « déplacement » n'est pas ce geste, et un bandeau rouge ferait
+    // croire que l'ouverture a échoué.
+    setOpenLead(lead)
+    void marquerVu({ id: lead._id }).catch(() => undefined)
   }
 
   /**
@@ -149,7 +153,7 @@ function LeadsPage() {
     // mutation pour rien, et une ligne d'historique qui ne raconte rien.
     if (!lead || lead.status === status) return
     setErreur(null)
-    move({ id, status }).catch((err: unknown) => setErreur(describeLeadError(err)))
+    move({ id, status }).catch((err: unknown) => setErreur(describeLeadError(err, "move")))
   }
 
   return (
@@ -171,7 +175,7 @@ function LeadsPage() {
             type="search"
             value={recherche}
             onChange={(e) => setRecherche(e.target.value)}
-            placeholder="Rechercher un nom ou un email"
+            placeholder="Rechercher un nom, un email ou une IP"
             aria-label="Rechercher une fiche"
             className="pl-8"
           />
@@ -216,12 +220,12 @@ function LeadsPage() {
         <ListeLeads
           leads={liste}
           canDelete={canDelete}
-          onOpen={setOpenLead}
+          onOpen={ouvrirFiche}
           onMove={(id, status) =>
-            move({ id, status }).catch((err: unknown) => setErreur(describeLeadError(err)))
+            move({ id, status }).catch((err: unknown) => setErreur(describeLeadError(err, "move")))
           }
           onRemove={(id) =>
-            remove({ id }).catch((err: unknown) => setErreur(describeLeadError(err)))
+            remove({ id }).catch((err: unknown) => setErreur(describeLeadError(err, "remove")))
           }
         />
       ) : (
@@ -234,17 +238,24 @@ function LeadsPage() {
               status={status}
               leads={colonnes[status]}
               canDelete={canDelete}
-              onOpen={setOpenLead}
+              onOpen={ouvrirFiche}
               onDeposer={deposer}
               onRemove={(id) =>
-                remove({ id }).catch((err: unknown) => setErreur(describeLeadError(err)))
+                remove({ id }).catch((err: unknown) => setErreur(describeLeadError(err, "remove")))
               }
             />
           ))}
         </div>
       )}
 
-      <LeadMessages lead={openLead} onClose={() => setOpenLead(null)} />
+      <LeadMessages
+        lead={
+          openLead === null
+            ? null
+            : (liste.find((item) => item._id === openLead._id) ?? openLead)
+        }
+        onClose={() => setOpenLead(null)}
+      />
     </div>
   )
 }
@@ -302,15 +313,21 @@ function ColonneLeads({
       </header>
 
       <div className="flex flex-col gap-2">
-        {leads.map((lead) => (
-          <CarteLead
-            key={lead._id}
-            lead={lead}
-            canDelete={canDelete}
-            onOpen={() => onOpen(lead)}
-            onRemove={() => onRemove(lead._id)}
-          />
-        ))}
+        {leads.length === 0 ? (
+          <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+            {LEAD_STATUS_EMPTY[status]}
+          </p>
+        ) : (
+          leads.map((lead) => (
+            <CarteLead
+              key={lead._id}
+              lead={lead}
+              canDelete={canDelete}
+              onOpen={() => onOpen(lead)}
+              onRemove={() => onRemove(lead._id)}
+            />
+          ))
+        )}
       </div>
     </section>
   )
@@ -377,6 +394,9 @@ function ContenuCarte({
   onOpen?: () => void
   onRemove?: () => void
 }) {
+  const location = formatLeadLocation(lead)
+  const origin = leadOrigin(lead)
+
   return (
     <div className="flex items-start gap-1">
       <button
@@ -385,26 +405,44 @@ function ContenuCarte({
         disabled={onOpen === undefined}
         onClick={onOpen}
       >
-        <p className="font-medium">{lead.name}</p>
-        <p className="truncate text-muted-foreground">{lead.email}</p>
+        <p className="flex items-center gap-1.5 font-medium">
+          <LeadSourceIcon source={origin} />
+          {origin === "chat" ? <LeadOnlineDot lastSeenAt={lead.visitorLastSeenAt} /> : null}
+          {countryFlag(lead.country) ? (
+            <span aria-hidden="true">{countryFlag(lead.country)}</span>
+          ) : null}
+          <span className="min-w-0 truncate">{leadHeadline(lead)}</span>
+          <LeadNouveauPastille seenAt={lead.seenAt} />
+        </p>
+        {lead.email ? (
+          <p className="truncate text-muted-foreground">{lead.email}</p>
+        ) : null}
+        {lead.phone && (
+          <p className="truncate text-muted-foreground">{lead.phone}</p>
+        )}
+        {location && (
+          <p className="truncate text-xs text-muted-foreground">{location}</p>
+        )}
         <p className="mt-1 text-xs text-muted-foreground tabular-nums">
           {formatDate(lead.lastMessageAt)}
           {lead.messageCount > 1 && ` · ${lead.messageCount} messages`}
         </p>
       </button>
 
-      {canDelete && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          aria-label={`Supprimer la fiche de ${lead.name}`}
-          disabled={onRemove === undefined}
-          onClick={onRemove}
-        >
-          <Trash2Icon className="size-4" />
-        </Button>
-      )}
+      <div className="flex shrink-0 items-start">
+        {canDelete && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            aria-label={`Supprimer la fiche de ${leadHeadline(lead)}`}
+            disabled={onRemove === undefined}
+            onClick={onRemove}
+          >
+            <Trash2Icon className="size-4" />
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
@@ -465,11 +503,32 @@ function ListeLeads({
                 <button
                   type="button"
                   onClick={() => onOpen(lead)}
-                  className="text-left font-medium hover:underline"
+                  className="inline-flex items-center gap-1.5 text-left font-medium hover:underline"
                 >
-                  {lead.name}
+                  <LeadSourceIcon source={leadOrigin(lead)} />
+                  {leadOrigin(lead) === "chat" ? (
+                    <LeadOnlineDot lastSeenAt={lead.visitorLastSeenAt} />
+                  ) : null}
+                  {countryFlag(lead.country) ? (
+                    <span aria-hidden="true">{countryFlag(lead.country)}</span>
+                  ) : null}
+                  {leadHeadline(lead)}
+                  <LeadNouveauPastille seenAt={lead.seenAt} />
                 </button>
-                <p className="text-xs text-muted-foreground">{lead.email}</p>
+                <div className="flex items-start gap-1">
+                  <div className="min-w-0">
+                    {lead.email ? (
+                      <p className="text-xs text-muted-foreground">{lead.email}</p>
+                    ) : null}
+                    {lead.phone && (
+                      <p className="text-xs text-muted-foreground">{lead.phone}</p>
+                    )}
+                    {formatLeadLocation(lead) && (
+                      <p className="text-xs text-muted-foreground">{formatLeadLocation(lead)}</p>
+                    )}
+                  </div>
+                  <CopyLeadContact email={lead.email} phone={lead.phone} />
+                </div>
               </TableCell>
               <TableCell>
                 {/* `items` n'est pas décoratif : le `Select.Value` de Base
@@ -483,7 +542,7 @@ function ListeLeads({
                   value={lead.status}
                   onValueChange={(v) => onMove(lead._id, v as LeadStatus)}
                 >
-                  <SelectTrigger size="sm" aria-label={`Statut de ${lead.name}`}>
+                  <SelectTrigger size="sm" aria-label={`Statut de ${leadHeadline(lead)}`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -504,7 +563,7 @@ function ListeLeads({
               <TableCell className="text-right">
                 {canDelete && (
                   <RowActionButton
-                    label={`Supprimer la fiche de ${lead.name}`}
+                    label={`Supprimer la fiche de ${leadHeadline(lead)}`}
                     onClick={() => onRemove(lead._id)}
                   >
                     <Trash2Icon />
@@ -535,13 +594,46 @@ function LeadMessages({
 
   return (
     <Dialog open={lead !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{lead?.name}</DialogTitle>
+          <DialogTitle className="flex items-center gap-1.5">
+            {lead && <LeadSourceIcon source={leadOrigin(lead)} />}
+            {lead && leadOrigin(lead) === "chat" ? (
+              <LeadOnlineDot lastSeenAt={lead.visitorLastSeenAt} />
+            ) : null}
+            {lead && countryFlag(lead.country) ? (
+              <span aria-hidden="true">{countryFlag(lead.country)}</span>
+            ) : null}
+            {lead ? leadHeadline(lead) : null}
+          </DialogTitle>
           <DialogDescription>
-            <a href={`mailto:${lead?.email}`} className="underline">
-              {lead?.email}
-            </a>
+            {lead?.email ? (
+              <span className="flex items-center gap-1">
+                <a href={`mailto:${lead.email}`} className="underline">
+                  {lead.email}
+                </a>
+                <CopyButton
+                  label="Copier l’e-mail"
+                  value={lead.email}
+                  iconClassName="size-4"
+                />
+              </span>
+            ) : null}
+            {lead?.phone?.trim() && (
+              <span className="mt-1 flex items-center gap-1">
+                <a href={`tel:${lead.phone}`} className="underline">
+                  {lead.phone}
+                </a>
+                <CopyButton
+                  label="Copier le téléphone"
+                  value={lead.phone.trim()}
+                  iconClassName="size-4"
+                />
+              </span>
+            )}
+            {lead && formatLeadLocation(lead) && (
+              <span className="mt-1 block">{formatLeadLocation(lead)}</span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -553,6 +645,10 @@ function LeadMessages({
                 ancienne passer pour une fiche sans histoire. On ne fabrique
                 surtout pas d'événements rétroactifs : ils auraient l'air
                 vrais. */}
+            {lead?.threadId ? (
+              <LeadChatPanel leadId={lead._id} threadId={lead.threadId} />
+            ) : null}
+
             {!timeline.complete && (
               <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
                 Cette fiche est antérieure au suivi des événements. Ses
@@ -577,6 +673,20 @@ function LeadMessages({
 
                   {entry.kind === "created" && (
                     <p className="mt-1 text-sm">Première venue.</p>
+                  )}
+
+                  {entry.kind === "chat_started" && (
+                    <p className="mt-1 text-sm">Conversation ouverte sur le site.</p>
+                  )}
+
+                  {entry.kind === "handover" && (
+                    <p className="mt-1 text-sm">
+                      {entry.to === "staff"
+                        ? "Un conseiller a pris la main"
+                        : "Rendu à l'assistant"}
+                      {entry.actorName !== null && <> par {entry.actorName}</>}
+                      .
+                    </p>
                   )}
 
                   {entry.kind === "status" && (

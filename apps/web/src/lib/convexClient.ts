@@ -1,4 +1,5 @@
 import { ConvexHttpClient } from "convex/browser"
+import { ConvexReactClient } from "convex/react"
 
 // The whole invariant this app exists to protect (CLAUDE.md #1, spec §6.3):
 // `apps/web` has no session and no admin key. `ConvexHttpClient` is an
@@ -9,10 +10,24 @@ import { ConvexHttpClient } from "convex/browser"
 // server, or the `previewPage` family gated by its own HMAC token — never
 // anything that trusts a client-supplied role or id.
 //
+// `ConvexReactClient` is the same unauthenticated client, for the chat
+// island's WebSocket subscription. Still no `.setAuth(...)`.
+//
 // Do not import `@convex-dev/better-auth` here, or anywhere else in this
 // app. That dependency belongs to `apps/admin`, which owns the session.
 
 let client: ConvexHttpClient | undefined
+let reactClient: ConvexReactClient | undefined
+
+function requireConvexUrl(): string {
+  const url = import.meta.env.PUBLIC_CONVEX_URL
+  if (!url) {
+    throw new Error(
+      "PUBLIC_CONVEX_URL is not set. Copy .env.example to .env.local and fill it in.",
+    )
+  }
+  return url
+}
 
 /**
  * Lazily builds (and memoizes) the single `ConvexHttpClient` this app uses
@@ -24,14 +39,12 @@ let client: ConvexHttpClient | undefined
  */
 export function getConvexClient(): ConvexHttpClient {
   if (client) return client
-
-  const url = import.meta.env.PUBLIC_CONVEX_URL
-  if (!url) {
-    throw new Error(
-      "PUBLIC_CONVEX_URL is not set. Copy .env.example to .env.local and fill it in.",
-    )
-  }
-
-  client = new ConvexHttpClient(url)
+  client = new ConvexHttpClient(requireConvexUrl())
   return client
+}
+
+export function getConvexReactClient(): ConvexReactClient {
+  if (reactClient) return reactClient
+  reactClient = new ConvexReactClient(requireConvexUrl())
+  return reactClient
 }

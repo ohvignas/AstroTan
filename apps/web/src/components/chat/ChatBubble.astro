@@ -1,192 +1,43 @@
 ---
 import { api } from "@astrotan/backend/convex/_generated/api"
+import { resolveAgentAvatarUrl } from "@astrotan/backend/convex/lib/agentAvatar"
 import { getConvexClient } from "../../lib/convexClient"
 import ChatBubbleIsland from "./ChatBubble.tsx"
 
-const settings = await getConvexClient().query(api.settings.get, {})
+// Query dédiée, pas `settings.get` : l'apparence du widget n'a rien à
+// faire dans la query que le `<head>` et le middleware relisent. Un
+// timeout ici ne doit pas 500 la page — le site se vend sans la bulle.
+type ChatAppearance = {
+  agentEnabled: boolean
+  agentAvatarUrl: string | null
+  agentChatColor: string | null
+  agentTeaser: string | null
+  agentDisplayName: string | null
+}
+
+let appearance: ChatAppearance | null = null
+try {
+  appearance = (await getConvexClient().query(
+    api.settings.chatAppearance,
+    {},
+  )) as ChatAppearance | null
+} catch {
+  appearance = null
+}
+
+const avatarUrl = resolveAgentAvatarUrl(appearance?.agentAvatarUrl)
 ---
 
 {
-  settings?.agentEnabled === true && (
+  appearance?.agentEnabled === true && (
     <div class="chat-bubble-root">
-      <ChatBubbleIsland client:idle />
+      <ChatBubbleIsland
+        client:idle
+        avatarUrl={avatarUrl}
+        color={appearance.agentChatColor}
+        teaser={appearance.agentTeaser}
+        agentName={appearance.agentDisplayName}
+      />
     </div>
   )
 }
-
-<style is:global>
-  .chat-widget {
-    position: fixed;
-    z-index: 45;
-    right: 1rem;
-    bottom: 1rem;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 0.75rem;
-    font-family: var(--font-sans);
-  }
-
-  .chat-widget__toggle {
-    min-height: 2.75rem;
-    padding: 0.55rem 1.15rem;
-    border: 0;
-    border-radius: var(--radius-full);
-    background: var(--brand);
-    color: var(--brand-foreground);
-    font: inherit;
-    font-weight: var(--font-weight-medium);
-    letter-spacing: 0.02em;
-    box-shadow: var(--shadow-md);
-    cursor: pointer;
-  }
-
-  .chat-widget__toggle:hover {
-    filter: brightness(1.06);
-  }
-
-  .chat-widget__panel {
-    width: min(22rem, calc(100vw - 2rem));
-    max-height: min(32rem, calc(100svh - 6rem));
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-xl);
-    background: var(--color-bg-primary);
-    color: var(--foreground);
-    box-shadow: var(--shadow-lg);
-  }
-
-  .chat-widget__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.85rem 1rem;
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .chat-widget__head h2 {
-    margin: 0;
-    font-family: var(--font-heading);
-    font-size: 1.05rem;
-  }
-
-  .chat-widget__close {
-    border: 0;
-    background: transparent;
-    color: var(--muted-foreground);
-    font: inherit;
-    cursor: pointer;
-  }
-
-  .chat-widget__lead,
-  .chat-widget__empty {
-    margin: 0;
-    color: var(--muted-foreground);
-    font-size: 0.925rem;
-  }
-
-  .chat-widget__form,
-  .chat-widget__thread {
-    display: grid;
-    gap: 0.75rem;
-    padding: 1rem;
-  }
-
-  .chat-widget__thread {
-    min-height: 0;
-    flex: 1;
-    grid-template-rows: auto 1fr auto;
-  }
-
-  .chat-widget__field {
-    display: grid;
-    gap: 0.35rem;
-    font-size: 0.85rem;
-  }
-
-  .chat-widget__field input,
-  .chat-widget__composer textarea {
-    width: 100%;
-    padding: 0.55rem 0.7rem;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--background);
-    color: inherit;
-    font: inherit;
-  }
-
-  .chat-widget__optional {
-    color: var(--muted-foreground);
-    font-weight: 400;
-  }
-
-  .chat-widget__honeypot {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-
-  .chat-widget__submit {
-    justify-self: start;
-    padding: 0.5rem 0.95rem;
-    border: 0;
-    border-radius: var(--radius-md);
-    background: var(--primary);
-    color: var(--primary-foreground);
-    font: inherit;
-    cursor: pointer;
-  }
-
-  .chat-widget__submit:disabled {
-    opacity: 0.65;
-    cursor: wait;
-  }
-
-  .chat-widget__banner,
-  .chat-widget__error {
-    margin: 0;
-    color: var(--destructive);
-    font-size: 0.85rem;
-  }
-
-  .chat-widget__log {
-    display: grid;
-    align-content: start;
-    gap: 0.55rem;
-    min-height: 8rem;
-    overflow: auto;
-  }
-
-  .chat-widget__bubble {
-    justify-self: start;
-    max-width: 92%;
-    margin: 0;
-    padding: 0.55rem 0.7rem;
-    border-radius: var(--radius-lg);
-    background: var(--secondary);
-    white-space: pre-wrap;
-  }
-
-  .chat-widget__bubble--me {
-    justify-self: end;
-    background: color-mix(in srgb, var(--brand) 14%, var(--background));
-  }
-
-  .chat-widget__composer {
-    display: grid;
-    gap: 0.45rem;
-  }
-
-  .chat-widget__sr {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-</style>

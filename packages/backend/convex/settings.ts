@@ -21,6 +21,15 @@ import { noterSortie, type HoteSortant } from "./lib/hotesSortants"
 import { deriverOrigines } from "./lib/origines"
 import { normaliserPixelId } from "./lib/pixelId"
 import { assertSerpLocale } from "./lib/serpLocale"
+import { assertOpenRouterModel } from "./lib/openRouterModels"
+import { assertOpenRouterImageModel } from "./lib/openRouterImageModels"
+import { assertOpenRouterOcrModel } from "./lib/openRouterOcrModels"
+import { assertAgentChatColor, assertAgentTeaser } from "./lib/agentChatAppearance"
+import {
+  DEFAULT_AGENT_INSTRUCTIONS,
+  hasAuthoredAgentInstructions,
+} from "./lib/defaultAgentInstructions"
+import { assertSocials } from "./lib/socialNetworks"
 import { insertOutboxRow } from "./revalidate"
 import { MUTATION_REGISTRY } from "./_registry"
 
@@ -105,7 +114,11 @@ export const get = query({
       // reprendrait le fallback `PUBLIC_*` figé au build.
       metaPixelId: settings.metaPixelId ?? null,
       googleTagId: settings.googleTagId ?? null,
-      agentEnabled: settings.agentEnabled === true,
+      // L'apparence du widget (interrupteur, nom, avatar, couleur, teaser) vit
+      // dans `chatAppearance`, pas ici. `get` est lue par le middleware,
+      // le `<head>`, l'en-tête et le pied — six fois par HTML. Y résoudre
+      // `storage.getUrl` faisait dépasser le budget 1 s des queries
+      // publiques, et un timeout sur cette query 500 le site vitrine.
       // `emailFrom` N'EST PAS ICI (relecture finale, correctif 1) : c'est
       // l'adresse d'expédition du site, elle n'a aucune utilité pour
       // `apps/web` — `grep -rn "emailFrom" apps/` n'y trouve aucun
@@ -182,10 +195,23 @@ export const getPrivate = query({
       googleTagId: settings.googleTagId ?? null,
       serpLocationCode: settings.serpLocationCode ?? null,
       serpLanguageCode: settings.serpLanguageCode ?? null,
+      openRouterModel: settings.openRouterModel ?? null,
+      openRouterImageModel: settings.openRouterImageModel ?? null,
+      openRouterOcrModel: settings.openRouterOcrModel ?? null,
       agentEnabled: settings.agentEnabled === true,
+      // `?? null` : Convex retire `undefined` avant l'envoi, et l'écran
+      // doit distinguer « jamais saisi » d'une requête qui a échoué.
       agentDisplayName: settings.agentDisplayName ?? null,
       agentInstructions: settings.agentInstructions ?? null,
       agentKnowledge: settings.agentKnowledge ?? null,
+      agentAvatarMediaId: settings.agentAvatarMediaId ?? null,
+      agentAvatarUrl: settings.agentAvatarMediaId
+        ? await ctx.storage.getUrl(settings.agentAvatarMediaId)
+        : null,
+      agentChatColor: settings.agentChatColor ?? null,
+      agentTeaser: settings.agentTeaser?.trim() ? settings.agentTeaser.trim() : null,
+      googleCalendarClientId: settings.googleCalendarClientId ?? null,
+      googleCalendarId: settings.googleCalendarId ?? null,
     }
   },
 })
@@ -294,6 +320,34 @@ export const homePageSlug = query({
   handler: async (ctx) => {
     const settings = await ctx.db.query("settings").first()
     return settings?.homePageSlug ?? null
+  },
+})
+
+/**
+ * Ce que la bulle de chat affiche — et rien d'autre.
+ *
+ * Query publique à part de `get` : le site vitrine n'a pas à payer un
+ * `storage.getUrl` (ni à transporter couleur/teaser) pour construire le
+ * `<title>` ou la CSP. Un timeout ici ne doit jamais 500 la page : le
+ * composant Astro attrape l'échec et n'affiche pas le widget.
+ */
+export const chatAppearance = query({
+  args: {},
+  handler: async (ctx) => {
+    const settings = await ctx.db.query("settings").first()
+    if (settings === null) return null
+    return {
+      agentEnabled: settings.agentEnabled === true,
+      agentAvatarMediaId: settings.agentAvatarMediaId ?? null,
+      agentAvatarUrl: settings.agentAvatarMediaId
+        ? await ctx.storage.getUrl(settings.agentAvatarMediaId)
+        : null,
+      agentDisplayName: settings.agentDisplayName?.trim()
+        ? settings.agentDisplayName.trim()
+        : null,
+      agentChatColor: settings.agentChatColor ?? null,
+      agentTeaser: settings.agentTeaser?.trim() ? settings.agentTeaser.trim() : null,
+    }
   },
 })
 
@@ -421,6 +475,9 @@ export const update = mutation({
     googleTagId: v.optional(v.union(v.string(), v.null())),
     serpLocationCode: v.optional(v.union(v.number(), v.null())),
     serpLanguageCode: v.optional(v.union(v.string(), v.null())),
+    openRouterModel: v.optional(v.union(v.string(), v.null())),
+    openRouterImageModel: v.optional(v.union(v.string(), v.null())),
+    openRouterOcrModel: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     // Site-wide settings are not an editor's call: the name, the logo and
@@ -435,13 +492,7 @@ export const update = mutation({
     }
 
     if (args.socials !== undefined) {
-      if (args.socials.length > MAX_SOCIALS) {
-        throw new ConvexError({ code: "FIELD_TOO_MANY", field: "socials", max: MAX_SOCIALS })
-      }
-      for (const [index, social] of args.socials.entries()) {
-        assertLength(social.label, MAX_SOCIAL_LABEL_LENGTH, `socials[${index}].label`)
-        assertLength(social.url, MAX_SOCIAL_URL_LENGTH, `socials[${index}].url`)
-      }
+      args = { ...args, socials: assertSocials(args.socials) }
     }
 
     // Relecture finale, correctif 1 : une adresse malformée posée en CLI —
@@ -469,6 +520,9 @@ export const update = mutation({
       serpLocationCode: args.serpLocationCode,
       serpLanguageCode: args.serpLanguageCode,
     })
+    const openRouterModel = assertOpenRouterModel(args.openRouterModel)
+    const openRouterImageModel = assertOpenRouterImageModel(args.openRouterImageModel)
+    const openRouterOcrModel = assertOpenRouterOcrModel(args.openRouterOcrModel)
 
     if (args.declaredDomain !== undefined && args.declaredDomain !== null) {
       const hote = normaliserHote(args.declaredDomain)
@@ -501,10 +555,16 @@ export const update = mutation({
       googleTagId,
       serpLocationCode: _serpLocation,
       serpLanguageCode: _serpLanguage,
+      openRouterModel: _openRouterModel,
+      openRouterImageModel: _openRouterImageModel,
+      openRouterOcrModel: _openRouterOcrModel,
       ...rest
     } = args
     void _serpLocation
     void _serpLanguage
+    void _openRouterModel
+    void _openRouterImageModel
+    void _openRouterOcrModel
     void _ignore
     // `let` d'un type large : la valeur finale est calculée juste en
     // dessous, puis rétrécie explicitement avant d'entrer dans le patch —
@@ -561,6 +621,15 @@ export const update = mutation({
         : {}),
       ...(args.serpLanguageCode !== undefined
         ? { serpLanguageCode: serp.serpLanguageCode }
+        : {}),
+      ...(args.openRouterModel !== undefined
+        ? { openRouterModel }
+        : {}),
+      ...(args.openRouterImageModel !== undefined
+        ? { openRouterImageModel }
+        : {}),
+      ...(args.openRouterOcrModel !== undefined
+        ? { openRouterOcrModel }
         : {}),
     }
 
@@ -678,6 +747,91 @@ function sortantsApresChangement(
 }
 
 /**
+ * L'interrupteur public et le savoir privé de l'agent visiteur.
+ *
+ * Mutation dédiée plutôt qu'un élargissement de `settings.update` : les
+ * trois textes (instructions, savoir, nom affiché) n'ont rien à voir avec
+ * le nom du site ou le webhook, et un écran qui les enverrait dans le
+ * même formulaire mélangerait deux gestes. Interrupteur, couleur et
+ * teaser traversent `get` — publique, sans session ; ce n'est pas un secret.
+ */
+export const updateAgent = mutation({
+  args: {
+    agentEnabled: v.optional(v.boolean()),
+    agentDisplayName: v.optional(v.string()),
+    agentInstructions: v.optional(v.string()),
+    agentKnowledge: v.optional(v.string()),
+    agentAvatarMediaId: v.optional(v.union(v.id("_storage"), v.null())),
+    agentChatColor: v.optional(v.string()),
+    agentTeaser: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin"])
+
+    if (args.agentDisplayName !== undefined) {
+      assertLength(args.agentDisplayName, MAX_AGENT_DISPLAY_NAME, "agentDisplayName")
+    }
+    if (args.agentInstructions !== undefined) {
+      assertLength(args.agentInstructions, MAX_AGENT_INSTRUCTIONS, "agentInstructions")
+    }
+    if (args.agentKnowledge !== undefined) {
+      assertLength(args.agentKnowledge, MAX_AGENT_KNOWLEDGE, "agentKnowledge")
+    }
+    const agentChatColor =
+      args.agentChatColor !== undefined ? assertAgentChatColor(args.agentChatColor) : undefined
+    const agentTeaser =
+      args.agentTeaser !== undefined ? assertAgentTeaser(args.agentTeaser) : undefined
+
+    const patch = {
+      ...(args.agentEnabled !== undefined ? { agentEnabled: args.agentEnabled } : {}),
+      ...(args.agentDisplayName !== undefined
+        ? { agentDisplayName: args.agentDisplayName }
+        : {}),
+      ...(args.agentInstructions !== undefined
+        ? { agentInstructions: args.agentInstructions }
+        : {}),
+      ...(args.agentKnowledge !== undefined ? { agentKnowledge: args.agentKnowledge } : {}),
+      ...(args.agentAvatarMediaId !== undefined
+        ? { agentAvatarMediaId: args.agentAvatarMediaId ?? undefined }
+        : {}),
+      ...(agentChatColor !== undefined ? { agentChatColor: agentChatColor || undefined } : {}),
+      ...(agentTeaser !== undefined ? { agentTeaser: agentTeaser || undefined } : {}),
+    }
+
+    const existing = await ctx.db.query("settings").first()
+    if (existing) {
+      await ctx.db.patch(existing._id, patch)
+      return existing._id
+    }
+    // Même upsert que `settings.update` / `setHomePage` : un déploiement
+    // neuf n'a pas de ligne, et le premier enregistrement de l'agent
+    // doit quand même poser le singleton — avec le `siteName` placeholder
+    // que `update` utilise déjà.
+    return ctx.db.insert("settings", { siteName: "Mon site", ...patch })
+  },
+})
+
+export const ensureDefaultAgentInstructions = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, ["owner", "admin"])
+    const existing = await ctx.db.query("settings").first()
+    if (existing === null) {
+      await ctx.db.insert("settings", {
+        siteName: "Mon site",
+        agentInstructions: DEFAULT_AGENT_INSTRUCTIONS,
+      })
+      return DEFAULT_AGENT_INSTRUCTIONS
+    }
+    if (hasAuthoredAgentInstructions(existing.agentInstructions)) {
+      return existing.agentInstructions
+    }
+    await ctx.db.patch(existing._id, { agentInstructions: DEFAULT_AGENT_INSTRUCTIONS })
+    return DEFAULT_AGENT_INSTRUCTIONS
+  },
+})
+
+/**
  * Choose which page answers at `/`.
  *
  * Stored as a slug rather than a document id, on purpose: `index.astro`
@@ -716,46 +870,6 @@ export const setHomePage = mutation({
   },
 })
 
-export const updateAgent = mutation({
-  args: {
-    agentEnabled: v.optional(v.boolean()),
-    agentDisplayName: v.optional(v.string()),
-    agentInstructions: v.optional(v.string()),
-    agentKnowledge: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    await requireRole(ctx, ["owner", "admin"])
-
-    if (args.agentDisplayName !== undefined) {
-      assertLength(args.agentDisplayName, MAX_AGENT_DISPLAY_NAME, "agentDisplayName")
-    }
-    if (args.agentInstructions !== undefined) {
-      assertLength(args.agentInstructions, MAX_AGENT_INSTRUCTIONS, "agentInstructions")
-    }
-    if (args.agentKnowledge !== undefined) {
-      assertLength(args.agentKnowledge, MAX_AGENT_KNOWLEDGE, "agentKnowledge")
-    }
-
-    const patch = {
-      ...(args.agentEnabled !== undefined ? { agentEnabled: args.agentEnabled } : {}),
-      ...(args.agentDisplayName !== undefined
-        ? { agentDisplayName: args.agentDisplayName }
-        : {}),
-      ...(args.agentInstructions !== undefined
-        ? { agentInstructions: args.agentInstructions }
-        : {}),
-      ...(args.agentKnowledge !== undefined ? { agentKnowledge: args.agentKnowledge } : {}),
-    }
-
-    const existing = await ctx.db.query("settings").first()
-    if (existing) {
-      await ctx.db.patch(existing._id, patch)
-      return existing._id
-    }
-    return ctx.db.insert("settings", { siteName: "Mon site", ...patch })
-  },
-})
-
 MUTATION_REGISTRY.push(
   {
     name: "settings.update",
@@ -775,5 +889,10 @@ MUTATION_REGISTRY.push(
     name: "settings.updateAgent",
     allowedRoles: ["owner", "admin"],
     invoke: (t) => t.mutation(api.settings.updateAgent, { agentEnabled: true }),
+  },
+  {
+    name: "settings.ensureDefaultAgentInstructions",
+    allowedRoles: ["owner", "admin"],
+    invoke: (t) => t.mutation(api.settings.ensureDefaultAgentInstructions, {}),
   },
 )

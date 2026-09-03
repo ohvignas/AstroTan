@@ -80,6 +80,14 @@ test("deleteLeadCascade supprime session, présence et thread du chat", async ()
   )
   expect(presence).toEqual([])
 
+  const files = await t.run((ctx) =>
+    ctx.db
+      .query("chatFiles")
+      .withIndex("by_thread", (q) => q.eq("threadId", threadId))
+      .collect(),
+  )
+  expect(files).toEqual([])
+
   const thread = await t.query(components.agent.threads.getThread, { threadId })
   expect(thread).toBeNull()
 })

@@ -1,6 +1,7 @@
 import { timingSafeEqualHex } from "./previewToken"
 
 export const CHAT_SESSION_TTL_MS = 24 * 60 * 60 * 1000
+export const ANON_SESSION_LEAD = "-"
 
 const MIN_CHAT_SESSION_SECRET_LENGTH = 32
 

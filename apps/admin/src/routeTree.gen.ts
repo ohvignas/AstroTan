@@ -38,6 +38,8 @@ import { Route as AuthedSettingsReferencementRouteImport } from './routes/_authe
 import { Route as AuthedSettingsReseauxRouteImport } from './routes/_authed/settings/reseaux'
 import { Route as AuthedSettingsWebhookRouteImport } from './routes/_authed/settings/webhook'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiConnectorsGoogleCallbackRouteImport } from './routes/api/connectors/google/callback'
+import { Route as ApiConnectorsMcpCallbackRouteImport } from './routes/api/connectors/mcp/callback'
 
 const AuthedRoute = AuthedRouteImport.update({
   id: '/_authed',
@@ -184,6 +186,18 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiConnectorsGoogleCallbackRoute =
+  ApiConnectorsGoogleCallbackRouteImport.update({
+    id: '/api/connectors/google/callback',
+    path: '/api/connectors/google/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiConnectorsMcpCallbackRoute =
+  ApiConnectorsMcpCallbackRouteImport.update({
+    id: '/api/connectors/mcp/callback',
+    path: '/api/connectors/mcp/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthedIndexRoute
@@ -214,6 +228,8 @@ export interface FileRoutesByFullPath {
   '/pages/': typeof AuthedPagesIndexRoute
   '/posts/': typeof AuthedPostsIndexRoute
   '/settings/': typeof AuthedSettingsIndexRoute
+  '/api/connectors/google/callback': typeof ApiConnectorsGoogleCallbackRoute
+  '/api/connectors/mcp/callback': typeof ApiConnectorsMcpCallbackRoute
 }
 export interface FileRoutesByTo {
   '/accept-invite': typeof AcceptInviteRoute
@@ -243,6 +259,8 @@ export interface FileRoutesByTo {
   '/pages': typeof AuthedPagesIndexRoute
   '/posts': typeof AuthedPostsIndexRoute
   '/settings': typeof AuthedSettingsIndexRoute
+  '/api/connectors/google/callback': typeof ApiConnectorsGoogleCallbackRoute
+  '/api/connectors/mcp/callback': typeof ApiConnectorsMcpCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -275,6 +293,8 @@ export interface FileRoutesById {
   '/_authed/pages/': typeof AuthedPagesIndexRoute
   '/_authed/posts/': typeof AuthedPostsIndexRoute
   '/_authed/settings/': typeof AuthedSettingsIndexRoute
+  '/api/connectors/google/callback': typeof ApiConnectorsGoogleCallbackRoute
+  '/api/connectors/mcp/callback': typeof ApiConnectorsMcpCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -307,6 +327,8 @@ export interface FileRouteTypes {
     | '/pages/'
     | '/posts/'
     | '/settings/'
+    | '/api/connectors/google/callback'
+    | '/api/connectors/mcp/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/accept-invite'
@@ -336,6 +358,8 @@ export interface FileRouteTypes {
     | '/pages'
     | '/posts'
     | '/settings'
+    | '/api/connectors/google/callback'
+    | '/api/connectors/mcp/callback'
   id:
     | '__root__'
     | '/_authed'
@@ -367,6 +391,8 @@ export interface FileRouteTypes {
     | '/_authed/pages/'
     | '/_authed/posts/'
     | '/_authed/settings/'
+    | '/api/connectors/google/callback'
+    | '/api/connectors/mcp/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -377,6 +403,8 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiConnectorsGoogleCallbackRoute: typeof ApiConnectorsGoogleCallbackRoute
+  ApiConnectorsMcpCallbackRoute: typeof ApiConnectorsMcpCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -584,6 +612,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/connectors/google/callback': {
+      id: '/api/connectors/google/callback'
+      path: '/api/connectors/google/callback'
+      fullPath: '/api/connectors/google/callback'
+      preLoaderRoute: typeof ApiConnectorsGoogleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/connectors/mcp/callback': {
+      id: '/api/connectors/mcp/callback'
+      path: '/api/connectors/mcp/callback'
+      fullPath: '/api/connectors/mcp/callback'
+      preLoaderRoute: typeof ApiConnectorsMcpCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -658,6 +700,8 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiConnectorsGoogleCallbackRoute: ApiConnectorsGoogleCallbackRoute,
+  ApiConnectorsMcpCallbackRoute: ApiConnectorsMcpCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

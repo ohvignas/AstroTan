@@ -7,7 +7,31 @@ describe("CATALOGUE", () => {
     // vérification d'adresse, ni changement d'email — rien de tout ça n'est
     // monté dans `auth.ts`. Si un quatrième l'est un jour, ce test échoue,
     // et c'est le rappel qu'il faut l'ajouter ici aussi.
-    expect(CATALOGUE.map((e) => e.cle)).toEqual(["invitation", "leadNotification", "passwordReset"])
+    expect(CATALOGUE.map((e) => e.cle)).toEqual([
+      "invitation",
+      "leadNotification",
+      "passwordReset",
+      "postPublished",
+    ])
+  })
+
+  test("leadNotification accepte encore lien et sujet, et gagne url", () => {
+    const lead = CATALOGUE.find((e) => e.cle === "leadNotification")!
+    expect(lead.variables).toEqual(
+      expect.arrayContaining(["nom", "email", "sujet", "message", "lien", "url", "nom_du_site"]),
+    )
+    expect(VARIABLES_DE_CONFIANCE.leadNotification).toEqual(["lien", "url"])
+    for (const champ of ["nom", "email", "sujet", "message"]) {
+      expect(VARIABLES_DE_CONFIANCE.leadNotification).not.toContain(champ)
+    }
+  })
+
+  test("postPublished déclare url en confiance, pas titre ni auteur", () => {
+    const post = CATALOGUE.find((e) => e.cle === "postPublished")!
+    expect(post.titre).toBe("Un collègue a publié un article")
+    expect(post.desactivable).toBe(true)
+    expect(post.variables).toEqual(["nom_du_site", "url", "titre", "auteur"])
+    expect(VARIABLES_DE_CONFIANCE.postPublished).toEqual(["url"])
   })
 
   test("la réinitialisation est au catalogue, et n'est pas désactivable", () => {
@@ -42,7 +66,7 @@ describe("CATALOGUE", () => {
     // administrateurs du déploiement, depuis le domaine du site. Ce test est
     // le garde-fou de cette liste — l'y ajouter un champ du visiteur le fait
     // échouer.
-    expect(VARIABLES_DE_CONFIANCE.leadNotification).toEqual(["lien"])
+    expect(VARIABLES_DE_CONFIANCE.leadNotification).toEqual(["lien", "url"])
     for (const champ of ["nom", "email", "sujet", "message"]) {
       expect(VARIABLES_DE_CONFIANCE.leadNotification, champ).not.toContain(champ)
     }

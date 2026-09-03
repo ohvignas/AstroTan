@@ -19,6 +19,8 @@
 // dans un nom d'icône doit se signaler pendant qu'on l'écrit, pas pendant
 // qu'un visiteur lit la page.
 
+import { SOCIAL_ICONS } from "@astrotan/backend/convex/lib/socialIcons"
+
 export interface Props {
   name: string
   size?: number | string
@@ -93,7 +95,10 @@ const {
   class: className,
 } = Astro.props as Props
 
-const body = PATHS[name] ?? ""
+const socialId = name.startsWith("social:") ? name.slice("social:".length) : null
+const social = socialId ? SOCIAL_ICONS[socialId as keyof typeof SOCIAL_ICONS] : undefined
+const body = social?.paths ?? PATHS[name] ?? ""
+const filled = social?.variant === "fill"
 
 // `import.meta.env.DEV` : en production, une icône manquante reste un défaut
 // cosmétique et ne justifie pas de renvoyer une page en erreur à un
@@ -114,11 +119,11 @@ if (body === "" && import.meta.env.DEV) {
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
+      fill={filled ? "currentColor" : "none"}
+      stroke={filled ? "none" : "currentColor"}
+      stroke-width={filled ? undefined : 2}
+      stroke-linecap={filled ? undefined : "round"}
+      stroke-linejoin={filled ? undefined : "round"}
       role={decorative ? undefined : "img"}
       aria-hidden={decorative ? "true" : undefined}
       aria-label={decorative ? undefined : (label ?? name)}

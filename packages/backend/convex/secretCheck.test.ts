@@ -244,6 +244,66 @@ test("le verdict ne porte ni le jeton, ni le message du service", async () => {
   expect(json).not.toContain("validation_error")
 })
 
+// ---------------------------------------------------------------------
+// OpenRouter — GET /api/v1/key, documenté, 200 ou 401
+// ---------------------------------------------------------------------
+
+const CLE_OR = "sk-or-CLE_QUI_NE_DOIT_JAMAIS_RESSORTIR_9876"
+
+test("OpenRouter : l'essai est un GET authentifié vers /api/v1/key", async () => {
+  const { identity } = await seedActor("owner")
+  fetchMock.mockResolvedValue(reponse(200, { data: { label: "sk-or-…" } }))
+
+  await identity.action(api.secretCheck.essayer, {
+    nom: "OPENROUTER_API_KEY",
+    valeur: CLE_OR,
+  })
+
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+  expect(url).toBe("https://openrouter.ai/api/v1/key")
+  expect((init.headers as Record<string, string>).Authorization).toBe(
+    `Bearer ${CLE_OR}`,
+  )
+  expect(init.signal).toBeInstanceOf(AbortSignal)
+})
+
+test("OpenRouter 200 : la clé est valide", async () => {
+  const { identity } = await seedActor("owner")
+  fetchMock.mockResolvedValue(reponse(200, { data: {} }))
+  await expect(
+    identity.action(api.secretCheck.essayer, {
+      nom: "OPENROUTER_API_KEY",
+      valeur: CLE_OR,
+    }),
+  ).resolves.toEqual({ verdict: "valide", service: "OpenRouter" })
+})
+
+test("OpenRouter 401 : refusée — rien n'est écrit, le corps ne sort pas", async () => {
+  const { identity } = await seedActor("owner")
+  fetchMock.mockResolvedValue(
+    reponse(401, { error: { message: "User not found." } }),
+  )
+  const verdict = await identity.action(api.secretCheck.essayer, {
+    nom: "OPENROUTER_API_KEY",
+    valeur: CLE_OR,
+  })
+  expect(verdict).toEqual({ verdict: "refuse", service: "OpenRouter" })
+  expect(JSON.stringify(verdict)).not.toContain(CLE_OR)
+  expect(JSON.stringify(verdict)).not.toContain("User not found")
+})
+
+test("OpenRouter 503 : injoignable, pas un refus de clé", async () => {
+  const { identity } = await seedActor("owner")
+  fetchMock.mockResolvedValue(reponse(503, { message: "slow down" }))
+  await expect(
+    identity.action(api.secretCheck.essayer, {
+      nom: "OPENROUTER_API_KEY",
+      valeur: CLE_OR,
+    }),
+  ).resolves.toEqual({ verdict: "injoignable", service: "OpenRouter" })
+})
+
 test("vide et trop long sont refusés sans déranger le service", async () => {
   const { identity } = await seedActor("owner")
   for (const valeur of ["   ", "re_".padEnd(3000, "x")]) {

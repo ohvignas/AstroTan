@@ -44,6 +44,10 @@ const JOUR_MS = 24 * 60 * 60 * 1000
 export const LEAD_RETENTION_DAYS = 3 * 365
 export const LEAD_RETENTION_MS = LEAD_RETENTION_DAYS * JOUR_MS
 
+/** Une cloche n'est pas un dossier : 90 jours après l'écriture. */
+export const NOTIFICATION_RETENTION_DAYS = 90
+export const NOTIFICATION_RETENTION_MS = NOTIFICATION_RETENTION_DAYS * JOUR_MS
+
 /**
  * Les preuves de consentement : la durée de validité d'un consentement.
  *
@@ -93,6 +97,7 @@ export type PurgeReport = {
   leadMessages: number
   leadEvents: number
   consentRecords: number
+  notifications: number
   /** Un lot était plein : une reprise a été planifiée. */
   hasMore: boolean
 }
@@ -157,9 +162,17 @@ export const purge = internalMutation({
       .take(RETENTION_BATCH_SIZE)
     for (const row of staleConsents) await ctx.db.delete(row._id)
 
+    const notifCutoff = now - NOTIFICATION_RETENTION_MS
+    const staleNotifs = await ctx.db
+      .query("notifications")
+      .withIndex("by_creation_time", (q) => q.lt("_creationTime", notifCutoff))
+      .take(RETENTION_BATCH_SIZE)
+    for (const row of staleNotifs) await ctx.db.delete(row._id)
+
     const hasMore =
       stale.length >= RETENTION_BATCH_SIZE ||
-      staleConsents.length >= RETENTION_BATCH_SIZE
+      staleConsents.length >= RETENTION_BATCH_SIZE ||
+      staleNotifs.length >= RETENTION_BATCH_SIZE
 
     // La reprise. `runAfter(0)` et non un second appel direct : chaque
     // passage reste une transaction courte et bornée, et une transaction
@@ -171,6 +184,7 @@ export const purge = internalMutation({
       leadMessages,
       leadEvents,
       consentRecords: staleConsents.length,
+      notifications: staleNotifs.length,
       hasMore,
     }
   },

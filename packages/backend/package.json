@@ -12,8 +12,10 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@ai-sdk/mcp": "^2.0.42",
     "@convex-dev/agent": "^0.7.1",
     "@convex-dev/better-auth": "0.12.5",
+    "@convex-dev/rag": "^0.7.6",
     "@convex-dev/rate-limiter": "0.3.2",
     "@convex-dev/resend": "0.2.7",
     "@openrouter/ai-sdk-provider": "^3.0.0",
@@ -21,7 +23,10 @@
     "better-auth": "1.6.17",
     "convex": "1.45.0",
     "convex-helpers": "0.1.123",
+    "mammoth": "^1.12.2",
+    "pdf-lib": "^1.17.1",
     "marked": "18.0.11",
+    "unpdf": "^1.8.1",
     "yoastseo": "3.6.0",
     "zod": "3.25.76"
   },

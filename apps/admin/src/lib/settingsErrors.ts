@@ -40,6 +40,22 @@ const SETTINGS_ERROR_MESSAGES: Record<string, string> = {
     "Ce n'est pas une adresse d'expédition : écrivez « bonjour@exemple.fr » ou « Nom <bonjour@exemple.fr> ».",
   INVALID_PIXEL_ID:
     "Cet identifiant n'a pas la forme attendue (chiffres pour Meta, G-/AW-/GT-/DC- pour Google).",
+  INVALID_OPENROUTER_MODEL:
+    "Ce modèle n'est pas dans la liste proposée. Choisissez-en un autre.",
+  INVALID_OPENROUTER_IMAGE_MODEL:
+    "Ce modèle d'image n'est pas dans la liste proposée. Choisissez-en un autre.",
+  INVALID_OPENROUTER_OCR_MODEL:
+    "Ce modèle OCR n'est pas dans la liste proposée. Choisissez-en un autre.",
+  OPENROUTER_NOT_CONFIGURED:
+    "Sans clé OpenRouter, l'index de savoir ne peut pas être calculé. Configurez-la dans la section Modèle IA.",
+  INVALID_SOCIAL_NETWORK:
+    "Ce réseau n'est pas dans la liste proposée. Choisissez-en un autre.",
+  DUPLICATE_SOCIAL:
+    "Ce réseau est déjà dans la liste. Un seul lien par réseau.",
+  INVALID_SOCIAL_URL:
+    "Chaque lien de réseau doit commencer par http:// ou https://.",
+  INVALID_AGENT_CHAT_COLOR:
+    "La couleur du chat s'écrit en hexadécimal, par exemple #171717 ou #f60.",
 }
 
 // ---------------------------------------------------------------------

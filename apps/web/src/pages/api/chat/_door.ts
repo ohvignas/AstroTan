@@ -6,6 +6,7 @@ import {
   MAX_LEAD_NAME_LENGTH,
 } from "@astrotan/backend/convex/content"
 import { adresseDuVisiteur } from "../../../lib/allowedDomains"
+import { geoFromTrustedIp, type VisitorGeo } from "../../../lib/visitorGeo"
 import { verifyChatSessionToken } from "../../../lib/chatSessionToken"
 
 export const HONEYPOT_FIELD = "site_web"
@@ -20,6 +21,11 @@ const CONVEX_CODES: Record<string, { code: string; status: number }> = {
   INVALID_EMAIL: { code: "invalid_email", status: 400 },
   EMPTY: { code: "empty", status: 400 },
   TOO_LONG: { code: "too_long", status: 400 },
+  FILE_TOO_LARGE: { code: "file_too_large", status: 400 },
+  UNSUPPORTED_MIME: { code: "unsupported_mime", status: 400 },
+  INVALID_FILE: { code: "invalid_file", status: 400 },
+  INVALID_FILENAME: { code: "too_long", status: 400 },
+  FIELD_TOO_LONG: { code: "too_long", status: 400 },
 }
 
 export function json(body: unknown, status = 200): Response {
@@ -78,6 +84,14 @@ export async function visitorOrigin(
   secret: string,
 ): Promise<string> {
   return empreinteOrigine(await adresseDuVisiteur(ctx), secret)
+}
+
+export async function visitorClient(
+  ctx: { request: Request; clientAddress: string },
+  secret: string,
+): Promise<{ origin: string } & VisitorGeo> {
+  const ip = await adresseDuVisiteur(ctx)
+  return { origin: await empreinteOrigine(ip, secret), ...geoFromTrustedIp(ip, ctx.request.headers) }
 }
 
 function convexCode(error: unknown): string | undefined {

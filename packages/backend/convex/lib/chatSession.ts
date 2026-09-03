@@ -1,7 +1,12 @@
 import { ConvexError } from "convex/values"
 import type { Id } from "../_generated/dataModel"
 import type { MutationCtx, QueryCtx } from "../_generated/server"
-import { CHAT_SESSION_TTL_MS, signChatSessionToken, verifyChatSessionToken } from "./chatSessionToken"
+import {
+  ANON_SESSION_LEAD,
+  CHAT_SESSION_TTL_MS,
+  signChatSessionToken,
+  verifyChatSessionToken,
+} from "./chatSessionToken"
 
 export async function sha256Hex(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value)
@@ -11,17 +16,17 @@ export async function sha256Hex(value: string): Promise<string> {
 
 export async function issueChatSession(
   ctx: MutationCtx,
-  leadId: Id<"leads">,
+  leadId: Id<"leads"> | null,
   threadId: string,
 ): Promise<{ token: string; expiresAt: number }> {
   const expiresAt = Date.now() + CHAT_SESSION_TTL_MS
   const token = await signChatSessionToken({
-    leadId: String(leadId),
+    leadId: leadId === null ? ANON_SESSION_LEAD : String(leadId),
     threadId,
     expiresAt,
   })
   await ctx.db.insert("chatSessions", {
-    leadId,
+    ...(leadId === null ? {} : { leadId }),
     threadId,
     tokenHash: await sha256Hex(token),
     expiresAt,
@@ -33,7 +38,7 @@ export async function resolveVisitorSession(
   ctx: QueryCtx | MutationCtx,
   token: string,
 ): Promise<{
-  leadId: Id<"leads">
+  leadId?: Id<"leads">
   threadId: string
   sessionId: Id<"chatSessions">
 } | null> {
@@ -46,7 +51,8 @@ export async function resolveVisitorSession(
     .unique()
   if (row === null) return null
   if (row.expiresAt <= Date.now()) return null
-  if (String(row.leadId) !== parsed.leadId || row.threadId !== parsed.threadId) {
+  if (row.threadId !== parsed.threadId) return null
+  if (parsed.leadId !== ANON_SESSION_LEAD && String(row.leadId) !== parsed.leadId) {
     return null
   }
   return { leadId: row.leadId, threadId: row.threadId, sessionId: row._id }
@@ -56,7 +62,7 @@ export async function requireChatSession(
   ctx: QueryCtx | MutationCtx,
   token: string,
 ): Promise<{
-  leadId: Id<"leads">
+  leadId?: Id<"leads">
   threadId: string
   sessionId: Id<"chatSessions">
 }> {

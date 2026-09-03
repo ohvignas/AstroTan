@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values"
 import { components, internal } from "../_generated/api"
 import type { ActionCtx } from "../_generated/server"
 import { lireSecret } from "../secrets"
+import { MINIMAL_AGENT_INSTRUCTIONS } from "./defaultAgentInstructions"
 import { resolveOpenRouterModel } from "./openRouterModels"
 
 export type AgentConfig = {
@@ -17,30 +18,25 @@ export type AgentConfig = {
 }
 
 export function buildInstructions(privee: AgentConfig): string {
-  const name = privee.agentDisplayName ?? "Assistant"
-  const site = privee.siteName ?? "ce site"
-  const identity = [`Tu es ${name}, l'assistant de ${site}.`, privee.agentInstructions?.trim() ?? ""]
-    .filter((line) => line.length > 0)
-    .join("\n")
+  const authored = privee.agentInstructions?.trim() ?? ""
+  const brief = authored.length > 0 ? authored : MINIMAL_AGENT_INSTRUCTIONS
   const knowledge = privee.agentKnowledge?.trim()
     ? `Base de connaissances:\n${privee.agentKnowledge.trim()}`
     : ""
-  const rules = [
-    "Ne jamais inventer un fait, un prix, un délai ou un engagement.",
-    "Ne jamais citer une page brouillon ou un contenu non publié.",
-    "Ne jamais promettre un créneau sans avoir utilisé l'outil calendrier.",
-    "Si l'outil de lecture d'une page échoue, le dire clairement.",
-    "Qualifier le besoin, le délai et un téléphone sans interroger en rafale.",
-    "Répondre dans la langue du visiteur. Par défaut, le français.",
-  ].join("\n")
-  return [identity, knowledge, rules].filter((block) => block.length > 0).join("\n\n")
+  return [brief, knowledge].filter((block) => block.length > 0).join("\n\n")
 }
 
-export async function makeVisitorAgent(ctx: ActionCtx, tools: ToolSet) {
+export async function makeVisitorAgent(
+  ctx: ActionCtx,
+  tools: ToolSet,
+  options?: { preview?: boolean },
+) {
   const apiKey = await lireSecret(ctx, "OPENROUTER_API_KEY")
   if (!apiKey) throw new ConvexError({ code: "AGENT_UNCONFIGURED" })
   const privee: AgentConfig = await ctx.runQuery(internal.chatStream.getAgentConfig, {})
-  if (privee.agentEnabled === false) throw new ConvexError({ code: "AGENT_DISABLED" })
+  if (privee.agentEnabled === false && options?.preview !== true) {
+    throw new ConvexError({ code: "AGENT_DISABLED" })
+  }
   const openrouter = createOpenRouter({
     apiKey,
     appName: "AstroTan",

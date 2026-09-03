@@ -4,6 +4,7 @@ import { makeTestConvex } from "../testing/betterAuthFixture"
 import {
   CONSENT_RETENTION_MS,
   LEAD_RETENTION_MS,
+  NOTIFICATION_RETENTION_MS,
   RETENTION_BATCH_SIZE,
 } from "./retention"
 
@@ -159,6 +160,54 @@ describe("retention.purge — les consentements", () => {
     expect(report.consentRecords).toBe(1)
     const restant = await t.run((ctx) => ctx.db.query("consentRecords").collect())
     expect(restant.map((r) => r.consentId)).toEqual(["geste-recent"])
+  })
+})
+
+describe("retention.purge — les cloches", () => {
+  test("une cloche de plus de 90 jours part ; une récente reste", async () => {
+    const t = makeTestConvex()
+    const reference = Date.UTC(2026, 8, 1)
+    vi.setSystemTime(reference - NOTIFICATION_RETENTION_MS - 24 * 60 * 60 * 1000)
+    await t.run((ctx) =>
+      ctx.db.insert("notifications", {
+        authUserId: "user-vieux",
+        cle: "leadNotification",
+        titre: "Ancienne",
+      }),
+    )
+    vi.setSystemTime(reference - 60_000)
+    await t.run((ctx) =>
+      ctx.db.insert("notifications", {
+        authUserId: "user-recent",
+        cle: "leadNotification",
+        titre: "Récente",
+      }),
+    )
+    vi.setSystemTime(reference)
+
+    const report = await t.mutation(internal.retention.purge, {})
+    expect(report.notifications).toBe(1)
+    const restant = await t.run((ctx) => ctx.db.query("notifications").collect())
+    expect(restant.map((r) => r.titre)).toEqual(["Récente"])
+  })
+
+  test("la cascade d'un lead ancien emporte ses cloches", async () => {
+    const t = makeTestConvex()
+    const now = Date.now()
+    const leadId = await seedLead(t, {
+      email: "vieux-cloche@example.com",
+      lastMessageAt: now - LEAD_RETENTION_MS - 1,
+    })
+    await t.run((ctx) =>
+      ctx.db.insert("notifications", {
+        authUserId: "staff",
+        cle: "leadNotification",
+        titre: "Nouveau message de contact",
+        leadId,
+      }),
+    )
+    await t.mutation(internal.retention.purge, {})
+    expect(await t.run((ctx) => ctx.db.query("notifications").collect())).toEqual([])
   })
 })
 

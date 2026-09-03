@@ -104,6 +104,37 @@ test("un admin peut poser un jeton", async () => {
   expect(ligne?.base).toBe(true)
 })
 
+test("set refuse un nom hors liste", async () => {
+  const { identity } = await seedActor("owner")
+  await expect(
+    identity.action(api.secrets.set, {
+      nom: "NOT_A_REAL_SECRET" as never,
+      valeur: "x",
+    }),
+  ).rejects.toThrow()
+})
+
+test("GOOGLE_CALENDAR_* sont des noms autorisés et status ne rend pas la valeur", async () => {
+  const { identity } = await seedActor("owner")
+  delete process.env.GOOGLE_CALENDAR_CLIENT_SECRET
+  delete process.env.GOOGLE_CALENDAR_REFRESH_TOKEN
+  await identity.action(api.secrets.set, {
+    nom: "GOOGLE_CALENDAR_CLIENT_SECRET",
+    valeur: "google-client-secret-sentinelle",
+  })
+  await identity.action(api.secrets.set, {
+    nom: "GOOGLE_CALENDAR_REFRESH_TOKEN",
+    valeur: "google-refresh-sentinelle",
+  })
+  const etat = await identity.query(api.secrets.status, {})
+  expect(etat.secrets.find((s) => s.nom === "GOOGLE_CALENDAR_REFRESH_TOKEN")?.source).toBe(
+    "base",
+  )
+  expect(JSON.stringify(etat)).not.toContain("google-refresh-sentinelle")
+  expect(JSON.stringify(etat)).not.toContain("iv")
+  expect(JSON.stringify(etat)).not.toContain("chiffre")
+})
+
 test("DATAFORSEO_LOGIN et DATAFORSEO_PASSWORD sont des noms autorisés", async () => {
   const { identity } = await seedActor("owner")
   delete process.env.DATAFORSEO_LOGIN

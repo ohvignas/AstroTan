@@ -88,6 +88,42 @@ export async function requireRole(ctx: GenericCtx<DataModel>, roles: Role[]) {
   return { _id: authUser._id, role, email: authUser.email }
 }
 
+// Claims que le plugin `convex()` pose sur le jeton (`omit(user)` hors
+// `id`/`image`, plus `sessionId`). `UserIdentity` de Convex ne les type
+// pas : on les lit ici, au seul point qui s'en sert.
+type IdentityClaims = {
+  role?: string | null
+  banned?: boolean | null
+  banExpires?: number | null
+  email?: string | null
+}
+
+/**
+ * Même décision que `requireRole`, sans hop vers le composant Better Auth.
+ *
+ * `safeGetAuthUser` fait deux `ctx.runQuery` dans le composant (session,
+ * puis user). Ces lectures ont le plafond d'une *query* Convex — 1 s —
+ * même quand l'appelant est une mutation. `marquerVu` tombait là-dessus
+ * à l'ouverture d'une fiche.
+ *
+ * Le jeton porte déjà `role` et `banned` (plugin `convex()`, 15 min).
+ * Pour une écriture anodine — poser `seenAt` — ce décalage est acceptable.
+ * Les mutations qui changent un rôle, un ban ou une ressource d'autrui
+ * restent sur `requireRole`.
+ */
+export async function requireRoleFromIdentity(ctx: GenericCtx<DataModel>, roles: Role[]) {
+  const identity = await ctx.auth.getUserIdentity()
+  const claims = (identity ?? {}) as IdentityClaims
+  const role = decideAccess(
+    identity
+      ? { role: claims.role, banned: claims.banned, banExpires: claims.banExpires }
+      : null,
+    roles,
+  )
+  if (!identity) throw new ConvexError({ code: "UNAUTHENTICATED" })
+  return { _id: identity.subject, role, email: claims.email ?? identity.email ?? "" }
+}
+
 // Un editor n'écrit que ses propres documents ; owner et admin contournent
 // la vérification de propriété. Liste d'autorisation (pas une liste de
 // blocage sur `"editor"`) : un futur quatrième rôle sans entrée explicite

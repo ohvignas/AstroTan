@@ -1,0 +1,162 @@
+/* Chrome isolé : le thème hôte (site magenta / Manrope, ou admin Geist)
+   ne doit plus restyler bouton, focus, input, coins. Valeurs = admin shadcn. */
+
+[data-slot="chat-widget"] {
+  font-family: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --radius: 0.625rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --chat-accent: #171717;
+  --chat-accent-foreground: #fafafa;
+  --ring: oklch(0.708 0 0);
+  --color-ring: oklch(0.708 0 0);
+  --primary: var(--chat-accent);
+  --primary-foreground: var(--chat-accent-foreground);
+  --color-primary: var(--chat-accent);
+  --color-primary-foreground: var(--chat-accent-foreground);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --border: oklch(0.922 0 0);
+  --color-border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+}
+
+/* Hors @layer : le site pose un outline magenta sur :focus-visible
+   sans layer, ce qui bat `outline-none` de Tailwind. */
+[data-slot="chat-widget"] :focus-visible {
+  outline: none;
+}
+
+/* CardHeader n'a que `border-b` (largeur). L'admin colore via
+   `* { border-border }` ; le site n'a pas cette règle, donc currentColor
+   (presque noir). Filet 1px full-bleed, token isolé — les deux hôtes
+   rendent la même ligne. */
+[data-slot="chat-widget"] [data-slot="card-header"] {
+  border-bottom: 1px solid var(--border);
+}
+
+[data-slot="chat-widget"] [data-slot="chat-fab"] {
+  background: var(--chat-accent);
+}
+
+[data-slot="chat-widget"] [data-slot="message-avatar"] {
+  background: var(--chat-accent);
+  overflow: hidden;
+  border-radius: 9999px;
+  box-shadow: none;
+  outline: none;
+}
+
+[data-slot="chat-widget"] [data-slot="chat-unread"] {
+  position: absolute;
+  top: -0.125rem;
+  right: -0.125rem;
+  z-index: 2;
+  min-width: 1rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: oklch(0.577 0.245 27.325);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1rem;
+  text-align: center;
+}
+
+[data-slot="chat-widget"] [data-slot="bubble"][data-variant="default"] [data-slot="bubble-content"] {
+  background: var(--chat-accent);
+  color: var(--chat-accent-foreground);
+}
+
+[data-slot="chat-widget"] [data-slot="chat-send"] {
+  background: var(--chat-accent);
+  color: var(--chat-accent-foreground);
+}
+
+[data-slot="chat-widget"] [data-slot="chat-send"]:hover {
+  background: color-mix(in srgb, var(--chat-accent) 82%, black);
+}
+
+[data-slot="chat-widget"] [data-slot="input-group"]:focus-within {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--chat-accent) 28%, transparent);
+}
+
+[data-slot="chat-widget"] [data-slot="chat-teaser"] {
+  position: absolute;
+  right: calc(100% - 0.4rem);
+  bottom: calc(100% - 0.35rem);
+  z-index: 1;
+  /* Le parent n'a que la largeur du FAB (4rem) : sans min-width /
+     width, shrink-to-fit se cale dessus et la phrase passe en 6 lignes. */
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 13.75rem;
+  max-width: min(20rem, calc(100vw - 6.5rem));
+  white-space: normal;
+  text-wrap: pretty;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  text-align: left;
+  box-shadow: 0 8px 20px rgb(15 15 15 / 12%);
+  animation: chat-teaser-nudge 2.6s ease-in-out infinite;
+}
+
+[data-slot="chat-widget"] [data-slot="chat-teaser"][data-unread] {
+  min-width: 0;
+  width: max-content;
+  max-width: none;
+  white-space: nowrap;
+}
+
+[data-slot="chat-widget"] [data-slot="chat-teaser"]::after {
+  content: "";
+  position: absolute;
+  right: 0.7rem;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+@keyframes chat-teaser-nudge {
+  0%,
+  78%,
+  100% {
+    transform: translate(0, 0);
+  }
+  84% {
+    transform: translate(-4px, -3px);
+  }
+  90% {
+    transform: translate(1px, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="chat-widget"] [data-slot="chat-teaser"] {
+    animation: none;
+  }
+
+  /* Le flou de la porte e-mail n'est pas une animation : on le garde. */
+  [data-slot="chat-widget"] [data-slot="chat-email-overlay"] {
+    backdrop-filter: blur(8px);
+  }
+}

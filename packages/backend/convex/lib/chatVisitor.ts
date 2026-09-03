@@ -4,8 +4,21 @@ import { ConvexError } from "convex/values"
 import { components, internal } from "../_generated/api"
 import type { Id } from "../_generated/dataModel"
 import type { MutationCtx } from "../_generated/server"
-import { MAX_LEAD_BODY_LENGTH, MAX_LEAD_EMAIL_LENGTH, MAX_LEAD_NAME_LENGTH, looksLikeEmail } from "../content"
-import { assertChatMessageBudget } from "./chatRateLimit"
+import { MAX_LEAD_BODY_LENGTH } from "../content"
+import {
+  assertChatFilename,
+  buildChatUserContent,
+  chatUserSaveArgs,
+  persistChatFile,
+  readStoredChatFile,
+} from "./chatMedia"
+import { assertChatEmail, createOrLinkChatLead, normalizeChatEmail } from "./chatLead"
+import { leadGeoPatch, type LeadGeo } from "./leadGeo"
+import {
+  assertChatAttachEmailBudget,
+  assertChatMessageBudget,
+  assertChatStartBudget,
+} from "./chatRateLimit"
 import { issueChatSession, renewChatSessionTtl, requireChatSession } from "./chatSession"
 import {
   LEAD_EMAIL_LIMIT_CONFIG,
@@ -13,10 +26,8 @@ import {
   LEAD_ORIGIN_LIMIT_CONFIG,
   LEAD_ORIGIN_LIMIT_NAME,
 } from "./leadRateLimit"
-import { ecrireCloches } from "./notifier"
 import { origineDeComptage } from "./originFingerprint"
 import { assertSharedSecret } from "./sharedSecret"
-import { listerCandidats } from "../notifications"
 
 const limiteur = new RateLimiter(components.rateLimiter, {
   [LEAD_ORIGIN_LIMIT_NAME]: LEAD_ORIGIN_LIMIT_CONFIG,
@@ -27,80 +38,62 @@ function assertBounded(value: string, max: number, field: string): void {
   if (value.length > max) throw new ConvexError({ code: "TOO_LONG", field })
 }
 
-export async function startVisitorChat(
-  ctx: MutationCtx,
-  args: { secret: string; origin?: string; email: string; name?: string },
-): Promise<{ token: string; leadId: Id<"leads">; threadId: string; expiresAt: number }> {
-  await assertSharedSecret(args.secret, process.env.LEAD_SUBMIT_SECRET)
-
-  const origine = origineDeComptage(args.origin)
-  const parOrigine = await limiteur.limit(ctx, LEAD_ORIGIN_LIMIT_NAME, { key: origine })
+async function assertLeadOriginBudget(ctx: MutationCtx, origin: string | undefined): Promise<void> {
+  const parOrigine = await limiteur.limit(ctx, LEAD_ORIGIN_LIMIT_NAME, {
+    key: origineDeComptage(origin),
+  })
   if (!parOrigine.ok) {
     throw new ConvexError({ code: "RATE_LIMITED", retryAfter: parOrigine.retryAfter })
   }
+}
 
-  const email = args.email.trim().toLowerCase()
+async function assertLeadEmailBudget(ctx: MutationCtx, email: string): Promise<void> {
   const parEmail = await limiteur.limit(ctx, LEAD_EMAIL_LIMIT_NAME, { key: email })
   if (!parEmail.ok) {
     throw new ConvexError({ code: "RATE_LIMITED", retryAfter: parEmail.retryAfter })
   }
+}
 
-  assertBounded(email, MAX_LEAD_EMAIL_LENGTH, "email")
-  if (!looksLikeEmail(email)) throw new ConvexError({ code: "INVALID_EMAIL" })
+export async function startVisitorChat(
+  ctx: MutationCtx,
+  args: { secret: string; origin?: string; email?: string; name?: string } & LeadGeo,
+): Promise<{ token: string; leadId?: Id<"leads">; threadId: string; expiresAt: number }> {
+  await assertSharedSecret(args.secret, process.env.LEAD_SUBMIT_SECRET)
 
-  const trimmed = args.name?.trim() ?? ""
-  const name = trimmed.length > 0 ? trimmed : email.slice(0, email.indexOf("@"))
-  assertBounded(name, MAX_LEAD_NAME_LENGTH, "name")
-
-  const now = Date.now()
-  const existing = await ctx.db
-    .query("leads")
-    .withIndex("by_email", (q) => q.eq("email", email))
-    .unique()
-
-  let leadId: Id<"leads">
-  let threadId: string | undefined
-  if (existing === null) {
-    leadId = await ctx.db.insert("leads", {
-      name,
-      email,
-      status: "new",
-      source: "chat",
-      messageCount: 0,
-      lastMessageAt: now,
+  const email = normalizeChatEmail(args.email)
+  const geo = leadGeoPatch(args)
+  // Sans e-mail ni IP, on ne peut pas identifier : session seule, pas de fiche.
+  // Dès qu'on a l'IP (route Astro), la fiche existe — c'est le plus tôt fiable.
+  if (email.length === 0 && !geo.ip) {
+    await assertChatStartBudget(ctx, args.origin)
+    const threadId = await createThread(ctx, components.agent, {
+      userId: "anon",
+      title: "Conversation",
     })
-    await ctx.db.insert("leadEvents", { leadId, type: "created", to: "new" })
-    const candidats = await listerCandidats(ctx)
-    await ecrireCloches(ctx, {
-      cle: "leadNotification",
-      titre: "Nouveau chat sur le site",
-      leadId,
-      exclus: [],
-      candidats,
-    })
-    await ctx.scheduler.runAfter(0, internal.leads.deliverWebhook, {
-      leadId,
-      name,
-      email,
-      body: "Session de chat ouverte.",
-      messageCount: 0,
-    })
-    await ctx.scheduler.runAfter(0, internal.leads.notifyStaff, {
-      name,
-      email,
-      body: "Session de chat ouverte.",
-      messageCount: 0,
-    })
-  } else {
-    leadId = existing._id
-    threadId = existing.threadId
-    await ctx.db.patch(leadId, { lastMessageAt: now })
+    const { token, expiresAt } = await issueChatSession(ctx, null, threadId)
+    return { token, threadId, expiresAt }
   }
 
+  if (email.length === 0) {
+    await assertChatStartBudget(ctx, args.origin)
+  } else {
+    await assertLeadOriginBudget(ctx, args.origin)
+    await assertLeadEmailBudget(ctx, email)
+    assertChatEmail(email)
+  }
+
+  const { leadId, threadId: existingThread } = await createOrLinkChatLead(ctx, {
+    ...(email.length > 0 ? { email } : {}),
+    name: args.name,
+    ip: args.ip,
+    country: args.country,
+    city: args.city,
+  })
+  let threadId = existingThread
   if (!threadId) {
     threadId = await createThread(ctx, components.agent, {
       userId: String(leadId),
-      title: email,
+      title: email.length > 0 ? email : "Conversation",
     })
     await ctx.db.patch(leadId, { threadId })
     await ctx.db.insert("leadEvents", { leadId, type: "chat_started" })
@@ -110,22 +103,77 @@ export async function startVisitorChat(
   return { token, leadId, threadId, expiresAt }
 }
 
+export async function attachVisitorEmail(
+  ctx: MutationCtx,
+  args: { secret: string; token: string; email: string; name?: string; origin?: string } & LeadGeo,
+): Promise<{ leadId: Id<"leads"> }> {
+  await assertSharedSecret(args.secret, process.env.LEAD_SUBMIT_SECRET)
+  const session = await requireChatSession(ctx, args.token)
+  const email = normalizeChatEmail(args.email)
+  if (email.length === 0) throw new ConvexError({ code: "EMPTY" })
+  assertChatEmail(email)
+
+  const already = session.leadId ? await ctx.db.get(session.leadId) : null
+  if (already?.email) {
+    // Fiche déjà identifiée : on écrit quand même l'IP / le pays, on ne
+    // remplace pas l'adresse. C'est le bug « e-mail ⇒ on skip l'IP ».
+    const geo = leadGeoPatch(args)
+    if (Object.keys(geo).length > 0) await ctx.db.patch(already._id, geo)
+    return { leadId: already._id }
+  }
+
+  await assertChatAttachEmailBudget(ctx, args.origin, args.token)
+
+  const { leadId, threadId: existingThread } = await createOrLinkChatLead(ctx, {
+    email,
+    name: args.name,
+    // L'IP de la session anonyme relie, même si ce tour n'en renvoie pas.
+    ip: args.ip ?? already?.ip,
+    country: args.country ?? already?.country,
+    city: args.city ?? already?.city,
+  })
+  await ctx.db.patch(leadId, { threadId: session.threadId })
+  if (!existingThread && !session.leadId) {
+    await ctx.db.insert("leadEvents", { leadId, type: "chat_started" })
+  }
+  await ctx.db.patch(session.sessionId, { leadId })
+  return { leadId }
+}
+
 export async function sendVisitorMessage(
   ctx: MutationCtx,
-  args: { secret: string; token: string; body: string; origin?: string },
+  args: {
+    secret: string
+    token: string
+    body: string
+    origin?: string
+    storageId?: Id<"_storage">
+    filename?: string
+    mime?: string
+  },
 ): Promise<{ messageId: string }> {
   await assertSharedSecret(args.secret, process.env.LEAD_SUBMIT_SECRET)
   const session = await requireChatSession(ctx, args.token)
 
   const body = args.body.trim()
-  if (body.length === 0) throw new ConvexError({ code: "EMPTY" })
+  const file = args.storageId
+    ? await readStoredChatFile(ctx, args.storageId, args.filename, args.mime)
+    : null
+  const filename = file ? assertChatFilename(args.filename ?? "image") : undefined
+  if (body.length === 0 && file === null) throw new ConvexError({ code: "EMPTY" })
   assertBounded(body, MAX_LEAD_BODY_LENGTH, "body")
 
-  const lead = await ctx.db.get(session.leadId)
-  if (lead === null) throw new ConvexError({ code: "INVALID_SESSION" })
-  await assertChatMessageBudget(ctx, args.origin, lead.email)
+  let controller: "ai" | "staff" = "ai"
+  if (session.leadId) {
+    const lead = await ctx.db.get(session.leadId)
+    if (lead === null) throw new ConvexError({ code: "INVALID_SESSION" })
+    await assertChatMessageBudget(ctx, args.origin, lead.email)
+    controller = lead.controller ?? "ai"
+    await ctx.db.patch(lead._id, { lastMessageAt: Date.now() })
+  } else {
+    await assertChatMessageBudget(ctx, args.origin)
+  }
 
-  const controller = lead.controller ?? "ai"
   if (controller === "ai") {
     const settings = await ctx.db.query("settings").first()
     if (settings?.agentEnabled !== true) {
@@ -133,11 +181,31 @@ export async function sendVisitorMessage(
     }
   }
 
+  const imageUrl = file ? await ctx.storage.getUrl(file.storageId) : null
+  if (file !== null && (imageUrl === null || imageUrl.length === 0)) {
+    throw new ConvexError({ code: "INVALID_FILE" })
+  }
   const { messageId } = await saveMessage(ctx, components.agent, {
     threadId: session.threadId,
-    prompt: body,
+    ...chatUserSaveArgs(
+      buildChatUserContent({
+        body,
+        filename,
+        imageUrl,
+        mime: file?.mime,
+      }),
+    ),
   })
-  await ctx.db.patch(lead._id, { lastMessageAt: Date.now() })
+  if (file && filename) {
+    await persistChatFile(ctx, {
+      threadId: session.threadId,
+      messageId,
+      storageId: file.storageId,
+      filename,
+      mime: file.mime,
+      size: file.size,
+    })
+  }
   await renewChatSessionTtl(ctx, session.sessionId)
 
   if (controller === "ai") {

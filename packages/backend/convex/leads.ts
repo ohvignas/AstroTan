@@ -10,7 +10,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel"
 import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
-import { isCurrentlyBanned, requireRole } from "./lib/authz"
+import { isCurrentlyBanned, requireRole, requireRoleFromIdentity } from "./lib/authz"
 import { makeResend } from "./lib/resend"
 import { resoudreExpediteur } from "./lib/expediteur"
 // Déplacés dans `lib/gabarit.ts`, où le rendu des gabarits d'email en a
@@ -19,8 +19,12 @@ import { resoudreExpediteur } from "./lib/expediteur"
 import { escapeHtml, rendreHtml, rendreTexte, singleLine } from "./lib/gabarit"
 import { lireSecret } from "./secrets"
 import { listUsersWithRole } from "./users"
+import { ecrireCloches, marquerLuesPourLead } from "./lib/notifier"
+import { listerCandidats } from "./notifications"
 import { deleteLeadCascade } from "./lib/leadCascade"
 import { assertSharedSecret } from "./lib/sharedSecret"
+import { leadGeoPatch } from "./lib/leadGeo"
+import { ANON_LEAD_NAME, resolveLeadIdentity } from "./lib/chatLead"
 import { journaliser, nomDeLAuteur } from "./lib/auditEvent"
 import { deriverOrigines } from "./lib/origines"
 import { RateLimiter } from "@convex-dev/rate-limiter"
@@ -37,6 +41,7 @@ import {
   MAX_LEAD_BODY_LENGTH,
   MAX_LEAD_EMAIL_LENGTH,
   MAX_LEAD_NAME_LENGTH,
+  MAX_LEAD_PHONE_LENGTH,
   MAX_LEAD_SUBJECT_LENGTH,
   looksLikeEmail,
   type LeadStatus,
@@ -85,19 +90,21 @@ export const submit = mutation({
   args: {
     secret: v.string(),
     /**
-     * Une EMPREINTE de l'adresse du visiteur, jamais l'adresse elle-même.
-     * La route Astro la hache avec le secret partagé : Convex ne voit donc
-     * pas d'IP, et la politique de confidentialité peut continuer d'écrire
-     * que le formulaire n'en conserve pas. Optionnel — un appelant qui ne
-     * la fournit pas tombe dans un seau commun, il n'obtient pas un budget
-     * neuf.
+     * Une EMPREINTE de l'adresse du visiteur, pour le limiteur de débit.
+     * L'adresse elle-même, si elle est fournie, voyage à part (`ip`) et
+     * n'est visible que dans l'administration. Optionnel — un appelant
+     * qui ne la fournit pas tombe dans un seau commun.
      */
     origin: v.optional(v.string()),
     name: v.string(),
     email: v.string(),
+    phone: v.optional(v.string()),
     subject: v.optional(v.string()),
     body: v.string(),
     userAgent: v.optional(v.string()),
+    ip: v.optional(v.string()),
+    country: v.optional(v.string()),
+    city: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<null> => {
     await assertSecret(args.secret)
@@ -115,6 +122,7 @@ export const submit = mutation({
     const email = args.email.trim().toLowerCase()
     const body = args.body.trim()
     const subject = args.subject?.trim() || undefined
+    const phone = args.phone?.trim() || undefined
 
     // Vide après nettoyage : un formulaire rempli d'espaces n'est pas un
     // message, et le laisser passer remplirait le tableau de cartes vides.
@@ -132,24 +140,27 @@ export const submit = mutation({
     assertBounded(email, MAX_LEAD_EMAIL_LENGTH, "email")
     assertBounded(body, MAX_LEAD_BODY_LENGTH, "body")
     if (subject) assertBounded(subject, MAX_LEAD_SUBJECT_LENGTH, "subject")
+    if (phone) assertBounded(phone, MAX_LEAD_PHONE_LENGTH, "phone")
     if (!looksLikeEmail(email)) throw new ConvexError({ code: "INVALID_EMAIL" })
+    const geo = leadGeoPatch({ ip: args.ip, country: args.country, city: args.city })
 
     const now = Date.now()
-    // L'email fait l'identité : quelqu'un qui réécrit ne crée pas une
-    // seconde carte à côté de la sienne.
-    const existing = await ctx.db
-      .query("leads")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .unique()
+    // E-mail d'abord, sinon IP : quelqu'un qui a déjà parlé au chat sans
+    // laisser d'adresse ne crée pas une seconde carte quand il écrit ici.
+    // L'IP est toujours écrite, même si l'e-mail était déjà connu.
+    const existing = await resolveLeadIdentity(ctx, { email, ...geo })
 
     let leadId: Id<"leads">
     if (existing === null) {
       leadId = await ctx.db.insert("leads", {
         name,
         email,
+        phone,
         status: "new",
+        source: "contact",
         lastMessageAt: now,
         messageCount: 1,
+        ...geo,
       })
       // Le plancher de l'historique. C'est sa présence — et rien d'autre —
       // qui permet à `timeline` de distinguer « il ne s'est rien passé »
@@ -161,10 +172,18 @@ export const submit = mutation({
       await ctx.db.patch(leadId, {
         // Le nom de la fiche est conservé : c'est celui que l'équipe a déjà
         // sous les yeux, et un formulaire re-rempli à la va-vite ne doit pas
-        // renommer un contact connu.
+        // renommer un contact connu. Sauf une fiche encore anonyme
+        // (« Visiteur ») : le formulaire donne enfin un vrai nom.
+        // Le téléphone, lui, se met à jour seulement s'il est renseigné.
         status: "new",
         lastMessageAt: now,
         messageCount: existing.messageCount + 1,
+        // Une relance est quelque chose qui n'a pas encore été ouvert.
+        seenAt: undefined,
+        ...(phone ? { phone } : {}),
+        ...(!existing.email ? { email } : {}),
+        ...(existing.name === ANON_LEAD_NAME ? { name } : {}),
+        ...geo,
       })
       // Une relance ramène la fiche en tête, donc dans la colonne Nouveau.
       // C'est un vrai changement de colonne — celui qu'on voit se produire
@@ -203,6 +222,7 @@ export const submit = mutation({
       leadId,
       name,
       email,
+      phone,
       subject,
       body,
       messageCount,
@@ -213,6 +233,15 @@ export const submit = mutation({
     // panne de Resend, une clé absente, un domaine non vérifié — rien de
     // tout cela ne doit faire disparaître un message qu'une personne a
     // pris la peine d'écrire.
+    const candidats = await listerCandidats(ctx)
+    await ecrireCloches(ctx, {
+      cle: "leadNotification",
+      titre: "Nouveau message de contact",
+      leadId,
+      exclus: [],
+      candidats,
+    })
+
     await ctx.scheduler.runAfter(0, internal.leads.notifyStaff, {
       name,
       email,
@@ -283,15 +312,15 @@ export type LeadTimeline = {
   complete: boolean
 }
 
+function isLeadStatus(value: string): value is LeadStatus {
+  return (LEAD_STATUSES as readonly string[]).includes(value)
+}
+
 // À date égale — deux écritures d'une même mutation partagent la
 // milliseconde — c'est ce rang qui décide, et non l'ordre d'arrivée dans
 // la boucle. Une relance produit d'un seul coup le retour en colonne
 // Nouveau et le message : « a écrit » se lit au-dessus de « repassé en
 // Nouveau », parce que le second est la conséquence du premier.
-function isLeadStatus(value: string): value is LeadStatus {
-  return (LEAD_STATUSES as readonly string[]).includes(value)
-}
-
 const RANG: Record<LeadTimelineEntry["kind"], number> = {
   created: 0,
   chat_started: 0,
@@ -394,11 +423,29 @@ export const newCount = query({
   args: {},
   handler: async (ctx): Promise<number> => {
     await requireRole(ctx, ["owner", "admin", "editor"])
-    const waiting = await ctx.db
-      .query("leads")
-      .withIndex("by_status", (q) => q.eq("status", "new"))
-      .collect()
-    return waiting.length
+    // Nouveau = pas encore ouvert, quelle que soit la colonne.
+    const all = await ctx.db.query("leads").collect()
+    return all.filter((lead) => lead.seenAt === undefined).length
+  },
+})
+
+export const marquerVu = mutation({
+  args: { id: v.id("leads") },
+  handler: async (ctx, args): Promise<null> => {
+    // Jeton Convex, pas `safeGetAuthUser` : ce hop a déjà fait tomber
+    // l'ouverture sous le plafond de 1 s du composant Better Auth.
+    await requireRoleFromIdentity(ctx, ["owner", "admin", "editor"])
+    const lead = await ctx.db.get(args.id)
+    if (lead === null) throw new ConvexError({ code: "NOT_FOUND" })
+    // Le premier regard compte : rouvrir la fiche ne recule pas l'horloge.
+    if (lead.seenAt === undefined) {
+      await ctx.db.patch(args.id, { seenAt: Date.now() })
+    }
+    // Même source de vérité que le point « nouveau » : voir la fiche
+    // retire les cloches liées, y compris celles déjà posées pour un
+    // autre compte — le lead n'est plus nouveau.
+    await marquerLuesPourLead(ctx, args.id)
+    return null
   },
 })
 
@@ -497,6 +544,22 @@ MUTATION_REGISTRY.push(
     },
   },
   {
+    name: "leads.marquerVu",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: async (t) => {
+      const id = await t.run((ctx: any) =>
+        ctx.db.insert("leads", {
+          name: "Registre",
+          email: `registry-vu-${Date.now()}-${Math.random()}@example.com`,
+          status: "new",
+          lastMessageAt: Date.now(),
+          messageCount: 1,
+        }),
+      )
+      return t.mutation(api.leads.marquerVu, { id })
+    },
+  },
+  {
     // Supprimer est réservé : un éditeur classe, il n'efface pas ce qu'un
     // visiteur a écrit.
     name: "leads.remove",
@@ -536,6 +599,7 @@ export const deliverWebhook = internalAction({
     leadId: v.id("leads"),
     name: v.string(),
     email: v.string(),
+    phone: v.optional(v.string()),
     subject: v.optional(v.string()),
     body: v.string(),
     messageCount: v.number(),
@@ -553,6 +617,7 @@ export const deliverWebhook = internalAction({
         id: args.leadId,
         name: args.name,
         email: args.email,
+        phone: args.phone ?? null,
         subject: args.subject ?? null,
         message: args.body,
         messageCount: args.messageCount,
@@ -735,7 +800,10 @@ export const notifyStaff = internalAction({
     const cleResend = await lireSecret(ctx, "RESEND_API_KEY")
     if (!cleResend) return null
 
-    const recipients = await ctx.runQuery(internal.leads.staffRecipients, {})
+    const recipients = await ctx.runQuery(internal.notifications.destinatairesPourEmail, {
+      cle: "leadNotification",
+      exclus: [],
+    })
     if (recipients.length === 0) return null
 
     // Le domaine déclaré depuis `/settings/domaine` l'emporte sur
@@ -748,6 +816,8 @@ export const notifyStaff = internalAction({
     )
     if (!siteUrl) throw new Error("SITE_URL is not set on this Convex deployment")
     const link = `${siteUrl}/leads`
+    const settings = await ctx.runQuery(api.settings.get, {})
+    const nomDuSite = settings?.siteName || "AstroTan"
 
     const name = singleLine(args.name)
     const subject = args.subject ? singleLine(args.subject) : "(sans sujet)"
@@ -772,6 +842,8 @@ export const notifyStaff = internalAction({
       sujet: subject,
       message: args.body,
       lien: link,
+      url: link,
+      nom_du_site: nomDuSite,
     }
 
     // La relance est composée AUTOUR du gabarit, jamais dedans, et c'est le
@@ -817,7 +889,8 @@ export const notifyStaff = internalAction({
     // la différence du `sendEmail` un par un juste en dessous, qui lui sert
     // une vraie raison (ne pas révéler à chacun la liste des autres).
     const expediteur = await resoudreExpediteur(ctx)
-    for (const to of recipients) {
+    for (const dest of recipients) {
+      const to = dest.email
       // Un email par destinataire, pas un seul avec plusieurs `to` : une
       // notification interne n'a pas à révéler à chacun la liste des
       // adresses des autres.
@@ -837,7 +910,7 @@ export const notifyStaff = internalAction({
         html,
         text,
         // Répondre à cet email, c'est répondre à la personne qui a écrit.
-        replyTo: [args.email],
+        ...(args.email.length > 0 ? { replyTo: [args.email] } : {}),
       })
     }
 

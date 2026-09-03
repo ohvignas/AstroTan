@@ -3,6 +3,7 @@ import { action } from "./_generated/server"
 import { api } from "./_generated/api"
 import { requireRole } from "./lib/authz"
 import { MUTATION_REGISTRY } from "./_registry"
+import { pingOpenRouter } from "./lib/openrouter"
 import { MAX_SECRET_LENGTH } from "./secrets"
 
 // ---------------------------------------------------------------------
@@ -117,13 +118,11 @@ async function essayerResend(valeur: string): Promise<Issue> {
  * un compte et un mot de passe. Aucun des trois ne s'essaie seul — un
  * mot de passe sans l'URL ni le compte ne désigne rien à interroger — et
  * les essayer ensemble supposerait un formulaire qui les enregistre
- * ensemble, ce que cet écran ne fait pas. `OPENROUTER_API_KEY` est
- * vérifiable (`GET https://openrouter.ai/api/v1/key`, 200 ou 401) et
- * n'est pas ici non plus : aucune fonction de ce dépôt ne lit encore
- * cette clé, et le premier appelant sera mieux placé pour l'ajouter.
+ * ensemble, ce que cet écran ne fait pas.
  */
 const VERIFICATEURS: Record<string, Verificateur> = {
   RESEND_API_KEY: { service: "Resend", essayer: essayerResend },
+  OPENROUTER_API_KEY: { service: "OpenRouter", essayer: pingOpenRouter },
 }
 
 /**

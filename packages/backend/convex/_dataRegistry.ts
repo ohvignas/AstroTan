@@ -49,6 +49,7 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
   leadEvents: { declaredAs: "Suivre, dans l'administration, le traitement d'une demande" },
   chatSessions: { declaredAs: "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande" },
   chatPresence: { declaredAs: "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande" },
+  chatFiles: { declaredAs: "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande" },
   consentRecords: { declaredAs: "Enregistrer le choix exprimé sur les cookies" },
 
   // ── Les comptes d'administration ─────────────────────────────────────
@@ -57,6 +58,8 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
   user: { declaredAs: "Gérer les comptes de l'administration" },
   account: { declaredAs: "Gérer les comptes de l'administration" },
   profiles: { declaredAs: "Gérer les comptes de l'administration" },
+  notificationPrefs: { declaredAs: "Gérer les comptes de l'administration" },
+  notifications: { declaredAs: "Gérer les comptes de l'administration" },
   session: { declaredAs: "Ouvrir une session d'administration, et protéger cet accès" },
   invitations: { declaredAs: "Inviter une personne à rejoindre l'administration" },
   // Était exemptée, au motif que « rien n'y écrit jamais ». Ce motif est
@@ -89,6 +92,14 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
   // jamais exemptée : un champ qui désigne quelqu'un suffit.
   emailTemplates: { declaredAs: "Savoir qui a publié, modifié ou téléversé quoi" },
   auditLog: { declaredAs: "Savoir qui a changé un rôle, un accès ou un réglage" },
+  // `createdBy` désigne qui a frappé le jeton. Le hash n'est pas personnel.
+  apiTokens: { declaredAs: "Savoir qui a publié, modifié ou téléversé quoi" },
+  // Le composant `@convex-dev/rag` (tables hors de ce schéma) n'indexe que
+  // ces fichiers et les pages publiées — jamais un fil visiteur.
+  agentKnowledgeFiles: { declaredAs: "Savoir qui a publié, modifié ou téléversé quoi" },
+  mcpServers: { declaredAs: "Savoir qui a publié, modifié ou téléversé quoi" },
+  mcpSecrets: { declaredAs: "Savoir qui a publié, modifié ou téléversé quoi" },
+  agentPreviewSessions: { declaredAs: "Gérer les comptes de l'administration" },
 
   // ── Exemptées, et pourquoi ───────────────────────────────────────────
   tags: {
@@ -119,6 +130,11 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
   seoSiteBacklinks: {
     exempt:
       "Compteurs de backlinks du domaine. Singleton site, aucun auteur.",
+  },
+  seoSiteHistory: {
+    exempt:
+      "Série temporelle des relevés SEO du site (position, backlinks, " +
+      "mots-clés). Aucun visiteur, aucun cookie, aucune personne.",
   },
   jwks: {
     exempt:
@@ -282,4 +298,6 @@ export const AUDIT_CIBLE_NATURE: Record<AuditAction, CibleNatureName> = {
   "emailTemplate.reset": "titreDEmail",
   "settings.update": "aucune",
   "emailDomain.declare": "nomDeDomaine",
+  "apiToken.generate": "nomDeJeton",
+  "apiToken.revoke": "nomDeJeton",
 }

@@ -8,6 +8,7 @@ import {
   consentActionValidator,
 } from "./validators"
 import { geoValidator, seoValidator } from "./content"
+import { postWorkingCopyValidator } from "./lib/postWorkingCopy"
 import { auditActionValidator } from "./lib/auditEvent"
 
 // `seoValidator`/`geoValidator` live in `content.ts`, alongside the length
@@ -127,6 +128,9 @@ export default defineSchema({
     targetKeyword: v.optional(v.string()),
     publishedAt: v.optional(v.number()),
     tagIds: v.array(v.id("tags")),
+    // Expand : copie de travail d'un article déjà publié. Les champs live
+    // restent la version publique ; `getPublishedPost` ne lit jamais ceci.
+    workingCopy: v.optional(postWorkingCopyValidator),
     createdBy: v.string(),
     updatedBy: v.string(),
   })
@@ -151,12 +155,15 @@ export default defineSchema({
   // débit et détient un secret partagé. Le navigateur n'écrit jamais ici.
   //
   // Une personne, pas un message : quelqu'un qui réécrit ne crée pas une
-  // seconde carte. Sa fiche garde son nom, ses messages s'ajoutent dans
+  // seconde carte. L'identité se résout d'abord sur l'e-mail, sinon sur
+  // l'IP. Sa fiche garde son nom, ses messages s'ajoutent dans
   // `leadMessages`, et elle repasse en tête du tableau — parce qu'il y a de
   // nouveau quelque chose à traiter.
   leads: defineTable({
     name: v.string(),
-    email: v.string(),
+    // Expand : une conversation chat crée la fiche dès qu'on a l'IP, avant
+    // tout e-mail. Les fiches déjà en base gardent leur adresse.
+    email: v.optional(v.string()),
     // Expand : facultatif, pour que les fiches déjà en base restent valides.
     phone: v.optional(v.string()),
     status: leadStatusValidator,
@@ -165,18 +172,29 @@ export default defineSchema({
     // décide de l'ordre de la colonne, pas l'ancienneté.
     lastMessageAt: v.number(),
     messageCount: v.number(),
+    // Expand : « nouveau » = jamais ouvert. Absent sur les fiches déjà
+    // en base, et c'est exactement le cas « pas encore vu ».
+    seenAt: v.optional(v.number()),
     threadId: v.optional(v.string()),
     controller: v.optional(v.union(v.literal("ai"), v.literal("staff"))),
     visitorLastSeenAt: v.optional(v.number()),
     source: v.optional(v.union(v.literal("contact"), v.literal("chat"))),
+    // Expand : IP et geo posées à la création / à l'attache e-mail, côté
+    // serveur (route Astro). Jamais un champ public spoofable. L'e-mail
+    // ne dispense pas de les écrire : c'est l'IP qui relie une session
+    // anonyme à la fiche plus tard.
+    ip: v.optional(v.string()),
+    country: v.optional(v.string()),
+    city: v.optional(v.string()),
   })
-    // L'unicité se joue sur l'email : c'est ce qui fait qu'un habitué reste
-    // une seule carte. Convex n'a pas de contrainte d'unicité — cet index
-    // est ce qui rend la vérification possible avant écriture.
+    // Résolution : e-mail d'abord, sinon IP. Convex n'a pas de contrainte
+    // d'unicité — ces index rendent la vérification possible avant écriture.
     .index("by_email", ["email"])
+    .index("by_ip", ["ip"])
     // Une colonne du tableau se lit par ce couple : son statut, et le plus
     // récent en tête.
-    .index("by_status", ["status", "lastMessageAt"]),
+    .index("by_status", ["status", "lastMessageAt"])
+    .index("by_thread", ["threadId"]),
 
   // Ce qu'une personne a écrit, une ligne par envoi.
   //
@@ -222,7 +240,7 @@ export default defineSchema({
       v.literal("handover"),
     ),
     // Le couple qui manquait. `from` absent sur `created` : rien ne
-    // précède la création. Élargi à ai/staff pour les événements handover.
+    // précède la création.
     from: v.optional(v.union(leadStatusValidator, v.literal("ai"), v.literal("staff"))),
     to: v.optional(v.union(leadStatusValidator, v.literal("ai"), v.literal("staff"))),
     // Le message que cet événement accompagne. Le CORPS n'est pas recopié
@@ -422,10 +440,33 @@ export default defineSchema({
     // seulement. L'absence vaut Google France (2250 / "fr").
     serpLocationCode: v.optional(v.number()),
     serpLanguageCode: v.optional(v.string()),
+
+    // Modèle OpenRouter pour la génération SEO/GEO. Pas un secret, pas
+    // public — `getPrivate` seulement. L'absence vaut GPT-4o mini.
+    openRouterModel: v.optional(v.string()),
+    // Modèle image OpenRouter (couverture d'article). Même règle : privé,
+    // allowlist, expand-only. L'absence vaut Gemini 3 Pro Image.
+    openRouterImageModel: v.optional(v.string()),
+    // Modèle chat qui porte la requête OCR (moteur file-parser `mistral-ocr`).
+    // Expand-only. L'absence vaut Gemini 2.5 Flash.
+    openRouterOcrModel: v.optional(v.string()),
     agentEnabled: v.optional(v.boolean()),
     agentDisplayName: v.optional(v.string()),
     agentInstructions: v.optional(v.string()),
     agentKnowledge: v.optional(v.string()),
+    // Expand : l'URL publique se calcule dans `settings.get`, ce n'est
+    // pas un secret. L'absence vaut l'asset commité `/agent-avatar.png`.
+    agentAvatarMediaId: v.optional(v.id("_storage")),
+    // Expand : chrome du widget (FAB, envoi, accents). Hex, pas un secret.
+    // L'absence vaut le noir actuel du chrome isolé.
+    agentChatColor: v.optional(v.string()),
+    // Expand : texte de la bulle à côté du FAB. Vide = pas de bulle.
+    agentTeaser: v.optional(v.string()),
+    googleCalendarClientId: v.optional(v.string()),
+    googleCalendarId: v.optional(v.string()),
+    // Expand : e-mail (ou id) du compte Google lié. Pas un secret.
+    // Jamais dans settings.get. Lu par connectors.googleStatus.
+    googleCalendarEmail: v.optional(v.string()),
   }),
 
   // Les jetons saisis depuis l'écran des réglages — CHIFFRÉS, jamais en
@@ -534,6 +575,7 @@ export default defineSchema({
     // est un défaut d'accessibilité qu'aucune interface ne rattrape, et un
     // champ qu'on peut remplir plus tard n'est jamais rempli.
     alt: v.string(),
+    title: v.optional(v.string()),
     size: v.number(),
     createdBy: v.string(),
   })
@@ -633,8 +675,62 @@ export default defineSchema({
     fetchedAt: v.number(),
   }),
 
+  // Une ligne par fetch site (cron du lundi + Relever). Expand : les
+  // snapshots restent le courant ; l'historique s'ajoute, il ne les
+  // remplace pas. Un point unique ne fait pas une courbe — il s'affiche
+  // comme un point, sans interpolation inventée entre deux lundis.
+  seoSiteHistory: defineTable({
+    metric: v.union(
+      v.literal("position"),
+      v.literal("backlinks"),
+      v.literal("keywords"),
+    ),
+    value: v.number(),
+    fetchedAt: v.number(),
+  }).index("by_metric_fetched_at", ["metric", "fetchedAt"]),
+
+  // Préférences personnelles de notification. L'absence de ligne EST le
+  // défaut (cloche ouverte, e-mail selon le rôle et la clé) — même idée
+  // que l'absence de ligne dans `emailTemplates`. Unicité (authUserId, cle)
+  // tenue par la mutation, pas par un index unique.
+  notificationPrefs: defineTable({
+    authUserId: v.string(),
+    cle: v.union(v.literal("leadNotification"), v.literal("postPublished")),
+    cloche: v.boolean(),
+    email: v.boolean(),
+    majAt: v.number(),
+  })
+    .index("by_user_cle", ["authUserId", "cle"])
+    .index("by_user", ["authUserId"]),
+
+  // Lignes de cloche. `titre` est un libellé d'équipe figé à l'écriture,
+  // pas le corps du message. Exactement un de `leadId` / `postId`, celui
+  // de la `cle`. Pas de champ `href` : la route se dérive.
+  notifications: defineTable({
+    authUserId: v.string(),
+    cle: v.union(v.literal("leadNotification"), v.literal("postPublished")),
+    titre: v.string(),
+    leadId: v.optional(v.id("leads")),
+    postId: v.optional(v.id("posts")),
+    readAt: v.optional(v.number()),
+  })
+    .index("by_user", ["authUserId"])
+    .index("by_lead", ["leadId"])
+    .index("by_post", ["postId"]),
+
+  // Jeton Bearer de l'API REST. Le clair n'est montré qu'une fois, à la
+  // génération ; ici le SHA-256 et `last3` (jamais le jeton entier).
+  // Jamais un champ de `settings` — `settings.get` est publique.
+  apiTokens: defineTable({
+    tokenHash: v.string(),
+    last3: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+  }).index("by_token_hash", ["tokenHash"]),
+
   chatSessions: defineTable({
-    leadId: v.id("leads"),
+    // Expand : une session peut exister avant toute fiche lead.
+    leadId: v.optional(v.id("leads")),
     threadId: v.string(),
     tokenHash: v.string(),
     expiresAt: v.number(),
@@ -648,4 +744,73 @@ export default defineSchema({
     actorId: v.string(),
     lastSeenAt: v.number(),
   }).index("by_thread", ["threadId"]),
+
+  // Fichiers du fil (visiteur ou conseiller). Expand : table neuve.
+  // L'URL se calcule à la lecture (`storage.getUrl`) — on ne la stocke pas.
+  chatFiles: defineTable({
+    threadId: v.string(),
+    messageId: v.string(),
+    storageId: v.id("_storage"),
+    filename: v.string(),
+    mime: v.string(),
+    size: v.number(),
+  })
+    .index("by_thread", ["threadId"])
+    .index("by_message", ["messageId"]),
+
+  // Documents de la base de savoir de l'agent. `extractedMarkdown` est le
+  // texte injecté dans le prompt. `createdBy` désigne l'opérateur.
+  agentKnowledgeFiles: defineTable({
+    storageId: v.id("_storage"),
+    mediaId: v.optional(v.id("media")),
+    filename: v.string(),
+    mimeType: v.string(),
+    extractedMarkdown: v.string(),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    // Expand : l'absence vaut « extraction en cours ou jamais tentée ».
+    extractError: v.optional(v.string()),
+    // Expand : progression OCR par lots. L'absence vaut « pas d'OCR en cours ».
+    ocrPage: v.optional(v.number()),
+    ocrTotal: v.optional(v.number()),
+    // Expand : statut d'index RAG. L'absence vaut « jamais indexé ».
+    indexStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("indexed"), v.literal("error")),
+    ),
+    indexError: v.optional(v.string()),
+    indexedAt: v.optional(v.number()),
+  }).index("by_storage", ["storageId"]),
+
+  // Fil de test staff, jetable, sans fiche lead. Un par utilisateur.
+  mcpServers: defineTable({
+    name: v.string(),
+    transport: v.union(v.literal("http"), v.literal("sse")),
+    url: v.string(),
+    enabled: v.boolean(),
+    createdBy: v.string(),
+    authorizeUrl: v.optional(v.string()),
+    // Expand : session OAuth MCP (PKCE + client DCR), chiffrée. Jamais listée.
+    oauthState: v.optional(v.string()),
+    oauthIv: v.optional(v.bytes()),
+    oauthChiffre: v.optional(v.bytes()),
+    oauthExpiresAt: v.optional(v.number()),
+  })
+    .index("by_enabled", ["enabled"])
+    .index("by_oauth_state", ["oauthState"]),
+
+  mcpSecrets: defineTable({
+    serverId: v.id("mcpServers"),
+    iv: v.bytes(),
+    chiffre: v.bytes(),
+    majPar: v.string(),
+    majAt: v.number(),
+  }).index("by_server", ["serverId"]),
+
+  agentPreviewSessions: defineTable({
+    threadId: v.string(),
+    userId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_thread", ["threadId"]),
 })

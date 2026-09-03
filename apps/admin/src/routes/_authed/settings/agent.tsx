@@ -1,13 +1,22 @@
-import { useState } from "react"
-import { Link, createFileRoute } from "@tanstack/react-router"
+import { useEffect, useState } from "react"
+import { createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
+import { Zap } from "lucide-react"
 import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
+import { AgentConnectorsRow } from "@/components/agent-connectors-row"
+import { AgentIdentityFields } from "@/components/agent-identity-fields"
+import { AgentKnowledgeFiles } from "@/components/agent-knowledge-files"
+import { AgentPreviewBubble } from "@/components/agent-preview-bubble"
+import { Button } from "@/components/ui/button"
+import { OcrModelSelect } from "@/components/ocr-model-select"
+import { AiPage } from "@/components/settings-environment"
+import { DEFAULT_AGENT_CHAT_COLOR } from "@astrotan/backend/convex/lib/agentChatAppearance"
 import {
-  MAX_AGENT_DISPLAY_NAME,
-  MAX_AGENT_INSTRUCTIONS,
-  MAX_AGENT_KNOWLEDGE,
-} from "@astrotan/backend/convex/content"
+  DEFAULT_AGENT_INSTRUCTIONS,
+  hasAuthoredAgentInstructions,
+} from "@astrotan/backend/convex/lib/defaultAgentInstructions"
 import { describeSettingsError } from "@/lib/settingsErrors"
 import { useAutoSave } from "@/components/save-bar"
 import { SettingsGroup } from "@/components/settings-nav"
@@ -16,12 +25,14 @@ import {
   SettingsLoading,
   useSecretsAccess,
 } from "@/components/settings-page"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
 
 export const Route = createFileRoute("/_authed/settings/agent")({
+  validateSearch: (search: Record<string, unknown>): { calendar?: "ok" | "erreur" } => ({
+    calendar:
+      search.calendar === "ok" || search.calendar === "erreur"
+        ? search.calendar
+        : undefined,
+  }),
   component: AgentRoute,
 })
 
@@ -31,45 +42,61 @@ type Secrets = NonNullable<ReturnType<typeof useSecretsAccess>["secrets"]>
 function AgentRoute() {
   const { loading, canWrite, secrets } = useSecretsAccess()
   const settings = useQuery(api.settings.getPrivate)
+  const calendar = Route.useSearch().calendar
   if (loading || secrets === undefined || settings === undefined) {
     return <SettingsLoading />
   }
-  return <AgentForm canWrite={canWrite} secrets={secrets} settings={settings} />
+  return (
+    <AgentForm
+      canWrite={canWrite}
+      secrets={secrets}
+      settings={settings}
+      calendar={calendar}
+    />
+  )
 }
 
 function AgentForm({
   canWrite,
   secrets,
   settings,
+  calendar,
 }: {
   canWrite: boolean
   secrets: Secrets
   settings: Settings
+  calendar?: "ok" | "erreur"
 }) {
   const updateAgent = useMutation(api.settings.updateAgent)
-  const [agentEnabled, setAgentEnabled] = useState(
-    settings?.agentEnabled === true,
+  const update = useMutation(api.settings.update)
+  const ensureInstructions = useMutation(api.settings.ensureDefaultAgentInstructions)
+  const [agentEnabled, setAgentEnabled] = useState(settings?.agentEnabled === true)
+  const [agentDisplayName, setAgentDisplayName] = useState(settings?.agentDisplayName ?? "")
+  const [agentInstructions, setAgentInstructions] = useState(() => {
+    const fromServer = settings?.agentInstructions
+    return hasAuthoredAgentInstructions(fromServer)
+      ? fromServer
+      : DEFAULT_AGENT_INSTRUCTIONS
+  })
+  const [agentAvatarMediaId, setAgentAvatarMediaId] = useState<Id<"_storage"> | null>(
+    settings?.agentAvatarMediaId ?? null,
   )
-  const [agentDisplayName, setAgentDisplayName] = useState(
-    settings?.agentDisplayName ?? "",
+  const [agentChatColor, setAgentChatColor] = useState(
+    settings?.agentChatColor ?? DEFAULT_AGENT_CHAT_COLOR,
   )
-  const [agentInstructions, setAgentInstructions] = useState(
-    settings?.agentInstructions ?? "",
-  )
-  const [agentKnowledge, setAgentKnowledge] = useState(
-    settings?.agentKnowledge ?? "",
-  )
-
-  const autoFields = {
-    agentEnabled,
-    agentDisplayName,
-    agentInstructions,
-    agentKnowledge,
-  }
+  const [agentTeaser, setAgentTeaser] = useState(settings?.agentTeaser ?? "")
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   const autoSave = useAutoSave({
     enabled: canWrite,
-    auto: autoFields,
+    auto: {
+      agentEnabled,
+      agentDisplayName,
+      agentInstructions,
+      agentAvatarMediaId,
+      agentChatColor,
+      agentTeaser,
+    },
     manual: {},
     saveAuto: async (auto) => {
       await updateAgent(auto)
@@ -80,83 +107,101 @@ function AgentForm({
     describeError: describeSettingsError,
   })
 
-  const openRouterMissing =
-    secrets.etats.OPENROUTER_API_KEY?.source === "aucune"
+  useEffect(() => {
+    if (hasAuthoredAgentInstructions(settings?.agentInstructions)) return
+    if (!canWrite) return
+    let cancelled = false
+    void ensureInstructions({}).then((text) => {
+      if (cancelled || typeof text !== "string") return
+      setAgentInstructions((current) =>
+        hasAuthoredAgentInstructions(current) ? current : text,
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [canWrite, settings?.agentInstructions, ensureInstructions])
 
   return (
-    <SettingsFormShell
-      to="/settings/agent"
-      canWrite={canWrite}
-      autoSave={autoSave}
-      unsavedLabel="L'affichage, le nom ou les consignes de l'agent"
-    >
-      {openRouterMissing ? (
-        <p className="max-w-prose text-sm text-muted-foreground">
-          Sans clé OpenRouter, la bulle affichera que l'assistant est
-          indisponible.{" "}
-          <Link to="/settings/ia" className="underline">
-            Configurer la clé sur l'écran IA
-          </Link>
-          .
-        </p>
-      ) : null}
-
-      <SettingsGroup>
-        <Field orientation="horizontal">
-          <Switch
-            id="agent-enabled"
-            checked={agentEnabled}
-            disabled={!canWrite}
-            onCheckedChange={(checked) => setAgentEnabled(checked === true)}
+    <>
+      <SettingsFormShell
+        to="/settings/agent"
+        canWrite={canWrite}
+        autoSave={autoSave}
+        unsavedLabel="L'affichage, le nom ou les consignes de l'agent"
+      >
+        <SettingsGroup
+          title="Identité de l'agent"
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              aria-label="Tester"
+              onClick={() => setPreviewOpen(true)}
+            >
+              <Zap data-icon="inline-start" />
+              Tester
+            </Button>
+          }
+        >
+          <AgentIdentityFields
+            canWrite={canWrite}
+            agentEnabled={agentEnabled}
+            agentDisplayName={agentDisplayName}
+            agentInstructions={agentInstructions}
+            agentAvatarMediaId={agentAvatarMediaId}
+            agentChatColor={agentChatColor}
+            agentTeaser={agentTeaser}
+            onEnabledChange={setAgentEnabled}
+            onDisplayNameChange={setAgentDisplayName}
+            onInstructionsChange={setAgentInstructions}
+            onAvatarChange={setAgentAvatarMediaId}
+            onChatColorChange={setAgentChatColor}
+            onTeaserChange={setAgentTeaser}
           />
-          <FieldLabel htmlFor="agent-enabled">
-            Afficher la bulle sur le site
-          </FieldLabel>
-        </Field>
+          <div className="grid gap-3">
+            <h3 className="font-heading text-sm font-medium">Base de savoir</h3>
+            <AgentKnowledgeFiles disabled={!canWrite} />
+          </div>
+          <div className="grid gap-3">
+            <div className="flex flex-col gap-1">
+              <h3 className="font-heading text-sm font-medium">Applications</h3>
+              <p className="text-sm text-muted-foreground">
+                L'agent n'utilise un agenda que si un compte est lié.
+              </p>
+            </div>
+            <AgentConnectorsRow
+              canWrite={canWrite}
+              secrets={secrets}
+              calendar={calendar}
+              declaredDomain={settings?.declaredDomain ?? null}
+            />
+          </div>
+        </SettingsGroup>
 
-        <Field>
-          <FieldLabel htmlFor="agent-display-name">Nom d'affichage</FieldLabel>
-          <Input
-            id="agent-display-name"
-            autoComplete="off"
-            value={agentDisplayName}
-            maxLength={MAX_AGENT_DISPLAY_NAME}
-            disabled={!canWrite}
-            onChange={(event) => setAgentDisplayName(event.target.value)}
+        <AiPage
+          secrets={secrets}
+          canWrite={canWrite}
+          openRouterModel={settings?.openRouterModel ?? null}
+          openRouterImageModel={settings?.openRouterImageModel ?? null}
+          onSaveModel={(id) => update({ openRouterModel: id })}
+          onSaveImageModel={(id) => update({ openRouterImageModel: id })}
+        >
+          <OcrModelSelect
+            canWrite={canWrite}
+            openRouterOcrModel={settings?.openRouterOcrModel ?? null}
+            onSave={(id) => update({ openRouterOcrModel: id })}
           />
-          <FieldDescription>
-            {agentDisplayName.length}/{MAX_AGENT_DISPLAY_NAME}
-          </FieldDescription>
-        </Field>
-
-        <Field>
-          <FieldLabel htmlFor="agent-instructions">Instructions</FieldLabel>
-          <Textarea
-            id="agent-instructions"
-            value={agentInstructions}
-            maxLength={MAX_AGENT_INSTRUCTIONS}
-            disabled={!canWrite}
-            onChange={(event) => setAgentInstructions(event.target.value)}
-          />
-          <FieldDescription>
-            {agentInstructions.length}/{MAX_AGENT_INSTRUCTIONS}
-          </FieldDescription>
-        </Field>
-
-        <Field>
-          <FieldLabel htmlFor="agent-knowledge">Base de savoir</FieldLabel>
-          <Textarea
-            id="agent-knowledge"
-            value={agentKnowledge}
-            maxLength={MAX_AGENT_KNOWLEDGE}
-            disabled={!canWrite}
-            onChange={(event) => setAgentKnowledge(event.target.value)}
-          />
-          <FieldDescription>
-            {agentKnowledge.length}/{MAX_AGENT_KNOWLEDGE}
-          </FieldDescription>
-        </Field>
-      </SettingsGroup>
-    </SettingsFormShell>
+        </AiPage>
+      </SettingsFormShell>
+      <AgentPreviewBubble
+        avatarUrl={settings?.agentAvatarUrl ?? null}
+        color={agentChatColor}
+        teaser={agentTeaser}
+        agentName={agentDisplayName}
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+      />
+    </>
   )
 }

@@ -2,6 +2,7 @@ export const prerender = false
 
 import type { APIRoute } from "astro"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import { getConvexClient } from "../../../lib/convexClient"
 import {
   guardWrite,
@@ -29,6 +30,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!session.ok) return session.response
 
   const body = stringField(payload, "body")
+  const storageId = stringField(payload, "storageId")
+  const filename = stringField(payload, "filename")
+  const mime = stringField(payload, "mime")
   const origin = await visitorOrigin({ request, clientAddress }, gate.secret)
 
   try {
@@ -37,6 +41,13 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       token,
       body,
       origin,
+      ...(storageId.length > 0
+        ? {
+            storageId: storageId as Id<"_storage">,
+            filename: filename || "image",
+            ...(mime.length > 0 ? { mime } : {}),
+          }
+        : {}),
     })
     return json({ ok: true, ...result })
   } catch (error) {

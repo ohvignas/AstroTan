@@ -1,6 +1,7 @@
 import { components } from "../_generated/api"
 import type { Id } from "../_generated/dataModel"
 import type { MutationCtx } from "../_generated/server"
+import { supprimerPourLead } from "./notifier"
 
 /**
  * Ce qui part avec une fiche de contact — la fiche, ses messages, son
@@ -64,12 +65,22 @@ export async function deleteLeadCascade(
       .withIndex("by_thread", (q) => q.eq("threadId", threadId))
       .collect()
     for (const row of presence) await ctx.db.delete(row._id)
+    const files = await ctx.db
+      .query("chatFiles")
+      .withIndex("by_thread", (q) => q.eq("threadId", threadId))
+      .collect()
+    for (const file of files) {
+      await ctx.storage.delete(file.storageId)
+      await ctx.db.delete(file._id)
+    }
     // `@convex-dev/agent@0.7.1` n'a pas `deleteThreadsByUserId`.
     // `deleteAllForThreadIdAsync` planifie : les tests avancent les minuteurs.
     await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
       threadId,
     })
   }
+
+  await supprimerPourLead(ctx, leadId)
 
   await ctx.db.delete(leadId)
   return { messages: messages.length, events: events.length }

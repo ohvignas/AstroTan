@@ -2,6 +2,7 @@ import { defineConfig, memoryCache } from "astro/config"
 import node from "@astrojs/node"
 import react from "@astrojs/react"
 import tailwindcss from "@tailwindcss/vite"
+import { fileURLToPath } from "node:url"
 
 // Spec §6.1 — the exact configuration the publication loop (Task 6/7) depends
 // on. `output: 'static'` prerenders everything by default; individual CMS
@@ -74,5 +75,10 @@ export default defineConfig({
 
   vite: {
     plugins: [tailwindcss()],
+    resolve: {
+      alias: {
+        "@": fileURLToPath(new URL("./src", import.meta.url)),
+      },
+    },
   },
 })

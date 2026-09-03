@@ -1,96 +1,173 @@
-import { MAX_LEAD_BODY_LENGTH } from "@astrotan/backend/convex/content"
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { listChatMessages, sendChatMessage } from "./chatApi"
+import { pingChatPresence, sendChatWithOptionalFile, startChat } from "./chatApi"
+import { chatFileApiError, chatFileClientError, type ChatFileRef } from "./chatFile"
+import { ChatEmailCard } from "./ChatEmailCard"
+import { ChatWidget } from "./ChatWidget"
 import {
-  EMPTY_THREAD_PROMPT,
   bannerForCode,
+  browserSessionStorage,
   fieldMessage,
-  initialPollState,
+  isEmptyThread,
   isSessionCode,
-  reducePoll,
-  type DisplayedMessage,
+  presenceIntervalMs,
+  readChatOpened,
+  readEmailAttached,
+  readEmailDismissed,
+  readEmailGateOpened,
+  shouldShowEmailCard,
+  writeChatOpened,
+  writeEmailAttached,
+  writeEmailDismissed,
+  writeEmailGateOpened,
 } from "./chatWidgetState"
+import { useStaffUnread } from "./chatUnread"
+import { useChatPoll, useDocumentHidden } from "./useChatPoll"
 
 type Props = {
   token: string
+  onStarted: (token: string) => void
   onSessionLost: () => void
+  avatarUrl: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  color?: string | null
+  teaser?: string | null
+  agentName?: string | null
 }
 
-export function ChatThread({ token, onSessionLost }: Props) {
-  const [poll, setPoll] = useState(initialPollState)
-  const [body, setBody] = useState("")
+export function ChatThread({
+  token,
+  onStarted,
+  onSessionLost,
+  avatarUrl,
+  open,
+  onOpenChange,
+  color,
+  teaser,
+  agentName,
+}: Props) {
   const [pending, setPending] = useState(false)
-  const [banner, setBanner] = useState<string | null>(null)
+  const hidden = useDocumentHidden()
+  const { messages, banner, setBanner, setOptimistic, staffOnline } =
+    useChatPoll(token, onSessionLost, open, pending)
+  const unreadCount = useStaffUnread(open, messages, token)
+  const [body, setBody] = useState("")
   const [bodyError, setBodyError] = useState<string | null>(null)
-  const [optimistic, setOptimistic] = useState<DisplayedMessage[]>([])
-  const listRef = useRef<HTMLDivElement>(null)
-  const pollRef = useRef(poll)
-  pollRef.current = poll
+  const resetGen = useRef(0)
+  const sendingRef = useRef(false)
+  const [dismissed, setDismissed] = useState(() =>
+    readEmailDismissed(browserSessionStorage(), token),
+  )
+  const [emailAttached, setEmailAttached] = useState(() =>
+    readEmailAttached(browserSessionStorage(), token),
+  )
+  const [opened, setOpened] = useState(() =>
+    readEmailGateOpened(browserSessionStorage(), token),
+  )
+  const [hasOpened, setHasOpened] = useState(() => readChatOpened(browserSessionStorage()))
 
   useEffect(() => {
+    setDismissed(readEmailDismissed(browserSessionStorage(), token))
+    setEmailAttached(token.length === 0 ? false : readEmailAttached(browserSessionStorage(), token))
+    // Strictement le jeton courant : `current || stored` recyclait la porte
+    // ouverte de l'ancien fil après Réinitialiser.
+    setOpened(token.length === 0 ? false : readEmailGateOpened(browserSessionStorage(), token))
+    setHasOpened(readChatOpened(browserSessionStorage()))
+  }, [token])
+
+  useEffect(() => {
+    const interval = presenceIntervalMs({ open, hidden })
+    if (interval == null || token.length === 0) return
     let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-
-    async function tick() {
-      const current = pollRef.current
-      try {
-        const result = await listChatMessages(token, current.streamArgs)
-        if (cancelled) return
-        if (!result.ok) {
-          if (isSessionCode(result.code)) {
-            onSessionLost()
-            return
-          }
-          setBanner(bannerForCode(result.code) ?? "L'assistant est indisponible.")
-          timer = setTimeout(() => void tick(), current.intervalMs)
-          return
-        }
-        setBanner(null)
-        const next = reducePoll(current, result.data)
-        pollRef.current = next
-        setPoll(next)
-        setOptimistic((pending) =>
-          pending.filter(
-            (local) =>
-              !next.messages.some(
-                (message) => message.role === local.role && message.text === local.text,
-              ),
-          ),
-        )
-        timer = setTimeout(() => void tick(), next.intervalMs)
-      } catch {
-        if (cancelled) return
-        setBanner("L'assistant est indisponible.")
-        timer = setTimeout(() => void tick(), current.intervalMs)
-      }
+    async function beat() {
+      const result = await pingChatPresence(token)
+      if (cancelled) return
+      if (!result.ok && isSessionCode(result.code)) onSessionLost()
     }
-
-    timer = setTimeout(() => void tick(), 0)
+    void beat()
+    const id = window.setInterval(() => void beat(), interval)
     return () => {
       cancelled = true
-      if (timer) clearTimeout(timer)
+      window.clearInterval(id)
     }
-  }, [token, onSessionLost])
+  }, [token, onSessionLost, open, hidden])
+
+  const showEmail = shouldShowEmailCard({
+    hasUserMessage: messages.some((message) => message.role === "user"),
+    emailAttached,
+    dismissed,
+    opened,
+  })
 
   useEffect(() => {
-    listRef.current?.lastElementChild?.scrollIntoView({ block: "end" })
-  }, [poll.messages, optimistic])
+    if (!showEmail || token.length === 0) return
+    if (messages.every((message) => message.role !== "user")) return
+    if (!opened) setOpened(true)
+    writeEmailGateOpened(browserSessionStorage(), token)
+  }, [showEmail, opened, token, messages])
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (sendingRef.current) return
     setBanner(null)
     setBodyError(null)
     const text = body.trim()
-    if (text.length === 0) {
-      setBodyError("Écrivez un message.")
+    const media = (event.currentTarget.elements.namedItem("media") as HTMLInputElement | null)
+      ?.files?.[0]
+    if (media) {
+      const fileError = chatFileClientError(media)
+      if (fileError) {
+        setBodyError(fileError)
+        return
+      }
+    }
+    if (text.length === 0 && !media) {
+      setBodyError("Écrivez un message ou ajoutez une image.")
       return
     }
+    sendingRef.current = true
+    const siteWeb = String(new FormData(event.currentTarget).get("site_web") ?? "")
+    const localId = `local-${Date.now()}`
+    const gen = resetGen.current
+    const localFile: ChatFileRef | undefined = media
+      ? { url: URL.createObjectURL(media), filename: media.name, mime: media.type }
+      : undefined
+    setOptimistic((current) => [
+      ...current,
+      { id: localId, role: "user", text, ...(localFile ? { file: localFile } : {}) },
+    ])
     setPending(true)
+    setBody("")
     try {
-      const result = await sendChatMessage(token, text)
+      let session = token
+      if (session.length === 0) {
+        const started = await startChat({ site_web: siteWeb })
+        if (gen !== resetGen.current) return
+        if (!started.ok) {
+          setOptimistic((current) => current.filter((message) => message.id !== localId))
+          setBanner(bannerForCode(started.code) ?? "L'assistant est indisponible.")
+          return
+        }
+        const next = started.data.token
+        if (typeof next !== "string" || next.length === 0) {
+          setOptimistic((current) => current.filter((message) => message.id !== localId))
+          setBanner("L'assistant est indisponible.")
+          return
+        }
+        session = next
+        onStarted(session)
+      }
+      const result = await sendChatWithOptionalFile(session, text, media)
+      if (gen !== resetGen.current) return
       if (!result.ok) {
+        setOptimistic((current) => current.filter((message) => message.id !== localId))
         if (isSessionCode(result.code)) {
           onSessionLost()
+          return
+        }
+        const fileMsg = chatFileApiError(result.code)
+        if (fileMsg) {
+          setBodyError(fileMsg)
           return
         }
         const field = fieldMessage(result.code, "thread")
@@ -99,65 +176,76 @@ export function ChatThread({ token, onSessionLost }: Props) {
           return
         }
         setBanner(bannerForCode(result.code) ?? "L'assistant est indisponible.")
-        return
       }
-      setOptimistic((current) => [
-        ...current,
-        { id: `local-${Date.now()}`, role: "user", text },
-      ])
-      setBody("")
     } catch {
+      setOptimistic((current) => current.filter((message) => message.id !== localId))
       setBanner("L'assistant est indisponible.")
     } finally {
-      setPending(false)
+      if (gen === resetGen.current) {
+        sendingRef.current = false
+        setPending(false)
+      }
     }
   }
 
-  const messages = optimistic.length > 0 ? [...poll.messages, ...optimistic] : poll.messages
+  function onReset() {
+    resetGen.current += 1
+    sendingRef.current = false
+    setBody("")
+    setBodyError(null)
+    setPending(false)
+    setBanner(null)
+    setOptimistic([])
+    setDismissed(false)
+    setEmailAttached(false)
+    setOpened(false)
+    setHasOpened(false)
+    onSessionLost()
+  }
 
   return (
-    <div className="chat-widget__thread">
-      {banner ? (
-        <p className="chat-widget__banner" role="alert">
-          {banner}
-        </p>
-      ) : null}
-      <div className="chat-widget__log" ref={listRef}>
-        {messages.length === 0 ? (
-          <p className="chat-widget__empty">{EMPTY_THREAD_PROMPT}</p>
-        ) : (
-          messages.map((message) => (
-            <p
-              key={message.id}
-              className={
-                message.role === "user" ? "chat-widget__bubble chat-widget__bubble--me" : "chat-widget__bubble"
-              }
-              data-streaming={message.streaming ? "true" : undefined}
-              {...(message.streaming ? { "aria-live": "polite" as const } : {})}
-            >
-              {message.text}
-            </p>
-          ))
-        )}
-      </div>
-      <form className="chat-widget__composer" onSubmit={(event) => void onSubmit(event)}>
-        <label className="chat-widget__sr" htmlFor="chat-widget-body">
-          Votre message
-        </label>
-        <textarea
-          id="chat-widget-body"
-          name="body"
-          rows={2}
-          maxLength={MAX_LEAD_BODY_LENGTH}
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          placeholder="Votre message"
-        />
-        {bodyError ? <span className="chat-widget__error">{bodyError}</span> : null}
-        <button type="submit" className="chat-widget__submit" disabled={pending}>
-          {pending ? "Envoi…" : "Envoyer"}
-        </button>
-      </form>
-    </div>
+    <ChatWidget
+      open={open}
+      onOpenChange={(next) => {
+        if (next) {
+          writeChatOpened(browserSessionStorage())
+          setHasOpened(true)
+        }
+        onOpenChange(next)
+      }}
+      hasOpened={hasOpened}
+      avatarUrl={avatarUrl}
+      placement="site"
+      color={color}
+      teaser={teaser}
+      unreadCount={unreadCount}
+      agentName={agentName}
+      banner={banner}
+      staffOnline={staffOnline}
+      isEmpty={isEmptyThread({ messages, pending })}
+      onReset={onReset}
+      messages={messages}
+      pending={pending}
+      body={body}
+      bodyError={bodyError}
+      onBodyChange={setBody}
+      onSubmit={(event) => void onSubmit(event)}
+      composerDisabled={showEmail}
+      overlay={
+        showEmail ? (
+          <ChatEmailCard
+            token={token}
+            onAttached={() => {
+              writeEmailAttached(browserSessionStorage(), token)
+              setEmailAttached(true)
+            }}
+            onIgnore={() => {
+              writeEmailDismissed(browserSessionStorage(), token)
+              setDismissed(true)
+            }}
+          />
+        ) : null
+      }
+    />
   )
 }

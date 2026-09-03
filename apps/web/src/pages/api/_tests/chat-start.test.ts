@@ -67,6 +67,59 @@ describe("POST /api/chat/start", () => {
     expect(mutation).not.toHaveBeenCalled()
   })
 
+  test("avec e-mail, transmet quand même l'IP et le pays — l'e-mail ne skip pas l'IP", async () => {
+    const request = new Request("http://localhost/api/chat/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-ipcountry": "FR" },
+      body: JSON.stringify({ email: "ada@exemple.fr", name: "Ada" }),
+    })
+    const response = await POST({
+      request,
+      clientAddress: "203.0.113.42",
+    } as unknown as APIContext)
+
+    expect(response.status).toBe(200)
+    expect(mutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        email: "ada@exemple.fr",
+        ip: "203.0.113.42",
+        country: "FR",
+      }),
+    )
+  })
+
+  test("transmet l'IP de confiance à start", async () => {
+    const request = new Request("http://localhost/api/chat/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-ipcountry": "FR" },
+      body: JSON.stringify({}),
+    })
+    const response = await POST({
+      request,
+      clientAddress: "203.0.113.42",
+    } as unknown as APIContext)
+
+    expect(response.status).toBe(200)
+    expect(mutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        ip: "203.0.113.42",
+        country: "FR",
+      }),
+    )
+  })
+
+  test("sans e-mail, la mutation part sans champ email", async () => {
+    const response = await POST(fakeContext({ body: {} }))
+
+    expect(response.status).toBe(200)
+    expect(mutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ email: expect.anything() }),
+    )
+  })
+
   test("un pot de miel rempli répond { ok: true } sans appeler Convex", async () => {
     const response = await POST(
       fakeContext({ body: { email: "bot@exemple.fr", site_web: "https://spam.test" } }),

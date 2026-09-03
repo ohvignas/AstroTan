@@ -1,16 +1,19 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
+import { convexTest } from "convex-test"
 import { Resend } from "@convex-dev/resend"
 import { api, components } from "./_generated/api"
+import { MAX_LEAD_PHONE_LENGTH } from "./content"
+import schema from "./schema"
 import {
   ORIGIN,
   identityFor,
   makeTestConvex,
+  modules,
   seedUser,
   signIn,
 } from "../testing/betterAuthFixture"
 import type { TestConvex } from "convex-test"
 import type { LeadTimelineEntry } from "./leads"
-import type schema from "./schema"
 import { SECRETS_KEY_VAR } from "./lib/secretsCrypto"
 
 const SECRET = "un-secret-partage-de-plus-de-32-caracteres"
@@ -23,6 +26,7 @@ beforeEach(() => {
   process.env.SITE_URL = ORIGIN
   process.env.PREVIEW_SECRET = "test-preview-secret-please-do-not-use-in-prod-x"
   process.env.LEAD_SUBMIT_SECRET = SECRET
+  process.env.CHAT_SESSION_SECRET = "c".repeat(32)
   // `finishAllScheduledFunctions` fait avancer les minuteurs : sans cette
   // ligne, il lève « timers APIs are not mocked » et le webhook ne peut
   // pas être exercé du tout.
@@ -94,7 +98,98 @@ test("un message crée une fiche et son premier message", async () => {
     name: "Camille Dupont",
     email: "camille@example.com",
     messageCount: 1,
+    source: "contact",
   })
+  expect(board.new[0]!.phone).toBeUndefined()
+})
+
+test("submit rattache un e-mail à la fiche chat déjà ouverte sur cette IP", async () => {
+  const t = makeTestConvex()
+  process.env.CHAT_SESSION_SECRET = "c".repeat(32)
+  const started = await t.mutation(api.chat.start, {
+    secret: SECRET,
+    origin: "ii".repeat(32),
+    ip: "203.0.113.42",
+    country: "FR",
+  })
+  await t.mutation(api.leads.submit, {
+    ...MESSAGE,
+    email: "apres-chat@example.com",
+    ip: "203.0.113.42",
+    country: "FR",
+  })
+  const leads = await t.run((ctx) => ctx.db.query("leads").collect())
+  expect(leads).toHaveLength(1)
+  expect(leads[0]?._id).toBe(started.leadId)
+  expect(leads[0]).toMatchObject({
+    email: "apres-chat@example.com",
+    ip: "203.0.113.42",
+    country: "FR",
+    name: "Camille Dupont",
+  })
+})
+
+test("submit conserve IP et geo de confiance", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+
+  await t.mutation(api.leads.submit, {
+    ...MESSAGE,
+    ip: "203.0.113.42",
+    country: "fr",
+    city: "Lyon",
+  })
+
+  const board = await admin.query(api.leads.board, {})
+  expect(board.new[0]).toMatchObject({
+    ip: "203.0.113.42",
+    country: "FR",
+    city: "Lyon",
+    source: "contact",
+  })
+})
+
+test("un téléphone saisi est conservé sur la fiche", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+
+  await t.mutation(api.leads.submit, { ...MESSAGE, phone: "06 12 34 56 78" })
+
+  const board = await admin.query(api.leads.board, {})
+  expect(board.new[0]).toMatchObject({
+    email: "camille@example.com",
+    phone: "06 12 34 56 78",
+  })
+})
+
+test("un téléphone d'espaces n'est pas stocké", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+
+  await t.mutation(api.leads.submit, { ...MESSAGE, phone: "   " })
+
+  const board = await admin.query(api.leads.board, {})
+  expect(board.new[0]!.phone).toBeUndefined()
+})
+
+test("une relance met à jour le téléphone seulement s'il est renseigné", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+
+  await t.mutation(api.leads.submit, { ...MESSAGE, phone: "06 12 34 56 78" })
+  await t.mutation(api.leads.submit, { ...MESSAGE, body: "Je relance." })
+
+  const afterFirst = await admin.query(api.leads.board, {})
+  expect(afterFirst.new[0]!.phone).toBe("06 12 34 56 78")
+
+  await t.mutation(api.leads.submit, {
+    ...MESSAGE,
+    body: "Nouveau numéro.",
+    phone: "+33 6 98 76 54 32",
+  })
+
+  const afterUpdate = await admin.query(api.leads.board, {})
+  expect(afterUpdate.new[0]!.phone).toBe("+33 6 98 76 54 32")
 })
 
 test("réécrire ne crée pas une seconde carte, et remet la fiche en tête", async () => {
@@ -135,6 +230,16 @@ test("les bornes et l'adresse sont vérifiées côté serveur", async () => {
   await expect(
     t.mutation(api.leads.submit, { ...MESSAGE, body: "   " }),
   ).rejects.toThrow(/EMPTY/)
+  await expect(
+    t.mutation(api.leads.submit, {
+      ...MESSAGE,
+      phone: "x".repeat(MAX_LEAD_PHONE_LENGTH + 1),
+    }),
+  ).rejects.toThrow(/TOO_LONG/)
+  await t.mutation(api.leads.submit, {
+    ...MESSAGE,
+    phone: "x".repeat(MAX_LEAD_PHONE_LENGTH),
+  })
 })
 
 test("lire, déplacer et supprimer exigent une session", async () => {
@@ -147,7 +252,7 @@ test("lire, déplacer et supprimer exigent une session", async () => {
   await expect(t.query(api.leads.newCount, {})).rejects.toThrow()
 })
 
-test("le compteur ne compte que la première colonne", async () => {
+test("le compteur nouveau compte les fiches jamais ouvertes, pas la colonne", async () => {
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
 
@@ -156,7 +261,124 @@ test("le compteur ne compte que la première colonne", async () => {
   expect(await admin.query(api.leads.newCount, {})).toBe(2)
 
   const board = await admin.query(api.leads.board, {})
+  // Déplacer sans ouvrir ne fait pas disparaître « nouveau » : nouveau,
+  // c'est pas encore ouvert, pas la colonne du tableau.
   await admin.mutation(api.leads.move, { id: board.new[0]!._id, status: "contacted" })
+  expect(await admin.query(api.leads.newCount, {})).toBe(2)
+
+  await admin.mutation(api.leads.marquerVu, { id: board.new[0]!._id })
+  expect(await admin.query(api.leads.newCount, {})).toBe(1)
+})
+
+test("ouvrir une fiche pose seenAt et la retire du compteur", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+
+  const id = (await admin.query(api.leads.board, {})).new[0]!._id
+  await admin.mutation(api.leads.marquerVu, { id })
+
+  const seen = (await admin.query(api.leads.board, {})).new[0]!
+  expect(seen.seenAt).toEqual(expect.any(Number))
+  expect(await admin.query(api.leads.newCount, {})).toBe(0)
+})
+
+test("marquerVu est idempotent : le premier seenAt reste", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+  const id = (await admin.query(api.leads.board, {})).new[0]!._id
+
+  await admin.mutation(api.leads.marquerVu, { id })
+  const premier = (await admin.query(api.leads.board, {})).new[0]!.seenAt
+  vi.advanceTimersByTime(5_000)
+  await admin.mutation(api.leads.marquerVu, { id })
+  expect((await admin.query(api.leads.board, {})).new[0]!.seenAt).toBe(premier)
+})
+
+test("marquerVu s'autorise sur le jeton Convex, sans hop Better Auth", async () => {
+  const t = convexTest(schema, modules)
+  const id = await t.run((ctx) =>
+    ctx.db.insert("leads", {
+      name: "Anna",
+      email: "anna@example.com",
+      status: "new",
+      lastMessageAt: Date.now(),
+      messageCount: 1,
+    }),
+  )
+  const asAdmin = t.withIdentity({
+    subject: "u_admin",
+    role: "admin",
+    email: "admin@example.com",
+  })
+  await asAdmin.mutation(api.leads.marquerVu, { id })
+  const seen = await t.run((ctx) => ctx.db.get(id))
+  expect(seen?.seenAt).toEqual(expect.any(Number))
+})
+
+test("marquerVu exige une session et refuse une fiche absente", async () => {
+  const t = makeTestConvex()
+  await t.mutation(api.leads.submit, MESSAGE)
+  const id = await t.run(async (ctx) => {
+    const lead = await ctx.db.query("leads").first()
+    return lead!._id
+  })
+
+  await expect(t.mutation(api.leads.marquerVu, { id })).rejects.toThrow()
+  const admin = await seedActor(t, "admin")
+  await t.run(async (ctx) => {
+    await ctx.db.delete(id)
+  })
+  await expect(admin.mutation(api.leads.marquerVu, { id })).rejects.toThrow(/NOT_FOUND/)
+})
+
+test("marquerVu marque lues les cloches de ce leadId, pas les autres", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.mutation(api.leads.submit, { ...MESSAGE, email: "autre@example.com" })
+
+  const [premier, second] = await t.run(async (ctx) => {
+    const leads = await ctx.db.query("leads").collect()
+    const byEmail = Object.fromEntries(leads.map((lead) => [lead.email, lead._id]))
+    return [byEmail["camille@example.com"]!, byEmail["autre@example.com"]!] as const
+  })
+
+  await admin.mutation(api.leads.marquerVu, { id: premier })
+
+  const cloches = await t.run((ctx) => ctx.db.query("notifications").collect())
+  const duPremier = cloches.filter((c) => c.leadId === premier)
+  const duSecond = cloches.filter((c) => c.leadId === second)
+  expect(duPremier.length).toBeGreaterThan(0)
+  expect(duPremier.every((c) => c.readAt !== undefined)).toBe(true)
+  expect(duSecond.length).toBeGreaterThan(0)
+  expect(duSecond.every((c) => c.readAt === undefined)).toBe(true)
+
+  const { lignes } = await admin.query(api.notifications.liste, {})
+  expect(lignes.every((l) => l.leadId !== premier)).toBe(true)
+})
+
+test("lire le tableau ne pose pas seenAt", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+
+  await admin.query(api.leads.board, {})
+  await admin.query(api.leads.newCount, {})
+  expect((await admin.query(api.leads.board, {})).new[0]!.seenAt).toBeUndefined()
+})
+
+test("une relance efface seenAt : il y a de nouveau quelque chose à ouvrir", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+  const id = (await admin.query(api.leads.board, {})).new[0]!._id
+  await admin.mutation(api.leads.marquerVu, { id })
+  expect(await admin.query(api.leads.newCount, {})).toBe(0)
+
+  await t.mutation(api.leads.submit, { ...MESSAGE, body: "Je relance." })
+  expect((await admin.query(api.leads.board, {})).new[0]!.seenAt).toBeUndefined()
   expect(await admin.query(api.leads.newCount, {})).toBe(1)
 })
 
@@ -235,7 +457,28 @@ test("l'envoi est signé, et ne part pas sans configuration", async () => {
   expect(appels[0]!.signature).toMatch(/^[0-9a-f]{64}$/)
   expect(JSON.parse(appels[0]!.corps)).toMatchObject({
     type: "lead.created",
-    lead: { email: "autre@example.com", name: "Camille Dupont" },
+    lead: {
+      email: "autre@example.com",
+      name: "Camille Dupont",
+      phone: null,
+    },
+  })
+
+  await t.mutation(api.leads.submit, {
+    ...MESSAGE,
+    email: "avec-tel@example.com",
+    phone: "06 12 34 56 78",
+  })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(appels).toHaveLength(2)
+  expect(JSON.parse(appels[1]!.corps)).toMatchObject({
+    type: "lead.created",
+    lead: {
+      email: "avec-tel@example.com",
+      name: "Camille Dupont",
+      phone: "06 12 34 56 78",
+    },
   })
 })
 
@@ -789,4 +1032,72 @@ test("la mention de relance survit au passage par le gabarit", async () => {
   expect(envoyes).toHaveLength(3)
   expect(envoyes[2]!.text).toContain("3e message de cette personne.")
   expect(envoyes[2]!.text).toContain("Je relance encore.")
+})
+
+test("submit écrit une cloche pour owner, admin et editor ; e-mail seulement owner/admin", async () => {
+  const t = makeTestConvex()
+  process.env.RESEND_API_KEY = "re_test_key"
+  const envoyes = capturerLesEnvois()
+  const owner = await seedStaff(t, "owner", "patronne-cloche@example.com")
+  const admin = await seedStaff(t, "admin", "admin-cloche@example.com")
+  const editor = await seedStaff(t, "editor", "editrice-cloche@example.com")
+
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  const cloches = await t.run((ctx) => ctx.db.query("notifications").collect())
+  expect(cloches.map((c) => c.authUserId).sort()).toEqual([owner.id, admin.id, editor.id].sort())
+  expect(cloches.every((c) => c.titre === "Nouveau message de contact")).toBe(true)
+  expect(cloches.every((c) => c.leadId !== undefined)).toBe(true)
+  expect(envoyes.map((e) => e.to).sort()).toEqual([
+    "admin-cloche@example.com",
+    "patronne-cloche@example.com",
+  ])
+})
+
+test("un editor qui coche e-mail reçoit le prochain submit", async () => {
+  const t = makeTestConvex()
+  process.env.RESEND_API_KEY = "re_test_key"
+  const envoyes = capturerLesEnvois()
+  const editorUser = await seedStaff(t, "editor", "editrice-pref@example.com")
+  await seedStaff(t, "owner", "patronne-pref@example.com")
+  await signIn(t, "editrice-pref@example.com", "correct horse battery staple staff")
+  const editor = await identityFor(t, editorUser.id)
+  await editor.mutation(api.notifications.setPrefs, {
+    cle: "leadNotification",
+    cloche: true,
+    email: true,
+  })
+
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+  expect(envoyes.map((e) => e.to).sort()).toEqual([
+    "editrice-pref@example.com",
+    "patronne-pref@example.com",
+  ])
+})
+
+test("gabarit inactif : cloches présentes, zéro sendEmail", async () => {
+  const t = makeTestConvex()
+  process.env.RESEND_API_KEY = "re_test_key"
+  const envoyes = capturerLesEnvois()
+  const owner = await seedActor(t, "owner")
+  await owner.mutation(api.emails.setActif, { cle: "leadNotification", actif: false })
+  await t.mutation(api.leads.submit, MESSAGE)
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+  expect(envoyes).toHaveLength(0)
+  const cloches = await t.run((ctx) => ctx.db.query("notifications").collect())
+  expect(cloches.length).toBeGreaterThan(0)
+})
+
+test("leads.remove efface les cloches by_lead", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await t.mutation(api.leads.submit, MESSAGE)
+  const board = await admin.query(api.leads.board, {})
+  const leadId = board.new[0]!._id
+  expect((await t.run((ctx) => ctx.db.query("notifications").collect())).length).toBeGreaterThan(0)
+  await admin.mutation(api.leads.remove, { id: leadId })
+  expect(await t.run((ctx) => ctx.db.query("notifications").collect())).toEqual([])
 })

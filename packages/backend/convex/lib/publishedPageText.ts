@@ -1,19 +1,10 @@
+import { htmlToMainMarkdown } from "./cleanDocumentForRag"
 import { publicUrl } from "./publicPath"
 
 export const MAX_PUBLISHED_PAGE_CHARS = 8_000
 
 export function extractTextFromHtml(html: string): string {
-  const stripped = html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-  return stripped.replace(/\s+/g, " ").trim()
+  return htmlToMainMarkdown(html)
 }
 
 export function publishedPageUrl(

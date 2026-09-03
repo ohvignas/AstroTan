@@ -26,10 +26,13 @@ import { TABLE_COVERAGE } from "./_dataRegistry"
 //
 // CE QU'IL NE VOIT PAS, et il faut le dire pour que l'absence se relise :
 // les tables des composants Convex tiers (`@convex-dev/rate-limiter`,
-// `@convex-dev/resend`) ont leur propre schéma, hors de ces deux fichiers.
-// Les compteurs du limiteur portent une clé `${ip}:${email}` et sont
-// couverts à la main par la ligne « Ouvrir une session d'administration ».
-// Un troisième composant stockant des personnes ne serait pas signalé ici.
+// `@convex-dev/resend`, `@convex-dev/agent`, `@convex-dev/rag`) ont leur
+// propre schéma, hors de ces deux fichiers. Les compteurs du limiteur
+// portent une clé `${ip}:${email}` et sont couverts à la main par la ligne
+// « Ouvrir une session d'administration ». Le composant agent porte le
+// transcript (cascade `deleteLeadCascade`). Le composant RAG n'indexe que
+// la base rédigée et les pages publiées — jamais un fil visiteur. Un
+// autre composant stockant des personnes ne serait pas signalé ici.
 // ---------------------------------------------------------------------
 
 function toutesLesTables(): string[] {

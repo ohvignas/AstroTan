@@ -1,5 +1,9 @@
 import { marked } from "marked"
 import { internalMutation } from "./_generated/server"
+import {
+  DEFAULT_AGENT_INSTRUCTIONS,
+  hasAuthoredAgentInstructions,
+} from "./lib/defaultAgentInstructions"
 
 // Demo content for a fresh install.
 //
@@ -240,9 +244,15 @@ export const demoContent = internalMutation({
       await ctx.db.insert("settings", {
         siteName: "AstroTan",
         homePageSlug: "accueil",
+        agentInstructions: DEFAULT_AGENT_INSTRUCTIONS,
       })
-    } else if (!settings.homePageSlug) {
-      await ctx.db.patch(settings._id, { homePageSlug: "accueil" })
+    } else {
+      const patch: { homePageSlug?: string; agentInstructions?: string } = {}
+      if (!settings.homePageSlug) patch.homePageSlug = "accueil"
+      if (!hasAuthoredAgentInstructions(settings.agentInstructions)) {
+        patch.agentInstructions = DEFAULT_AGENT_INSTRUCTIONS
+      }
+      if (Object.keys(patch).length > 0) await ctx.db.patch(settings._id, patch)
     }
 
     return { ...created, author }

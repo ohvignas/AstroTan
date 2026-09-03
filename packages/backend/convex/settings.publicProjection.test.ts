@@ -15,7 +15,6 @@ const AUTORISES = [
   "socials",
   "metaPixelId",
   "googleTagId",
-  "agentEnabled",
 ]
 
 // Les champs autorisés dans la projection du DASHBOARD. Les deux champs
@@ -39,10 +38,19 @@ const AUTORISES_PRIVE = [
   "googleTagId",
   "serpLocationCode",
   "serpLanguageCode",
+  "openRouterModel",
+  "openRouterImageModel",
+  "openRouterOcrModel",
   "agentEnabled",
   "agentDisplayName",
   "agentInstructions",
   "agentKnowledge",
+  "agentAvatarMediaId",
+  "agentAvatarUrl",
+  "agentChatColor",
+  "agentTeaser",
+  "googleCalendarClientId",
+  "googleCalendarId",
 ]
 
 // Toute la table, LUE DU SCHÉMA et non recopiée à la main — même motif que
@@ -92,10 +100,19 @@ async function semerLaLigneEntiere(t: TestConvex<typeof appSchema>) {
       googleTagId: "AW-999",
       serpLocationCode: 2250,
       serpLanguageCode: "fr",
+      openRouterModel: "openai/gpt-4o-mini",
+      openRouterImageModel: "google/gemini-3-pro-image",
+      openRouterOcrModel: "google/gemini-2.5-flash",
       agentEnabled: true,
       agentDisplayName: "Aide",
       agentInstructions: "Sois bref.",
       agentKnowledge: "Horaires : 9h-18h",
+      agentAvatarMediaId: await ctx.storage.store(new Blob(["avatar"])),
+      agentChatColor: "#f60f74",
+      agentTeaser: "Une question ?",
+      googleCalendarClientId: "sentinelle-google-client",
+      googleCalendarId: "primary",
+      googleCalendarEmail: "sentinelle-google-email@exemple.fr",
     }
     await ctx.db.insert("settings", ligne)
     return ligne
@@ -374,6 +391,35 @@ test("aucun champ de la table n'entre dans la projection publique sans être aut
   expect(rendu).not.toContain("hook.exemple.fr")
   expect(rendu).not.toContain("astrotan.exemple")
   expect(rendu).not.toContain("sentinelle.exemple.fr")
+  expect(rendu).not.toContain("sentinelle-google-email")
+})
+
+const AUTORISES_CHAT = [
+  "agentEnabled",
+  "agentDisplayName",
+  "agentAvatarMediaId",
+  "agentAvatarUrl",
+  "agentChatColor",
+  "agentTeaser",
+]
+
+test("chatAppearance ne rend que l'apparence du widget, sans secret", async () => {
+  const t = makeTestConvex()
+  await semerLaLigneEntiere(t)
+
+  const widget = await t.query(api.settings.chatAppearance, {})
+  expect(
+    Object.keys(widget ?? {}).sort(),
+    "`settings.chatAppearance` est publique : elle ne porte que ce que la " +
+      "bulle affiche. Un champ de plus est une fuite ; un champ de moins " +
+      "casse le widget.",
+  ).toEqual([...AUTORISES_CHAT].sort())
+  expect(JSON.stringify(widget)).not.toContain("sentinelle-secret-de-signature")
+  expect(JSON.stringify(widget)).not.toContain("Horaires : 9h-18h")
+  expect(widget?.agentEnabled).toBe(true)
+  expect(widget?.agentDisplayName).toBe("Aide")
+  expect(widget?.agentChatColor).toBe("#f60f74")
+  expect(widget?.agentTeaser).toBe("Une question ?")
 })
 
 // La même totalité côté dashboard. Le rôle y limite déjà les dégâts —

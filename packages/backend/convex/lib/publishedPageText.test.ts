@@ -25,7 +25,30 @@ test("extrait le texte et ignore scripts, styles et balises", () => {
       <p>Bonjour&nbsp;le&nbsp;monde</p>
     </body></html>
   `
-  expect(extractTextFromHtml(html)).toBe("Accueil Bonjour le monde")
+  expect(extractTextFromHtml(html)).toBe("# Accueil\n\nBonjour le monde")
+})
+
+test("nav, footer et bandeau cookies hors de <main> ne sont pas extraits", () => {
+  const html = `
+    <body>
+      <header><nav>Menu Accueil Contact</nav></header>
+      <main id="main-content">
+        <h1>Cabinet</h1>
+        <p>Nous recevons sur rendez-vous du lundi au vendredi.</p>
+      </main>
+      <footer>Mentions légales — © AstroTan</footer>
+      <div data-consent-banner>
+        <h2>Cookies et traceurs</h2>
+        <p>Ce site mesure son audience sans cookie.</p>
+      </div>
+    </body>
+  `
+  const text = extractTextFromHtml(html)
+  expect(text).toContain("# Cabinet")
+  expect(text).toContain("Nous recevons sur rendez-vous")
+  expect(text).not.toContain("Menu Accueil Contact")
+  expect(text).not.toContain("Mentions légales")
+  expect(text).not.toContain("Cookies et traceurs")
 })
 
 test("fetch 200 rend le texte, sans jeton preview", async () => {

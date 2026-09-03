@@ -23,6 +23,7 @@ import {
   requireOwnDocument,
   requirePublishedPageWritable,
   requireRole,
+  requireRoleFromIdentity,
 } from "./authz"
 import type { Role } from "../validators"
 import {
@@ -258,6 +259,55 @@ test("requireRole rejette un appel non authentifié avec le code UNAUTHENTICATED
   })
 })
 
+// Chemin léger : les claims du jeton Convex, sans `runQuery` vers le
+// composant Better Auth. Ces tests n'enregistrent PAS le composant — si
+// l'implémentation retombait sur `safeGetAuthUser`, ils échoueraient
+// (composant absent) au lieu de passer.
+describe("requireRoleFromIdentity", () => {
+  test("lit le rôle et l'email sur le jeton", async () => {
+    const t = convexTest(schema, modules)
+    const asAdmin = t.withIdentity({
+      subject: "u_admin",
+      role: "admin",
+      email: "admin@example.com",
+    })
+    await expect(
+      asAdmin.run((ctx) => requireRoleFromIdentity(ctx, ["owner", "admin", "editor"])),
+    ).resolves.toEqual({
+      _id: "u_admin",
+      role: "admin",
+      email: "admin@example.com",
+    })
+  })
+
+  test("refuse un rôle absent de la liste", async () => {
+    const t = convexTest(schema, modules)
+    const asEditor = t.withIdentity({ subject: "u_ed", role: "editor" })
+    await expect(
+      asEditor.run((ctx) => requireRoleFromIdentity(ctx, ["owner", "admin"])),
+    ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } })
+  })
+
+  test("refuse un compte banni via les claims", async () => {
+    const t = convexTest(schema, modules)
+    const asBanned = t.withIdentity({
+      subject: "u_ban",
+      role: "owner",
+      banned: true,
+    })
+    await expect(
+      asBanned.run((ctx) => requireRoleFromIdentity(ctx, ["owner"])),
+    ).rejects.toMatchObject({ data: { code: "BANNED" } })
+  })
+
+  test("refuse l'absence de jeton avec UNAUTHENTICATED", async () => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.run((ctx) => requireRoleFromIdentity(ctx, ["owner"])),
+    ).rejects.toMatchObject({ data: { code: "UNAUTHENTICATED" } })
+  })
+})
+
 // Chaque entrée du registre est exercée contre une *vraie* session Better
 // Auth pour chacun des trois rôles — pas contre une identité Convex nue
 // (`t.withIdentity({subject: ...})` sans rien derrière). Toute mutation
@@ -319,6 +369,40 @@ describe("matrice de permissions", () => {
             }),
             { status: 200, headers: { "content-type": "application/json" } },
           )
+        }
+        if (url.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ refresh_token: "refresh-registre" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+        }
+        if (url.includes("oauth-authorization-server")) {
+          return new Response(
+            JSON.stringify({
+              authorization_endpoint: "https://www.make.com/oauth/v2/authorize",
+              token_endpoint: "https://www.make.com/oauth/v2/token",
+              registration_endpoint: "https://www.make.com/oauth/v2/register/mcp",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          )
+        }
+        if (url.includes("oauth-protected-resource")) {
+          return new Response(JSON.stringify({ resource: "https://mcp.make.com/" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+        }
+        if (url.includes("/oauth/v2/register")) {
+          return new Response(
+            JSON.stringify({ client_id: "client-registre", client_secret: "secret-registre" }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          )
+        }
+        if (url.includes("/oauth/v2/token")) {
+          return new Response(JSON.stringify({ access_token: "access-registre" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
         }
         if (url.includes("openrouter.ai")) {
           return new Response(

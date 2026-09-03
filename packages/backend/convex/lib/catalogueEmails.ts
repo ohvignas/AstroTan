@@ -1,22 +1,26 @@
 // Le catalogue des emails que ce dépôt envoie, décrit à un seul endroit.
 //
-// Trois envois aujourd'hui : `invitations.sendInvitationEmail`,
-// `leads.notifyStaff`, et la réinitialisation de mot de passe
+// Quatre envois aujourd'hui : `invitations.sendInvitationEmail`,
+// `leads.notifyStaff`, la réinitialisation de mot de passe
 // (`passwordReset`) — le seul chemin de récupération d'un déploiement où
-// l'inscription est fermée. Better Auth n'envoie aucun de ces trois
-// lui-même — `auth.ts` ne monte ni `sendResetPassword`, ni
-// `emailVerification.sendVerificationEmail`, ni les plugins
-// `magicLink`/`emailOTP` ; son propre commentaire (ligne ~655) le dit déjà.
-// Un quatrième envoi qui apparaîtrait un jour dans le code sans être ajouté
-// ici ferait échouer le premier test de `catalogueEmails.test.ts` — c'est
-// voulu, c'est le rappel.
+// l'inscription est fermée — et `posts.notifyPublished` (`postPublished`).
+// Better Auth n'envoie aucun de ces quatre lui-même — `auth.ts` ne monte
+// ni `sendResetPassword`, ni `emailVerification.sendVerificationEmail`,
+// ni les plugins `magicLink`/`emailOTP` ; son propre commentaire (ligne
+// ~655) le dit déjà. Un cinquième envoi qui apparaîtrait un jour dans le
+// code sans être ajouté ici ferait échouer le premier test de
+// `catalogueEmails.test.ts` — c'est voulu, c'est le rappel.
 //
 // L'écran d'administration, sa validation et le rendu des gabarits lisent
 // tous `CATALOGUE` : ajouter un email un jour est UN endroit à modifier,
 // pas trois.
 
-/** Les trois emails que ce dépôt envoie, et rien d'autre. */
-export type CleEmail = "invitation" | "leadNotification" | "passwordReset"
+/** Les quatre emails que ce dépôt envoie, et rien d'autre. */
+export type CleEmail =
+  | "invitation"
+  | "leadNotification"
+  | "passwordReset"
+  | "postPublished"
 
 export interface DescriptionEmail {
   cle: CleEmail
@@ -79,9 +83,9 @@ export const CATALOGUE: readonly DescriptionEmail[] = [
     cle: "leadNotification",
     titre: "Nouveau message de contact",
     quand: "Quand quelqu'un envoie le formulaire de contact du site public.",
-    destinataire: "Chaque owner et admin du déploiement, un email par personne.",
+    destinataire: "Chaque compte qui a activé l'e-mail pour ce type, un e-mail par personne.",
     desactivable: true,
-    variables: ["nom", "email", "sujet", "message", "lien"],
+    variables: ["nom", "email", "sujet", "message", "lien", "nom_du_site", "url"],
     // Aucune obligatoire : la notification reste lisible amputée d'une
     // variable — contrairement au lien de l'invitation, rien ici n'ouvre
     // une porte que son absence fermerait.
@@ -137,6 +141,22 @@ export const CATALOGUE: readonly DescriptionEmail[] = [
       "Vous avez demandé la réinitialisation de votre mot de passe. " +
       "Cliquez sur ce lien pour en choisir un nouveau : {{lien}}",
   },
+  {
+    cle: "postPublished",
+    titre: "Un collègue a publié un article",
+    quand: "Quand un owner ou un admin publie un article qui n'était pas en ligne.",
+    destinataire:
+      "Chaque compte qui a activé l'e-mail pour ce type, sauf l'auteur et la personne qui publie.",
+    desactivable: true,
+    variables: ["nom_du_site", "url", "titre", "auteur"],
+    variablesObligatoires: [],
+    objetParDefaut: "{{auteur}} a publié « {{titre}} »",
+    corpsParDefaut: [
+      "{{auteur}} a publié « {{titre}} » sur {{nom_du_site}}.",
+      "",
+      "Ouvrir dans l'administration : {{url}}",
+    ].join("\n"),
+  },
 ]
 
 /**
@@ -165,6 +185,7 @@ export const CATALOGUE: readonly DescriptionEmail[] = [
  */
 export const VARIABLES_DE_CONFIANCE: Record<CleEmail, readonly string[]> = {
   invitation: ["lien"],
-  leadNotification: ["lien"],
+  leadNotification: ["lien", "url"],
   passwordReset: ["lien"],
+  postPublished: ["url"],
 }

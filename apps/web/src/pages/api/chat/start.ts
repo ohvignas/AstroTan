@@ -12,7 +12,7 @@ import {
   mapConvexError,
   readJson,
   stringField,
-  visitorOrigin,
+  visitorClient,
 } from "./_door"
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
@@ -25,14 +25,17 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
   const email = stringField(payload, "email")
   const name = stringField(payload, "name")
-  const origin = await visitorOrigin({ request, clientAddress }, gate.secret)
+  const client = await visitorClient({ request, clientAddress }, gate.secret)
 
   try {
     const result = await getConvexClient().mutation(api.chat.start, {
       secret: gate.secret,
-      origin,
-      email,
+      origin: client.origin,
+      ...(email.length > 0 ? { email } : {}),
       name: name.length > 0 ? name : undefined,
+      ip: client.ip,
+      country: client.country,
+      city: client.city,
     })
     return json({ ok: true, ...result })
   } catch (error) {

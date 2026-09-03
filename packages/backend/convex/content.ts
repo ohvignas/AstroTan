@@ -55,7 +55,13 @@ export const MAX_TAG_NAME_LENGTH = 50
 // this problem. `media.ts` re-exports all four.
 export const MAX_ALT_LENGTH = 300
 export const MAX_FILENAME_LENGTH = 255
+export const MAX_MEDIA_TITLE_LENGTH = 70
 export const MAX_MEDIA_SIZE_BYTES = 10 * 1024 * 1024
+
+// Chat : `generateUploadUrl` n'a pas de plafond de taille (timeout POST
+// 2 min). Les HTTP actions Convex coupent à 20 Mo — on ne les utilise
+// pas ici, pour afficher 500 Mo sans mentir.
+export const MAX_CHAT_FILE_BYTES = 500 * 1024 * 1024
 
 // Same reasoning once more, for `redirects.ts` — the redirects screen caps
 // its two path inputs at the number the mutation refuses past, and
@@ -273,6 +279,14 @@ export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
   lost: "Perdu",
 }
 
+export const LEAD_STATUS_EMPTY: Record<LeadStatus, string> = {
+  new: "Aucun contact en nouveau",
+  contacted: "Aucun contact en contacté",
+  qualified: "Aucun contact en qualifié",
+  won: "Aucun contact en gagné",
+  lost: "Aucun contact en perdu",
+}
+
 export const MAX_LEAD_NAME_LENGTH = 120
 export const MAX_LEAD_EMAIL_LENGTH = 254 // la limite d'une adresse (RFC 5321)
 export const MAX_LEAD_SUBJECT_LENGTH = 200
@@ -280,9 +294,31 @@ export const MAX_LEAD_BODY_LENGTH = 5_000
 // E.164 tient en 15 chiffres ; 32 laisse la place aux espaces, au « + »
 // et à un poste. Au-delà ce n'est plus un numéro qu'on rappellerait.
 export const MAX_LEAD_PHONE_LENGTH = 32
+export const MAX_LEAD_IP_LENGTH = 45
+export const MAX_LEAD_COUNTRY_LENGTH = 2
+export const MAX_LEAD_CITY_LENGTH = 80
 export const MAX_AGENT_DISPLAY_NAME = 80
+export const MAX_AGENT_CHAT_COLOR = 7
+export const MAX_AGENT_TEASER = 120
 export const MAX_AGENT_INSTRUCTIONS = 4_000
 export const MAX_AGENT_KNOWLEDGE = 20_000
+export const MAX_AGENT_KNOWLEDGE_FILE_MARKDOWN = 20_000
+export const MAX_AGENT_KNOWLEDGE_CONCAT = 40_000
+export const MAX_AGENT_KNOWLEDGE_FILES = 12
+export const MAX_GOOGLE_CLIENT_ID = 200
+export const MAX_GOOGLE_CALENDAR_ID = 200
+export const MAX_GOOGLE_CALENDAR_EMAIL = 254
+export const MAX_MCP_SERVER_NAME = 80
+export const MAX_MCP_SERVER_URL = 500
+export const MAX_MCP_AUTHORIZE_URL = 500
+export const CALENDAR_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
+export const ALLOWED_KNOWLEDGE_MIME_TYPES = [
+  "text/plain",
+  "text/markdown",
+  "text/x-markdown",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+] as const
 
 /**
  * Une validation d'adresse volontairement grossière.

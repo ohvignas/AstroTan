@@ -4,7 +4,8 @@ import { afterEach, beforeEach, expect, test } from "vitest"
 import schema from "./schema"
 import { api, internal } from "./_generated/api"
 import { MAX_SITE_NAME_LENGTH } from "./settings"
-import { MAX_AGENT_KNOWLEDGE } from "./content"
+import { MAX_AGENT_KNOWLEDGE, MAX_AGENT_TEASER } from "./content"
+import { DEFAULT_AGENT_INSTRUCTIONS } from "./lib/defaultAgentInstructions"
 import {
   ORIGIN,
   identityFor,
@@ -114,18 +115,24 @@ test("declaredDomain n'accepte qu'un hôte nu, et une chaîne vide l'efface", as
   expect((await owner.identity.query(api.settings.getPrivate, {}))?.declaredDomain).toBeNull()
 })
 
-test("settings.get ne porte ni serpLocationCode ni serpLanguageCode", async () => {
+test("settings.get ne porte ni serpLocationCode ni serpLanguageCode ni les modèles OpenRouter", async () => {
   const t = makeTestConvex()
   await t.run((ctx) =>
     ctx.db.insert("settings", {
       siteName: "AstroTan",
       serpLocationCode: 2250,
       serpLanguageCode: "fr",
+      openRouterModel: "openai/gpt-4o-mini",
+      openRouterImageModel: "google/gemini-3-pro-image",
+      openRouterOcrModel: "google/gemini-2.5-flash",
     }),
   )
   const pub = await t.query(api.settings.get, {})
   expect(pub).not.toHaveProperty("serpLocationCode")
   expect(pub).not.toHaveProperty("serpLanguageCode")
+  expect(pub).not.toHaveProperty("openRouterModel")
+  expect(pub).not.toHaveProperty("openRouterImageModel")
+  expect(pub).not.toHaveProperty("openRouterOcrModel")
 })
 
 test("un language_code hors [a-z]{2} lève INVALID_SERP_LOCALE", async () => {
@@ -142,6 +149,95 @@ test("un location_code ≤ 0 lève INVALID_SERP_LOCALE", async () => {
   await expect(
     owner.identity.mutation(api.settings.update, { serpLocationCode: 0 }),
   ).rejects.toMatchObject({ data: { code: "INVALID_SERP_LOCALE" } })
+})
+
+test("un location_code hors liste lève INVALID_SERP_LOCALE", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await expect(
+    owner.identity.mutation(api.settings.update, { serpLocationCode: 2840 }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_SERP_LOCALE" } })
+})
+
+test("un modèle OpenRouter hors liste lève INVALID_OPENROUTER_MODEL", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await expect(
+    owner.identity.mutation(api.settings.update, {
+      openRouterModel: "openai/gpt-nexiste-pas",
+    }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_OPENROUTER_MODEL" } })
+})
+
+test("un editor ne pose pas le modèle OpenRouter", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  await expect(
+    editor.identity.mutation(api.settings.update, {
+      openRouterModel: "x-ai/grok-4.6",
+    }),
+  ).rejects.toThrow()
+})
+
+test("getPrivate rend le modèle OpenRouter ; update l'écrit", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.update, { siteName: "AstroTan" })
+  expect((await owner.identity.query(api.settings.getPrivate, {}))?.openRouterModel).toBeNull()
+  await owner.identity.mutation(api.settings.update, {
+    openRouterModel: "anthropic/claude-opus-5",
+  })
+  expect((await owner.identity.query(api.settings.getPrivate, {}))?.openRouterModel).toBe(
+    "anthropic/claude-opus-5",
+  )
+})
+
+test("un modèle image hors liste lève INVALID_OPENROUTER_IMAGE_MODEL", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await expect(
+    owner.identity.mutation(api.settings.update, {
+      openRouterImageModel: "openai/gpt-image-2",
+    }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_OPENROUTER_IMAGE_MODEL" } })
+})
+
+test("getPrivate rend le modèle image ; update l'écrit", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.update, { siteName: "AstroTan" })
+  expect(
+    (await owner.identity.query(api.settings.getPrivate, {}))?.openRouterImageModel,
+  ).toBeNull()
+  await owner.identity.mutation(api.settings.update, {
+    openRouterImageModel: "google/gemini-2.5-flash-image",
+  })
+  expect(
+    (await owner.identity.query(api.settings.getPrivate, {}))?.openRouterImageModel,
+  ).toBe("google/gemini-2.5-flash-image")
+})
+
+test("un modèle OCR hors liste lève INVALID_OPENROUTER_OCR_MODEL", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await expect(
+    owner.identity.mutation(api.settings.update, {
+      openRouterOcrModel: "mistralai/mistral-ocr-latest",
+    }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_OPENROUTER_OCR_MODEL" } })
+})
+
+test("getPrivate rend le modèle OCR ; update l'écrit", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.update, { siteName: "AstroTan" })
+  expect((await owner.identity.query(api.settings.getPrivate, {}))?.openRouterOcrModel).toBeNull()
+  await owner.identity.mutation(api.settings.update, {
+    openRouterOcrModel: "openai/gpt-5.5",
+  })
+  expect((await owner.identity.query(api.settings.getPrivate, {}))?.openRouterOcrModel).toBe(
+    "openai/gpt-5.5",
+  )
 })
 
 test("getPrivate rend le lieu SERP ; update l'écrit", async () => {
@@ -259,6 +355,186 @@ test("renommer le site n'enfile pas d'outbox site", async () => {
   expect(rows.filter((r) => r.kind === "site")).toHaveLength(0)
 })
 
+test("update n'accepte qu'un réseau du catalogue, sans doublon, en http(s)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.update, { siteName: "Exemple" })
+
+  await owner.identity.mutation(api.settings.update, {
+    socials: [{ label: "Instagram", url: " https://instagram.com/exemple " }],
+  })
+  expect((await t.query(api.settings.get, {}))?.socials).toEqual([
+    { label: "instagram", url: "https://instagram.com/exemple" },
+  ])
+
+  await expect(
+    owner.identity.mutation(api.settings.update, {
+      socials: [{ label: "Forum", url: "https://forum.exemple" }],
+    }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_SOCIAL_NETWORK" } })
+
+  await expect(
+    owner.identity.mutation(api.settings.update, {
+      socials: [
+        { label: "instagram", url: "https://instagram.com/a" },
+        { label: "Instagram", url: "https://instagram.com/b" },
+      ],
+    }),
+  ).rejects.toMatchObject({ data: { code: "DUPLICATE_SOCIAL" } })
+
+  await expect(
+    owner.identity.mutation(api.settings.update, {
+      socials: [{ label: "instagram", url: "javascript:alert(1)" }],
+    }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_SOCIAL_URL" } })
+})
+
+test("settings.get ne porte plus l'apparence du chat — c'est chatAppearance", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.updateAgent, {
+    agentEnabled: true,
+    agentDisplayName: "Aide",
+    agentInstructions: "Sois bref.",
+    agentKnowledge: "Horaires : 9h-18h",
+    agentChatColor: "#f60f74",
+    agentTeaser: "Une question ?",
+  })
+  const pub = await t.query(api.settings.get, {})
+  expect(pub).not.toHaveProperty("agentEnabled")
+  expect(pub).not.toHaveProperty("agentKnowledge")
+  expect(pub).not.toHaveProperty("agentInstructions")
+  expect(pub).not.toHaveProperty("agentDisplayName")
+  expect(pub).not.toHaveProperty("agentAvatarMediaId")
+  expect(pub).not.toHaveProperty("agentAvatarUrl")
+  expect(pub).not.toHaveProperty("agentChatColor")
+  expect(pub).not.toHaveProperty("agentTeaser")
+  expect(pub?.homePageSlug ?? null).toBeNull()
+
+  // Sans session : exactement ce qu'un visiteur du site obtient.
+  const widget = await t.query(api.settings.chatAppearance, {})
+  expect(widget).toMatchObject({
+    agentEnabled: true,
+    agentDisplayName: "Aide",
+    agentAvatarMediaId: null,
+    agentAvatarUrl: null,
+    agentChatColor: "#f60f74",
+    agentTeaser: "Une question ?",
+  })
+  expect(widget).not.toHaveProperty("agentKnowledge")
+  expect(widget).not.toHaveProperty("agentInstructions")
+  expect(widget).not.toHaveProperty("siteName")
+})
+
+test("chatAppearance vaut null sur un site jamais configuré", async () => {
+  const t = makeTestConvex()
+  expect(await t.query(api.settings.chatAppearance, {})).toBeNull()
+})
+
+test("updateAgent refuse un hex invalide et un teaser trop long", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+
+  await owner.identity.mutation(api.settings.updateAgent, {
+    agentChatColor: "#f60",
+    agentTeaser: "x".repeat(MAX_AGENT_TEASER),
+  })
+  const ok = await t.query(api.settings.chatAppearance, {})
+  expect(ok?.agentChatColor).toBe("#ff6600")
+  expect(ok?.agentTeaser).toHaveLength(MAX_AGENT_TEASER)
+
+  await expect(
+    owner.identity.mutation(api.settings.updateAgent, { agentChatColor: "red" }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_AGENT_CHAT_COLOR" } })
+  await expect(
+    owner.identity.mutation(api.settings.updateAgent, { agentChatColor: "#12" }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_AGENT_CHAT_COLOR" } })
+  await expect(
+    owner.identity.mutation(api.settings.updateAgent, {
+      agentTeaser: "x".repeat(MAX_AGENT_TEASER + 1),
+    }),
+  ).rejects.toMatchObject({
+    data: { code: "FIELD_TOO_LONG", field: "agentTeaser", max: MAX_AGENT_TEASER },
+  })
+})
+
+test("updateAgent normalise la couleur, trim le teaser, et un vide retire", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.updateAgent, {
+    agentChatColor: "  #F60F74  ",
+    agentTeaser: "  Une question ?  ",
+    agentDisplayName: "  Léa  ",
+  })
+  const plein = await t.query(api.settings.chatAppearance, {})
+  expect(plein?.agentChatColor).toBe("#f60f74")
+  expect(plein?.agentTeaser).toBe("Une question ?")
+  expect(plein?.agentDisplayName).toBe("Léa")
+
+  await owner.identity.mutation(api.settings.updateAgent, {
+    agentChatColor: "",
+    agentTeaser: "   ",
+    agentDisplayName: "   ",
+  })
+  const vide = await t.query(api.settings.chatAppearance, {})
+  expect(vide?.agentChatColor).toBeNull()
+  expect(vide?.agentTeaser).toBeNull()
+  expect(vide?.agentDisplayName).toBeNull()
+})
+
+test("agentKnowledge trop long lève FIELD_TOO_LONG", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  await admin.identity.mutation(api.settings.updateAgent, {
+    agentKnowledge: "x".repeat(MAX_AGENT_KNOWLEDGE),
+  })
+  await expect(
+    admin.identity.mutation(api.settings.updateAgent, {
+      agentEnabled: true,
+      agentDisplayName: "Aide",
+      agentInstructions: "Sois bref.",
+      agentKnowledge: "x".repeat(MAX_AGENT_KNOWLEDGE + 1),
+    }),
+  ).rejects.toMatchObject({ data: { code: "FIELD_TOO_LONG", field: "agentKnowledge" } })
+})
+
+test("ensureDefaultAgentInstructions écrit le brief si le champ est absent ou vide, jamais par-dessus une consigne réelle", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await t.run((ctx) => ctx.db.insert("settings", { siteName: "Cabinet" }))
+
+  const firstReturn = await owner.identity.mutation(
+    api.settings.ensureDefaultAgentInstructions,
+    {},
+  )
+  expect(firstReturn).toBe(DEFAULT_AGENT_INSTRUCTIONS)
+  const first = await owner.identity.query(api.settings.getPrivate, {})
+  expect(first?.agentInstructions).toBe(DEFAULT_AGENT_INSTRUCTIONS)
+
+  await owner.identity.mutation(api.settings.updateAgent, { agentInstructions: "" })
+  const backfill = await owner.identity.mutation(
+    api.settings.ensureDefaultAgentInstructions,
+    {},
+  )
+  expect(backfill).toBe(DEFAULT_AGENT_INSTRUCTIONS)
+  const cleared = await owner.identity.query(api.settings.getPrivate, {})
+  expect(cleared?.agentInstructions).toBe(DEFAULT_AGENT_INSTRUCTIONS)
+
+  await owner.identity.mutation(api.settings.updateAgent, { agentInstructions: "Sois bref." })
+  const keep = await owner.identity.mutation(api.settings.ensureDefaultAgentInstructions, {})
+  expect(keep).toBe("Sois bref.")
+  const authored = await owner.identity.query(api.settings.getPrivate, {})
+  expect(authored?.agentInstructions).toBe("Sois bref.")
+})
+
+test("un editor ne pose pas l'agent", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  await expect(
+    editor.identity.mutation(api.settings.updateAgent, { agentEnabled: true }),
+  ).rejects.toThrow()
+})
+
 test("un editor lit les IDs et ne peut pas les écrire", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
@@ -272,42 +548,5 @@ test("un editor lit les IDs et ne peut pas les écrire", async () => {
   )
   await expect(
     editor.identity.mutation(api.settings.update, { metaPixelId: "99999" }),
-  ).rejects.toThrow()
-})
-
-test("settings.get rend agentEnabled et jamais agentKnowledge", async () => {
-  const t = makeTestConvex()
-  const owner = await seedActor(t, "owner")
-  await owner.identity.mutation(api.settings.updateAgent, {
-    agentEnabled: true,
-    agentDisplayName: "Aide",
-    agentInstructions: "Sois bref.",
-    agentKnowledge: "Horaires : 9h-18h",
-  })
-  const pub = await t.query(api.settings.get, {})
-  expect(pub).toMatchObject({ agentEnabled: true })
-  expect(pub).not.toHaveProperty("agentKnowledge")
-  expect(pub).not.toHaveProperty("agentInstructions")
-  expect(pub).not.toHaveProperty("agentDisplayName")
-})
-
-test("agentKnowledge trop long lève FIELD_TOO_LONG", async () => {
-  const t = makeTestConvex()
-  const admin = await seedActor(t, "admin")
-  await expect(
-    admin.identity.mutation(api.settings.updateAgent, {
-      agentEnabled: true,
-      agentDisplayName: "Aide",
-      agentInstructions: "Sois bref.",
-      agentKnowledge: "x".repeat(MAX_AGENT_KNOWLEDGE + 1),
-    }),
-  ).rejects.toMatchObject({ data: { code: "FIELD_TOO_LONG", field: "agentKnowledge" } })
-})
-
-test("un editor ne pose pas l'agent", async () => {
-  const t = makeTestConvex()
-  const editor = await seedActor(t, "editor")
-  await expect(
-    editor.identity.mutation(api.settings.updateAgent, { agentEnabled: true }),
   ).rejects.toThrow()
 })

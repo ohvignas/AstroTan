@@ -8,6 +8,7 @@ import { authComponent, createAuth } from "./auth"
 import { parseRole, roleValidator, type Role } from "./validators"
 import { MUTATION_REGISTRY } from "./_registry"
 import { journaliser } from "./lib/auditEvent"
+import { supprimerPourCompte } from "./lib/notifier"
 
 // Read-only user listing pages through the raw `betterAuth` component
 // adapter (`components.betterAuth.adapter.findMany`), not through
@@ -250,6 +251,8 @@ export const remove = mutation({
     } catch (err) {
       throwTypedOwnerInvariantError(err)
     }
+
+    await supprimerPourCompte(ctx, args.userId)
 
     const { auth, headers } = await authComponent.getAuth(createAuth, ctx)
     await auth.api.removeUser({ body: { userId: args.userId }, headers })

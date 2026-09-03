@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { AppSidebar } from "@/components/app-sidebar"
+import { NotificationsClocheConnectee } from "@/components/notifications-cloche"
 import { ProfileErrorBoundary } from "@/components/profile-error-boundary"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
@@ -44,6 +45,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 h-4" />
           <span className="text-sm font-medium">Administration</span>
+          <div className="ml-auto">
+            <NotificationsClocheConnectee />
+          </div>
         </header>
         {/* `*:has-[[data-slot=save-bar]]:flex-1` — l'écran qui porte une
             barre d'enregistrement descend jusqu'en bas de la fenêtre.

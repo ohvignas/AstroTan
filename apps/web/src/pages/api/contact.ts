@@ -19,9 +19,11 @@ import {
   MAX_LEAD_BODY_LENGTH,
   MAX_LEAD_EMAIL_LENGTH,
   MAX_LEAD_NAME_LENGTH,
+  MAX_LEAD_PHONE_LENGTH,
   MAX_LEAD_SUBJECT_LENGTH,
 } from "@astrotan/backend/convex/content"
 import { adresseDuVisiteur } from "../../lib/allowedDomains"
+import { geoFromTrustedIp } from "../../lib/visitorGeo"
 import { getConvexClient } from "../../lib/convexClient"
 
 /** Le nom du champ que seul un robot remplit. */
@@ -37,6 +39,7 @@ const HONEYPOT_FIELD = "site_web"
 const MAX_BODY_BYTES =
   MAX_LEAD_NAME_LENGTH +
   MAX_LEAD_EMAIL_LENGTH +
+  MAX_LEAD_PHONE_LENGTH +
   MAX_LEAD_SUBJECT_LENGTH +
   MAX_LEAD_BODY_LENGTH +
   2_048
@@ -100,33 +103,37 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
   const name = String(form.get("name") ?? "")
   const email = String(form.get("email") ?? "")
+  const phone = String(form.get("phone") ?? "")
   const subject = String(form.get("subject") ?? "")
   const body = String(form.get("message") ?? "")
 
-  // L'adresse ne quitte jamais ce processus : seule son empreinte part.
-  // C'est elle qui sert de clé au compteur d'envois, côté Convex.
+  // L'empreinte sert au compteur d'envois. L'adresse elle-même part aussi,
+  // pour la fiche admin — jamais via le navigateur, seulement cette porte.
   // `adresseDuVisiteur` et non `clientAddress` : derrière Traefik, la
   // seconde vaut l'adresse du PROXY, la même pour tout Internet — cinq
   // messages par heure pour l'ensemble des visiteurs. La première n'honore
   // `x-forwarded-for` qu'après avoir reconnu l'hôte de la requête, et
   // retombe sur `clientAddress` quand elle ne le reconnaît pas
   // (src/lib/allowedDomains.ts).
-  const origin = await empreinteOrigine(
-    await adresseDuVisiteur({ request, clientAddress }),
-    secret,
-  )
+  const ip = await adresseDuVisiteur({ request, clientAddress })
+  const origin = await empreinteOrigine(ip, secret)
+  const geo = geoFromTrustedIp(ip, request.headers)
 
   try {
     await getConvexClient().mutation(api.leads.submit, {
       secret,
       name,
       email,
+      phone: phone.length > 0 ? phone : undefined,
       subject: subject.length > 0 ? subject : undefined,
       body,
       // Recopié tel quel, jamais pour identifier quelqu'un : il sert à
       // reconnaître une vague d'envois automatiques après coup.
       userAgent: request.headers.get("user-agent") ?? undefined,
       origin,
+      ip: geo.ip,
+      country: geo.country,
+      city: geo.city,
     })
   } catch (error) {
     // Les refus du modèle — adresse invalide, champ vide, trop long — sont
