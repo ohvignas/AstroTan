@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values"
 import { action, internalMutation, query } from "./_generated/server"
-import { components, internal } from "./_generated/api"
+import { api, components, internal } from "./_generated/api"
+import { MUTATION_REGISTRY } from "./_registry"
 import { authComponent, createAuth } from "./auth"
 import { demoSandboxActif, estCompteDemo } from "./lib/demoSandbox"
 import { assertDemoEnterBudget } from "./lib/demoEnterRateLimit"
@@ -99,5 +100,27 @@ export const seedSandbox = internalMutation({
       body: { email, password, name: "Démo", role: "editor" },
     })
     return { skipped: false }
+  },
+})
+
+// `credentials` n'est gardée par aucun rôle, volontairement : son
+// autorisation est la possession du secret partagé, jamais le rôle de
+// l'appelant. Déclarer les trois rôles l'enregistre honnêtement — aucun
+// n'est refusé, parce qu'aucun n'est ce que `credentials` vérifie. Le vrai
+// cas, l'appel sans session, est couvert par `demo.test.ts`, que cette
+// matrice n'exerce jamais.
+MUTATION_REGISTRY.push({
+  name: "demo.credentials",
+  allowedRoles: ["owner", "admin", "editor"],
+  invoke: (t) => {
+    process.env.DEMO_SANDBOX = "true"
+    process.env.DEMO_ENTER_SECRET = process.env.DEMO_ENTER_SECRET || "registry-demo-enter-secret-x"
+    process.env.DEMO_ACCOUNT_EMAIL = process.env.DEMO_ACCOUNT_EMAIL || "demo@astrotan.invalid"
+    process.env.DEMO_ACCOUNT_PASSWORD = process.env.DEMO_ACCOUNT_PASSWORD || "registry-demo-password-x"
+    process.env.DEMO_OPENROUTER_MODEL = process.env.DEMO_OPENROUTER_MODEL || "google/gemini-3.7-flash"
+    return t.action(api.demo.credentials, {
+      secret: process.env.DEMO_ENTER_SECRET,
+      ip: `registry-${Date.now()}-${Math.random()}`,
+    })
   },
 })
