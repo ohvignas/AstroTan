@@ -1,13 +1,14 @@
 // Le catalogue des emails que ce dépôt envoie, décrit à un seul endroit.
 //
-// Quatre envois aujourd'hui : `invitations.sendInvitationEmail`,
+// Cinq envois aujourd'hui : `invitations.sendInvitationEmail`,
 // `leads.notifyStaff`, la réinitialisation de mot de passe
 // (`passwordReset`) — le seul chemin de récupération d'un déploiement où
-// l'inscription est fermée — et `posts.notifyPublished` (`postPublished`).
-// Better Auth n'envoie aucun de ces quatre lui-même — `auth.ts` ne monte
+// l'inscription est fermée — `posts.notifyPublished` (`postPublished`),
+// et `payments.envoyerConfirmation` (`purchaseConfirmation`).
+// Better Auth n'envoie aucun de ceux-là lui-même — `auth.ts` ne monte
 // ni `sendResetPassword`, ni `emailVerification.sendVerificationEmail`,
 // ni les plugins `magicLink`/`emailOTP` ; son propre commentaire (ligne
-// ~655) le dit déjà. Un cinquième envoi qui apparaîtrait un jour dans le
+// ~655) le dit déjà. Un sixième envoi qui apparaîtrait un jour dans le
 // code sans être ajouté ici ferait échouer le premier test de
 // `catalogueEmails.test.ts` — c'est voulu, c'est le rappel.
 //
@@ -15,12 +16,13 @@
 // tous `CATALOGUE` : ajouter un email un jour est UN endroit à modifier,
 // pas trois.
 
-/** Les quatre emails que ce dépôt envoie, et rien d'autre. */
+/** Les emails que ce dépôt envoie, et rien d'autre. */
 export type CleEmail =
   | "invitation"
   | "leadNotification"
   | "passwordReset"
   | "postPublished"
+  | "purchaseConfirmation"
 
 export interface DescriptionEmail {
   cle: CleEmail
@@ -155,6 +157,23 @@ export const CATALOGUE: readonly DescriptionEmail[] = [
       "Ouvrir dans l'administration : {{url}}",
     ].join("\n"),
   },
+  {
+    cle: "purchaseConfirmation",
+    titre: "Confirmation de paiement",
+    quand: "Quand Stripe confirme le paiement unique de l'offre Complet.",
+    destinataire: "L'adresse que Stripe renvoie après encaissement.",
+    desactivable: true,
+    variables: ["nom_du_site", "montant", "lien"],
+    variablesObligatoires: [],
+    objetParDefaut: "Votre paiement sur {{nom_du_site}}",
+    corpsParDefaut: [
+      "Le paiement de {{montant}} a bien été reçu.",
+      "",
+      "L'offre Complet est un achat unique, sans abonnement.",
+      "",
+      "Récapitulatif : {{lien}}",
+    ].join("\n"),
+  },
 ]
 
 /**
@@ -186,4 +205,5 @@ export const VARIABLES_DE_CONFIANCE: Record<CleEmail, readonly string[]> = {
   leadNotification: ["lien", "url"],
   passwordReset: ["lien"],
   postPublished: ["url"],
+  purchaseConfirmation: ["lien"],
 }

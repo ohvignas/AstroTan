@@ -67,8 +67,8 @@ describe("envelopperHtml", () => {
     expect(html).toContain("#f60f74")
   })
 
-  test("les quatre types passent par le même chrome", () => {
-    for (const cle of ["invitation", "passwordReset", "leadNotification", "postPublished"] as const) {
+  test("chaque type du catalogue passe par le même chrome", () => {
+    for (const { cle } of CATALOGUE) {
       const html = envelopperHtml("corps", { siteName: "Cabinet Nord", footerLine: "nord.fr" }, { cle })
       expect(html).toContain("<table")
       expect(html).toContain("Cabinet Nord")

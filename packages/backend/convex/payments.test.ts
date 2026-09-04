@@ -56,7 +56,9 @@ test("enregistrer est idempotent sur la session Stripe", async () => {
   }
   const first = await t.mutation(internal.payments.enregistrer, args)
   const second = await t.mutation(internal.payments.enregistrer, args)
-  expect(first).toBe(second)
+  expect(first.created).toBe(true)
+  expect(second.created).toBe(false)
+  expect(first.id).toBe(second.id)
 })
 
 test("enregistrer refuse un montant différent de l'offre", async () => {

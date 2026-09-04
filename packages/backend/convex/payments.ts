@@ -1,13 +1,23 @@
 import { ConvexError, v } from "convex/values"
-import { action, httpAction, internalMutation } from "./_generated/server"
+import {
+  action,
+  httpAction,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server"
 import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
 import { lireSecret } from "./secrets"
+import { makeResend } from "./lib/resend"
+import { resoudreExpediteur } from "./lib/expediteur"
+import { composerMessage, identiteAvecLogoJoignable } from "./lib/emailLayout"
 import {
   COMPLET_AMOUNT_CENTS,
   COMPLET_CURRENCY,
   COMPLET_PRODUCT_NAME,
   assertCompletAmount,
+  formatCompletPriceFr,
 } from "./lib/stripeOffer"
 import { verifyStripeSignature } from "./lib/stripeSignature"
 
@@ -64,14 +74,56 @@ export const enregistrer = internalMutation({
       .query("purchases")
       .withIndex("by_session", (q) => q.eq("stripeSessionId", args.stripeSessionId))
       .unique()
-    if (existing !== null) return existing._id
-    return await ctx.db.insert("purchases", {
+    if (existing !== null) return { id: existing._id, created: false }
+    const id = await ctx.db.insert("purchases", {
       stripeSessionId: args.stripeSessionId,
       email: args.email,
       amountCents: args.amountCents,
       currency: args.currency,
       status: "paid",
       createdAt: Date.now(),
+    })
+    if (args.email) {
+      await ctx.scheduler.runAfter(0, internal.payments.envoyerConfirmation, {
+        purchaseId: id,
+      })
+    }
+    return { id, created: true }
+  },
+})
+
+export const lireAchat = internalQuery({
+  args: { id: v.id("purchases") },
+  handler: async (ctx, args) => ctx.db.get(args.id),
+})
+
+export const envoyerConfirmation = internalAction({
+  args: { purchaseId: v.id("purchases") },
+  handler: async (ctx, args) => {
+    const achat = await ctx.runQuery(internal.payments.lireAchat, { id: args.purchaseId })
+    if (!achat?.email) return
+    const gabarit = await ctx.runQuery(internal.emails.gabarit, {
+      cle: "purchaseConfirmation",
+    })
+    if (!gabarit.actif) return
+    const identite = await identiteAvecLogoJoignable(
+      await ctx.runQuery(internal.settings.identiteEmail, {}),
+    )
+    const message = composerMessage(
+      gabarit,
+      {
+        nom_du_site: identite.siteName,
+        montant: formatCompletPriceFr(),
+        lien: `${sitePublicUrl()}/paiement-ok`,
+      },
+      "purchaseConfirmation",
+      identite,
+    )
+    const resend = await makeResend(ctx)
+    await resend.sendEmail(ctx, {
+      from: await resoudreExpediteur(ctx),
+      to: achat.email,
+      ...message,
     })
   },
 })

@@ -12,6 +12,7 @@ describe("CATALOGUE", () => {
       "leadNotification",
       "passwordReset",
       "postPublished",
+      "purchaseConfirmation",
     ])
   })
 
@@ -24,6 +25,13 @@ describe("CATALOGUE", () => {
     for (const champ of ["nom", "email", "sujet", "message"]) {
       expect(VARIABLES_DE_CONFIANCE.leadNotification).not.toContain(champ)
     }
+  })
+
+  test("purchaseConfirmation confirme l'offre Complet à l'acheteur", () => {
+    const achat = CATALOGUE.find((e) => e.cle === "purchaseConfirmation")!
+    expect(achat.desactivable).toBe(true)
+    expect(achat.variables).toEqual(["nom_du_site", "montant", "lien"])
+    expect(VARIABLES_DE_CONFIANCE.purchaseConfirmation).toEqual(["lien"])
   })
 
   test("postPublished déclare url en confiance, pas titre ni auteur", () => {

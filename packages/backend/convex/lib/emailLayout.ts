@@ -25,6 +25,7 @@ const LIBELLE_CTA: Record<CleEmail, string> = {
   passwordReset: "Choisir un mot de passe",
   leadNotification: "Ouvrir dans l'administration",
   postPublished: "Voir l'article",
+  purchaseConfirmation: "Voir le récapitulatif",
 }
 
 export type IdentiteEmail = {
@@ -172,6 +173,12 @@ export function valeursExemple(
         url: `${base}/posts/exemple`,
         titre: "Article d'exemple",
         auteur: "L'équipe",
+      }
+    case "purchaseConfirmation":
+      return {
+        nom_du_site: ctx.siteName,
+        montant: "9,99 €",
+        lien: `${base}/paiement-ok`,
       }
   }
 }
