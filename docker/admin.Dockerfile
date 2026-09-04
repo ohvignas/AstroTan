@@ -34,6 +34,9 @@ RUN pnpm deploy --legacy --filter @astrotan/admin --prod /out
 # copie déjà `dist/` (pnpm#7286), la cible existe et `cp -r src dst` copie
 # dans la cible — `/out/dist/dist`, image verte, `CMD` cassé au démarrage.
 RUN rm -rf /out/dist && cp -r apps/admin/dist /out/dist
+# `pnpm deploy` peut omettre un `.mjs` hors `files:` : sans ces deux
+# fichiers le HTML répond 200 et chaque `/assets/*.js` tombe en 404.
+RUN cp apps/admin/serve.mjs apps/admin/serve-static.mjs /out/
 
 FROM base AS runtime
 ENV NODE_ENV=production \
