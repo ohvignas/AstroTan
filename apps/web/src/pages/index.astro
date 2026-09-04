@@ -31,7 +31,9 @@
 export const prerender = false
 
 import { api } from "@astrotan/backend/convex/_generated/api"
+import { anyApi } from "convex/server"
 import { getConvexClient } from "../lib/convexClient"
+import { urlTester } from "../lib/demoOuvert"
 import { loadPage } from "../lib/loadPage"
 import BaseLayout from "../layouts/BaseLayout.astro"
 import Hero from "../components/hero/Hero.astro"
@@ -71,6 +73,21 @@ if (page === null && !homeSlug) {
   Astro.response.status = 404
   Astro.cache.set(false)
 }
+
+const stackFootnote = "Astro 7 · TanStack Start · Convex · Better Auth · Docker"
+let testerHref: string | null = null
+try {
+  const ouvert = (await getConvexClient().query(anyApi.demo.ouvert, {})) as {
+    actif: boolean
+    adminUrl: string | null
+  }
+  testerHref = urlTester(ouvert.actif, ouvert.adminUrl)
+} catch {
+  testerHref = null
+}
+const heroFootnote = testerHref
+  ? `Bac à sable partagé — reset toutes les heures. Rien n'est publié. · ${stackFootnote}`
+  : stackFootnote
 
 // ---------------------------------------------------------------------
 // Le contenu de la démonstration
@@ -203,8 +220,12 @@ const faq = [
         headline="Le site se charge avant que vous ayez fini de cligner"
         subheadline="Pas un octet de framework envoyé au visiteur, un dashboard sur invitation, un backend typé partagé par les deux, et un déploiement Docker qu'on sait annuler. Les décisions difficiles sont déjà prises, écrites, et tenues par des tests."
         primaryCta={{ label: "Voir ce qu'il y a dedans", href: "#ce-qu-il-y-a-dedans" }}
-        secondaryCta={{ label: "Lire le blog de démonstration", href: "/blog" }}
-        footnote="Astro 7 · TanStack Start · Convex · Better Auth · Docker"
+        secondaryCta={
+          testerHref
+            ? { label: "Tester le dashboard", href: testerHref }
+            : { label: "Lire le blog de démonstration", href: "/blog" }
+        }
+        footnote={heroFootnote}
       />
 
       <section class="container section" data-animate>
