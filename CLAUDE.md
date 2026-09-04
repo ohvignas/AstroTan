@@ -14,19 +14,16 @@ référence détaillée — modifier l'un sans l'autre les fait diverger.
 
 ## Deux branches, pas deux applications
 
+Le détail — ce qui va dans `main`, dans `demo`, sur le VPS, dans l’app de
+vente — est dans [`docs/organisation.md`](docs/organisation.md).
+
 | Branche | Rôle |
 |---|---|
 | `main` | Le template. Ce que les gens clonent. Vierge : cloner, bootstrap, déployer. |
 | `demo` | `main` + la couche pour essayer en public. C'est ça que le site en ligne suit. |
 
 Une feature : branche → PR → `main`. Puis merger `main` dans `demo` quand
-ça doit passer en ligne. On ne développe pas sur le VPS. Les secrets, les
-DNS Illith et le checkout de l'app de vente ne vont pas dans `main`.
-
-Le workflow `Deploy` reste câblé sur `main` **pour les adoptants**. Sur ce
-dépôt il ne part pas : le VPS de démo ne peut pas lancer le Traefik officiel
-(80/443 déjà pris). Tant qu'il n'a pas son propre VPS, on met à jour
-l'instance à la main depuis `demo`.
+ça doit passer en ligne. On ne développe pas sur le VPS.
 
 ## Ce dépôt est un template, pas une application
 
