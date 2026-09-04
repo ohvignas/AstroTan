@@ -6,7 +6,7 @@ import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Enregistrement, Verdict } from "@astrotan/backend/convex/dns"
 import { normaliserHote } from "@astrotan/backend/convex/lib/hoteNu"
 import type { ResultatResend } from "@astrotan/backend/convex/resendDomain"
-import { estEnvironnementLocal } from "@/lib/domaineLocal"
+import { domaineInitial, estEnvironnementLocal } from "@/lib/domaineLocal"
 import { describeSettingsError } from "@/lib/settingsErrors"
 import type { Signe } from "@/components/domain-check"
 import {
@@ -37,10 +37,11 @@ type Settings = FunctionReturnType<typeof api.settings.getPrivate>
 function DomaineRoute() {
   const { loading, canWrite } = useSettingsAccess()
   const settings = useQuery(api.settings.getPrivate)
-  if (loading || settings === undefined) {
+  const env = useQuery(api.settings.environment)
+  if (loading || settings === undefined || env === undefined) {
     return <SettingsLoading />
   }
-  return <DomaineForm settings={settings} canWrite={canWrite} />
+  return <DomaineForm settings={settings} env={env} canWrite={canWrite} />
 }
 
 // ---------------------------------------------------------------------
@@ -107,15 +108,22 @@ function DomaineRoute() {
 
 function DomaineForm({
   settings,
+  env,
   canWrite,
 }: {
   settings: Settings
+  env: FunctionReturnType<typeof api.settings.environment>
   canWrite: boolean
 }) {
   const updateSettings = useMutation(api.settings.update)
-  const [domaine, setDomaine] = useState(settings?.declaredDomain ?? "")
+  const hoteRepli = domaineInitial(settings?.declaredDomain, env.webUrl)
+  const [domaine, setDomaine] = useState(hoteRepli)
 
   const domaineEnregistre = settings?.declaredDomain ?? null
+  // Vérifier aussi le repli d'environnement : un déploiement neuf a déjà
+  // les A, mais rien en base. Sans ça, le tableau resterait en attente
+  // jusqu'au premier clic Enregistrer.
+  const hoteAVerifier = domaineEnregistre ?? (hoteRepli || null)
 
   // Le domaine sur lequel tout porte : le plan, la vérification, la
   // déclaration chez Resend et le verrou du bouton. C'est CE QUI EST DANS
@@ -130,7 +138,7 @@ function DomaineForm({
   // même, littéralement.
   const cible = normaliserHote(domaine)
 
-  const verification = useVerification(domaineEnregistre)
+  const verification = useVerification(hoteAVerifier)
   // La lecture ne vaut que pour l'hôte qu'elle a interrogé. Modifier le
   // champ après une vérification la rend caduque : les verdicts
   // retombent à « attente » et le verrou se referme, ce qui est
@@ -544,10 +552,11 @@ function useVerification(domaineEnregistre: string | null) {
     }
   }
 
-  // Une fois au montage, et à chaque changement du domaine ENREGISTRÉ —
-  // jamais à chaque rendu, et jamais à la frappe. C'est ce qui remplit la
-  // colonne d'état d'un déploiement déjà configuré sans réémettre les
-  // requêtes sortantes à chaque caractère tapé dans le champ.
+  // Une fois au montage, et à chaque changement du domaine à vérifier —
+  // enregistré, ou le repli d'environnement d'un déploiement neuf. Jamais
+  // à chaque rendu, et jamais à la frappe. C'est ce qui remplit la
+  // colonne d'état sans réémettre les requêtes sortantes à chaque
+  // caractère tapé dans le champ.
   useEffect(() => {
     if (domaineEnregistre !== null) void verifier(domaineEnregistre)
     // `verifier` ferme sur les quatre actions, stables d'un rendu à l'autre

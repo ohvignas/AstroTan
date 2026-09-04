@@ -19,3 +19,26 @@ export function estEnvironnementLocal(): boolean {
 export function valeurLocalePour(cle: string): string {
   return cle === "admin" ? ADMIN_LOCAL : WEB_LOCAL
 }
+
+/**
+ * Ce que le champ Domaine affiche au montage.
+ *
+ * Le domaine déclaré s'il existe. Sinon l'hôte de `webUrl` — celui que
+ * bootstrap a déjà posé, et dont les A existent souvent déjà. Localhost
+ * n'est pas un domaine à déclarer : le champ reste vide en `pnpm dev`.
+ */
+export function domaineInitial(
+  declared: string | null | undefined,
+  webUrl: string | null | undefined,
+): string {
+  const declare = declared?.trim() ?? ""
+  if (declare) return declare
+  if (!webUrl) return ""
+  try {
+    const hote = new URL(webUrl).hostname
+    if (hote === "localhost" || hote === "127.0.0.1") return ""
+    return hote
+  } catch {
+    return ""
+  }
+}

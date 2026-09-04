@@ -47,3 +47,29 @@ export function normaliserHote(valeur: string): string | null {
   const nettoye = valeur.trim().toLowerCase().replace(/\.$/, "")
   return estHoteNu(nettoye) ? nettoye : null
 }
+
+const HOTES_LOCAUX = new Set(["localhost", "127.0.0.1"])
+
+/**
+ * L'hôte public déjà posé sur le déploiement, ou `null`.
+ *
+ * `WEB_DOMAIN` d'abord : c'est l'hôte nu que bootstrap écrit, celui des
+ * enregistrements A. `WEB_SITE_URL` ensuite, pour un déploiement qui n'a
+ * que l'origine. Localhost n'en est pas un : le seed ne doit pas déclarer
+ * `localhost` comme domaine du site.
+ */
+export function hotePublicDepuisEnv(
+  env: Record<string, string | undefined>,
+): string | null {
+  const depuisDomaine = normaliserHote(env.WEB_DOMAIN ?? "")
+  if (depuisDomaine) return depuisDomaine
+  const url = env.WEB_SITE_URL?.trim() ?? ""
+  if (!url) return null
+  try {
+    const hote = new URL(url).hostname
+    if (HOTES_LOCAUX.has(hote)) return null
+    return normaliserHote(hote)
+  } catch {
+    return null
+  }
+}

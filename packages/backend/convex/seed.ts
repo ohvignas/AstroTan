@@ -4,6 +4,7 @@ import {
   DEFAULT_AGENT_INSTRUCTIONS,
   hasAuthoredAgentInstructions,
 } from "./lib/defaultAgentInstructions"
+import { hotePublicDepuisEnv } from "./lib/hoteNu"
 
 // Demo content for a fresh install.
 //
@@ -241,18 +242,31 @@ export const demoContent = internalMutation({
     // Le site a un nom et une page d'accueil, sinon `/` répond 404 sur une
     // installation neuve et rien n'indique que c'est un réglage manquant
     // plutôt qu'une panne.
+    //
+    // `declaredDomain` aussi, quand l'environnement le connaît déjà :
+    // bootstrap a posé `WEB_DOMAIN`, les A existent, et l'écran Domaine
+    // lisait une ligne vide. On ne remplace jamais un domaine saisi.
+    const hoteEnv = hotePublicDepuisEnv(process.env)
     const settings = await ctx.db.query("settings").first()
     if (settings === null) {
       await ctx.db.insert("settings", {
         siteName: "AstroTan",
         homePageSlug: "accueil",
         agentInstructions: DEFAULT_AGENT_INSTRUCTIONS,
+        ...(hoteEnv ? { declaredDomain: hoteEnv } : {}),
       })
     } else {
-      const patch: { homePageSlug?: string; agentInstructions?: string } = {}
+      const patch: {
+        homePageSlug?: string
+        agentInstructions?: string
+        declaredDomain?: string
+      } = {}
       if (!settings.homePageSlug) patch.homePageSlug = "accueil"
       if (!hasAuthoredAgentInstructions(settings.agentInstructions)) {
         patch.agentInstructions = DEFAULT_AGENT_INSTRUCTIONS
+      }
+      if (!settings.declaredDomain?.trim() && hoteEnv) {
+        patch.declaredDomain = hoteEnv
       }
       if (Object.keys(patch).length > 0) await ctx.db.patch(settings._id, patch)
     }

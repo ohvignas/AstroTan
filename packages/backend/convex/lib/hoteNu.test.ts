@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { estHoteNu, normaliserHote } from "./hoteNu"
+import { estHoteNu, hotePublicDepuisEnv, normaliserHote } from "./hoteNu"
 
 describe("estHoteNu", () => {
   test("accepte un domaine ordinaire et un sous-domaine", () => {
@@ -37,5 +37,29 @@ describe("normaliserHote", () => {
   test("rend null quand la valeur n'est pas récupérable", () => {
     expect(normaliserHote("https://exemple.fr")).toBeNull()
     expect(normaliserHote("")).toBeNull()
+  })
+})
+
+describe("hotePublicDepuisEnv", () => {
+  test("prend WEB_DOMAIN s'il est un hôte nu", () => {
+    expect(
+      hotePublicDepuisEnv({
+        WEB_DOMAIN: "  AstroTan.Illith.com.  ",
+        WEB_SITE_URL: "https://autre.fr",
+      }),
+    ).toBe("astrotan.illith.com")
+  })
+
+  test("replie sur l'hôte de WEB_SITE_URL quand WEB_DOMAIN manque", () => {
+    expect(hotePublicDepuisEnv({ WEB_SITE_URL: "https://astrotan.illith.com" })).toBe(
+      "astrotan.illith.com",
+    )
+  })
+
+  test("refuse localhost et une URL illisible", () => {
+    expect(hotePublicDepuisEnv({ WEB_SITE_URL: "http://localhost:4321" })).toBeNull()
+    expect(hotePublicDepuisEnv({ WEB_DOMAIN: "localhost" })).toBeNull()
+    expect(hotePublicDepuisEnv({ WEB_SITE_URL: "pas-une-url" })).toBeNull()
+    expect(hotePublicDepuisEnv({})).toBeNull()
   })
 })
