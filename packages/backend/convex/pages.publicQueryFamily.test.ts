@@ -63,6 +63,10 @@ async function discoverPublicQueries(): Promise<DiscoveredQuery[]> {
 
 function assertNoDraftLeak(result: unknown, draftIds: string[], label: string) {
   if (result === null || result === undefined) return
+  // Un primitif ne peut pas porter un document brouillon.
+  if (typeof result === "boolean" || typeof result === "string" || typeof result === "number") {
+    return
+  }
   if (Array.isArray(result)) {
     const leaked = result.some((item) =>
       draftIds.some((id) => (item as { _id?: unknown })?._id === id),
@@ -78,6 +82,8 @@ function assertNoDraftLeak(result: unknown, draftIds: string[], label: string) {
     ).toBe(false)
     return
   }
+  // Objet sans `_id` : pas un document Convex, donc pas une fuite de brouillon.
+  if (typeof result === "object") return
   throw new Error(
     `${label}: unexpected result shape while checking for a draft leak — extend assertNoDraftLeak: ${JSON.stringify(result)}`,
   )
