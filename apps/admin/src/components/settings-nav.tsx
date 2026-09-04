@@ -32,7 +32,6 @@ export type SettingsPath =
   | "/settings/domaine"
   | "/settings/emails"
   | "/settings/mesure"
-  | "/settings/paiement"
   | "/settings/agent"
 
 export interface SettingsPageDef {
@@ -106,12 +105,6 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
     to: "/settings/mesure",
     label: "SEO & Pixel",
     title: "SEO & Pixel",
-    description: "",
-  },
-  {
-    to: "/settings/paiement",
-    label: "Paiement",
-    title: "Paiement",
     description: "",
   },
   {

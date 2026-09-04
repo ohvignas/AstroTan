@@ -826,9 +826,9 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_thread", ["threadId"]),
 
-  // Paiement unique de l'offre Complet. Expand-only : une ligne par
-  // session Stripe, jamais un secret. L'e-mail vient de Stripe, pas d'un
-  // champ libre du visiteur.
+  // Restée après le retrait du checkout Stripe du template (expand /
+  // contract). Aucun code du template n'écrit plus ici. La contracture —
+  // drop de la table — est un déploiement à part.
   purchases: defineTable({
     stripeSessionId: v.string(),
     email: v.optional(v.string()),

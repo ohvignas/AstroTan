@@ -7,7 +7,7 @@ export interface Plan {
   period?: string;
   description?: string;
   features: string[];
-  cta?: { label: string; href: string; method?: "get" | "post" };
+  cta?: { label: string; href: string };
   featured?: boolean;
 }
 
@@ -51,23 +51,14 @@ const { title, description, plans } = Astro.props as Props;
               </li>
             ))}
           </ul>
-          {plan.cta && plan.cta.method === "post" ? (
-            <form method="post" action={plan.cta.href}>
-              <button
-                type="submit"
-                class={`pricing__cta${plan.featured ? " pricing__cta--primary" : ""}`}
-              >
-                {plan.cta.label}
-              </button>
-            </form>
-          ) : plan.cta ? (
+          {plan.cta && (
             <a
               class={`pricing__cta${plan.featured ? " pricing__cta--primary" : ""}`}
               href={plan.cta.href}
             >
               {plan.cta.label}
             </a>
-          ) : null}
+          )}
         </article>
       ))
     }
@@ -171,24 +162,16 @@ const { title, description, plans } = Astro.props as Props;
     color: var(--success);
   }
 
-  .pricing__card form {
-    margin-top: auto;
-  }
-
   .pricing__cta {
-    display: block;
-    width: 100%;
     margin-top: auto;
     text-align: center;
     padding: 0.7rem 1.2rem;
-    font: inherit;
     font-weight: 600;
     text-decoration: none;
     color: var(--foreground);
     background: var(--secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    cursor: pointer;
     transition: all 0.2s ease;
   }
 

@@ -9,6 +9,16 @@ Ce n’est pas « déployer AstroTan ». C’est **installer une instance** : so
 Convex, son dépôt, ses domaines, son VPS. Le dépôt GitHub porte le **code**
 et les exemples. L’instance porte les **secrets** et les **données**.
 
+### Où vit quoi
+
+| Objet | Où | Contient |
+|---|---|---|
+| **Template** | ce dépôt (`ohvignas/AstroTan`) | site + admin + Convex. `/tarifs` est une maquette. **Pas** de checkout Stripe. |
+| **App de vente** | l’app commerciale (hors ce repo) | Stripe, pages paiement, livraison du dossier **sans** le code de paiement ni les `.env`. |
+| **Instance démo** | VPS (SRV2) | une install du template, ses secrets, ses DNS. |
+
+La Phase B (checkout dans le template) a été **retirée** : encaisser l’offre Complet n’est pas un geste d’adoptant.
+
 ---
 
 ## Contrôle — ce qui est déjà vrai, ce qui manque
@@ -112,7 +122,7 @@ Rien d’autre à inventer pour pousser : le template a déjà `apps/`,
 **Ne pas créer** : un second monorepo, un dossier `demo/`, un Convex
 « read-only » parallèle. La lecture seule est déjà l’invariant #1.
 
-### Phase B — paiement (Stripe Checkout, offre Complet 9,99 € une fois)
+### Phase B — ~~paiement dans le template~~ (retirée : ça vit sur l’app de vente)
 
 Le secret Stripe ne vit **ni** dans `settings` (query publique) **ni** en
 clair en base. Même famille que les jetons dashboard : saisi dans l’admin,
@@ -177,9 +187,9 @@ en mode DNS only, ou Cloudflare gris.
 
 ### 0. Prérequis humains (rien ne part sans ça)
 
-- [ ] `gh auth refresh -h github.com` sur cette machine (token `ohvignas` mort).
-- [ ] Confirmer le nom du dépôt : `OhVignas/AstroTan` (déjà câblé dans
-      `nav.ts` / `tarifs.astro`).
+- [x] `gh auth refresh -h github.com` sur cette machine (token `ohvignas` mort).
+- [x] Confirmer le nom du dépôt : `OhVignas/AstroTan` (déjà câblé dans
+      `nav.ts` / `tarifs.astro`). Dépôt public : https://github.com/ohvignas/AstroTan
 - [ ] IP du VPS Hostinger, utilisateur SSH non-root (`deploy`), clé
       `~/.ssh/astrotan_deploy`.
 - [ ] Domaine(s) pointés en A vers cette IP.
@@ -191,15 +201,14 @@ en mode DNS only, ou Cloudflare gris.
 
 ### 1. Hygiène + premier push (dès que `gh` répond)
 
-1. Étendre `.gitignore` (`.pnpm-store/`, `.cursor/`).
-2. Vérifier `git status` : **aucun** `.env`, **aucun** `.local/`,
-   **aucun** store pnpm.
-3. `gh repo create OhVignas/AstroTan --public --source=. --remote=origin`
-   — dépôt **vide**, puis push de `main` (fast-forward depuis l’arbre
-   actuel, pas un squash qui perdrait l’historique).
-4. Ne **jamais** `git add .` à la racine tant que le store n’est pas ignoré.
+1. ~~Étendre `.gitignore` (`.pnpm-store/`, `.cursor/`).~~ Fait.
+2. ~~Vérifier `git status` : **aucun** `.env`, **aucun** `.local/`,
+   **aucun** store pnpm.~~ Fait.
+3. ~~`gh repo create OhVignas/AstroTan --public --source=. --remote=origin`~~
+   Fait — https://github.com/ohvignas/AstroTan
+4. ~~Ne **jamais** `git add .` à la racine tant que le store n’est pas ignoré.~~
 5. Secrets Actions : `pnpm bootstrap` après remplissage de `.env.deploy`
-   (`gh secret set --repo OhVignas/AstroTan`).
+   (`gh secret set --repo OhVignas/AstroTan`). **Bloqué** : pas de `.env.deploy`.
 
 Branche : publier `main`. La branche de travail actuelle
 (`fix/chat-leads-notifications`) se merge dans `main` **avant** le push
@@ -207,15 +216,17 @@ public, pour que la démo ait le chat, les leads et la mesure.
 
 ### 2. Paiement (TDD, lots petits)
 
-1. Test : une session Checkout refuse un montant ≠ 999 centimes.
-2. Table `purchases` (expand). Pas de contract dans le même déploiement.
-3. `httpAction` webhook : signature Stripe, idempotence `stripeSessionId`.
-4. Route Astro `/api/checkout` + pages succès / annulation + lignes
-   `pages` dans `seed:demoContent`.
-5. CTA `/tarifs` → checkout.
-6. Écran admin secrets Stripe.
-7. E-mail de confirmation (chrome `emailLayout.ts` existant).
-8. `npx convex dev --once` réel après tout fichier sous `convex/`.
+1. ~~Test : une session Checkout refuse un montant ≠ 999 centimes.~~
+2. ~~Table `purchases` (expand). Pas de contract dans le même déploiement.~~
+3. ~~`httpAction` webhook : signature Stripe, idempotence `stripeSessionId`.~~
+4. ~~Route Astro `/api/checkout` + pages succès / annulation + lignes
+   `pages` dans `seed:demoContent`.~~
+5. ~~CTA `/tarifs` → checkout.~~
+6. ~~Écran admin secrets Stripe.~~
+7. ~~E-mail de confirmation (chrome `emailLayout.ts` existant).~~
+8. `npx convex dev --once` réel après tout fichier sous `convex/` —
+   **à lancer par l’humain** (`api.payments` absent de `_generated` tant
+   que ça n’a pas tourné).
 
 ### 3. Mise en service Hostinger (ordre du skill `deploy-vps`)
 

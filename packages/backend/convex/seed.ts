@@ -75,8 +75,6 @@ const DEMO_PAGES = [
   { slug: "mentions-legales", title: "Mentions légales", publish: true },
   { slug: "confidentialite", title: "Politique de confidentialité", publish: true },
   { slug: "cookies", title: "Politique de cookies", publish: true },
-  { slug: "paiement-ok", title: "Paiement confirmé", publish: true },
-  { slug: "paiement-annule", title: "Paiement annulé", publish: true },
 ]
 
 const FIRST_POST_BODY_MD = `Ce site tourne sur AstroTan. Cet article est du contenu

@@ -30,7 +30,6 @@ describe("SETTINGS_PAGES", () => {
       "/settings/domaine",
       "/settings/emails",
       "/settings/mesure",
-      "/settings/paiement",
       "/settings/agent",
     ])
     expect(SETTINGS_PAGES.map((page) => page.to as string)).not.toContain(

@@ -14,8 +14,6 @@ export const SERVED_PATHS: readonly string[] = [
   "/cookies",
   "/fonctionnalites",
   "/mentions-legales",
-  "/paiement-annule",
-  "/paiement-ok",
   "/tarifs"
 ]
 

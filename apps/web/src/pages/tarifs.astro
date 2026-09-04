@@ -16,7 +16,6 @@ import BaseLayout from "../layouts/BaseLayout.astro"
 import Hero from "../components/hero/Hero.astro"
 import Pricing from "../components/sections/Pricing.astro"
 import CTA from "../components/CTA.astro"
-import { formatCompletPriceFr } from "@astrotan/backend/convex/lib/stripeOffer"
 
 const { page } = await loadPage(Astro)
 
@@ -36,7 +35,7 @@ const plans = [
   },
   {
     name: "Complet",
-    price: formatCompletPriceFr(),
+    price: "9,99 €",
     // Paiement unique, pas un abonnement. Le composant affiche `period`
     // juste après le prix : y écrire « une fois » évite la lecture par
     // défaut, qui est mensuelle dès qu'un tarif est affiché à côté d'une
@@ -52,7 +51,7 @@ const plans = [
       "Le suivi des messages reçus",
       "L'agent IA — un assistant sur votre site (à venir)",
     ],
-    cta: { label: "Payer", href: "/api/checkout", method: "post" },
+    cta: { label: "Commencer", href: "/contact" },
     // Mise en avant : c'est l'offre qui répond à la question que se pose
     // quelqu'un qui compare, et la laisser au milieu sans marque obligerait
     // à lire les trois colonnes pour s'en apercevoir.

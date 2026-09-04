@@ -34,7 +34,6 @@ import { Route as AuthedSettingsEmailsRouteImport } from './routes/_authed/setti
 import { Route as AuthedSettingsIaRouteImport } from './routes/_authed/settings/ia'
 import { Route as AuthedSettingsIdentiteRouteImport } from './routes/_authed/settings/identite'
 import { Route as AuthedSettingsMesureRouteImport } from './routes/_authed/settings/mesure'
-import { Route as AuthedSettingsPaiementRouteImport } from './routes/_authed/settings/paiement'
 import { Route as AuthedSettingsReferencementRouteImport } from './routes/_authed/settings/referencement'
 import { Route as AuthedSettingsReseauxRouteImport } from './routes/_authed/settings/reseaux'
 import { Route as AuthedSettingsWebhookRouteImport } from './routes/_authed/settings/webhook'
@@ -166,11 +165,6 @@ const AuthedSettingsMesureRoute = AuthedSettingsMesureRouteImport.update({
   path: '/mesure',
   getParentRoute: () => AuthedSettingsRoute,
 } as any)
-const AuthedSettingsPaiementRoute = AuthedSettingsPaiementRouteImport.update({
-  id: '/paiement',
-  path: '/paiement',
-  getParentRoute: () => AuthedSettingsRoute,
-} as any)
 const AuthedSettingsReferencementRoute =
   AuthedSettingsReferencementRouteImport.update({
     id: '/referencement',
@@ -227,7 +221,6 @@ export interface FileRoutesByFullPath {
   '/settings/ia': typeof AuthedSettingsIaRoute
   '/settings/identite': typeof AuthedSettingsIdentiteRoute
   '/settings/mesure': typeof AuthedSettingsMesureRoute
-  '/settings/paiement': typeof AuthedSettingsPaiementRoute
   '/settings/referencement': typeof AuthedSettingsReferencementRoute
   '/settings/reseaux': typeof AuthedSettingsReseauxRoute
   '/settings/webhook': typeof AuthedSettingsWebhookRoute
@@ -259,7 +252,6 @@ export interface FileRoutesByTo {
   '/settings/ia': typeof AuthedSettingsIaRoute
   '/settings/identite': typeof AuthedSettingsIdentiteRoute
   '/settings/mesure': typeof AuthedSettingsMesureRoute
-  '/settings/paiement': typeof AuthedSettingsPaiementRoute
   '/settings/referencement': typeof AuthedSettingsReferencementRoute
   '/settings/reseaux': typeof AuthedSettingsReseauxRoute
   '/settings/webhook': typeof AuthedSettingsWebhookRoute
@@ -294,7 +286,6 @@ export interface FileRoutesById {
   '/_authed/settings/ia': typeof AuthedSettingsIaRoute
   '/_authed/settings/identite': typeof AuthedSettingsIdentiteRoute
   '/_authed/settings/mesure': typeof AuthedSettingsMesureRoute
-  '/_authed/settings/paiement': typeof AuthedSettingsPaiementRoute
   '/_authed/settings/referencement': typeof AuthedSettingsReferencementRoute
   '/_authed/settings/reseaux': typeof AuthedSettingsReseauxRoute
   '/_authed/settings/webhook': typeof AuthedSettingsWebhookRoute
@@ -329,7 +320,6 @@ export interface FileRouteTypes {
     | '/settings/ia'
     | '/settings/identite'
     | '/settings/mesure'
-    | '/settings/paiement'
     | '/settings/referencement'
     | '/settings/reseaux'
     | '/settings/webhook'
@@ -361,7 +351,6 @@ export interface FileRouteTypes {
     | '/settings/ia'
     | '/settings/identite'
     | '/settings/mesure'
-    | '/settings/paiement'
     | '/settings/referencement'
     | '/settings/reseaux'
     | '/settings/webhook'
@@ -395,7 +384,6 @@ export interface FileRouteTypes {
     | '/_authed/settings/ia'
     | '/_authed/settings/identite'
     | '/_authed/settings/mesure'
-    | '/_authed/settings/paiement'
     | '/_authed/settings/referencement'
     | '/_authed/settings/reseaux'
     | '/_authed/settings/webhook'
@@ -596,13 +584,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsMesureRouteImport
       parentRoute: typeof AuthedSettingsRoute
     }
-    '/_authed/settings/paiement': {
-      id: '/_authed/settings/paiement'
-      path: '/paiement'
-      fullPath: '/settings/paiement'
-      preLoaderRoute: typeof AuthedSettingsPaiementRouteImport
-      parentRoute: typeof AuthedSettingsRoute
-    }
     '/_authed/settings/referencement': {
       id: '/_authed/settings/referencement'
       path: '/referencement'
@@ -655,7 +636,6 @@ interface AuthedSettingsRouteChildren {
   AuthedSettingsIaRoute: typeof AuthedSettingsIaRoute
   AuthedSettingsIdentiteRoute: typeof AuthedSettingsIdentiteRoute
   AuthedSettingsMesureRoute: typeof AuthedSettingsMesureRoute
-  AuthedSettingsPaiementRoute: typeof AuthedSettingsPaiementRoute
   AuthedSettingsReferencementRoute: typeof AuthedSettingsReferencementRoute
   AuthedSettingsReseauxRoute: typeof AuthedSettingsReseauxRoute
   AuthedSettingsWebhookRoute: typeof AuthedSettingsWebhookRoute
@@ -669,7 +649,6 @@ const AuthedSettingsRouteChildren: AuthedSettingsRouteChildren = {
   AuthedSettingsIaRoute: AuthedSettingsIaRoute,
   AuthedSettingsIdentiteRoute: AuthedSettingsIdentiteRoute,
   AuthedSettingsMesureRoute: AuthedSettingsMesureRoute,
-  AuthedSettingsPaiementRoute: AuthedSettingsPaiementRoute,
   AuthedSettingsReferencementRoute: AuthedSettingsReferencementRoute,
   AuthedSettingsReseauxRoute: AuthedSettingsReseauxRoute,
   AuthedSettingsWebhookRoute: AuthedSettingsWebhookRoute,
