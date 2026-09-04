@@ -13,9 +13,10 @@ et les exemples. L’instance porte les **secrets** et les **données**.
 
 | Objet | Où | Contient |
 |---|---|---|
-| **Template** | ce dépôt (`ohvignas/AstroTan`) | site + admin + Convex. `/tarifs` est une maquette. **Pas** de checkout Stripe. |
+| **Template** | branche `main` | site + admin + Convex. `/tarifs` est une maquette. **Pas** de checkout Stripe. C’est ce qu’on clone. |
+| **Couche démo** | branche `demo` | `main` + ce qu’il faut pour essayer en public. Le site en ligne suit cette branche. |
 | **App de vente** | l’app commerciale (hors ce repo) | Stripe, pages paiement, livraison du dossier **sans** le code de paiement ni les `.env`. |
-| **Instance démo** | VPS (SRV2) | une install du template, ses secrets, ses DNS. |
+| **Instance démo** | VPS (SRV2) | une install de `demo` : secrets, DNS. Jamais du code source. |
 
 La Phase B (checkout dans le template) a été **retirée** : encaisser l’offre Complet n’est pas un geste d’adoptant.
 

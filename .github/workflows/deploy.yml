@@ -1,5 +1,13 @@
 name: Deploy
 
+# Adoptants : un push sur `main` déploie LEUR VPS — c'est le câblage du
+# template, ne pas le changer.
+#
+# Ce dépôt (`ohvignas/AstroTan`) : `main` est le template vierge, `demo`
+# est ce que la démo publique doit suivre. On ne déclenche PAS ce
+# workflow ici : le VPS de démo ne peut pas lancer le Traefik officiel
+# (80/443 déjà pris). Quand la démo aura un VPS dédié, déployer depuis
+# `demo` et retirer l'exclusion ci-dessous.
 on:
   push:
     branches: [main]
@@ -15,6 +23,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || github.repository != 'ohvignas/AstroTan'
     runs-on: ubuntu-latest
     permissions:
       contents: read

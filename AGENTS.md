@@ -37,6 +37,24 @@ runbook — the authority on everything VPS, DNS, certificates and rollback),
 and `docs/superpowers/specs/2026-08-27-astrotan-design.md` (the architecture
 spec: data model, security invariants, cache strategy, rollback procedure).
 
+## Branches — this repository
+
+Two long-lived branches, not two apps:
+
+| Branch | What it is |
+|---|---|
+| `main` | The template. What people clone. Virgin: clone, bootstrap, deploy. |
+| `demo` | `main` plus the public tryout layer. The live site tracks this. |
+
+Feature work: branch → PR → `main`. Then merge `main` into `demo` when it
+should go live. Never develop on the VPS and copy back. Never put instance
+secrets, Illith DNS, or the selling-app checkout on `main`.
+
+`Deploy` still fires on `main` for **adopters**. This repository skips it:
+the demo VPS cannot run the official Traefik stack (ports 80/443 already
+taken). Until it has its own VPS, update the live instance from `demo` by
+hand.
+
 ## Commands
 
 Node 22.x, pnpm 10.34.5 (pinned by `packageManager`; do not upgrade pnpm
