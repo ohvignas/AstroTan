@@ -37,6 +37,21 @@ export function isServedByRoute(path: string): boolean {
   return SERVED_PATHS.includes("/" + normalizeSlug(path))
 }
 
+// Routes that answer without a `pages` row: the home file (`index.astro`
+// serves `/`, the row is whichever slug settings.homePageSlug names), the
+// Astro 404, and the blog index.
+const NOT_A_CMS_PAGE = new Set(["/", "/404", "/blog"])
+
+/**
+ * Slugs whose `.astro` file is a CMS page — each must appear in the
+ * admin list, even before anyone inserts the matching `pages` row.
+ */
+export function cmsSlugsFromServedPaths(): readonly string[] {
+  return SERVED_PATHS.filter((path) => !NOT_A_CMS_PAGE.has(path)).map((path) =>
+    path.replace(/^\//, ""),
+  )
+}
+
 /** `true` when a dynamic route would resolve this path against the database. */
 export function isUnderDynamicRoute(path: string): boolean {
   const normalized = "/" + normalizeSlug(path)

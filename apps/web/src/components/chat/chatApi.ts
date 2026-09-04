@@ -22,6 +22,10 @@ function asResult(response: Response, body: Record<string, unknown>): ChatResult
   return { ok: false, code }
 }
 
+function currentPageUrl(): string | undefined {
+  return typeof window !== "undefined" ? window.location.href : undefined
+}
+
 let startInFlight: Promise<ChatResult> | null = null
 
 async function postStart(input: {
@@ -32,7 +36,7 @@ async function postStart(input: {
   const response = await fetch("/api/chat/start", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, pageUrl: currentPageUrl() }),
   })
   return asResult(response, await readBody(response))
 }
@@ -58,7 +62,7 @@ export async function attachChatEmail(input: {
   const response = await fetch("/api/chat/email", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, pageUrl: currentPageUrl() }),
   })
   return asResult(response, await readBody(response))
 }
@@ -118,6 +122,7 @@ export async function sendChatMessage(
       token,
       body,
       ...(attachment ?? {}),
+      pageUrl: currentPageUrl(),
     }),
   })
   return asResult(response, await readBody(response))

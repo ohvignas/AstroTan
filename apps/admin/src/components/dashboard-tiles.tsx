@@ -8,11 +8,11 @@ import {
 } from "lucide-react"
 import type {LucideIcon} from "lucide-react";
 import type { DashboardOverview } from "@astrotan/backend/convex/dashboard"
-import { LEAD_STATUS_LABELS } from "@astrotan/backend/convex/content"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { compte, nombre, pluriel, poids } from "@/lib/dashboardFormat"
+import { alerteLeadsNouveaux } from "@/lib/leadVu"
 
 // Ce que contient le site, en quatre tuiles.
 //
@@ -78,7 +78,6 @@ export function TuilesContenu({ overview }: { overview: DashboardOverview | unde
   const { pages, posts, leads, media } = overview
   const brouillonsPages = pages.draft.count
   const brouillonsPosts = posts.draft.count
-  const nouveaux = leads.byStatus.new.count
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -110,13 +109,7 @@ export function TuilesContenu({ overview }: { overview: DashboardOverview | unde
         titre="Leads"
         valeur={compte(leads.total)}
         detail={`${pluriel(leads.total.count, "personne a écrit", "personnes ont écrit")}`}
-        // La seule alerte qui appelle vraiment un geste aujourd'hui : une
-        // fiche en colonne « Nouveau » est une personne qui attend.
-        alerte={
-          nouveaux > 0
-            ? `${nombre(nouveaux)} ${LEAD_STATUS_LABELS.new.toLowerCase()}${nouveaux > 1 ? "x" : ""}`
-            : undefined
-        }
+        alerte={alerteLeadsNouveaux(leads.unseen?.count ?? 0)}
         icone={InboxIcon}
         vers="/leads"
       />

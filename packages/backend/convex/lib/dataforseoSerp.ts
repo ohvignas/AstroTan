@@ -3,8 +3,10 @@ export const DATAFORSEO_SERP_URL =
 export const DATAFORSEO_LABS_URL =
   "https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live"
 export const DATAFORSEO_BACKLINKS_URL =
-  "https://api.dataforseo.com/v3/backlinks/overview/live"
+  "https://api.dataforseo.com/v3/backlinks/summary/live"
 export const DATAFORSEO_SERP_TIMEOUT_MS = 30_000
+/** Labs ranked_keywords : plus lent que user_data / summary (8 s y timeout). */
+export const DATAFORSEO_LABS_TIMEOUT_MS = 30_000
 export const SERP_DEPTH = 100
 
 export type SerpVerdict =
@@ -63,6 +65,31 @@ export function interpretOrganic(args: {
   }
   if (otherUrl !== undefined) return { status: "other_url", rankedUrl: otherUrl }
   return { status: "out_of_top_100" }
+}
+
+/**
+ * Labs rend `tasks[0].result[0].items`, pas une liste de mots-clés.
+ * Lire `result` tel quel faisait écrire 0 alors que `total_count` > 0.
+ */
+export function extractLabsEnvelope(result: unknown[]): {
+  items: unknown[]
+  totalCount: number
+} {
+  const first = result[0]
+  if (!first || typeof first !== "object") return { items: [], totalCount: 0 }
+  const obj = first as { items?: unknown; total_count?: unknown }
+  const items = Array.isArray(obj.items)
+    ? obj.items
+    : "keyword_data" in obj || "keyword" in obj
+      ? result
+      : []
+  const totalCount =
+    typeof obj.total_count === "number" ? obj.total_count : items.length
+  return { items, totalCount }
+}
+
+export function extractLabsItems(result: unknown[]): unknown[] {
+  return extractLabsEnvelope(result).items
 }
 
 export function interpretLabs(items: unknown[]): {

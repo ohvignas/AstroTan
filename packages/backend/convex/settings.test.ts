@@ -123,6 +123,7 @@ test("settings.get ne porte ni serpLocationCode ni serpLanguageCode ni les modè
       serpLocationCode: 2250,
       serpLanguageCode: "fr",
       openRouterModel: "openai/gpt-4o-mini",
+      openRouterAgentModel: "google/gemini-3.7-flash",
       openRouterImageModel: "google/gemini-3-pro-image",
       openRouterOcrModel: "google/gemini-2.5-flash",
     }),
@@ -131,6 +132,7 @@ test("settings.get ne porte ni serpLocationCode ni serpLanguageCode ni les modè
   expect(pub).not.toHaveProperty("serpLocationCode")
   expect(pub).not.toHaveProperty("serpLanguageCode")
   expect(pub).not.toHaveProperty("openRouterModel")
+  expect(pub).not.toHaveProperty("openRouterAgentModel")
   expect(pub).not.toHaveProperty("openRouterImageModel")
   expect(pub).not.toHaveProperty("openRouterOcrModel")
 })
@@ -185,11 +187,48 @@ test("getPrivate rend le modèle OpenRouter ; update l'écrit", async () => {
   await owner.identity.mutation(api.settings.update, { siteName: "AstroTan" })
   expect((await owner.identity.query(api.settings.getPrivate, {}))?.openRouterModel).toBeNull()
   await owner.identity.mutation(api.settings.update, {
-    openRouterModel: "anthropic/claude-opus-5",
+    openRouterModel: "google/gemini-3.7-flash",
   })
   expect((await owner.identity.query(api.settings.getPrivate, {}))?.openRouterModel).toBe(
-    "anthropic/claude-opus-5",
+    "google/gemini-3.7-flash",
   )
+})
+
+test("openRouterModel et openRouterAgentModel sont indépendants", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.settings.update, { siteName: "AstroTan" })
+  await owner.identity.mutation(api.settings.update, {
+    openRouterModel: "x-ai/grok-4.6",
+    openRouterAgentModel: "google/gemini-3.7-flash",
+  })
+  const both = await owner.identity.query(api.settings.getPrivate, {})
+  expect(both?.openRouterModel).toBe("x-ai/grok-4.6")
+  expect(both?.openRouterAgentModel).toBe("google/gemini-3.7-flash")
+
+  await owner.identity.mutation(api.settings.update, {
+    openRouterAgentModel: "anthropic/claude-opus-5",
+  })
+  const afterAgent = await owner.identity.query(api.settings.getPrivate, {})
+  expect(afterAgent?.openRouterModel).toBe("x-ai/grok-4.6")
+  expect(afterAgent?.openRouterAgentModel).toBe("anthropic/claude-opus-5")
+
+  await owner.identity.mutation(api.settings.update, {
+    openRouterModel: "google/gemini-3.1-pro-preview",
+  })
+  const afterText = await owner.identity.query(api.settings.getPrivate, {})
+  expect(afterText?.openRouterModel).toBe("google/gemini-3.1-pro-preview")
+  expect(afterText?.openRouterAgentModel).toBe("anthropic/claude-opus-5")
+})
+
+test("un modèle agent hors liste lève INVALID_OPENROUTER_MODEL", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await expect(
+    owner.identity.mutation(api.settings.update, {
+      openRouterAgentModel: "openai/gpt-nexiste-pas",
+    }),
+  ).rejects.toMatchObject({ data: { code: "INVALID_OPENROUTER_MODEL" } })
 })
 
 test("un modèle image hors liste lève INVALID_OPENROUTER_IMAGE_MODEL", async () => {
@@ -314,22 +353,27 @@ test("get expose metaPixelId et googleTagId : null si jamais saisis, \"\" si ret
   const vide = await t.query(api.settings.get, {})
   expect(vide?.metaPixelId).toBeNull()
   expect(vide?.googleTagId).toBeNull()
+  expect(vide?.googleConversionLabel).toBeNull()
 
   await owner.identity.mutation(api.settings.update, {
     metaPixelId: "123456789012345",
     googleTagId: "AW-999",
+    googleConversionLabel: "AW-999/AbC-D_efG",
   })
   const plein = await t.query(api.settings.get, {})
   expect(plein?.metaPixelId).toBe("123456789012345")
   expect(plein?.googleTagId).toBe("AW-999")
+  expect(plein?.googleConversionLabel).toBe("AbC-D_efG")
 
   await owner.identity.mutation(api.settings.update, { metaPixelId: null })
   const retire = await t.query(api.settings.get, {})
   expect(retire?.metaPixelId).toBe("")
   expect(retire?.googleTagId).toBe("AW-999")
+  expect(retire?.googleConversionLabel).toBe("AbC-D_efG")
   const privee = await owner.identity.query(api.settings.getPrivate, {})
   expect(privee?.metaPixelId).toBe("")
   expect(privee?.googleTagId).toBe("AW-999")
+  expect(privee?.googleConversionLabel).toBe("AbC-D_efG")
 })
 
 test("changer un pixel enfile une outbox site et planifie drain", async () => {
@@ -533,6 +577,28 @@ test("un editor ne pose pas l'agent", async () => {
   await expect(
     editor.identity.mutation(api.settings.updateAgent, { agentEnabled: true }),
   ).rejects.toThrow()
+})
+
+test("identiteEmail ne rend jamais une URL de storage Convex", async () => {
+  const t = makeTestConvex()
+  process.env.WEB_SITE_URL = "http://localhost:4321"
+  const owner = await seedActor(t, "owner")
+  const logoId = await t.run((ctx) => ctx.storage.store(new Blob(["logo"])))
+  await owner.identity.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    logoId,
+  })
+
+  const sansDomaine = await t.query(internal.settings.identiteEmail, {})
+  expect(sansDomaine.logoUrl).toBeNull()
+  expect(sansDomaine.footerLine).toBeNull()
+  expect(JSON.stringify(sansDomaine)).not.toMatch(/convex\.cloud|convex\.site/)
+
+  await owner.identity.mutation(api.settings.update, { declaredDomain: "illith.com" })
+  const avecDomaine = await t.query(internal.settings.identiteEmail, {})
+  expect(avecDomaine.logoUrl).toBe("https://illith.com/logo")
+  expect(avecDomaine.footerLine).toBe("illith.com")
+  expect(avecDomaine.siteName).toBe("AstroTan")
 })
 
 test("un editor lit les IDs et ne peut pas les écrire", async () => {

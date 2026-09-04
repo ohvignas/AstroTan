@@ -10,6 +10,7 @@ import { AgentIdentityFields } from "@/components/agent-identity-fields"
 import { AgentKnowledgeFiles } from "@/components/agent-knowledge-files"
 import { AgentPreviewBubble } from "@/components/agent-preview-bubble"
 import { Button } from "@/components/ui/button"
+import { AiModelSelect } from "@/components/ai-model-select"
 import { OcrModelSelect } from "@/components/ocr-model-select"
 import { AiPage } from "@/components/settings-environment"
 import { DEFAULT_AGENT_CHAT_COLOR } from "@astrotan/backend/convex/lib/agentChatAppearance"
@@ -144,6 +145,14 @@ function AgentForm({
             </Button>
           }
         >
+          <AiModelSelect
+            canWrite={canWrite}
+            openRouterModel={settings?.openRouterAgentModel ?? null}
+            onSave={(id) => update({ openRouterAgentModel: id })}
+            fieldId="agent-model"
+            fieldLabel="Modèle de l'agent"
+            description="Le modèle utilisé par le chat de l'agent sur le site."
+          />
           <AgentIdentityFields
             canWrite={canWrite}
             agentEnabled={agentEnabled}
@@ -164,12 +173,7 @@ function AgentForm({
             <AgentKnowledgeFiles disabled={!canWrite} />
           </div>
           <div className="grid gap-3">
-            <div className="flex flex-col gap-1">
-              <h3 className="font-heading text-sm font-medium">Applications</h3>
-              <p className="text-sm text-muted-foreground">
-                L'agent n'utilise un agenda que si un compte est lié.
-              </p>
-            </div>
+            <h3 className="font-heading text-sm font-medium">Applications</h3>
             <AgentConnectorsRow
               canWrite={canWrite}
               secrets={secrets}
@@ -183,8 +187,8 @@ function AgentForm({
           secrets={secrets}
           canWrite={canWrite}
           openRouterModel={settings?.openRouterModel ?? null}
-          openRouterImageModel={settings?.openRouterImageModel ?? null}
           onSaveModel={(id) => update({ openRouterModel: id })}
+          openRouterImageModel={settings?.openRouterImageModel ?? null}
           onSaveImageModel={(id) => update({ openRouterImageModel: id })}
         >
           <OcrModelSelect

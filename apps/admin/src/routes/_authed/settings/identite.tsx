@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
@@ -10,7 +10,19 @@ import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 // second depuis une route traîne le serveur dans le bundle du navigateur,
 // ce que le client Convex signale une fois par fonction trouvée.
 import { MAX_SITE_NAME_LENGTH } from "@astrotan/backend/convex/content"
+import {
+  hydrateSocials,
+  isSocialHttpUrl,
+  type SocialRow,
+} from "@astrotan/backend/convex/lib/socialNetworks"
+import {
+  TEMPLATE_ICON_FILENAME,
+  TEMPLATE_LOGO_FILENAME,
+  resolveIdentityMedia,
+  templateIdentityToAssign,
+} from "@/lib/identityImage"
 import { describeSettingsError } from "@/lib/settingsErrors"
+import { SocialsField } from "@/components/socials-field"
 import defaultIcon from "@/assets/icon_astrotan.png"
 import defaultLogo from "@/assets/logo_astrotan.png"
 import { MediaPicker } from "@/components/media-picker"
@@ -93,19 +105,28 @@ function IdentiteForm({
   const [iconId, setIconId] = useState<Id<"_storage"> | null>(
     settings?.iconId ?? null
   )
+  const [socials, setSocials] = useState<SocialRow[]>(() =>
+    hydrateSocials(settings?.socials ?? []).map((row) => ({
+      label: row.id,
+      url: row.url,
+    })),
+  )
 
   const trimmedSiteName = siteName.trim()
+  const hasInvalidSocial = socials.some(
+    (row) => row.url.trim() !== "" && !isSocialHttpUrl(row.url),
+  )
 
-  // `null` est envoyé, et c'est le point : `settings.update` déclare ces
-  // deux champs en `v.union(v.id("_storage"), v.null())` et traduit `null`
-  // en `undefined` juste avant le patch, où il efface bien le champ. Les
-  // omettre — ce que cet écran faisait — rendait le bouton « Retirer »
-  // impossible, faute de valeur transmissible pour dire « efface-le ».
-  //
-  // Sans danger au montage : `useAutoSave` sème sa référence au premier
-  // rendu et ne déclenche rien tant que la photo n'a pas changé, donc un
-  // `logoId: null` déjà nul n'écrit jamais.
-  const autoFields = { siteName, logoId, iconId }
+  // Logo et icône se remplacent, ils ne s'effacent pas depuis cet écran.
+  // `null` n'arrive ici que si le champ n'a jamais été choisi. Pour l'icône,
+  // ImageField rattache alors le fichier du template s'il est déjà en
+  // médiathèque — sinon l'aperçu resterait un PNG du dépôt, sans protection.
+  const autoFields = {
+    siteName,
+    logoId,
+    iconId,
+    socials: socials.filter((row) => isSocialHttpUrl(row.url)),
+  }
 
   const autoSave = useAutoSave({
     enabled: canWrite,
@@ -126,7 +147,9 @@ function IdentiteForm({
     validate: ({ auto }) =>
       auto.siteName.trim().length === 0
         ? "Le nom du site ne peut pas être vide."
-        : null,
+        : hasInvalidSocial
+          ? "Chaque lien de réseau doit commencer par http:// ou https://."
+          : null,
     describeError: describeSettingsError,
   })
 
@@ -135,8 +158,8 @@ function IdentiteForm({
       to="/settings/identite"
       canWrite={canWrite}
       autoSave={autoSave}
-      unsavedLabel="Le nom ou les images du site"
-      blocked={trimmedSiteName.length === 0}
+      unsavedLabel="Le nom, les images ou les réseaux du site"
+      blocked={trimmedSiteName.length === 0 || hasInvalidSocial}
     >
       <SettingsGroup title="Nom et images">
         <Field data-invalid={canWrite && trimmedSiteName.length === 0}>
@@ -161,27 +184,38 @@ function IdentiteForm({
           )}
         </Field>
 
-        <Field>
-          <FieldLabel>Logo</FieldLabel>
-          <ImageField
-            value={logoId}
-            disabled={!canWrite}
-            onChange={setLogoId}
-            onClear={() => setLogoId(null)}
-            noun="logo"
-          />
-        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field>
+            <FieldLabel>Logo</FieldLabel>
+            <ImageField
+              value={logoId}
+              disabled={!canWrite}
+              onChange={setLogoId}
+              noun="logo"
+            />
+          </Field>
 
-        <Field>
-          <FieldLabel>Icône</FieldLabel>
-          <ImageField
-            value={iconId}
-            disabled={!canWrite}
-            onChange={setIconId}
-            onClear={() => setIconId(null)}
-            noun="icône"
-          />
-        </Field>
+          <Field>
+            <FieldLabel>Icône</FieldLabel>
+            <ImageField
+              value={iconId}
+              disabled={!canWrite}
+              onChange={setIconId}
+              noun="icône"
+            />
+          </Field>
+        </div>
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Réseaux sociaux"
+        description="Choisissez le réseau, puis collez l'URL du profil. Seuls les liens renseignés apparaissent dans le pied de page du site."
+      >
+        <SocialsField
+          socials={socials}
+          canWrite={canWrite}
+          onChange={setSocials}
+        />
       </SettingsGroup>
 
       <SettingsGroup
@@ -230,7 +264,9 @@ function HomePageField({
   const items: Record<string, string> = {
     [NO_HOME_PAGE]: "Aucune",
     ...Object.fromEntries(
-      pages.map((page) => [page.slug, `${page.title} — /${page.slug}`])
+      pages
+        .filter((page) => page._id !== null)
+        .map((page) => [page.slug, `${page.title} — /${page.slug}`])
     ),
   }
 
@@ -285,7 +321,9 @@ function HomePageField({
                 {danglingSlug} — page introuvable
               </SelectItem>
             )}
-            {pages.map((page) => (
+            {pages
+              .filter((page) => page._id !== null)
+              .map((page) => (
               <SelectItem key={page._id} value={page.slug}>
                 {page.title} — /{page.slug}
               </SelectItem>
@@ -310,18 +348,19 @@ function ImageField({
   value,
   disabled,
   onChange,
-  onClear,
   noun,
 }: {
   value: Id<"_storage"> | null
   disabled: boolean
   onChange: (value: Id<"_storage">) => void
-  onClear: () => void
   /** « logo » ou « icône » — au singulier, sans article. */
   noun: string
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const feminin = noun === "icône"
+  const templateFilename = feminin
+    ? TEMPLATE_ICON_FILENAME
+    : TEMPLATE_LOGO_FILENAME
   // Deux sources, et il en fallait deux — c'est la cause exacte du logo qui
   // ne s'affichait pas.
   //
@@ -340,20 +379,41 @@ function ImageField({
   // `null` — et `null` est le seul signal fiable de « ce fichier n'existe
   // plus ». C'est le chemin qu'`apps/web` emprunte déjà pour afficher le
   // logo sur chaque page (`layout/Header.astro`).
-  const media = useQuery(api.media.list, value === null ? "skip" : {})
+  //
+  // La liste n'est plus sautée quand `value` est vide : l'icône du template
+  // est souvent déjà en médiathèque alors que `iconId` ne l'est pas. Sans
+  // `list`, filename / alt et le bouton « Changer » restent muets.
+  const media = useQuery(api.media.list)
+  const selected = resolveIdentityMedia({
+    assignedId: value,
+    media,
+    templateFilename,
+  })
+  const displayId = (value ?? selected?.storageId ?? null) as Id<"_storage"> | null
   const url = useQuery(
     api.media.publicUrl,
-    value === null ? "skip" : { storageId: value }
+    displayId === null ? "skip" : { storageId: displayId }
   )
-  const selected = media?.find((item) => item.storageId === value) ?? null
   // `undefined` = en cours de chargement ; `null` = le fichier a disparu.
   // Confondre les deux ferait clignoter le message d'erreur à chaque
-  // ouverture de la page.
+  // ouverture de la page. Un aperçu template aligné sur une ligne média
+  // n'est pas « introuvable » : le fichier est là, seul `iconId` manquait.
   const introuvable = value !== null && url === null
+  const linked = displayId !== null && !introuvable
+
+  useEffect(() => {
+    if (disabled || !feminin) return
+    const next = templateIdentityToAssign({
+      assignedId: value,
+      media,
+      templateFilename,
+    })
+    if (next) onChange(next as Id<"_storage">)
+  }, [disabled, feminin, value, media, templateFilename, onChange])
 
   return (
     <div className="flex flex-col gap-3">
-      {value === null || introuvable ? (
+      {!linked ? (
         <div className="flex items-center gap-3">
           {/* Une seule branche pour « aucun réglage » et « la référence a
               disparu » : depuis que les deux messages ont été retirés, elles
@@ -406,34 +466,24 @@ function ImageField({
             onClick={() => setPickerOpen(true)}
           >
             <ImageIcon data-icon="inline-start" />
-            {value === null
-              ? `Choisir un${feminin ? "e" : ""} ${noun}`
-              : `Changer d${feminin ? "’" : "e "}${noun}`}
+            {linked
+              ? `Changer d${feminin ? "’" : "e "}${noun}`
+              : `Choisir un${feminin ? "e" : ""} ${noun}`}
           </Button>
-          {/* Le bouton manquait, et son absence était justifiée par un
-              commentaire faux : `settings.update` déclare bien
-              `logoId: v.optional(v.union(v.id("_storage"), v.null()))` et
-              traduit `null` en effacement. C'est le formulaire qui ne
-              transmettait jamais `null`. Il le fait maintenant — et sans
-              cela, une référence cassée n'avait aucune sortie. */}
-          {value !== null && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="cursor-pointer"
-              onClick={onClear}
-            >
-              Retirer
-            </Button>
-          )}
         </div>
+      )}
+      {value === null && !feminin && selected === null && (
+        <FieldDescription>
+          L'aperçu est le fichier du template. Choisissez un logo dans la
+          médiathèque pour l'assigner : tant qu'il n'est pas choisi ici, /media
+          peut encore supprimer ce fichier.
+        </FieldDescription>
       )}
       <MediaPicker
         open={pickerOpen}
         onOpenChange={setPickerOpen}
         onSelect={onChange}
-        selectedStorageId={value}
+        selectedStorageId={displayId}
         title={feminin ? "Icône du site" : "Logo du site"}
         description="Repris sur chaque page du site public."
       />

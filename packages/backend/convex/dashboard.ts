@@ -70,7 +70,7 @@ export async function tally(q: Takeable): Promise<Tally> {
 export interface DashboardOverview {
   pages: { published: Tally; draft: Tally }
   posts: { published: Tally; draft: Tally; lastPublishedAt: number | null }
-  leads: { byStatus: Record<LeadStatus, Tally>; total: Tally }
+  leads: { byStatus: Record<LeadStatus, Tally>; total: Tally; unseen: Tally }
   media: { files: Tally; bytes: number }
   /** `null` pour un éditeur — les comptes ne sont pas de son ressort. */
   users: { total: Tally; pendingInvitations: Tally } | null
@@ -161,11 +161,17 @@ export const overview = query({
         ctx.db.query("leads").withIndex("by_status", (q) => q.eq("status", status)),
       )
     }
+    const scanned = await ctx.db.query("leads").take(COUNT_CAP + 1)
+    const unseenRows = scanned.filter((lead) => lead.seenAt === undefined)
     const leads = {
       byStatus,
       total: {
         count: LEAD_STATUSES.reduce((n, s) => n + byStatus[s].count, 0),
         capped: LEAD_STATUSES.some((s) => byStatus[s].capped),
+      },
+      unseen: {
+        count: Math.min(unseenRows.length, COUNT_CAP),
+        capped: scanned.length > COUNT_CAP,
       },
     }
 

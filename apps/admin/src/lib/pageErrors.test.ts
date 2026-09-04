@@ -15,6 +15,18 @@ describe("les codes déjà connus", () => {
     expect(message).toContain("200")
   })
 
+  test("FIELD_TOO_LONG traduit extraInstructions", () => {
+    const message = describePageError(
+      new ConvexError({
+        code: "FIELD_TOO_LONG",
+        field: "extraInstructions",
+        max: 500,
+      }),
+    )
+    expect(message).toContain("Instruction complémentaire")
+    expect(message).toContain("500")
+  })
+
   test("un code inconnu retombe sur le message générique", () => {
     expect(describePageError(new ConvexError({ code: "QUELQUE_CHOSE" }))).toBe(
       "Une erreur inattendue est survenue.",
@@ -24,6 +36,43 @@ describe("les codes déjà connus", () => {
   test("une erreur qui n'est pas une ConvexError retombe aussi", () => {
     expect(describePageError(new Error("réseau"))).toBe(
       "Une erreur inattendue est survenue.",
+    )
+  })
+})
+
+describe("les refus OpenRouter", () => {
+  test("OPENROUTER_NOT_CONFIGURED pointe vers Réglages → Agent IA & Modèle IA", () => {
+    const message = describePageError(
+      new ConvexError({ code: "OPENROUTER_NOT_CONFIGURED" }),
+    )
+    expect(message).toContain("Réglages → Agent IA & Modèle IA")
+    expect(message).not.toContain("Réglages → IA.")
+    expect(message).not.toBe("Une erreur inattendue est survenue.")
+  })
+
+  test("OPENROUTER_REFUSED et UNAVAILABLE ont chacun leur phrase", () => {
+    expect(describePageError(new ConvexError({ code: "OPENROUTER_REFUSED" }))).toContain(
+      "Agent IA",
+    )
+    expect(
+      describePageError(new ConvexError({ code: "OPENROUTER_UNAVAILABLE" })),
+    ).toContain("injoignable")
+  })
+
+  test("OPENROUTER_BAD_RESPONSE distingue parse et brouillon vide", () => {
+    expect(
+      describePageError(new ConvexError({ code: "OPENROUTER_BAD_RESPONSE" })),
+    ).toContain("métadonnées")
+    expect(
+      describePageError(
+        new ConvexError({ code: "OPENROUTER_BAD_RESPONSE", reason: "empty" }),
+      ),
+    ).toContain("n'a pas rempli")
+  })
+
+  test("OPENROUTER_BAD_IMAGE pointe vers le modèle d'image", () => {
+    expect(describePageError(new ConvexError({ code: "OPENROUTER_BAD_IMAGE" }))).toContain(
+      "image",
     )
   })
 })

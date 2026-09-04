@@ -6,14 +6,17 @@ import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Enregistrement, Verdict } from "@astrotan/backend/convex/dns"
 import { normaliserHote } from "@astrotan/backend/convex/lib/hoteNu"
 import type { ResultatResend } from "@astrotan/backend/convex/resendDomain"
+import { estEnvironnementLocal } from "@/lib/domaineLocal"
 import { describeSettingsError } from "@/lib/settingsErrors"
 import type { Signe } from "@/components/domain-check"
 import {
+  EtatVerification,
   Etiquette,
   TableauDns,
   fusionnerResend,
   fusionnerVerdicts,
 } from "@/components/domain-check"
+import { StatutLookup, statutDuLookup } from "@/components/lookup-status"
 import { useAutoSave } from "@/components/save-bar"
 import { SettingsGroup } from "@/components/settings-nav"
 import {
@@ -133,7 +136,8 @@ function DomaineForm({
   // retombent à « attente » et le verrou se referme, ce qui est
   // exactement ce qu'il faut — ils ne disent rien du nouveau domaine.
   const lecture = lectureDe(cible, verification.lecture)
-  const etatA = etatDesA(domaine, cible, lecture)
+  const local = estEnvironnementLocal()
+  const etatA = etatDesA(domaine, cible, lecture, { local })
 
   // Chaîne vide = « effacer » : `null` retire le réglage côté serveur, là
   // où `undefined` le laisserait tel quel (sémantique à trois états de
@@ -177,7 +181,7 @@ function DomaineForm({
       unsavedLabel="Le nom de domaine déclaré"
       // Le verrou. Vider le champ reste possible — effacer le domaine
       // déclaré ne demande aucun certificat à personne.
-      blocked={!domaineEnregistrable(domaine, cible, lecture)}
+      blocked={!domaineEnregistrable(domaine, cible, lecture, { local })}
     >
       <SettingsGroup>
         <Field>
@@ -201,9 +205,11 @@ function DomaineForm({
             cible={cible}
             lecture={lecture}
             etatA={etatA}
+            local={local}
             enCours={verification.enCours}
             declarationEnCours={verification.declarationEnCours}
             erreur={verification.erreur}
+            verifieA={verification.verifieA}
             onVerifier={verification.verifier}
             onDeclarer={verification.declarer}
           />
@@ -259,38 +265,30 @@ export function lectureDe(
 export function etatDesA(
   saisie: string,
   cible: string | null,
-  lecture: Lecture | null
+  lecture: Lecture | null,
+  opts: { local?: boolean } = {},
 ): { signe: Signe; texte: string } | null {
   if (saisie.trim() === "") return null
-  // Ni le plan ni la vérification ne peuvent rien pour une saisie qui n'est
-  // pas encore un hôte. Le dire ici plutôt que de laisser un bouton
-  // désactivé sans raison visible : `validate` ne parle, lui, qu'à
-  // l'enregistrement — et l'enregistrement est justement ce qui est
-  // interdit.
   if (cible === null) return { signe: "inconnu", texte: "Domaine incomplet" }
   const a = lecture?.site.filter((verdict) => verdict.type === "A") ?? []
-  if (a.length === 0) return { signe: "inconnu", texte: "A non lu" }
+  if (opts.local) {
+    if (a.length === 0) return { signe: "inconnu", texte: "Non connecté" }
+    if (a.some((verdict) => verdict.etat === "manquant")) {
+      return { signe: "ko", texte: "Non connecté" }
+    }
+    if (a.some((verdict) => verdict.etat === "indisponible" || verdict.etat === "attente")) {
+      return { signe: "inconnu", texte: "Non connecté" }
+    }
+    return { signe: "inconnu", texte: "Local" }
+  }
+  if (a.length === 0) return { signe: "inconnu", texte: "Non connecté" }
   if (a.some((verdict) => verdict.etat === "manquant" || verdict.etat === "different")) {
-    return { signe: "ko", texte: "A à poser" }
+    return { signe: "ko", texte: "Non connecté" }
   }
-  // Un résolveur muet n'est pas un enregistrement absent — même règle que
-  // dans le tableau, et la même conséquence ici : on n'arme rien sur ce
-  // qu'on n'a pas pu lire. `forme` en est exclu : lui a été lu.
-  if (a.some((verdict) => verdict.etat !== "ok" && verdict.etat !== "forme")) {
-    return { signe: "inconnu", texte: "A non lu" }
+  if (a.some((verdict) => verdict.etat !== "ok")) {
+    return { signe: "inconnu", texte: "Non connecté" }
   }
-  // DEUX FAÇONS D'ÊTRE VERT, ET ELLES NE SE DISENT PAS PAREIL. `ok` veut
-  // dire que le A mène à CE serveur ; `forme` veut dire qu'il est une
-  // IPv4 publique et que le déploiement n'avait personne à qui le
-  // comparer (`convex/dns.ts`, `jugerA`, cas `aucune`). Le bouton s'arme
-  // dans les deux cas — le refuser enfermerait tout déploiement sans
-  // variable Convex —, mais promettre « A en place » sur une comparaison
-  // qui n'a pas eu lieu est ce qui laissait un adoptant derrière
-  // Cloudflare brûler son quota Let's Encrypt en croyant l'écran.
-  if (a.some((verdict) => verdict.etat === "forme")) {
-    return { signe: "ok", texte: "A plausible · aucun serveur de référence" }
-  }
-  return { signe: "ok", texte: "A en place" }
+  return { signe: "ok", texte: "Connecté" }
 }
 
 /**
@@ -304,11 +302,12 @@ export function etatDesA(
 export function domaineEnregistrable(
   saisie: string,
   cible: string | null,
-  lecture: Lecture | null
+  lecture: Lecture | null,
+  opts: { local?: boolean } = {},
 ): boolean {
-  // Effacer le domaine déclaré ne fait demander aucun certificat.
   if (saisie.trim() === "") return true
-  return etatDesA(saisie, cible, lecture)?.signe === "ok"
+  if (opts.local) return cible !== null
+  return etatDesA(saisie, cible, lecture, opts)?.signe === "ok"
 }
 
 /**
@@ -384,15 +383,29 @@ const SIGNE_DU_STATUT: Record<string, Signe> = {
  * `plan` et `resultat` sont de simples valeurs, dans la même veine que
  * `FormulaireReinitialisation` (`routes/reset-password.tsx`).
  */
+/**
+ * Le tableau emails n'a de sens que si Resend est câblé.
+ *
+ * Sans clé (`sans_cle`) — le cas local, `RESEND_API_KEY` absente — les
+ * TXT ne partent nulle part : les cacher plutôt que de laisser croire
+ * qu'il faut les poser. Tant qu'on n'a pas lu Resend, même silence :
+ * afficher puis retirer ferait clignoter SPF/DKIM à chaque ouverture.
+ */
+function afficherTableauEmails(resend: ResultatResend | null): boolean {
+  return resend !== null && resend.etat !== "sans_cle"
+}
+
 export function TableauxDns({
   plan,
   resultat,
   resend = null,
+  local = false,
 }: {
   plan: Plan
   resultat: Resultat | null
   /** Ce que Resend a répondu — `null` tant qu'on ne lui a rien demandé. */
   resend?: ResultatResend | null
+  local?: boolean
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -405,20 +418,23 @@ export function TableauxDns({
       <TableauDns
         titre="Le site"
         lignes={fusionnerVerdicts(plan.site, resultat?.site ?? null)}
+        local={local}
       />
-      <TableauDns
-        titre="Les emails"
-        etat={
-          resend === null ? null : <Etiquette {...etiquetteResend(resend)} />
-        }
-        lignes={fusionnerVerdicts(
-          fusionnerResend(
-            plan.email,
-            resend?.etat === "ok" ? resend.enregistrements : []
-          ),
-          resultat?.email ?? null
-        )}
-      />
+      {afficherTableauEmails(resend) && resend !== null ? (
+        <TableauDns
+          titre="Les emails"
+          note="Resend les affiche — tu les copies chez ton registrar."
+          etat={<Etiquette {...etiquetteResend(resend)} />}
+          local={local}
+          lignes={fusionnerVerdicts(
+            fusionnerResend(
+              plan.email,
+              resend.etat === "ok" ? resend.enregistrements : []
+            ),
+            resultat?.email ?? null
+          )}
+        />
+      ) : null}
     </div>
   )
 }
@@ -490,14 +506,17 @@ function useVerification(domaineEnregistre: string | null) {
   const [declarationEnCours, setDeclarationEnCours] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
   const [lecture, setLecture] = useState<Lecture | null>(null)
+  const [verifieA, setVerifieA] = useState<number | null>(null)
 
   async function verifier(hote: string) {
     setEnCours(true)
     setErreur(null)
     try {
       setLecture(await lireLeDomaine(actions, hote))
+      setVerifieA(Date.now())
     } catch (err) {
       setErreur(describeSettingsError(err))
+      setVerifieA(Date.now())
     } finally {
       setEnCours(false)
     }
@@ -516,8 +535,10 @@ function useVerification(domaineEnregistre: string | null) {
     try {
       await actions.declarerResend({ domaine: hote })
       setLecture(await lireLeDomaine(actions, hote))
+      setVerifieA(Date.now())
     } catch (err) {
       setErreur(describeSettingsError(err))
+      setVerifieA(Date.now())
     } finally {
       setDeclarationEnCours(false)
     }
@@ -535,25 +556,29 @@ function useVerification(domaineEnregistre: string | null) {
     // enregistré doit déclencher une nouvelle lecture.
   }, [domaineEnregistre])
 
-  return { lecture, enCours, declarationEnCours, erreur, verifier, declarer }
+  return { lecture, enCours, declarationEnCours, erreur, verifieA, verifier, declarer }
 }
 
 function VerificationDns({
   cible,
   lecture,
   etatA,
+  local,
   enCours,
   declarationEnCours,
   erreur,
+  verifieA,
   onVerifier,
   onDeclarer,
 }: {
   cible: string | null
   lecture: Lecture | null
   etatA: { signe: Signe; texte: string } | null
+  local: boolean
   enCours: boolean
   declarationEnCours: boolean
   erreur: string | null
+  verifieA: number | null
   onVerifier: (hote: string) => void
   onDeclarer: (hote: string) => void
 }) {
@@ -562,6 +587,18 @@ function VerificationDns({
   // est déjà là quand on décide quoi créer. `"skip"` tant que la saisie
   // n'est pas un hôte — `dns.plan` refuserait le reste.
   const plan = useQuery(api.dns.plan, cible === null ? "skip" : { domaine: cible })
+  const lignes = lecture === null ? [] : [...lecture.site, ...lecture.email]
+  const statut = statutDuLookup({
+    enCours,
+    erreur,
+    verifieA,
+    trouves: lignes.reduce((n, v) => n + v.trouve.length, 0),
+    raisonsIndispo: lignes
+      .filter((v) => v.etat === "indisponible")
+      .map((v) => v.raison ?? "Pas de réponse du résolveur DNS."),
+    apexNxdomain:
+      lecture?.site.some((v) => v.cle === "site" && v.raison === "NXDOMAIN") ?? false,
+  })
 
   return (
     <div className="flex flex-col gap-4">
@@ -585,7 +622,8 @@ function VerificationDns({
                 ? `Vérifier ${cible}`
                 : `Revérifier ${cible}`}
         </Button>
-        {etatA !== null ? <Etiquette {...etatA} /> : null}
+        {etatA !== null ? <EtatVerification {...etatA} /> : null}
+        <StatutLookup {...statut} />
       </div>
 
       {/* L'écriture chez un tiers, et son libellé dit ce qu'elle fait.
@@ -606,10 +644,6 @@ function VerificationDns({
         </Button>
       ) : null}
 
-      {erreur !== null ? (
-        <p className="text-sm text-destructive">{erreur}</p>
-      ) : null}
-
       {/* Le tableau tient du plan seul, dès qu'il est chargé — pas besoin
           d'attendre `lecture` : c'est le défaut de fond que cet écran
           corrige. */}
@@ -618,6 +652,7 @@ function VerificationDns({
           plan={plan}
           resultat={lecture}
           resend={lecture?.resend ?? null}
+          local={local}
         />
       ) : null}
     </div>

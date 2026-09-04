@@ -27,6 +27,19 @@
 
 /* ─── 1. Tokens partagés (importent Tailwind et déclarent `dark`) ─── */
 @import "@astrotan/tokens/theme.css";
+@import "shadcn/tailwind.css";
+
+/* Alias shadcn manquants : theme.css expose déjà les variables nues
+   (--border, --accent, --card). Tailwind ne les mappe pas tous vers
+   border-border / bg-popover / bg-input — la bulle chat en a besoin. */
+@theme inline {
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-accent: var(--accent);
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--card-foreground);
+  --radius: var(--radius-lg);
+}
 
 /* ─── 2. Polices variables Fontsource ───
    Auto-hébergées : le navigateur ne contacte aucun tiers, donc aucune

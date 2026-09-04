@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values"
 import { internalMutation, internalQuery } from "./_generated/server"
+import { components } from "./_generated/api"
 import { roleValidator } from "./validators"
 import { generateToken } from "./lib/token"
 import { listUsersWithRole } from "./users"
@@ -113,5 +114,66 @@ export const owners = internalQuery({
   handler: async (ctx) => {
     const found = await listUsersWithRole(ctx, "owner")
     return found.map((user) => user.email)
+  },
+})
+
+/**
+ * Lien d'accès local pour un agent (`pnpm admin:dev-link`).
+ *
+ * Réutilise le seul chemin déjà dans le produit : une invitation Better
+ * Auth, acceptée sur `/accept-invite?token=…` avec un mot de passe choisi
+ * dans le navigateur. Pas de backdoor, pas de skip auth, pas de second
+ * owner. Rejouable : une invitation encore en attente pour cette adresse
+ * est remplacée (le jeton n'est pas relisible — seul son hash est stocké).
+ *
+ * `internalMutation` : inatteignable depuis un client, comme
+ * `createInvitation`. Un compte déjà créé pour l'adresse rend
+ * `ACCOUNT_ALREADY_EXISTS` — le script se rabat alors sur le
+ * `storageState` Playwright gitignoré, s'il existe.
+ */
+export const devAccessLink = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const email = args.email.trim().toLowerCase()
+    if (email.length === 0 || !email.includes("@")) {
+      throw new ConvexError({ code: "INVALID_EMAIL" })
+    }
+
+    const existingAccount = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user" as const,
+      where: [{ field: "email" as const, operator: "eq" as const, value: email }],
+    })
+    if (existingAccount) {
+      throw new ConvexError({ code: "ACCOUNT_ALREADY_EXISTS", email })
+    }
+
+    const existing = await ctx.db
+      .query("invitations")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect()
+    for (const row of existing) {
+      if (row.acceptedAt) continue
+      if (row.scheduledEmailId) {
+        const job = await ctx.db.system.get(row.scheduledEmailId)
+        if (job && (job.state.kind === "pending" || job.state.kind === "inProgress")) {
+          await ctx.scheduler.cancel(row.scheduledEmailId)
+        }
+      }
+      await ctx.db.delete(row._id)
+    }
+
+    const ownersFound = await listUsersWithRole(ctx, "owner")
+    const role = ownersFound.length === 0 ? "owner" : "editor"
+
+    const { token, hash } = await generateToken()
+    await ctx.db.insert("invitations", {
+      email,
+      role,
+      tokenHash: hash,
+      expiresAt: Date.now() + SEVEN_DAYS_MS,
+      invitedBy: BOOTSTRAP_ISSUER,
+    })
+
+    return { kind: "accept-invite" as const, email, role, token }
   },
 })

@@ -1,10 +1,11 @@
 import type { ReactNode } from "react"
+import { ExternalLinkIcon } from "lucide-react"
+import { Field, FieldLabel } from "@/components/ui/field"
 import { SettingsGroup } from "@/components/settings-nav"
+import { AiModelFields } from "@/components/ai-model-select"
 import {
   CleMaitresseBandeau,
-  Command,
   SecretField,
-  SecretsReserves,
 } from "@/components/settings-secrets"
 import type { CleMaitresseEtat, SecretEtat } from "@/components/settings-secrets"
 
@@ -113,27 +114,50 @@ export function ChampSecret({
 // IA
 // ---------------------------------------------------------------------
 
-export function AiPage({ secrets }: { secrets: SecretsBloc }) {
-  if (secrets.cleMaitresse === null) return <SecretsReserves />
+type AiPageProps = {
+  secrets: SecretsBloc
+  canWrite: boolean
+  openRouterModel: string | null
+  onSaveModel: (id: string) => Promise<unknown>
+  openRouterImageModel: string | null
+  onSaveImageModel: (id: string) => Promise<unknown>
+  children?: ReactNode
+}
+
+export function AiPage({ secrets, canWrite, children, ...models }: AiPageProps) {
   return (
-    // Un seul groupe : pas de `h2`, il ne ferait que répéter le `h1`.
-    <SettingsGroup>
-      <CleMaitresseBandeau etat={secrets.cleMaitresse} />
-      <ChampSecret bloc={secrets} nom="OPENROUTER_API_KEY">
-        {/* Dire ce qui n'existe pas encore : une pastille verte sur une
-            fonctionnalité absente est un mensonge que personne ne
-            corrigera, parce que rien ne casse. */}
-        <strong>Aucune fonction de ce dépôt ne lit encore cette clé</strong>,
-        ni ici ni dans l'environnement. La poser prépare le terrain ; elle ne
-        déclenche rien aujourd'hui.
-      </ChampSecret>
-      <p className="text-sm text-muted-foreground">
-        L'autre chemin, plus sûr, et celui qui l'emporte sur la saisie
-        ci-dessus :
-      </p>
-      <Command>
-        cd packages/backend && npx convex env set OPENROUTER_API_KEY sk-or-…
-      </Command>
+    <SettingsGroup title="Modèle IA">
+      {secrets.cleMaitresse === null ? (
+        <p className="text-sm text-muted-foreground">
+          Réservée au propriétaire et aux administrateurs.
+        </p>
+      ) : (
+        <>
+          {secrets.cleMaitresse === "posee" ? null : (
+            <CleMaitresseBandeau etat={secrets.cleMaitresse} />
+          )}
+          <Field>
+            <FieldLabel>Clé OpenRouter</FieldLabel>
+            <ChampSecret
+              bloc={secrets}
+              nom="OPENROUTER_API_KEY"
+              consequence="La génération des champs SEO et GEO depuis l'éditeur ne fonctionnera plus."
+            >
+              <a
+                href="https://openrouter.ai/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 underline"
+              >
+                openrouter.ai/keys
+                <ExternalLinkIcon aria-hidden="true" className="size-3" />
+              </a>
+            </ChampSecret>
+          </Field>
+        </>
+      )}
+      <AiModelFields canWrite={canWrite} {...models} />
+      {children}
     </SettingsGroup>
   )
 }

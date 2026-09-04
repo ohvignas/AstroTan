@@ -45,4 +45,32 @@ describe("geoFromTrustedIp", () => {
       ip: "127.0.0.1",
     })
   })
+
+  test("recopie lat/lng et fuseau Cloudflare s'ils sont déjà là", () => {
+    const headers = new Headers({
+      "cf-ipcountry": "FR",
+      "cf-ipcity": "Lyon",
+      "cf-iplatitude": "45.75",
+      "cf-iplongitude": "4.85",
+      "cf-timezone": "Europe/Paris",
+    })
+    expect(geoFromTrustedIp("203.0.113.42", headers)).toEqual({
+      ip: "203.0.113.42",
+      country: "FR",
+      city: "Lyon",
+      latitude: 45.75,
+      longitude: 4.85,
+      timezone: "Europe/Paris",
+    })
+  })
+
+  test("un fuseau ou une coordonnée invalide est ignoré", () => {
+    const headers = new Headers({
+      "x-vercel-ip-latitude": "200",
+      "x-vercel-ip-timezone": "Mars/Olympus",
+    })
+    expect(geoFromTrustedIp("203.0.113.42", headers)).toEqual({
+      ip: "203.0.113.42",
+    })
+  })
 })

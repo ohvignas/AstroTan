@@ -53,6 +53,7 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm codegen               # asserts convex/_generated is present; never pushes
+pnpm admin:dev-link        # gitignored /accept-invite URL in .local/admin-invite.url
 ```
 
 Per package, when you only need one:
@@ -113,7 +114,7 @@ and still must be left to the human.
    empty `RESEND_API_KEY` is not posted at all, and the script says so.
    `SECRETS_KEY` is the master key for tokens typed into the dashboard:
    without it the whole `secrets` family is inert — the refusal is clean,
-   but `/settings/mesure` and `/settings/ia` do nothing.
+   but `/settings/mesure` and `/settings/agent` do nothing.
 3. **The app-side variables for local development**: `apps/web/.env.local` and
    `apps/admin/.env.local`, written from the matching `.env.example` (that is
    the filename those examples ask for, and the one Vite and Astro load last,
@@ -255,6 +256,14 @@ Read these before running anything.
   `pages` row for its slug and status — there is no content model to fill in
   and nothing else to wire up. `CLAUDE.md` has the three lines to copy at the
   top of the file.
+- **Admin login for agents.** There is no password in the repo and no
+  production backdoor. `pnpm admin:dev-link` mints a Better Auth invitation
+  and writes the `/accept-invite?token=…` URL to `.local/admin-invite.url`
+  (gitignored, mode 0600). Open it, choose a password on the ordinary page.
+  If an owner already exists the link creates an **editor**, never a second
+  owner. There is no `npx convex run` password-reset token. After one
+  successful login, save a Playwright `storageState` to
+  `.local/admin-storage.json` so later agents skip the form.
 
 ## Conventions
 

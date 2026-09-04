@@ -1,9 +1,12 @@
 import { ConvexError } from "convex/values"
-import type { QueryCtx } from "../_generated/server"
+import type { MutationCtx, QueryCtx } from "../_generated/server"
 import type { Id } from "../_generated/dataModel"
 import { dataforseoEstConfigure } from "./dataforseoConfigured"
 import { documentRank } from "./seoRankState"
 import { assembleSiteSnapshot } from "./seoSnapshot"
+import { assemblerSeries, insererReleve } from "./seoSiteHistory"
+
+type DbCtx = QueryCtx | MutationCtx
 
 export async function loadDocument(
   ctx: QueryCtx,
@@ -45,7 +48,7 @@ export async function rankForDocument(
   })
 }
 
-export async function readSiteSnapshot(ctx: QueryCtx) {
+export async function readSiteSnapshot(ctx: DbCtx) {
   const settings = await ctx.db.query("settings").first()
   const pages = await ctx.db
     .query("pages")
@@ -71,10 +74,51 @@ export async function readSiteSnapshot(ctx: QueryCtx) {
     })
     .map((r) => ({ position: r.position as number, previousPosition: r.previousPosition }))
   return assembleSiteSnapshot({
-    configured: await dataforseoEstConfigure(ctx),
+    configured: await dataforseoEstConfigure(ctx as QueryCtx),
     declaredDomain: settings?.declaredDomain ?? null,
     rankedPositions,
     keywords: await ctx.db.query("seoSiteKeywords").collect(),
     backlinks: await ctx.db.query("seoSiteBacklinks").first(),
   })
+}
+
+export async function readSiteSeries(ctx: DbCtx, startAt: number, endAt: number) {
+  const history = await ctx.db.query("seoSiteHistory").collect()
+  const snap = await readSiteSnapshot(ctx)
+  const ranks = await ctx.db.query("seoRanks").collect()
+  const keywords = await ctx.db.query("seoSiteKeywords").collect()
+  const backlinks = await ctx.db.query("seoSiteBacklinks").first()
+  const positionFetchedAt = ranks.reduce((max, row) => Math.max(max, row.fetchedAt), 0)
+  const keywordsFetchedAt = keywords.reduce(
+    (max, row) => Math.max(max, row.fetchedAt),
+    0,
+  )
+  return assemblerSeries({
+    history: history.map((row) => ({
+      metric: row.metric,
+      fetchedAt: row.fetchedAt,
+      value: row.value,
+    })),
+    fallback: {
+      position:
+        snap.averagePosition !== null && positionFetchedAt > 0
+          ? { fetchedAt: positionFetchedAt, value: snap.averagePosition }
+          : undefined,
+      backlinks: backlinks
+        ? { fetchedAt: backlinks.fetchedAt, value: backlinks.backlinks }
+        : undefined,
+      keywords:
+        keywordsFetchedAt > 0
+          ? { fetchedAt: keywordsFetchedAt, value: snap.keywordCount }
+          : undefined,
+    },
+    startAt,
+    endAt,
+  })
+}
+
+export async function enregistrerMoyennePosition(ctx: MutationCtx, fetchedAt: number) {
+  const snap = await readSiteSnapshot(ctx)
+  if (snap.averagePosition === null) return
+  await insererReleve(ctx, "position", snap.averagePosition, fetchedAt)
 }

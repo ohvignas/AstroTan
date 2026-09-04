@@ -197,6 +197,12 @@ Rend un jeton ; ouvrir `<admin>/accept-invite?token=<jeton>` et choisir son
 mot de passe sur la page normale. **Aucun mot de passe ne transite par le
 shell ni par un historique.**
 
+Pour une vérif visuelle locale (agents) : `pnpm admin:dev-link` écrit le
+même genre de lien dans `.local/admin-invite.url` (gitignoré, 0600). S'il
+existe déjà un owner, le lien crée un **editor**, jamais un second owner.
+Pas de jeton de reset exposé par `npx convex run` : après un premier login,
+sauver la session Playwright dans `.local/admin-storage.json`.
+
 **`"role":"owner"`, jamais `"admin"`.** `invitations.create` refuse
 `role: "owner"` à *tout le monde* : un déploiement dont le premier compte
 est `admin` n'aura donc **jamais** d'owner. Et un admin ne peut ni inviter

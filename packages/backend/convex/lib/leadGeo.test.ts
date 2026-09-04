@@ -34,3 +34,29 @@ test("une IP locale se conserve, sans inventer de pays", () => {
   expect(normalizeLeadGeo({ ip: "127.0.0.1", country: "XX" })).toEqual({ ip: "127.0.0.1" })
   expect(normalizeLeadGeo({ ip: "::1" })).toEqual({ ip: "::1" })
 })
+
+test("conserve lat/lng, fuseau IANA et page http(s)", () => {
+  expect(
+    normalizeLeadGeo({
+      latitude: 45.75,
+      longitude: 4.85,
+      timezone: "Europe/Paris",
+      pageUrl: "https://exemple.fr/tarifs?utm=1#x",
+    }),
+  ).toEqual({
+    latitude: 45.75,
+    longitude: 4.85,
+    timezone: "Europe/Paris",
+    pageUrl: "https://exemple.fr/tarifs",
+  })
+})
+
+test("ignore coordonnées hors bornes, fuseau inventé et javascript:", () => {
+  expect(
+    normalizeLeadGeo({
+      latitude: 200,
+      timezone: "Mars/Olympus",
+      pageUrl: "javascript:alert(1)",
+    }),
+  ).toEqual({})
+})

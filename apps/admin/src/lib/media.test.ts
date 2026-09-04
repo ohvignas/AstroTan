@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest"
 import { ConvexError } from "convex/values"
-import { describeMediaError, formatFileSize } from "./media"
+import {
+  describeIdentityMedia,
+  describeMediaError,
+  formatFileSize,
+} from "./media"
 
 describe("formatFileSize", () => {
   test("keeps small files in bytes", () => {
@@ -29,6 +33,53 @@ describe("describeMediaError", () => {
     expect(message).toMatch(/référenc/i)
   })
 
+  test("renders MEDIA_IS_IDENTITY as a replace, not a delete", () => {
+    const message = describeMediaError(
+      new ConvexError({ code: "MEDIA_IS_IDENTITY" })
+    )
+    expect(message).not.toContain("MEDIA_IS_IDENTITY")
+    expect(message).toMatch(/remplac/i)
+    expect(message).toMatch(/icône/)
+  })
+
+  test("MEDIA_IS_IDENTITY names the icon when that is the role", () => {
+    const message = describeMediaError(
+      new ConvexError({ code: "MEDIA_IS_IDENTITY", roles: ["icon"] })
+    )
+    expect(message).toMatch(/icône/i)
+    expect(message).not.toMatch(/logo/i)
+  })
+})
+
+describe("describeIdentityMedia", () => {
+  test("explains a logo must be replaced, not deleted", () => {
+    const message = describeIdentityMedia(["logo"])
+    expect(message).toMatch(/logo/i)
+    expect(message).toMatch(/remplac/i)
+    expect(message).toMatch(/Identité/)
+  })
+
+  test("explains an icon must be replaced from Identité", () => {
+    const message = describeIdentityMedia(["icon"])
+    expect(message).toMatch(/icône/i)
+    expect(message).not.toMatch(/logo/i)
+  })
+
+  test("does not call an icon-and-share file a logo", () => {
+    const message = describeIdentityMedia(["icon", "og"])
+    expect(message).toMatch(/icône/i)
+    expect(message).toMatch(/partage/i)
+    expect(message).not.toMatch(/logo/i)
+  })
+
+  test("explains the default share image without sending to a removed screen", () => {
+    const message = describeIdentityMedia(["og"])
+    expect(message).toMatch(/image de partage par défaut/)
+    expect(message).not.toMatch(/Référencement/)
+  })
+})
+
+describe("describeMediaError — payload codes", () => {
   test("names the rejected MIME type", () => {
     expect(
       describeMediaError(

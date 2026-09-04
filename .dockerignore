@@ -25,3 +25,13 @@ docs
 !**/.env.example
 **/.DS_Store
 **/*.tsbuildinfo
+
+# Données locales Convex : jamais dans une image.
+.convex
+**/.convex
+
+# Store pnpm, IDE, accès admin local des agents.
+.pnpm-store
+**/.pnpm-store
+.cursor
+.local

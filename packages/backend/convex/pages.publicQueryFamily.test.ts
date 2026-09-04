@@ -234,6 +234,26 @@ test("aucune query publique (sans paramètre token) ne sert un brouillon", async
       // `seoRanks.forDocument` : session-gated. L'appel non authentifié
       // lève avant lecture ; la forme doit être déclarée ici.
       args = { kind: "page", pageId: draftId }
+    } else if (q.argFields.length === 1 && q.argFields[0] === "periode") {
+      // `seoRanks.siteSeries` : session-gated. L'appel non authentifié
+      // lève avant lecture ; la forme doit être déclarée ici.
+      args = { periode: "mois" }
+    } else if (q.argFields.length === 1 && q.argFields[0] === "threadId") {
+      // `chatStaff.presence` : session-gated. L'appel non authentifié
+      // lève avant lecture ; la forme doit être déclarée ici.
+      args = { threadId: "presence-thread" }
+    } else if (
+      q.argFields.includes("threadId") &&
+      q.argFields.includes("paginationOpts") &&
+      q.argFields.includes("streamArgs")
+    ) {
+      // `chat.previewListMessages` : session-gated. L'appel non authentifié
+      // lève avant lecture ; la forme doit être déclarée ici.
+      args = {
+        threadId: "preview-thread",
+        paginationOpts: { numItems: 10, cursor: null },
+        streamArgs: { kind: "list" },
+      }
     } else {
       // Not a permissive default (e.g. silently calling with `{}`
       // regardless of shape): a public query whose argument shape this

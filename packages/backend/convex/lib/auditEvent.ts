@@ -106,6 +106,9 @@ export const AUDIT_ACTIONS = [
   // La cible est le NOM DE DOMAINE, jamais la clé ni l'identifiant Resend
   // — règle 3.
   "emailDomain.declare",
+  // Jeton Bearer de l'API REST : le NOM (« api »), jamais la valeur.
+  "apiToken.generate",
+  "apiToken.revoke",
 ] as const
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
@@ -191,6 +194,10 @@ export function decrireAction(
     // tiers, pas qu'un réglage a bougé ici.
     case "emailDomain.declare":
       return `${acteurNom} a déclaré ${quoi} comme domaine d'expédition chez Resend${suffixe}`
+    case "apiToken.generate":
+      return `${acteurNom} a généré le jeton ${quoi}${suffixe}`
+    case "apiToken.revoke":
+      return `${acteurNom} a révoqué le jeton ${quoi}${suffixe}`
   }
 }
 

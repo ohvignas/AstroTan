@@ -12,6 +12,8 @@ import type { ConvexReactClient } from "convex/react"
 
 import { authClient } from "@/lib/auth-client"
 import { getToken } from "@/lib/auth-server"
+import { IdentityFavicon } from "@/components/identity-favicon"
+import fallbackIcon from "@/assets/icon_astrotan.png"
 import appCss from "../styles.css?url"
 
 // Wrapped in `createServerFn` (not called directly from `beforeLoad`):
@@ -45,7 +47,11 @@ export const Route = createRootRouteWithContext<{
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "AstroTan — Administration" },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: fallbackIcon },
+      { rel: "apple-touch-icon", href: fallbackIcon },
+    ],
   }),
   // Runs on every request (SSR) and every client navigation. On the server
   // it resolves the Better Auth session cookie into a Convex-verifiable
@@ -75,6 +81,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <ConvexBetterAuthProvider client={convexClient} authClient={authClient} initialToken={token}>
+          <IdentityFavicon fallbackHref={fallbackIcon} />
           {children}
         </ConvexBetterAuthProvider>
         {/* Minor (Lot 1 final review): `@tanstack/devtools-vite`'s own Vite

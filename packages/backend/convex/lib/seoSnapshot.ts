@@ -1,4 +1,9 @@
-export type SiteKeyword = { keyword: string; position: number; url: string }
+export type SiteKeyword = {
+  keyword: string
+  position: number
+  url: string
+  fetchedAt?: number
+}
 
 export type SiteSnapshot = {
   configured: boolean
@@ -13,6 +18,10 @@ export type SiteSnapshot = {
   referringDomains: { value: number; prev: number | null } | null
   keywords: { keyword: string; position: number }[]
   rankingPages: { path: string; position: number }[]
+  /** Toutes les lignes Labs, pas les 5 de la liste. */
+  keywordCount: number
+  /** Plus récent fetchedAt Labs/Overview — `null` s'il n'y a jamais eu de relevé. */
+  fetchedAt: number | null
 }
 
 function pathOf(url: string, host: string): string | null {
@@ -69,10 +78,17 @@ export function assembleSiteSnapshot(input: {
     .slice(0, 5)
     .map(([path, position]) => ({ path, position }))
 
+  const times = [
+    input.backlinks?.fetchedAt,
+    ...input.keywords.map((row) => row.fetchedAt),
+  ].filter((t): t is number => typeof t === "number")
+
+  const fromLabs = average(input.keywords.map((row) => row.position))
+  const fromRanks = average(ranked.map((r) => r.position))
   return {
     configured: input.configured,
     declaredDomain: input.declaredDomain,
-    averagePosition: average(ranked.map((r) => r.position)),
+    averagePosition: fromLabs ?? fromRanks,
     averagePositionPrev: average(withPrev.map((r) => r.previousPosition as number)),
     backlinks: input.backlinks
       ? {
@@ -89,5 +105,7 @@ export function assembleSiteSnapshot(input: {
       : null,
     keywords,
     rankingPages,
+    keywordCount: input.keywords.length,
+    fetchedAt: times.length === 0 ? null : Math.max(...times),
   }
 }

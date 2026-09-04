@@ -1,7 +1,9 @@
 import { useState } from "react"
-import { PlugIcon, Trash2Icon } from "lucide-react"
+import { PlugIcon } from "lucide-react"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
+import { AgentConnectorCard } from "@/components/agent-connector-card"
 import { Button } from "@/components/ui/button"
+import { mcpConnectorSubtitle } from "@/lib/mcpAuthorize"
 import { faviconCandidates } from "@/lib/mcpFavicon"
 
 export type McpServerRow = {
@@ -48,25 +50,24 @@ export function AgentMcpList({
   return (
     <>
       {servers.map((server) => (
-        <div
+        <AgentConnectorCard
           key={server._id}
-          className="group relative flex min-h-11 items-center gap-2 rounded-xl bg-card px-3 py-2 ring-1 ring-foreground/10"
-        >
-          <McpMark url={server.url} name={server.name} />
-          <p className="max-w-36 truncate font-medium">{server.name}</p>
-          {canWrite ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="absolute -top-1.5 -right-1.5 size-7 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
-              aria-label={`Retirer ${server.name}`}
-              onClick={() => onRemove(server._id)}
-            >
-              <Trash2Icon />
-            </Button>
-          ) : null}
-        </div>
+          mark={<McpMark url={server.url} name={server.name} />}
+          title={server.name}
+          subtitle={mcpConnectorSubtitle(server)}
+          action={
+            canWrite ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="min-h-11 shrink-0"
+                onClick={() => onRemove(server._id)}
+              >
+                Déconnecter
+              </Button>
+            ) : null
+          }
+        />
       ))}
     </>
   )

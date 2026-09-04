@@ -136,4 +136,24 @@ describe("documentRank", () => {
     expect(result.state).toBe("ranked")
     expect(result.canRelever).toBe(false)
   })
+
+  test("expose fetchedAt du snapshot, sans en inventer un", () => {
+    const result = documentRank({
+      targetKeyword: "agence web lyon",
+      dfsConfigured: true,
+      draft: false,
+      row: ranked,
+      now: ranked.fetchedAt + RELEVER_THROTTLE_MS * 2,
+    })
+    expect(result.fetchedAt).toBe(ranked.fetchedAt)
+    expect(
+      documentRank({
+        targetKeyword: "agence",
+        dfsConfigured: true,
+        draft: false,
+        row: null,
+        now: ranked.fetchedAt,
+      }).fetchedAt,
+    ).toBeUndefined()
+  })
 })

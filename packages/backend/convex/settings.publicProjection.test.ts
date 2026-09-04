@@ -15,6 +15,7 @@ const AUTORISES = [
   "socials",
   "metaPixelId",
   "googleTagId",
+  "googleConversionLabel",
 ]
 
 // Les champs autorisés dans la projection du DASHBOARD. Les deux champs
@@ -36,9 +37,11 @@ const AUTORISES_PRIVE = [
   "declaredDomain",
   "metaPixelId",
   "googleTagId",
+  "googleConversionLabel",
   "serpLocationCode",
   "serpLanguageCode",
   "openRouterModel",
+  "openRouterAgentModel",
   "openRouterImageModel",
   "openRouterOcrModel",
   "agentEnabled",
@@ -98,9 +101,11 @@ async function semerLaLigneEntiere(t: TestConvex<typeof appSchema>) {
       previousDomains: [{ host: "sentinelle-sortant.exemple.fr", since: 1_700_000_000_000 }],
       metaPixelId: "123456789012345",
       googleTagId: "AW-999",
+      googleConversionLabel: "AbC-D_efG",
       serpLocationCode: 2250,
       serpLanguageCode: "fr",
       openRouterModel: "openai/gpt-4o-mini",
+      openRouterAgentModel: "google/gemini-3.7-flash",
       openRouterImageModel: "google/gemini-3-pro-image",
       openRouterOcrModel: "google/gemini-2.5-flash",
       agentEnabled: true,

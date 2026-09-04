@@ -1,6 +1,6 @@
 ---
 // Le sommaire, porté de `src/components/blog/TableOfContents.astro`
-// d'`astro-emdash` : un rail droit collant, filet à gauche, deux niveaux
+// d'`astro-emdash` : un rail gauche collant, filet à gauche, deux niveaux
 // d'indentation.
 //
 // Deux écarts avec le template :
@@ -70,7 +70,6 @@ const show = headings.length >= minHeadings
 
   .toc__item--depth-3 {
     padding-left: 1rem;
-    font-size: 0.875rem;
   }
 
   .toc a {
@@ -80,6 +79,7 @@ const show = headings.length >= minHeadings
     border-left: 2px solid transparent;
     color: var(--color-text-secondary);
     text-decoration: none;
+    font-size: var(--text-xs);
     line-height: 1.4;
     transition: color 0.15s ease, border-color 0.15s ease;
   }

@@ -1,22 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { AiPage } from "@/components/settings-environment"
-import {
-  SettingsLoading,
-  SettingsPageShell,
-  useSecretsAccess,
-} from "@/components/settings-page"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
+// Signet : la clé OpenRouter et les modèles vivent sur /settings/agent
+// (Agent IA & Modèle IA). La route reste pour ne pas 404 un bookmark.
 export const Route = createFileRoute("/_authed/settings/ia")({
-  component: IaRoute,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/agent", search: {} })
+  },
 })
-
-function IaRoute() {
-  const { loading, canWrite, secrets } = useSecretsAccess()
-  if (loading || secrets === undefined) return <SettingsLoading />
-
-  return (
-    <SettingsPageShell to="/settings/ia" canWrite={canWrite}>
-      <AiPage secrets={secrets} />
-    </SettingsPageShell>
-  )
-}

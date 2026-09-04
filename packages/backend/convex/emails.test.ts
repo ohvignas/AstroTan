@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, expect, test } from "vitest"
-import { api } from "./_generated/api"
+import { afterEach, beforeEach, expect, test, vi } from "vitest"
+import { Resend } from "@convex-dev/resend"
+import { api, internal } from "./_generated/api"
 import { gabaritPour } from "./emails"
 import { CATALOGUE } from "./lib/catalogueEmails"
 import { ORIGIN, identityFor, makeTestConvex, seedUser, signIn } from "../testing/betterAuthFixture"
@@ -39,6 +40,7 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = originalEnv
+  vi.restoreAllMocks()
 })
 
 async function seedActor(
@@ -49,7 +51,7 @@ async function seedActor(
   const password = "correct horse battery staple emails"
   const user = await seedUser(t, { email, password, name: `Actor ${role}`, role })
   await signIn(t, email, password)
-  return { user, identity: await identityFor(t, user.id) }
+  return { user, email, identity: await identityFor(t, user.id) }
 }
 
 const INVITATION = CATALOGUE.find((email) => email.cle === "invitation")!
@@ -331,6 +333,21 @@ test("un editor ne voit ni ne modifie les gabarits", async () => {
   await expect(
     identity.mutation(api.emails.resetTemplate, { cle: "leadNotification" }),
   ).rejects.toThrow(/FORBIDDEN/)
+  await expect(
+    identity.action(api.emails.envoyerExemple, { cle: "leadNotification" }),
+  ).rejects.toThrow(/FORBIDDEN/)
+})
+
+test("setTemplate postPublished refuse une variable inconnue", async () => {
+  const t = makeTestConvex()
+  const { identity } = await seedActor(t, "owner")
+  await expect(
+    identity.mutation(api.emails.setTemplate, {
+      cle: "postPublished",
+      objet: "{{inconnu}}",
+      corps: "x",
+    }),
+  ).rejects.toThrow(/inconnu/)
 })
 
 test("sans session, on ne lit ni n'écrit rien", async () => {
@@ -343,4 +360,115 @@ test("sans session, on ne lit ni n'écrit rien", async () => {
       corps: "Bonjour",
     }),
   ).rejects.toThrow()
+})
+
+function capturerLesEnvois(): { to: string | string[]; subject: string; html?: string; text?: string }[] {
+  const envoyes: { to: string | string[]; subject: string; html?: string; text?: string }[] = []
+  vi.spyOn(Resend.prototype, "sendEmail").mockImplementation((async (
+    _ctx: unknown,
+    options: { to: string | string[]; subject: string; html?: string; text?: string },
+  ) => {
+    envoyes.push(options)
+    return "email-de-test"
+  }) as unknown as Resend["sendEmail"])
+  return envoyes
+}
+
+test("envoyerExemple part vers l'adresse de qui clique, avec le gabarit enregistré", async () => {
+  const t = makeTestConvex()
+  const { email, identity } = await seedActor(t, "owner")
+  process.env.RESEND_API_KEY = "re_test_key"
+  process.env.RESEND_TEST_MODE = "false"
+  await identity.mutation(api.settings.update, { siteName: "Cabinet Nord" })
+  await identity.mutation(api.emails.setTemplate, {
+    cle: "invitation",
+    objet: "Rejoignez {{nom_du_site}}",
+    corps: "Ouvrez {{lien}}",
+  })
+
+  const envois = capturerLesEnvois()
+  const resultat = await identity.action(api.emails.envoyerExemple, { cle: "invitation" })
+
+  expect(resultat).toMatchObject({ ok: true, to: email })
+  expect(envois).toHaveLength(1)
+  expect(envois[0]!.to).toBe(email)
+  expect(envois[0]!.subject).toBe("Rejoignez Cabinet Nord")
+  expect(envois[0]!.text).toContain("Ouvrez ")
+  expect(envois[0]!.html).toContain("Cabinet Nord")
+  expect(envois[0]!.html).toContain("<table")
+})
+
+test("en mode d'essai, l'exemple part vers l'adresse de test Resend", async () => {
+  const t = makeTestConvex()
+  const { identity } = await seedActor(t, "owner")
+  process.env.RESEND_API_KEY = "re_test_key"
+  delete process.env.RESEND_TEST_MODE
+  const envois = capturerLesEnvois()
+  const resultat = await identity.action(api.emails.envoyerExemple, { cle: "invitation" })
+  expect(resultat).toEqual({ ok: true, to: "delivered@resend.dev", testMode: true })
+  expect(envois[0]!.to).toBe("delivered@resend.dev")
+})
+
+test("sans clé Resend, envoyerExemple ne part pas et le dit", async () => {
+  const t = makeTestConvex()
+  const { identity } = await seedActor(t, "owner")
+  delete process.env.RESEND_API_KEY
+  const envois = capturerLesEnvois()
+  await expect(identity.action(api.emails.envoyerExemple, { cle: "invitation" })).resolves.toEqual({
+    ok: false,
+    raison: "sans_cle",
+  })
+  expect(envois).toHaveLength(0)
+})
+
+async function seedOwnerTestEtAdminReel(t: ReturnType<typeof makeTestConvex>) {
+  const password = "correct horse battery staple emails"
+  const owner = await seedUser(t, {
+    email: "owner@illith.test",
+    password,
+    name: "Owner test",
+    role: "owner",
+  })
+  await seedUser(t, {
+    email: "contact@illith.com",
+    password,
+    name: "Contact",
+    role: "admin",
+  })
+  await signIn(t, "owner@illith.test", password)
+  return { identity: await identityFor(t, owner.id) }
+}
+
+test("adresseOwner préfère un staff du domaine déclaré à un owner .test", async () => {
+  const t = makeTestConvex()
+  const { identity } = await seedOwnerTestEtAdminReel(t)
+  await identity.mutation(api.settings.update, {
+    declaredDomain: "illith.com",
+    emailFrom: "owner@illith.com",
+  })
+  expect(await t.query(internal.emails.adresseOwner, {})).toBe("contact@illith.com")
+})
+
+test("envoyerExempleInterne part vers le staff du domaine déclaré", async () => {
+  const t = makeTestConvex()
+  const { identity } = await seedOwnerTestEtAdminReel(t)
+  await identity.mutation(api.settings.update, { declaredDomain: "illith.com" })
+  process.env.RESEND_API_KEY = "re_test_key"
+  process.env.RESEND_TEST_MODE = "false"
+  const envois = capturerLesEnvois()
+  const resultat = await t.action(internal.emails.envoyerExempleInterne, { cle: "invitation" })
+  expect(resultat).toMatchObject({ ok: true, to: "contact@illith.com", testMode: false })
+  expect(envois[0]!.to).toBe("contact@illith.com")
+})
+
+test("un email coupé refuse l'exemple", async () => {
+  const t = makeTestConvex()
+  const { identity } = await seedActor(t, "owner")
+  process.env.RESEND_API_KEY = "re_test_key"
+  await identity.mutation(api.emails.setActif, { cle: "leadNotification", actif: false })
+  const envois = capturerLesEnvois()
+  await expect(
+    identity.action(api.emails.envoyerExemple, { cle: "leadNotification" }),
+  ).resolves.toEqual({ ok: false, raison: "inactif" })
+  expect(envois).toHaveLength(0)
 })

@@ -16,8 +16,14 @@ import { describe, expect, test } from "vitest"
 import { PublicationStatusBadge } from "./PublicationStatusBadge"
 import type { PublicationStatus } from "./PublicationStatusBadge"
 
-function render(status: PublicationStatus | undefined, pageStatus: "draft" | "published" = "published") {
-  return renderToStaticMarkup(<PublicationStatusBadge status={status} pageStatus={pageStatus} />)
+function render(
+  status: PublicationStatus | undefined,
+  pageStatus: "draft" | "published" = "published",
+  onRetry?: () => void,
+) {
+  return renderToStaticMarkup(
+    <PublicationStatusBadge status={status} pageStatus={pageStatus} onRetry={onRetry} />,
+  )
 }
 
 describe("PublicationStatusBadge", () => {
@@ -50,6 +56,13 @@ describe("PublicationStatusBadge", () => {
     const html = render({ state: "failed", lastError: "HTTP 500", attempts: 6 })
     expect(html).toContain("Échec de la propagation")
     expect(html).not.toContain("Publiée")
+    expect(html).not.toContain("Réessayer la propagation")
+  })
+
+  test("failed with onRetry shows a retry button next to the badge", () => {
+    const html = render({ state: "failed", lastError: "HTTP 500", attempts: 6 }, "published", () => {})
+    expect(html).toContain("Échec de la propagation")
+    expect(html).toContain("Réessayer la propagation")
   })
 
   // Closing-fixes review: `publicationStatus` reports this state when the

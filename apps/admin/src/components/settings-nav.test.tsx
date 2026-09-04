@@ -23,24 +23,44 @@ import {
 } from "./settings-nav"
 
 describe("SETTINGS_PAGES", () => {
-  test("porte les neuf pages attendues, dans l'ordre du menu", () => {
+  test("porte les pages attendues, dans l'ordre du menu", () => {
     expect(SETTINGS_PAGES.map((page) => page.to)).toEqual([
       "/settings/identite",
-      "/settings/referencement",
-      "/settings/reseaux",
       "/settings/webhook",
       "/settings/domaine",
       "/settings/emails",
       "/settings/mesure",
-      "/settings/ia",
       "/settings/agent",
     ])
+    expect(SETTINGS_PAGES.map((page) => page.to as string)).not.toContain(
+      "/settings/ia",
+    )
+    expect(SETTINGS_PAGES.map((page) => page.to)).not.toContain("/settings/reseaux")
   })
 
-  test("la page agent s'appelle Agent", () => {
+  test("la page agent s'appelle Agent IA & Modèle IA", () => {
     expect(SETTINGS_PAGES.find((p) => p.to === "/settings/agent")).toMatchObject({
-      label: "Agent",
+      label: "Agent IA & Modèle IA",
+      title: "Agent IA & Modèle IA",
+      description: "",
     })
+  })
+
+  test("/settings/ia redirige vers l'agent", () => {
+    const source = ROUTE_FILES["../routes/_authed/settings/ia.tsx"]
+    expect(source).toBeTruthy()
+    expect(source).toContain("throw redirect")
+    expect(source).toContain("/settings/agent")
+    expect(source).not.toContain("AiPage")
+    expect(source).not.toContain("SettingsFormShell")
+  })
+
+  test("n'offre plus l'écran de référencement par défaut", () => {
+    // Titre, canonique et noindex site de cet écran n'étaient pas lus
+    // par le site public. Le filet description + OG reste en base.
+    expect(SETTINGS_PAGES.map((page) => page.to as string)).not.toContain(
+      "/settings/referencement",
+    )
   })
 
   test("aucun chemin en double", () => {
@@ -52,6 +72,21 @@ describe("SETTINGS_PAGES", () => {
     expect(SETTINGS_PAGES.find((p) => p.to === "/settings/mesure")).toMatchObject({
       label: "SEO & Pixel",
       title: "SEO & Pixel",
+      description: "",
+    })
+  })
+
+  test("la page webhook s'appelle API & webhook", () => {
+    expect(SETTINGS_PAGES.find((p) => p.to === "/settings/webhook")).toMatchObject({
+      label: "API & webhook",
+      title: "API et webhook",
+    })
+  })
+
+  test("la page emails s'appelle Email & notifications", () => {
+    expect(SETTINGS_PAGES.find((p) => p.to === "/settings/emails")).toMatchObject({
+      label: "Email & notifications",
+      title: "Email & notifications",
       description: "",
     })
   })
@@ -92,18 +127,51 @@ const ROUTE_FILES = import.meta.glob(
 )
 
 describe("les fichiers de route", () => {
-  test("il en existe un par page déclarée, et pas un de plus", () => {
+  test("il en existe un par page déclarée", () => {
     // Le lien mort le plus facile à fabriquer : renommer
-    // `reseaux.tsx` en `sociaux.tsx` et oublier `SETTINGS_PAGES`. Rien
+    // `webhook.tsx` et oublier `SETTINGS_PAGES`. Rien
     // ne casse au typecheck, et l'entrée de menu mène à une 404.
     const fichiers = Object.keys(ROUTE_FILES)
       .map((path) => path.split("/").pop()?.replace(/\.tsx$/, ""))
       .filter((name): name is string => name !== undefined && name !== "index")
-      .sort()
     const attendus = SETTINGS_PAGES.map((page) =>
       page.to.replace("/settings/", "")
-    ).sort()
-    expect(fichiers).toEqual(attendus)
+    )
+    for (const attendu of attendus) {
+      expect(fichiers, `fichier manquant pour /settings/${attendu}`).toContain(
+        attendu
+      )
+    }
+  })
+
+  test("un fichier hors menu n'est qu'une redirection de signet", () => {
+    // `referencement.tsx` reste pour ne pas 404 un bookmark ; il n'a
+    // plus d'entrée de menu. Tout autre fichier extra doit faire pareil.
+    const fichiers = Object.keys(ROUTE_FILES)
+      .map((path) => path.split("/").pop()?.replace(/\.tsx$/, ""))
+      .filter((name): name is string => name !== undefined && name !== "index")
+    const menu = SETTINGS_PAGES.map((page) => page.to.replace("/settings/", ""))
+    for (const extra of fichiers.filter((name) => !menu.includes(name))) {
+      const source = ROUTE_FILES[`../routes/_authed/settings/${extra}.tsx`]
+      expect(source, `${extra}.tsx hors menu sans redirect`).toContain(
+        "throw redirect"
+      )
+    }
+  })
+
+  test("/settings/referencement redirige vers l'identité", () => {
+    const source = ROUTE_FILES["../routes/_authed/settings/referencement.tsx"]
+    expect(source).toBeTruthy()
+    expect(source).toContain("throw redirect")
+    expect(source).toContain("/settings/identite")
+    expect(source).not.toContain("defaultSeo")
+  })
+
+  test("/settings/reseaux redirige vers l'identité", () => {
+    const source = ROUTE_FILES["../routes/_authed/settings/reseaux.tsx"]
+    expect(source).toBeTruthy()
+    expect(source).toContain("throw redirect")
+    expect(source).toContain("/settings/identite")
   })
 
   test("chaque fichier déclare la route de son propre chemin", () => {
@@ -125,23 +193,54 @@ describe("les fichiers de route", () => {
   })
 })
 
+const SETTINGS_NAV_SOURCE = import.meta.glob("./settings-nav.tsx", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+})["./settings-nav.tsx"] as string
+
+describe("SettingsNav — séparateur et onglet courant", () => {
+  test("le trait va du haut au bas de la colonne, token border-border", () => {
+    // Miroir de la sidebar : le filet est sur la COLONNE étirée, pas sur
+    // la liste. `self-start` recollerait le trait à la hauteur des
+    // libellés. `lg:` seulement — sous ce seuil le menu est une bande
+    // horizontale. `-my-4` mange le `p-4` de l'inset, pour toucher le
+    // `border-b` du header et le bas de la zone, comme le `h-svh` de
+    // la barre latérale.
+    expect(SETTINGS_NAV_SOURCE).toContain("lg:border-r")
+    expect(SETTINGS_NAV_SOURCE).toContain("lg:border-border")
+    expect(SETTINGS_NAV_SOURCE).toContain("lg:self-stretch")
+    expect(SETTINGS_NAV_SOURCE).toContain("lg:-my-4")
+    expect(SETTINGS_NAV_SOURCE).not.toContain("lg:self-start")
+    expect(SETTINGS_NAV_SOURCE).toMatch(/<ul className="[^"]*lg:sticky/)
+  })
+
+  test("l'onglet courant se distingue par bg-muted et text-foreground", () => {
+    // Couleur + graisse : la couleur ne porte pas l'info seule
+    // (`aria-current` est déjà posé). Mêmes tokens que le reste de l'admin.
+    expect(SETTINGS_NAV_SOURCE).toMatch(
+      /active[\s\S]*\?[\s\S]*bg-muted[\s\S]*text-foreground/,
+    )
+  })
+})
+
 describe("isSettingsPathActive", () => {
   test("correspondance exacte, barre finale tolérée", () => {
-    expect(isSettingsPathActive("/settings/reseaux", "/settings/reseaux")).toBe(true)
-    expect(isSettingsPathActive("/settings/reseaux/", "/settings/reseaux")).toBe(true)
+    expect(isSettingsPathActive("/settings/webhook", "/settings/webhook")).toBe(true)
+    expect(isSettingsPathActive("/settings/webhook/", "/settings/webhook")).toBe(true)
   })
 
   test("un préfixe n'allume pas une entrée", () => {
     // `startsWith` aurait marché aujourd'hui et allumé deux entrées à la
     // fois au premier chemin plus long.
-    expect(isSettingsPathActive("/settings/reseaux-sociaux", "/settings/reseaux")).toBe(
+    expect(isSettingsPathActive("/settings/webhook-leads", "/settings/webhook")).toBe(
       false
     )
     expect(isSettingsPathActive("/settings", "/settings/identite")).toBe(false)
   })
 
   test("findSettingsPage retrouve la page courante, ou rien", () => {
-    expect(findSettingsPage("/settings/webhook")?.label).toBe("Webhook")
+    expect(findSettingsPage("/settings/webhook")?.label).toBe("API & webhook")
     expect(findSettingsPage("/pages")).toBeUndefined()
   })
 })

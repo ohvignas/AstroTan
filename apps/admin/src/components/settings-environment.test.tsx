@@ -53,9 +53,22 @@ function render(element: ReactElement): string {
   return renderToStaticMarkup(element)
 }
 
+function pageIa(secrets: SecretsBloc) {
+  return (
+    <AiPage
+      secrets={secrets}
+      canWrite={secrets.canWrite}
+      openRouterModel={null}
+      onSaveModel={async () => {}}
+      openRouterImageModel={null}
+      onSaveImageModel={async () => {}}
+    />
+  )
+}
+
 function pages(secrets: SecretsBloc): [string, ReactElement][] {
   return [
-    ["IA", <AiPage secrets={secrets} />],
+    ["IA", pageIa(secrets)],
     ["Envoi des emails", <SectionCleResend secrets={secrets} />],
   ]
 }
@@ -74,8 +87,11 @@ describe("le corps d'une page", () => {
     "%s n'offre aucun champ en clair : un jeton se tape en type=password",
     (_nom, element) => {
       const html = render(element)
-      const champs = html.match(/<input[^>]*>/g) ?? []
-      for (const champ of champs) {
+      const jetons = (html.match(/<input[^>]*>/g) ?? []).filter((champ) =>
+        champ.includes("secret-"),
+      )
+      expect(jetons.length).toBeGreaterThan(0)
+      for (const champ of jetons) {
         expect(champ, champ).toContain('type="password"')
       }
     }
@@ -87,7 +103,9 @@ describe("le corps d'une page", () => {
       // Une valeur pré-remplie part dans le HTML de la page, à un clic
       // droit de n'importe qui. Le champ est toujours vide : vide veut dire
       // « ne change rien ».
-      const champs = render(element).match(/<input[^>]*>/g) ?? []
+      const champs = (render(element).match(/<input[^>]*>/g) ?? []).filter(
+        (champ) => champ.includes("secret-"),
+      )
       for (const champ of champs) {
         expect(champ, champ).toMatch(/value=""|(?!.*\bvalue=)/)
         expect(champ, champ).not.toMatch(/value="[^"]+"/)
@@ -110,22 +128,12 @@ describe("la précédence, écrite à l'écran", () => {
   // est couvert par le test suivant. Les deux pages qui listent PLUSIEURS
   // jetons gardent la phrase générale, où elle sert d'en-tête à un
   // tableau.
-  test("chaque page qui liste plusieurs jetons dit que l'environnement gagne", () => {
-    const listes = pages(bloc()).filter(([nom]) => nom !== "Envoi des emails")
-    expect(listes.length).toBe(1)
-    for (const [nom, element] of listes) {
-      expect(render(element), nom).toMatch(
-        /variable d(&#x27;|')environnement du même nom l(&#x27;|')emporte/
-      )
-    }
-  })
-
   test("quand les deux existent, l'écran dit laquelle sert", () => {
     // Le piège que cette phrase évite : quelqu'un saisit une clé, elle
     // n'a aucun effet, et rien à l'écran ne dit pourquoi.
     const html = render(
-      <AiPage
-        secrets={bloc({
+      pageIa(
+        bloc({
           etats: {
             OPENROUTER_API_KEY: etat("OPENROUTER_API_KEY", {
               environnement: true,
@@ -133,8 +141,8 @@ describe("la précédence, écrite à l'écran", () => {
               source: "environnement",
             }),
           },
-        })}
-      />
+        }),
+      ),
     )
     expect(html).toMatch(/ignorée/)
     expect(html).toContain("npx convex env remove OPENROUTER_API_KEY")
@@ -142,8 +150,8 @@ describe("la précédence, écrite à l'écran", () => {
 
   test("une ligne devenue illisible le dit au lieu de passer pour posée", () => {
     const html = render(
-      <AiPage
-        secrets={bloc({
+      pageIa(
+        bloc({
           etats: {
             OPENROUTER_API_KEY: etat("OPENROUTER_API_KEY", {
               base: true,
@@ -151,8 +159,8 @@ describe("la précédence, écrite à l'écran", () => {
               source: "aucune",
             }),
           },
-        })}
-      />
+        }),
+      ),
     )
     expect(html).toContain("Illisible")
     expect(html).toMatch(/ne se déchiffre plus/)
@@ -161,7 +169,7 @@ describe("la précédence, écrite à l'écran", () => {
 
 describe("la clé maîtresse", () => {
   test("absente, elle bloque la saisie et donne la commande", () => {
-    const html = render(<AiPage secrets={bloc({ cleMaitresse: "absente" })} />)
+    const html = render(pageIa(bloc({ cleMaitresse: "absente" })))
     expect(html).toContain("SECRETS_KEY")
     expect(html).toContain("openssl rand -base64 32")
     // Pas de champ du tout : le serveur refuserait, autant ne pas laisser
@@ -170,30 +178,66 @@ describe("la clé maîtresse", () => {
   })
 
   test("mal formée, c'est un autre message — le remède n'est pas le même", () => {
-    const html = render(<AiPage secrets={bloc({ cleMaitresse: "illisible" })} />)
+    const html = render(pageIa(bloc({ cleMaitresse: "illisible" })))
     expect(html).toMatch(/32 octets/)
   })
 })
 
 describe("AiPage", () => {
-  test("donne la commande à lancer, puisque l'écran ne peut pas le faire", () => {
-    expect(render(<AiPage secrets={bloc()} />)).toContain(
-      "convex env set OPENROUTER_API_KEY"
-    )
-  })
-
-  test("avoue qu'aucune fonction ne lit encore la clé", () => {
-    // Une pastille verte sur une fonctionnalité inexistante est un
-    // mensonge que rien ne viendra corriger, parce que rien ne casse.
-    expect(render(<AiPage secrets={bloc()} />)).toMatch(/ne lit encore cette clé/)
-  })
-
-  test("un editor voit pourquoi il ne voit rien, plutôt qu'un cadre vide", () => {
+  test("clé déjà posée : Connecté vert à côté du bouton, dès le chargement", () => {
     const html = render(
-      <AiPage secrets={bloc({ cleMaitresse: null, canWrite: false })} />
+      pageIa(
+        bloc({
+          etats: {
+            OPENROUTER_API_KEY: etat("OPENROUTER_API_KEY", {
+              base: true,
+              source: "base",
+            }),
+          },
+        }),
+      ),
     )
-    expect(html).toMatch(/réservés au\s+propriétaire/)
-    expect(html).not.toContain("<input")
+    const fin = html.indexOf("Vérifier et enregistrer")
+    expect(fin).toBeGreaterThan(-1)
+    expect(html.slice(fin)).toContain("Connecté")
+    expect(html).toContain("text-emerald-600")
+    expect(html).not.toContain("Enregistré")
+    expect(html).not.toContain("rounded-full")
+  })
+
+  test("mène à l'endroit où la clé se fabrique, sans commande shell", () => {
+    const html = render(pageIa(bloc()))
+    expect(html).toContain("openrouter.ai/keys")
+    expect(html).not.toContain("convex env set OPENROUTER_API_KEY")
+    expect(html).toContain("Clé OpenRouter")
+    expect(html).toContain("Modèle")
+  })
+
+  test("un editor voit pourquoi la clé est masquée, et le modèle en lecture", () => {
+    const html = render(
+      pageIa(bloc({ cleMaitresse: null, canWrite: false })),
+    )
+    expect(html).toMatch(/Réservée au\s+propriétaire/)
+    expect(html).not.toContain("secret-OPENROUTER_API_KEY")
+    expect(html).toContain("Modèle")
+  })
+
+  test("propose un sélecteur de modèle d'image distinct", () => {
+    const html = render(pageIa(bloc()))
+    expect(html).toMatch(/Modèle d(?:'|&#x27;)image/)
+    expect(html).toContain("Modèle de texte")
+    expect(html).not.toContain("Modèle de l'agent")
+  })
+
+  test("un seul groupe Modèle IA, pas deux cartes", () => {
+    const html = render(pageIa(bloc()))
+    expect(html).toContain("Modèle IA")
+    expect((html.match(/<h2\b/g) ?? []).length).toBe(1)
+    expect(html).toContain("Clé OpenRouter")
+    expect(html).toContain("Vérifier et enregistrer")
+    expect(html).toContain("Modèle de texte")
+    expect(html).toMatch(/Modèle d(?:'|&#x27;)image/)
+    expect(html).not.toContain("Modèle de l'agent")
   })
 })
 

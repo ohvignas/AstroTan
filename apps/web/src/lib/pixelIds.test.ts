@@ -27,4 +27,8 @@ test("fusionnerPixels : null / \"\" / ID sur l'objet projeté", () => {
   )
   expect(fusionnerPixels({ metaPixelId: "", googleTagId: "AW-1" }, env).PUBLIC_META_PIXEL_ID).toBeUndefined()
   expect(fusionnerPixels({ metaPixelId: "", googleTagId: "AW-1" }, env).PUBLIC_GOOGLE_TAG_ID).toBe("AW-1")
+  expect(
+    fusionnerPixels({ googleConversionLabel: "AbC-xyz" }, env).googleConversionLabel,
+  ).toBe("AbC-xyz")
+  expect(fusionnerPixels({ googleConversionLabel: "" }, env).googleConversionLabel).toBeUndefined()
 })

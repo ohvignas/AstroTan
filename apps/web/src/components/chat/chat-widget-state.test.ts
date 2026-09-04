@@ -488,7 +488,7 @@ describe("fusion des deltas", () => {
     ])
   })
 
-  test("streamingBusyLabel : outil, outils, ou nom court", () => {
+  test("streamingBusyLabel : libellé humain, jamais l'id technique", () => {
     expect(streamingBusyLabel([{ id: "u1", role: "user", text: "Q" }])).toBe(
       "Réponse en cours…",
     )
@@ -502,7 +502,40 @@ describe("fusion des deltas", () => {
           toolCalls: ["Make__scenarios_list"],
         },
       ]),
-    ).toBe("scenarios_list")
+    ).toBe("Utilisation d'un outil…")
+    expect(
+      streamingBusyLabel([
+        {
+          id: "a1",
+          role: "assistant",
+          text: "",
+          streaming: true,
+          toolCalls: ["list_mcp_tools"],
+        },
+      ]),
+    ).toBe("Utilisation d'un outil…")
+    expect(
+      streamingBusyLabel([
+        {
+          id: "a1",
+          role: "assistant",
+          text: "",
+          streaming: true,
+          toolCalls: ["calendarFreeBusy"],
+        },
+      ]),
+    ).toBe("Consultation de l'agenda…")
+    expect(
+      streamingBusyLabel([
+        {
+          id: "a1",
+          role: "assistant",
+          text: "",
+          streaming: true,
+          toolCalls: ["calendarCreateEvent"],
+        },
+      ]),
+    ).toBe("Consultation de l'agenda…")
     expect(
       streamingBusyLabel([
         {
@@ -525,6 +558,25 @@ describe("fusion des deltas", () => {
         },
       ]),
     ).toBe("Utilisation d'outils…")
+    for (const leaked of [
+      "calendarFreeBusy",
+      "calendarCreateEvent",
+      "list_mcp_tools",
+      "call_mcp_tool",
+      "scenarios_list",
+    ]) {
+      expect(
+        streamingBusyLabel([
+          {
+            id: "a1",
+            role: "assistant",
+            text: "",
+            streaming: true,
+            toolCalls: [leaked],
+          },
+        ]),
+      ).not.toContain(leaked)
+    }
   })
 
   test("un UIMessage status streaming reste flaggé, sans le peindre comme fini", () => {

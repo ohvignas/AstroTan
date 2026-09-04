@@ -359,6 +359,37 @@ test("siteSummary sans configuration ne lève pas", async () => {
   const result = await editor.identity.action(api.analytics.siteSummary, {})
   expect(result.status).toBe("not-configured")
   expect(result.totals).toBeNull()
+  expect(result.fetchedAt).toBeNull()
+})
+
+test("siteSummary ok porte fetchedAt du tirage, pas une horloge inventée à vide", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  vi.stubGlobal("fetch", stubSite())
+  const before = Date.now()
+  const result = await editor.identity.action(api.analytics.siteSummary, {})
+  expect(result.status).toBe("ok")
+  expect(result.fetchedAt).toBeGreaterThanOrEqual(before)
+})
+
+test("siteSummary force : relogin Umami, pas le jeton encore chaud", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  let logins = 0
+  const base = stubSite()
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      if (String(url).includes("/api/auth/login")) logins++
+      return base(url)
+    }),
+  )
+  await editor.identity.action(api.analytics.siteSummary, {})
+  expect(logins).toBe(1)
+  await editor.identity.action(api.analytics.siteSummary, { force: true })
+  expect(logins).toBe(2)
 })
 
 test("siteSummary demande explicitement la comparaison et le bon type de palmarès", async () => {

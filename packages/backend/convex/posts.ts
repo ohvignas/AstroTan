@@ -27,6 +27,15 @@ import { enqueuePropagationRetry, insertOutboxRow } from "./revalidate"
 import { mintRenameRedirect } from "./redirects"
 import { MUTATION_REGISTRY } from "./_registry"
 import { journaliser } from "./lib/auditEvent"
+import {
+  applyWorkingPatch,
+  applyWorkingToLive,
+  overlayForEditor,
+  snapshotLive,
+} from "./lib/postWorkingCopy"
+import { resolvePostAuthors } from "./lib/postAuthor"
+import { ecrireCloches, supprimerPourPost } from "./lib/notifier"
+import { listerCandidats } from "./notifications"
 
 // Posts are the one place this template still holds content in the
 // database, and the exception is deliberate: a blog article *is* content,
@@ -156,7 +165,15 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     await requireRole(ctx, ["owner", "admin", "editor"])
-    return ctx.db.query("posts").order("desc").collect()
+    const posts = await ctx.db.query("posts").order("desc").collect()
+    const authors = await resolvePostAuthors(
+      ctx,
+      posts.map((post) => post.createdBy),
+    )
+    return posts.map((post) => ({
+      ...post,
+      author: authors.get(post.createdBy) ?? { displayName: "—", email: "" },
+    }))
   },
 })
 
@@ -167,7 +184,8 @@ export const get = query({
   args: { id: v.id("posts") },
   handler: async (ctx, args) => {
     await requireRole(ctx, ["owner", "admin", "editor"])
-    return ctx.db.get(args.id)
+    const post = await ctx.db.get(args.id)
+    return post === null ? null : overlayForEditor(post)
   },
 })
 
@@ -250,10 +268,34 @@ export const update = mutation({
       await assertTagsResolvable(ctx, args.tagIds)
       patch.tagIds = args.tagIds
     }
+    if (args.coverId !== undefined && args.coverId !== null) {
+      await assertCoverResolvable(ctx, args.coverId)
+    }
 
-    // Bounds every text field that will land on the row after this patch —
-    // the value just validated where the caller sent one, the already-
-    // bounded stored value otherwise. Same shape as `pages.update`.
+    if (post.status === "published") {
+      const working = applyWorkingPatch(post.workingCopy ?? snapshotLive(post), {
+        title: patch.title,
+        slug: patch.slug,
+        body: patch.body,
+        excerpt: patch.excerpt,
+        seo: patch.seo,
+        geo: patch.geo,
+        tagIds: patch.tagIds,
+        coverId: args.coverId,
+        targetKeyword: clearTargetKeyword
+          ? null
+          : args.targetKeyword !== undefined
+            ? patch.targetKeyword
+            : undefined,
+      })
+      assertPostTextWithinLimits(working)
+      await ctx.db.patch(args.id, {
+        workingCopy: working,
+        updatedBy: authUser._id,
+      })
+      return
+    }
+
     assertPostTextWithinLimits({
       title: patch.title ?? post.title,
       slug: patch.slug ?? post.slug,
@@ -263,15 +305,11 @@ export const update = mutation({
       geo: patch.geo ?? post.geo,
     })
 
-    // `patch({ coverId: undefined })` and `patch({ coverId: null })` do
-    // not unset an optional field — the first is a no-op, the second
-    // fails the schema. `replace` without the key is the only way out.
-    const { _id, _creationTime, coverId: _oldCover, ...kept } = post
+    const { _id, _creationTime, coverId: _oldCover, workingCopy: _wc, ...kept } = post
     const next = { ...kept, ...patch }
     if (args.coverId === null) {
       delete (next as { coverId?: unknown }).coverId
     } else if (args.coverId !== undefined) {
-      await assertCoverResolvable(ctx, args.coverId)
       next.coverId = args.coverId
     } else if (_oldCover !== undefined) {
       next.coverId = _oldCover
@@ -280,43 +318,6 @@ export const update = mutation({
       delete (next as { targetKeyword?: unknown }).targetKeyword
     }
     await ctx.db.replace(args.id, next)
-
-    // Renommer le slug d'un article *publié* abandonnerait ses lecteurs à
-    // une 404 : l'ancienne URL est partagée, indexée, mise en favori. Une
-    // 301 la fait suivre. Le chemin porte le préfixe du blog des deux
-    // côtés — c'est l'URL réelle, pas le slug nu.
-    //
-    // Rien pour un brouillon jamais publié : renommer trois fois un
-    // brouillon laisserait trois redirections mortes.
-    if (
-      patch.slug !== undefined &&
-      patch.slug !== post.slug &&
-      post.publishedAt !== undefined
-    ) {
-      await mintRenameRedirect(
-        ctx,
-        `blog/${post.slug}`,
-        `blog/${patch.slug}`,
-        authUser._id
-      )
-    }
-
-    // Saving an edit to a *published* article has to invalidate too, or the
-    // cached response stays stale for up to `maxAge` while the dashboard
-    // badge reads "Publié" — the same defect the pages review caught, and
-    // the same fix. `post` was read before the patch, so `post.slug` is
-    // always the pre-patch value.
-    if (post.status === "published") {
-      const tags = ["posts", `post:${post.slug}`]
-      // A renamed slug leaves the old URL cached under its own tag with
-      // nothing left to ever invalidate it: it would keep serving an
-      // article that should now 404 there. Both tags, or neither is safe.
-      if (patch.slug !== undefined && patch.slug !== post.slug) {
-        tags.push(`post:${patch.slug}`)
-      }
-      await insertOutboxRow(ctx, { kind: "post", postId: args.id }, tags)
-      await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})
-    }
   },
 })
 
@@ -329,6 +330,7 @@ export const remove = mutation({
     requireOwnDocument(authUser, post)
     requirePublishedPageWritable(authUser, post)
 
+    await supprimerPourPost(ctx, args.id)
     await ctx.db.delete(args.id)
 
     // Deleting a published article without invalidating leaves it served
@@ -415,7 +417,7 @@ export const PUBLISHED_POSTS_LIMIT = 100
 async function withCover<T extends { coverId?: Id<"_storage"> }>(
   ctx: { db: any; storage: { getUrl: (id: Id<"_storage">) => Promise<string | null> } },
   post: T
-): Promise<T & { coverUrl: string | null; coverAlt: string }> {
+): Promise<T & { coverUrl: string | null; coverAlt: string; coverTitle?: string }> {
   if (!post.coverId) return { ...post, coverUrl: null, coverAlt: "" }
   const media = await ctx.db
     .query("media")
@@ -425,6 +427,7 @@ async function withCover<T extends { coverId?: Id<"_storage"> }>(
     ...post,
     coverUrl: await ctx.storage.getUrl(post.coverId),
     coverAlt: media?.alt ?? "",
+    coverTitle: media?.title,
   }
 }
 
@@ -439,8 +442,10 @@ export const getPublishedPost = query({
     // The filter is here, in the query, never in the caller. `null` covers
     // both "no such slug" and "a draft with that slug" — from the public
     // site's point of view those are the same outcome, deliberately.
+    // `workingCopy` is never overlaid here: the public site serves live.
     if (post.status !== "published") return null
-    return omitTargetKeyword(await withCover(ctx, post))
+    const { workingCopy: _draft, ...live } = post
+    return omitTargetKeyword(await withCover(ctx, live))
   },
 })
 
@@ -466,9 +471,10 @@ export const listPublishedPosts = query({
       )
     }
     return Promise.all(
-      posts
-        .slice(0, PUBLISHED_POSTS_LIMIT)
-        .map(async (post) => omitTargetKeyword(await withCover(ctx, post))),
+      posts.slice(0, PUBLISHED_POSTS_LIMIT).map(async (post) => {
+        const { workingCopy: _draft, ...live } = post
+        return omitTargetKeyword(await withCover(ctx, live))
+      }),
     )
   },
 })
@@ -495,7 +501,7 @@ export const previewPost = query({
       .query("posts")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .unique()
-    return post === null ? null : omitTargetKeyword(post)
+    return post === null ? null : omitTargetKeyword(overlayForEditor(post))
   },
 })
 
@@ -555,12 +561,39 @@ export const publishPost = mutation({
     const acteur = await requireRole(ctx, ["owner", "admin"])
     const post = await ctx.db.get(args.id)
     if (!post) throw new ConvexError({ code: "NOT_FOUND" })
+    const etaitPublie = post.status === "published"
 
-    await ctx.db.patch(args.id, { status: "published", publishedAt: Date.now() })
-    await insertOutboxRow(ctx, { kind: "post", postId: args.id }, [
-      "posts",
-      `post:${post.slug}`,
-    ])
+    const oldSlug = post.slug
+    let nextSlug = post.slug
+    if (post.workingCopy !== undefined) {
+      nextSlug = post.workingCopy.slug
+      if (nextSlug !== oldSlug) {
+        await assertSlugAvailable(ctx, nextSlug, args.id)
+      }
+      const { _id, _creationTime, ...kept } = applyWorkingToLive(post)
+      await ctx.db.replace(args.id, {
+        ...kept,
+        status: "published",
+        publishedAt: Date.now(),
+        updatedBy: acteur._id,
+      })
+      // Après le replace : l'ancien slug n'est plus servi, `mint` peut
+      // poser la 301. Avant, `assertRedirectUsable` le voyait encore occupé
+      // et avalait le refus en silence.
+      if (nextSlug !== oldSlug && post.publishedAt !== undefined) {
+        await mintRenameRedirect(
+          ctx,
+          `blog/${oldSlug}`,
+          `blog/${nextSlug}`,
+          acteur._id,
+        )
+      }
+    } else {
+      await ctx.db.patch(args.id, { status: "published", publishedAt: Date.now() })
+    }
+    const tags = ["posts", `post:${oldSlug}`]
+    if (nextSlug !== oldSlug) tags.push(`post:${nextSlug}`)
+    await insertOutboxRow(ctx, { kind: "post", postId: args.id }, tags)
     // The fast path: don't wait for the next cron sweep when nothing is
     // wrong. The cron is the recovery path for when this call is lost, not
     // the primary one.
@@ -569,7 +602,26 @@ export const publishPost = mutation({
     // ce geste côté pages (`pages.ts`) ; `publishPost` ne le faisait pas
     // côté articles, alors que le raisonnement est identique — le slug
     // vient de se mettre à répondre au public.
-    await journaliser(ctx, { acteur, action: "post.publish", cible: post.slug })
+    await journaliser(ctx, { acteur, action: "post.publish", cible: nextSlug })
+    if (!etaitPublie) {
+      const live = await ctx.db.get(args.id)
+      const titre = live?.title ?? post.title
+      const exclus = [...new Set([post.createdBy, acteur._id])]
+      const candidats = await listerCandidats(ctx)
+      await ecrireCloches(ctx, {
+        cle: "postPublished",
+        titre,
+        postId: args.id,
+        exclus,
+        candidats,
+      })
+      await ctx.scheduler.runAfter(0, internal.notifications.notifyPublished, {
+        postId: args.id,
+        titre,
+        auteurId: post.createdBy,
+        exclus,
+      })
+    }
   },
 })
 
@@ -591,7 +643,16 @@ export const unpublishPost = mutation({
     // l'était déjà rendrait le journal faux.
     if (post.status !== "published") return
 
-    await ctx.db.patch(args.id, { status: "draft" })
+    if (post.workingCopy !== undefined) {
+      const { _id, _creationTime, ...kept } = applyWorkingToLive(post)
+      await ctx.db.replace(args.id, {
+        ...kept,
+        status: "draft",
+        updatedBy: acteur._id,
+      })
+    } else {
+      await ctx.db.patch(args.id, { status: "draft" })
+    }
     await insertOutboxRow(ctx, { kind: "post", postId: args.id }, [
       "posts",
       `post:${post.slug}`,
@@ -602,6 +663,23 @@ export const unpublishPost = mutation({
     // décidé — exactement le raisonnement déjà tenu pour
     // `pages.unpublish` (`pages.ts:594`), qui vaut mot pour mot ici.
     await journaliser(ctx, { acteur, action: "post.unpublish", cible: post.slug })
+  },
+})
+
+export const discardWorkingCopy = mutation({
+  args: { id: v.id("posts") },
+  handler: async (ctx, args) => {
+    const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
+    const post = await ctx.db.get(args.id)
+    if (!post) throw new ConvexError({ code: "NOT_FOUND" })
+    requireOwnDocument(authUser, post)
+    requirePublishedPageWritable(authUser, post)
+    if (post.workingCopy === undefined) return overlayForEditor(post)
+    const { _id, _creationTime, workingCopy: _wc, ...kept } = post
+    await ctx.db.replace(args.id, { ...kept, updatedBy: authUser._id })
+    const next = await ctx.db.get(args.id)
+    if (next === null) throw new ConvexError({ code: "NOT_FOUND" })
+    return overlayForEditor(next)
   },
 })
 
@@ -676,6 +754,17 @@ MUTATION_REGISTRY.push(
         slug: `registry-${Date.now()}-${Math.random()}`,
       })
       return t.mutation(api.posts.unpublishPost, { id })
+    },
+  },
+  {
+    name: "posts.discardWorkingCopy",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: async (t) => {
+      const id = await t.mutation(api.posts.create, {
+        title: "Registry post",
+        slug: `registry-${Date.now()}-${Math.random()}`,
+      })
+      return t.mutation(api.posts.discardWorkingCopy, { id })
     },
   },
   {

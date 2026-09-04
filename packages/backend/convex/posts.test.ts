@@ -1,5 +1,6 @@
 import type { TestConvex } from "convex-test"
-import { afterEach, beforeEach, expect, test } from "vitest"
+import { Resend } from "@convex-dev/resend"
+import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import schema from "./schema"
 import { api, internal } from "./_generated/api"
 import { getFunctionName } from "convex/server"
@@ -23,6 +24,8 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = originalEnv
+  vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 async function seedActor(
@@ -33,7 +36,7 @@ async function seedActor(
   const password = "correct horse battery staple posts"
   const user = await seedUser(t, { email, password, name: `Actor ${role}`, role })
   await signIn(t, email, password)
-  return { identity: await identityFor(t, user.id), id: user.id }
+  return { identity: await identityFor(t, user.id), id: user.id, email }
 }
 
 // ---------------------------------------------------------------------
@@ -327,6 +330,78 @@ test("getPublishedPost ne sert jamais un brouillon, même avec le bon slug", asy
   // Appelé sans identité — la posture exacte d'`apps/web`, qui n'a ni
   // session ni clé admin.
   expect(await t.query(api.posts.getPublishedPost, { slug: "brouillon-confidentiel" })).toBeNull()
+})
+
+test("getPublishedPost expose coverUrl et l'ancien seo.ogImageId", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const coverId = await t.run(async (ctx) => ctx.storage.store(new Blob(["cover"])))
+  const ogImageId = await t.run(async (ctx) => ctx.storage.store(new Blob(["og"])))
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "Publié",
+    slug: "avec-images",
+  })
+  await owner.identity.mutation(api.posts.update, {
+    id,
+    coverId,
+    seo: { ogImageId, noindex: false },
+  })
+  await t.run((ctx) => ctx.db.patch(id, { status: "published", publishedAt: Date.now() }))
+
+  const published = await t.query(api.posts.getPublishedPost, { slug: "avec-images" })
+  expect(published?.coverUrl).toEqual(expect.any(String))
+  expect(published?.seo?.ogImageId).toBe(ogImageId)
+})
+
+test("list attache le nom et l'email de l'auteur depuis createdBy", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.posts.create, {
+    title: "Par le owner",
+    slug: "par-le-owner",
+  })
+
+  const rows = await owner.identity.query(api.posts.list, {})
+  expect(rows).toHaveLength(1)
+  expect(rows[0]?.title).toBe("Par le owner")
+  expect(rows[0]?.status).toBe("draft")
+  expect(rows[0]?.createdBy).toBe(owner.id)
+  expect(rows[0]?.author).toEqual({
+    displayName: "Actor owner",
+    email: owner.email,
+  })
+})
+
+test("list replie l'auteur sur l'email Better Auth si le profil manque", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.posts.create, {
+    title: "Sans profil",
+    slug: "sans-profil",
+  })
+  await t.run(async (ctx) => {
+    const profile = await ctx.db
+      .query("profiles")
+      .withIndex("by_auth_user", (q) => q.eq("authUserId", owner.id))
+      .unique()
+    if (profile) await ctx.db.delete(profile._id)
+  })
+
+  const rows = await owner.identity.query(api.posts.list, {})
+  expect(rows[0]?.author).toEqual({
+    displayName: owner.email,
+    email: owner.email,
+  })
+})
+
+test("list conserve le tri du plus récent au plus ancien", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await owner.identity.mutation(api.posts.create, { title: "Ancien", slug: "ancien" })
+  await owner.identity.mutation(api.posts.create, { title: "Récent", slug: "recent" })
+
+  const rows = await owner.identity.query(api.posts.list, {})
+  expect(rows.map((row) => row.slug)).toEqual(["recent", "ancien"])
 })
 
 test("listPublishedPosts n'expose aucun brouillon", async () => {
@@ -651,7 +726,7 @@ test("publier un article ne perturbe pas le statut de propagation d'une page", a
 // Les trois trous trouvés à la revue de la Task 7
 // ---------------------------------------------------------------------
 
-test("modifier un article publié invalide son cache", async () => {
+test("modifier un article publié n'invalide pas tant qu'on n'a pas publié", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
   const id = await owner.identity.mutation(api.posts.create, { title: "M", slug: "m" })
@@ -660,23 +735,19 @@ test("modifier un article publié invalide son cache", async () => {
 
   await owner.identity.mutation(api.posts.update, { id, title: "M, corrigé" })
 
-  // Sans ça, la réponse cachée reste périmée jusqu'à `maxAge` pendant que
-  // le badge du tableau de bord affiche « Publié ».
-  const rows = await outboxRows(t)
-  expect(rows).toHaveLength(apresPublication + 1)
-  expect(rows.at(-1)?.tags).toEqual(["posts", "post:m"])
+  expect((await outboxRows(t)).length).toBe(apresPublication)
+  expect((await t.run((ctx) => ctx.db.get(id)))?.title).toBe("M")
 })
 
-test("renommer le slug d'un article publié invalide l'ancien ET le nouveau", async () => {
+test("publier une working copy au slug changé invalide l'ancien ET le nouveau", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
   const id = await owner.identity.mutation(api.posts.create, { title: "R", slug: "avant" })
   await owner.identity.mutation(api.posts.publishPost, { id })
 
   await owner.identity.mutation(api.posts.update, { id, slug: "apres" })
+  await owner.identity.mutation(api.posts.publishPost, { id })
 
-  // N'invalider que le nouveau laisserait l'ancienne URL servie depuis le
-  // cache, avec plus rien pour l'invalider un jour.
   expect((await outboxRows(t)).at(-1)?.tags).toEqual([
     "posts",
     "post:avant",
@@ -744,4 +815,101 @@ test("un editor ne peut plus modifier ni supprimer son article une fois publié"
 
   // L'owner, lui, passe outre — c'est la règle, pas une exception.
   await owner.identity.mutation(api.posts.update, { id, title: "Corrigé par l'owner" })
+  expect((await owner.identity.query(api.posts.get, { id }))?.title).toBe(
+    "Corrigé par l'owner",
+  )
+  expect((await t.run((ctx) => ctx.db.get(id)))?.title).toBe("Le mien, v2")
+})
+
+function capturerLesEnvoisPosts() {
+  const envoyes: { to: string | string[] }[] = []
+  vi.spyOn(Resend.prototype, "sendEmail").mockImplementation((async (
+    _ctx: unknown,
+    options: { to: string | string[] },
+  ) => {
+    envoyes.push(options)
+    return "email-de-test"
+  }) as unknown as Resend["sendEmail"])
+  return envoyes
+}
+
+test("publishPost d'un brouillon écrit une cloche pour les autres, zéro e-mail par défaut", async () => {
+  const t = makeTestConvex()
+  vi.useFakeTimers()
+  process.env.RESEND_API_KEY = "re_test_key"
+  const envoyes = capturerLesEnvoisPosts()
+  const auteur = await seedActor(t, "editor")
+  const publieur = await seedActor(t, "owner")
+  const collegue = await seedActor(t, "admin")
+  const id = await auteur.identity.mutation(api.posts.create, {
+    title: "Couverture",
+    slug: `couv-${Date.now()}`,
+  })
+  await publieur.identity.mutation(api.posts.publishPost, { id })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+  const cloches = await t.run((ctx) => ctx.db.query("notifications").collect())
+  expect(cloches.map((c) => c.authUserId)).toEqual([collegue.id])
+  expect(cloches[0]!.titre).toBe("Couverture")
+  expect(cloches[0]!.postId).toBe(id)
+  expect(envoyes).toHaveLength(0)
+})
+
+test("republication d'un article déjà published : pas de nouvelle cloche", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const collegue = await seedActor(t, "admin")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "Déjà en ligne",
+    slug: `deja-${Date.now()}`,
+  })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+  const apresPremier = await t.run((ctx) => ctx.db.query("notifications").collect())
+  expect(apresPremier.map((c) => c.authUserId)).toEqual([collegue.id])
+  await owner.identity.mutation(api.posts.publishPost, { id })
+  const apresSecond = await t.run((ctx) => ctx.db.query("notifications").collect())
+  expect(apresSecond).toHaveLength(1)
+})
+
+test("auteur = publieur : zéro cloche pour lui ; un tiers avec e-mail reçoit", async () => {
+  const t = makeTestConvex()
+  vi.useFakeTimers()
+  process.env.RESEND_API_KEY = "re_test_key"
+  const envoyes = capturerLesEnvoisPosts()
+  const auteur = await seedActor(t, "owner")
+  const collegue = await seedActor(t, "admin")
+  await auteur.identity.mutation(api.notifications.setPrefs, {
+    cle: "postPublished",
+    cloche: true,
+    email: true,
+  })
+  await collegue.identity.mutation(api.notifications.setPrefs, {
+    cle: "postPublished",
+    cloche: true,
+    email: true,
+  })
+  const id = await auteur.identity.mutation(api.posts.create, {
+    title: "Solo",
+    slug: `solo-${Date.now()}`,
+  })
+  await auteur.identity.mutation(api.posts.publishPost, { id })
+  await t.finishAllScheduledFunctions(vi.runAllTimers)
+  const cloches = await t.run((ctx) => ctx.db.query("notifications").collect())
+  expect(cloches.map((c) => c.authUserId)).toEqual([collegue.id])
+  expect(envoyes.map((e) => e.to)).toEqual([collegue.email])
+})
+
+test("posts.remove efface les cloches by_post", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const collegue = await seedActor(t, "admin")
+  const id = await owner.identity.mutation(api.posts.create, {
+    title: "À supprimer",
+    slug: `suppr-${Date.now()}`,
+  })
+  await owner.identity.mutation(api.posts.publishPost, { id })
+  expect(
+    (await t.run((ctx) => ctx.db.query("notifications").collect())).map((c) => c.authUserId),
+  ).toEqual([collegue.id])
+  await owner.identity.mutation(api.posts.remove, { id })
+  expect(await t.run((ctx) => ctx.db.query("notifications").collect())).toEqual([])
 })

@@ -11,7 +11,11 @@ import {
 } from "@tanstack/react-table"
 import { useMutation, useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
-import { describeMediaError, formatFileSize } from "@/lib/media"
+import {
+  describeIdentityMedia,
+  describeMediaError,
+  formatFileSize,
+} from "@/lib/media"
 import {
   EditMediaDialog,
   MediaThumbnail,
@@ -173,7 +177,7 @@ function MediaLibraryPage() {
           <p className="text-sm text-muted-foreground">
             {profile.role === "editor"
               ? "Vous voyez tous les fichiers, mais ne supprimez que ceux que vous avez téléversés."
-              : "Les images du site : couvertures d'articles et images de partage."}
+              : "Les images du site : logo, icône, couvertures d'articles et images de partage."}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -363,31 +367,40 @@ function MediaActions({
     (profile.role === "owner" ||
       profile.role === "admin" ||
       item.createdBy === profile.authUserId)
+  const identityRoles = item.identityRoles ?? []
+  const isIdentity = identityRoles.length > 0
 
   return (
     <div
-      className={`flex items-center gap-1 ${align === "end" ? "justify-end" : "justify-start"}`}
+      className={`flex flex-col gap-1 ${align === "end" ? "items-end" : "items-start"}`}
     >
-      <RowActionButton
-        label={`Modifier « ${item.filename} »`}
-        tooltip="Modifier"
-        onClick={() => setEditOpen(true)}
-      >
-        <PencilIcon />
-      </RowActionButton>
-      {/* Supprimer est irréversible et se replie donc derrière les trois
-          points. Pour un éditeur qui n'a pas téléversé le fichier, il n'y a
-          rien à replier : pas de bouton du tout, plutôt qu'un menu vide. */}
-      {ownsOrOutranks && (
-        <RowActionsMenu label={`Autres actions pour « ${item.filename} »`}>
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setDeleteOpen(true)}
-          >
-            <Trash2Icon />
-            Supprimer
-          </DropdownMenuItem>
-        </RowActionsMenu>
+      <div className="flex items-center gap-1">
+        <RowActionButton
+          label={`Modifier « ${item.filename} »`}
+          tooltip="Modifier"
+          onClick={() => setEditOpen(true)}
+        >
+          <PencilIcon />
+        </RowActionButton>
+        {/* L'interface masque, elle ne décide pas : `media.remove` refuse
+            encore `MEDIA_IS_IDENTITY`. Un menu « Supprimer » désactivé
+            laisserait croire que l'action existe. */}
+        {!isIdentity && ownsOrOutranks && (
+          <RowActionsMenu label={`Autres actions pour « ${item.filename} »`}>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2Icon />
+              Supprimer
+            </DropdownMenuItem>
+          </RowActionsMenu>
+        )}
+      </div>
+      {isIdentity && (
+        <p className="max-w-56 text-xs text-muted-foreground">
+          {describeIdentityMedia(identityRoles)}
+        </p>
       )}
 
       <EditMediaDialog

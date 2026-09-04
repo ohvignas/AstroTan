@@ -8,21 +8,21 @@ import type {
   UmamiLinks,
 } from "@astrotan/backend/convex/analytics"
 import type { SiteSnapshot } from "@astrotan/backend/convex/lib/seoSnapshot"
-import { ColonnePastillesSeo, listesSeo } from "@/components/pastille-seo"
+import type { SiteSeries } from "@astrotan/backend/convex/lib/seoSiteHistory"
+import { listesSeo } from "@/components/pastille-seo"
+import { DashboardGraphe } from "@/components/dashboard-graphe"
+import { RefreshReleve } from "@/components/refresh-releve"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ExternalLinkIcon } from "lucide-react"
+import {
+  dateDonneesAffichees,
+  executerRefresh,
+  summaryInjoignable,
+} from "@/lib/refreshReleve"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  CadreSansMesure,
-  CourbeAudience,
-  SelecteurPeriode,
-} from "@/components/audience-chart"
-import {
-  COURBE_INDISPONIBLE,
-  LIBELLES_ETAT,
-  LIBELLES_PERIODE,
-  nombre,
-} from "@/lib/dashboardFormat"
+import { SelecteurPeriode } from "@/components/audience-chart"
+import { LIBELLES_PERIODE, nombre } from "@/lib/dashboardFormat"
+import type { SerieGraphe } from "@/lib/seoChartSeries"
 
 // L'accueil de l'administration : comment va le site, en un écran.
 //
@@ -36,18 +36,6 @@ import {
 // il devenait impossible de distinguer d'un coup d'œil « le service est
 // muet » de « le site est calme ». Le cadre reste, et l'état se pose
 // dessus (`CadreSansMesure`).
-
-/**
- * Ce qu'il faut écrire sur le cadre quand il n'y a pas de courbe.
- *
- * Le cas `ok` en fait partie : Umami peut rendre les totaux et rater la
- * série. Le service a répondu, donc aucun des trois états de panne ne
- * décrit ce qui s'est passé — et une courbe à zéro le décrirait encore
- * moins.
- */
-function etatDuCadre(summary: SiteSummary): string {
-  return summary.status === "ok" ? COURBE_INDISPONIBLE : LIBELLES_ETAT[summary.status]
-}
 
 /**
  * L'écart avec la période précédente, en pourcentage.
@@ -137,6 +125,13 @@ export function SiteDashboard({
   periode,
   onPeriode,
   snapshot,
+  onRefresh,
+  refreshBusy,
+  refreshError,
+  lastRefreshedAt,
+  history,
+  serie: serieProp,
+  onSerie,
 }: {
   /** `undefined` tant que l'action est en vol. */
   summary: SiteSummary | undefined
@@ -144,7 +139,17 @@ export function SiteDashboard({
   periode: Periode
   onPeriode: (p: Periode) => void
   snapshot?: SiteSnapshot | null
+  onRefresh?: () => void
+  refreshBusy?: boolean
+  refreshError?: string | null
+  lastRefreshedAt?: number
+  history?: SiteSeries | null
+  serie?: SerieGraphe
+  onSerie?: (s: SerieGraphe) => void
 }) {
+  const [serieInterne, setSerieInterne] = useState<SerieGraphe>("visites")
+  const serie = serieProp ?? serieInterne
+  const choisirSerie = onSerie ?? setSerieInterne
   const fenetre = LIBELLES_PERIODE[periode].fenetre
   const showSeo = snapshot?.configured === true
   const seo = snapshot && showSeo ? listesSeo(snapshot) : null
@@ -158,11 +163,24 @@ export function SiteDashboard({
           <CardTitle>Audience du site</CardTitle>
           <span className="text-xs text-muted-foreground">{fenetre}</span>
         </div>
-        <SelecteurPeriode
-          periode={periode}
-          onChange={onPeriode}
-          disabled={summary === undefined}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          {onRefresh ? (
+            <RefreshReleve
+              busy={Boolean(refreshBusy)}
+              disabled={false}
+              pendingWords={["Actualisation…"]}
+              ariaLabel="Recharger"
+              error={refreshError}
+              lastRefreshedAt={lastRefreshedAt}
+              onClick={onRefresh}
+            />
+          ) : null}
+          <SelecteurPeriode
+            periode={periode}
+            onChange={onPeriode}
+            disabled={summary === undefined}
+          />
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         {summary === undefined ? (
@@ -187,44 +205,31 @@ export function SiteDashboard({
               </div>
             )}
 
-            <div
-              className={
-                showSeo ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_14rem]" : undefined
-              }
-            >
-              {summary.status === "ok" && summary.series ? (
-                <CourbeAudience series={summary.series} periode={periode} />
-              ) : (
-                <CadreSansMesure etat={etatDuCadre(summary)} />
-              )}
-              {showSeo && snapshot ? (
-                <ColonnePastillesSeo snapshot={snapshot} />
-              ) : null}
-            </div>
+            <DashboardGraphe
+              summary={summary}
+              periode={periode}
+              snapshot={showSeo ? snapshot : null}
+              history={history}
+              serie={serie}
+              onSerie={choisirSerie}
+            />
 
             {summary.status === "ok" && (
               <div
                 className={
                   showSeo
-                    ? "grid gap-6 lg:grid-cols-4"
+                    ? "grid gap-6 lg:grid-cols-3"
                     : "grid gap-6 sm:grid-cols-2"
                 }
               >
                 <Ranking title="Pages les plus visitées" items={summary.topPages} />
                 <Ranking title="D'où viennent-ils" items={summary.topReferrers} />
                 {showSeo && seo ? (
-                  <>
-                    <Ranking
-                      title="Mots-clés qui amènent"
-                      items={seo.keywords}
-                      missingDomain={seo.domaineManquant}
-                    />
-                    <Ranking
-                      title="Pages qui sortent déjà"
-                      items={seo.pages}
-                      missingDomain={seo.domaineManquant}
-                    />
-                  </>
+                  <Ranking
+                    title="Mots-clés qui amènent"
+                    items={seo.keywords}
+                    missingDomain={seo.domaineManquant}
+                  />
                 ) : null}
               </div>
             )}
@@ -260,12 +265,18 @@ export function SiteDashboardPanel({
   umami: UmamiLinks | null | undefined
 }) {
   const siteSummary = useAction(api.analytics.siteSummary)
+  const refreshSite = useAction(api.revalidate.refresh)
+  const releverSite = useAction(api.seoRanks.refreshSite)
   const snapshot = useQuery(api.seoRanks.siteSnapshot)
   // « 30 jours » par défaut, et non « 7 jours » : sur un site neuf ou peu
   // visité, sept points suffisent rarement à faire une courbe lisible, et
   // l'écran ouvrirait sur un graphique presque plat.
   const [periode, setPeriode] = useState<Periode>("mois")
+  const history = useQuery(api.seoRanks.siteSeries, { periode })
   const [summary, setSummary] = useState<SiteSummary | undefined>(undefined)
+  const [refreshBusy, setRefreshBusy] = useState(false)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  const [umamiFetchedAt, setUmamiFetchedAt] = useState<number | undefined>()
 
   useEffect(() => {
     let current = true
@@ -275,30 +286,35 @@ export function SiteDashboardPanel({
     setSummary(undefined)
     siteSummary({ periode })
       .then((value) => {
-        if (current) setSummary(value)
+        if (!current) return
+        setSummary(value)
+        if (value.fetchedAt != null) setUmamiFetchedAt(value.fetchedAt)
       })
       .catch(() => {
         // L'action traduit déjà toute panne prévisible en état. Ce qui
         // arrive ici ne l'était pas, et l'accueil doit quand même
         // s'afficher.
-        if (current) {
-          setSummary({
-            periode,
-            unit: "day",
-            startAt: 0,
-            endAt: 0,
-            totals: null,
-            series: null,
-            topPages: null,
-            topReferrers: null,
-            status: "unreachable",
-          })
-        }
+        if (current) setSummary(summaryInjoignable(periode))
       })
     return () => {
       current = false
     }
   }, [siteSummary, periode])
+
+  async function handleRefresh() {
+    setRefreshBusy(true)
+    setRefreshError(null)
+    const out = await executerRefresh({
+      periode,
+      chargerAudience: () => siteSummary({ periode, force: true }),
+      releverSite: () => releverSite({}),
+      invaliderSite: () => refreshSite({}),
+    })
+    setSummary(out.summary)
+    if (out.summary.fetchedAt != null) setUmamiFetchedAt(out.summary.fetchedAt)
+    setRefreshError(out.error)
+    setRefreshBusy(false)
+  }
 
   return (
     <SiteDashboard
@@ -307,6 +323,14 @@ export function SiteDashboardPanel({
       periode={periode}
       onPeriode={setPeriode}
       snapshot={snapshot ?? null}
+      history={history}
+      onRefresh={() => void handleRefresh()}
+      refreshBusy={refreshBusy}
+      refreshError={refreshError}
+      lastRefreshedAt={dateDonneesAffichees({
+        umamiFetchedAt,
+        seoFetchedAt: snapshot?.fetchedAt,
+      })}
     />
   )
 }

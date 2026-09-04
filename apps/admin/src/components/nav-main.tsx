@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router"
+import { Link, useRouterState } from "@tanstack/react-router"
 import {
   Collapsible,
   CollapsibleContent,
@@ -16,6 +16,20 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
 import { ChevronRightIcon, ExternalLinkIcon } from "lucide-react"
+
+/**
+ * Correspondance par préfixe, sauf à la racine.
+ *
+ * `/settings` doit rester allumé sur `/settings/identite`. `/` ne le doit
+ * pas : un `startsWith("/")` allumerait tout le menu à la fois. La barre
+ * finale est tolérée — le navigateur peut l'ajouter.
+ */
+export function isSidebarPathActive(pathname: string, url: string): boolean {
+  const path = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname
+  const target = url.length > 1 && url.endsWith("/") ? url.slice(0, -1) : url
+  if (target === "/") return path === "/"
+  return path === target || path.startsWith(`${target}/`)
+}
 
 export function NavMain({
   items,
@@ -39,20 +53,23 @@ export function NavMain({
     }[]
   }[]
 }) {
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+
   return (
     <SidebarGroup>
       {label !== null && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
       <SidebarMenu>
-        {items.map((item) =>
-          item.items && item.items.length > 0 ? (
+        {items.map((item) => {
+          const active = isSidebarPathActive(pathname, item.url)
+          return item.items && item.items.length > 0 ? (
             <Collapsible
               key={item.title}
-              defaultOpen={item.isActive}
+              defaultOpen={item.isActive ?? active}
               className="group/collapsible"
               render={<SidebarMenuItem />}
             >
               <CollapsibleTrigger
-                render={<SidebarMenuButton tooltip={item.title} />}
+                render={<SidebarMenuButton tooltip={item.title} isActive={active} />}
               >
                 {item.icon}
                 <span>{item.title}</span>
@@ -76,6 +93,7 @@ export function NavMain({
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton
                 tooltip={item.title}
+                isActive={active}
                 render={
                   // Un `<Link>` du routeur sur une adresse externe tente une
                   // navigation interne et rend une 404 de l'admin. Il faut
@@ -84,7 +102,10 @@ export function NavMain({
                   item.external ? (
                     <a href={item.url} target="_blank" rel="noopener noreferrer" />
                   ) : (
-                    <Link to={item.url} />
+                    <Link
+                      to={item.url}
+                      {...(active ? { "aria-current": "page" as const } : {})}
+                    />
                   )
                 }
               >
@@ -102,8 +123,8 @@ export function NavMain({
                 )}
               </SidebarMenuButton>
             </SidebarMenuItem>
-          ),
-        )}
+          )
+        })}
       </SidebarMenu>
     </SidebarGroup>
   )

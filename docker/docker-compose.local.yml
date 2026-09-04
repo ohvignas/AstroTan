@@ -51,7 +51,8 @@ services:
   # `apps/web/.env.local` :
   #   PUBLIC_UMAMI_URL=http://localhost:3002
   #   PUBLIC_UMAMI_WEBSITE_ID=<l'id affiché par Umami après « Add website »>
-  # Détail et piège du localhost : README §13.
+  #   PUBLIC_UMAMI_RECORDER=true
+  # Détail et piège du localhost : README §13. Replays / Heatmaps : §13.6.
   umami:
     ports:
       - "3002:3000"

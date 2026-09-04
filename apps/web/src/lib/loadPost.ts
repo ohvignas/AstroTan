@@ -30,6 +30,7 @@ export interface PostRecord {
   // erreur, sans avertissement, jusqu'à ce qu'`astro check` soit lancé.
   coverUrl?: string | null
   coverAlt?: string
+  coverTitle?: string
   publishedAt?: number
   tagIds: string[]
   seo?: {
@@ -37,6 +38,9 @@ export interface PostRecord {
     description?: string
     canonicalUrl?: string
     noindex?: boolean
+    // Encore en base (expand) : `PageHead` s'en sert seulement si la
+    // couverture manque. L'UI article ne le propose plus.
+    ogImageId?: string
   }
   geo?: {
     summary?: string
@@ -129,6 +133,7 @@ export interface PostSummary {
   body: string
   coverUrl?: string | null
   coverAlt?: string
+  coverTitle?: string
   publishedAt?: number
   tagIds?: string[]
 }

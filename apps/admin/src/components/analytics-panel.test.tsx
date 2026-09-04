@@ -21,8 +21,11 @@ const RANKED: DocumentRank = {
 function render(
   result: AnalyticsResult | undefined,
   rank: DocumentRank | undefined = RANKED,
+  extras: { releverBusy?: boolean } = {},
 ) {
-  return renderToStaticMarkup(<AnalyticsPanel result={result} rank={rank} />)
+  return renderToStaticMarkup(
+    <AnalyticsPanel result={result} rank={rank} releverBusy={extras.releverBusy} />,
+  )
 }
 
 describe("AnalyticsPanel", () => {
@@ -97,14 +100,60 @@ describe("AnalyticsPanel", () => {
       { state: "dfs_absent", canRelever: false } as DocumentRank,
     ]) {
       const html = render(OK, rank)
-      expect(html).toContain("Relever")
-      expect(html).toMatch(/disabled/)
+      expect(html).toContain("aria-label=\"Relever\"")
+      expect(html).not.toMatch(/disabled=""/)
+      expect(html).not.toMatch(/>Relever</)
     }
+    expect(render(OK, { state: "no_keyword", canRelever: false })).toContain(
+      "Aucun mot-clé cible.",
+    )
+    expect(render(OK, { state: "dfs_absent", canRelever: false })).toContain(
+      "DataForSEO n",
+    )
+  })
+
+  test("jamais relevé : bouton actif même si canRelever est faux", () => {
+    const html = render(OK, { state: "never_ranked", canRelever: false })
+    expect(html).toContain("aria-label=\"Relever\"")
+    expect(html).not.toMatch(/disabled=""/)
+  })
+
+  test("throttle : bouton inactif avec le titre", () => {
+    const html = render(OK, {
+      state: "ranked",
+      position: 4,
+      canRelever: false,
+      fetchedAt: Date.now() - 60_000,
+    })
+    expect(html).toMatch(/disabled=""/)
+    expect(html).toContain("title=")
+    expect(html).toContain("moins d")
+    expect(html).toContain("une heure")
   })
 
   test("Relever est actif quand canRelever", () => {
     const html = render(OK, RANKED)
-    expect(html).toContain("Relever")
+    expect(html).toContain("aria-label=\"Relever\"")
     expect(html).not.toMatch(/disabled=""/)
+    expect(html).not.toMatch(/>Relever</)
+  })
+
+  test("après un relevé, la date du fetchedAt remplace le libellé", () => {
+    const html = render(OK, {
+      ...RANKED,
+      fetchedAt: Date.now() - 3 * 60_000,
+    })
+    expect(html).toContain("il y a 3 min")
+  })
+
+  test("pendant le relevé : icône qui tourne et un mot, pas de date", () => {
+    const html = render(
+      OK,
+      { ...RANKED, fetchedAt: Date.now() - 3 * 60_000 },
+      { releverBusy: true },
+    )
+    expect(html).toContain("animate-spin")
+    expect(html).toContain("Recherche")
+    expect(html).not.toContain("il y a 3 min")
   })
 })

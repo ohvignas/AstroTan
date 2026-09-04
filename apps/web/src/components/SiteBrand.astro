@@ -21,9 +21,15 @@ interface Props {
   variant?: "logo" | "icon"
   /** Hauteur rendue en pixels ; la largeur suit le rapport du fichier. */
   size?: number
+  /**
+   * Au-dessus de la ligne de flottaison (en-tête). Le pied de page
+   * laisse le défaut `lazy` : ce n'est pas l'élément LCP.
+   */
+  priority?: boolean
   class?: string
 }
-const { variant = "logo", size = 32, class: className } = Astro.props
+const { variant = "logo", size = 32, priority = false, class: className } =
+  Astro.props
 
 const source = variant === "logo" ? logo : icon
 // Calculée, jamais codée en dur : remplacer un fichier par une image d'un
@@ -40,5 +46,7 @@ const width = Math.round((source.width / source.height) * size)
   width={width}
   height={size}
   densities={[1, 2]}
+  loading={priority ? "eager" : "lazy"}
+  fetchpriority={priority ? "high" : undefined}
   class={className}
 />

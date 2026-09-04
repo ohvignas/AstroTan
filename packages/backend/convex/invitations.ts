@@ -11,7 +11,7 @@ import { MAX_DISPLAY_NAME_LENGTH } from "./profiles"
 import { MUTATION_REGISTRY } from "./_registry"
 import { makeResend } from "./lib/resend"
 import { resoudreExpediteur } from "./lib/expediteur"
-import { rendreHtml, rendreTexte, singleLine } from "./lib/gabarit"
+import { composerMessage, identiteAvecLogoJoignable } from "./lib/emailLayout"
 import { journaliser } from "./lib/auditEvent"
 import { deriverOrigines } from "./lib/origines"
 
@@ -283,28 +283,16 @@ export const sendInvitationEmail = internalAction({
     // ne devrait jamais valoir faux — fermerait cette porte sans recours le
     // jour où une ligne arriverait par une restauration de sauvegarde.
     const gabarit = await ctx.runQuery(internal.emails.gabarit, { cle: "invitation" })
-    const valeurs = { lien: link }
+    const identite = await identiteAvecLogoJoignable(
+      await ctx.runQuery(internal.settings.identiteEmail, {}),
+    )
+    const valeurs = { lien: link, nom_du_site: identite.siteName }
 
     const resend = await makeResend(ctx)
     await resend.sendEmail(ctx, {
       from: await resoudreExpediteur(ctx),
       to: claimed.email,
-      // `singleLine` APRÈS le rendu, pas avant : `validerGabarit` garantit
-      // que le GABARIT de l'objet tient sur une ligne, jamais ce que les
-      // valeurs y injectent. Ici elles sont construites par le serveur,
-      // mais la protection appartient au site de rendu, pas à la
-      // provenance du jour — c'est `leads.ts` qui reçoit d'Internet, et les
-      // deux envois doivent se lire pareil.
-      subject: singleLine(rendreTexte(gabarit.objet, valeurs)),
-      // Le corps est du texte brut : `white-space:pre-wrap` rend ses sauts
-      // de ligne. L'ancre autour du lien n'est plus laissée au client de
-      // messagerie — la plupart transforment une URL nue, pas tous, et cet
-      // email n'existe QUE pour son lien. `rendreHtml` la fabrique là où il
-      // sait encore d'où vient chaque caractère, quel que soit l'endroit où
-      // un gabarit réécrit a déplacé `{{lien}}` ; la clé lui dit quelles
-      // variables le serveur construit (`VARIABLES_DE_CONFIANCE`).
-      html: `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs, "invitation")}</p>`,
-      text: rendreTexte(gabarit.corps, valeurs),
+      ...composerMessage(gabarit, valeurs, "invitation", identite),
     })
   },
 })

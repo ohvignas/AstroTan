@@ -80,6 +80,7 @@ test("siteSnapshot sans DFS : configured false, moyenne null", async () => {
   expect(snap.configured).toBe(false)
   expect(snap.averagePosition).toBeNull()
   expect(snap.keywords).toEqual([])
+  expect(snap.keywordCount).toBe(0)
 })
 
 test("siteSnapshot : moyenne des ranked publiés qui ont encore ce mot-clé", async () => {
@@ -206,6 +207,34 @@ test("relever : succès, throttle 1 h, échec HTTP n'écrit pas", async () => {
   expect(apres?.position).toBe(9)
 })
 
+test("relever : le domaine déclaré, pas WEB_SITE_URL localhost", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  process.env.DATAFORSEO_LOGIN = "login@exemple.fr"
+  process.env.DATAFORSEO_PASSWORD = "secret"
+  process.env.WEB_SITE_URL = "http://localhost:4321"
+  await t.run((ctx) =>
+    ctx.db.insert("settings", { siteName: "Test", declaredDomain: "exemple.fr" }),
+  )
+  const id = await pagePubliee(t, owner.id)
+  stubSerp([
+    { type: "organic", url: "https://exemple.fr/contact", rank_absolute: 9 },
+  ])
+  expect(
+    await owner.identity.action(api.seoRanks.relever, { kind: "page", pageId: id }),
+  ).toEqual({ ok: true })
+  const row = await t.run((ctx) =>
+    ctx.db
+      .query("seoRanks")
+      .withIndex("by_page", (q) => q.eq("pageId", id))
+      .unique(),
+  )
+  expect(row?.url).toBe("https://exemple.fr/contact")
+  expect(row?.url).not.toContain("localhost")
+  expect(row?.status).toBe("ranked")
+  expect(row?.position).toBe(9)
+})
+
 test("relever : un editor ne relève pas le document d'autrui", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
@@ -216,6 +245,184 @@ test("relever : un editor ne relève pas le document d'autrui", async () => {
   await expect(
     editor.identity.action(api.seoRanks.relever, { kind: "page", pageId: id }),
   ).rejects.toThrow(/FORBIDDEN/)
+})
+
+const LABS_ITEM = {
+  keyword_data: { keyword: "agence web" },
+  ranked_serp_element: {
+    serp_item: { rank_absolute: 4, url: "https://exemple.fr/" },
+  },
+}
+
+function cibleDuBody(init?: { body?: string }): string {
+  try {
+    return JSON.parse(String(init?.body ?? "[]"))[0]?.target ?? ""
+  } catch {
+    return ""
+  }
+}
+
+function stubDfs(opts?: {
+  labs?: unknown[]
+  labsPour?: Record<string, unknown[]>
+  overview?: { backlinks: number; referring_domains: number } | null
+  overviewPour?: Record<string, { backlinks: number; referring_domains: number } | null>
+}) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: { body?: string }) => {
+      const u = String(url)
+      const target = cibleDuBody(init)
+      if (u.includes("ranked_keywords")) {
+        const items = opts?.labsPour?.[target] ?? opts?.labs ?? [LABS_ITEM]
+        return {
+          ok: true,
+          json: async () => ({
+            tasks: [{ result: [{ items, total_count: items.length }] }],
+          }),
+        }
+      }
+      if (u.includes("backlinks/summary") || u.includes("backlinks/overview")) {
+        const ov =
+          (opts?.overviewPour && target in opts.overviewPour
+            ? opts.overviewPour[target]
+            : opts?.overview) ?? { backlinks: 42, referring_domains: 12 }
+        if (ov === null) return { ok: false, json: async () => ({}) }
+        return {
+          ok: true,
+          json: async () => ({ tasks: [{ result: [ov] }] }),
+        }
+      }
+      return {
+        ok: true,
+        json: async () => ({ tasks: [{ result: [{ items: [] }] }] }),
+      }
+    }),
+  )
+}
+
+test("refreshSite refuse un appelant sans session", async () => {
+  const t = makeTestConvex()
+  await expect(t.action(api.seoRanks.refreshSite, {})).rejects.toThrow()
+})
+
+test("refreshSite sans clés : skipped, n'écrit rien", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const out = await owner.identity.action(api.seoRanks.refreshSite, {})
+  expect(out).toEqual({ ok: true, skipped: "dfs_absent" })
+  const keys = await t.run((ctx) => ctx.db.query("seoSiteKeywords").collect())
+  expect(keys).toHaveLength(0)
+})
+
+test("refreshSite : même snapshot que le hebdo (Labs + Overview)", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  process.env.DATAFORSEO_LOGIN = "login@exemple.fr"
+  process.env.DATAFORSEO_PASSWORD = "secret"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  await t.run((ctx) =>
+    ctx.db.insert("settings", {
+      siteName: "Test",
+      declaredDomain: "exemple.fr",
+    }),
+  )
+  stubDfs()
+  const before = Date.now()
+  const out = await owner.identity.action(api.seoRanks.refreshSite, {})
+  expect(out.ok).toBe(true)
+  if (out.ok && "fetchedAt" in out) {
+    expect(out.fetchedAt).toBeGreaterThanOrEqual(before)
+  }
+  const keys = await t.run((ctx) => ctx.db.query("seoSiteKeywords").collect())
+  expect(keys.map((k) => k.keyword)).toEqual(["agence web"])
+  const links = await t.run((ctx) => ctx.db.query("seoSiteBacklinks").first())
+  expect(links?.backlinks).toBe(42)
+  expect(links?.referringDomains).toBe(12)
+})
+
+test("refreshSite : apex vide, www a des données → on écrit www", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  process.env.DATAFORSEO_LOGIN = "login@exemple.fr"
+  process.env.DATAFORSEO_PASSWORD = "secret"
+  await t.run((ctx) =>
+    ctx.db.insert("settings", { siteName: "Test", declaredDomain: "exemple.fr" }),
+  )
+  stubDfs({
+    labsPour: {
+      "exemple.fr": [],
+      "www.exemple.fr": [
+        {
+          keyword_data: { keyword: "formation no-code" },
+          ranked_serp_element: {
+            serp_item: {
+              rank_absolute: 8,
+              url: "https://www.exemple.fr/formations",
+            },
+          },
+        },
+      ],
+    },
+    overviewPour: {
+      "exemple.fr": { backlinks: 0, referring_domains: 0 },
+      "www.exemple.fr": { backlinks: 12, referring_domains: 4 },
+    },
+  })
+  const out = await owner.identity.action(api.seoRanks.refreshSite, {})
+  expect(out.ok).toBe(true)
+  const keys = await t.run((ctx) => ctx.db.query("seoSiteKeywords").collect())
+  expect(keys.map((k) => k.keyword)).toEqual(["formation no-code"])
+  const links = await t.run((ctx) => ctx.db.query("seoSiteBacklinks").first())
+  expect(links?.backlinks).toBe(12)
+})
+
+test("refreshSite : DataForSEO muet rend unreachable, n'écrit pas", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  process.env.DATAFORSEO_LOGIN = "login@exemple.fr"
+  process.env.DATAFORSEO_PASSWORD = "secret"
+  await t.run((ctx) =>
+    ctx.db.insert("settings", {
+      siteName: "Test",
+      declaredDomain: "exemple.fr",
+    }),
+  )
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({}) })))
+  const out = await owner.identity.action(api.seoRanks.refreshSite, {})
+  expect(out).toEqual({ ok: false, reason: "unreachable" })
+  const keys = await t.run((ctx) => ctx.db.query("seoSiteKeywords").collect())
+  expect(keys).toHaveLength(0)
+})
+
+test("refreshWeekly : le domaine déclaré, pas WEB_SITE_URL localhost", async () => {
+  const t = makeTestConvex()
+  process.env.DATAFORSEO_LOGIN = "login@exemple.fr"
+  process.env.DATAFORSEO_PASSWORD = "secret"
+  process.env.WEB_SITE_URL = "http://localhost:4321"
+  const published = await t.run((ctx) =>
+    ctx.db.insert("pages", {
+      slug: "contact",
+      title: "Contact",
+      status: "published",
+      targetKeyword: "agence web lyon",
+      createdBy: "u1",
+      updatedBy: "u1",
+    }),
+  )
+  await t.run((ctx) =>
+    ctx.db.insert("settings", { siteName: "Test", declaredDomain: "exemple.fr" }),
+  )
+  stubSerp([
+    { type: "organic", url: "https://exemple.fr/contact", rank_absolute: 4 },
+  ])
+  await t.action(internal.seoRanks.refreshWeekly, {})
+  const rows = await t.run((ctx) => ctx.db.query("seoRanks").collect())
+  expect(rows).toHaveLength(1)
+  expect(rows[0]?.pageId).toBe(published)
+  expect(rows[0]?.url).toBe("https://exemple.fr/contact")
+  expect(rows[0]?.url).not.toContain("localhost")
+  expect(rows[0]?.position).toBe(4)
 })
 
 test("refreshWeekly saute les brouillons et copie previous*", async () => {

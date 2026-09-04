@@ -492,13 +492,164 @@ test("supprimer un média servant de logo, d'icône ou d'image par défaut est r
       ...(champ === "ogImage" ? { defaultSeo: { ogImageId: storageId } } : {}),
     })
 
-    // Autoriser la suppression laissait une référence pendante : le site
-    // continuait de demander un fichier absent, et l'écran des réglages
-    // affichait « fichier hors médiathèque » sans expliquer pourquoi.
+    // Image d'identité : on la remplace depuis les réglages, on ne la
+    // supprime pas. Un code dédié, distinct de MEDIA_IN_USE (page / article),
+    // pour que l'écran dise « remplacez » plutôt que « retirez-le d'abord »,
+    // et nomme le bon rôle (logo vs icône) au lieu d'un « logo » générique.
+    const expectedRoles =
+      champ === "logoId" ? ["logo"] : champ === "iconId" ? ["icon"] : ["og"]
     await expect(
       owner.mutation(api.media.remove, { id: mediaId }),
-    ).rejects.toThrow(/MEDIA_IN_USE/)
+    ).rejects.toMatchObject({
+      data: { code: "MEDIA_IS_IDENTITY", roles: expectedRoles },
+    })
   }
+})
+
+test("un fichier homonyme de l'icône, non assigné, reste suppressible", async () => {
+  const t = makeTestConvex()
+  const { identity: owner } = await seedActor(t, "owner")
+
+  const storageId = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["x"])),
+  )) as Id<"_storage">
+  const mediaId = await owner.mutation(api.media.register, {
+    storageId,
+    filename: "icon_astrotan.png",
+    mime: "image/png",
+    size: 1,
+    alt: "Fichier du template, pas encore l'icône",
+  })
+
+  // La protection suit `iconId`, jamais le nom de fichier. Tant qu'Identité
+  // n'a pas choisi ce média, /media peut le supprimer — l'aperçu du
+  // template n'est pas une assignation.
+  await owner.mutation(api.media.remove, { id: mediaId })
+  expect(await t.run((ctx) => ctx.db.get(mediaId))).toBeNull()
+})
+
+test("après remplacement du logo, l'ancien média peut être supprimé", async () => {
+  const t = makeTestConvex()
+  const { identity: owner } = await seedActor(t, "owner")
+
+  const ancien = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["ancien"])),
+  )) as Id<"_storage">
+  const ancienId = await owner.mutation(api.media.register, {
+    storageId: ancien,
+    filename: "ancien-logo.png",
+    mime: "image/png",
+    size: 1,
+    alt: "Ancien logo",
+  })
+  await owner.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    logoId: ancien,
+  })
+
+  const nouveau = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["nouveau"])),
+  )) as Id<"_storage">
+  await owner.mutation(api.media.register, {
+    storageId: nouveau,
+    filename: "nouveau-logo.png",
+    mime: "image/png",
+    size: 1,
+    alt: "Nouveau logo",
+  })
+  await owner.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    logoId: nouveau,
+  })
+
+  // L'ancien n'est plus le logo : la médiathèque peut le supprimer.
+  await owner.mutation(api.media.remove, { id: ancienId })
+  expect(await t.run((ctx) => ctx.db.get(ancienId))).toBeNull()
+})
+
+test("après remplacement de l'icône, l'ancien média peut être supprimé", async () => {
+  const t = makeTestConvex()
+  const { identity: owner } = await seedActor(t, "owner")
+
+  const ancien = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["ancien"])),
+  )) as Id<"_storage">
+  const ancienId = await owner.mutation(api.media.register, {
+    storageId: ancien,
+    filename: "ancienne-icone.png",
+    mime: "image/png",
+    size: 1,
+    alt: "Ancienne icône",
+  })
+  await owner.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    iconId: ancien,
+  })
+
+  const nouveau = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["nouveau"])),
+  )) as Id<"_storage">
+  await owner.mutation(api.media.register, {
+    storageId: nouveau,
+    filename: "nouvelle-icone.png",
+    mime: "image/png",
+    size: 1,
+    alt: "Nouvelle icône",
+  })
+  await owner.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    iconId: nouveau,
+  })
+
+  await owner.mutation(api.media.remove, { id: ancienId })
+  expect(await t.run((ctx) => ctx.db.get(ancienId))).toBeNull()
+})
+
+test("list signale les fichiers d'identité pour que l'écran masque Supprimer", async () => {
+  const t = makeTestConvex()
+  const { identity: owner } = await seedActor(t, "owner")
+
+  const logo = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["logo"])),
+  )) as Id<"_storage">
+  const icon = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["icon"])),
+  )) as Id<"_storage">
+  const libre = (await t.run((ctx: any) =>
+    ctx.storage.store(new Blob(["libre"])),
+  )) as Id<"_storage">
+  await owner.mutation(api.media.register, {
+    ...VALID,
+    storageId: logo,
+    filename: "logo.png",
+    alt: "Logo du site",
+  })
+  await owner.mutation(api.media.register, {
+    ...VALID,
+    storageId: icon,
+    filename: "icon_astrotan.png",
+    alt: "Icône du site",
+  })
+  await owner.mutation(api.media.register, {
+    ...VALID,
+    storageId: libre,
+    filename: "libre.png",
+    alt: "Image libre",
+  })
+  await owner.mutation(api.settings.update, {
+    siteName: "AstroTan",
+    logoId: logo,
+    iconId: icon,
+  })
+
+  const rows = await owner.query(api.media.list, {})
+  expect(rows.find((row) => row.storageId === logo)?.identityRoles).toEqual([
+    "logo",
+  ])
+  expect(rows.find((row) => row.storageId === icon)?.identityRoles).toEqual([
+    "icon",
+  ])
+  expect(rows.find((row) => row.storageId === libre)?.identityRoles).toEqual([])
 })
 
 test("remplacer un fichier suit ses références dans les réglages du site", async () => {

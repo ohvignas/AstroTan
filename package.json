@@ -13,7 +13,9 @@
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "codegen": "turbo run codegen"
+    "codegen": "turbo run codegen",
+    "dev:keep": "node scripts/dev-keep.mjs",
+    "admin:dev-link": "node scripts/admin-dev-link.mjs"
   },
   "devDependencies": {
     "turbo": "2.10.12"

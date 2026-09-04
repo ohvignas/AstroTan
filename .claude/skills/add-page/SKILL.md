@@ -15,8 +15,8 @@ champs SEO/GEO.
 | Question | Répondue par |
 |---|---|
 | Cette page est-elle en ligne ? | l'admin (`status`) |
-| Sur quel chemin répond-elle ? | l'admin (`slug`) |
-| Qui doit la trouver ? | l'admin (`seo`, `geo`) |
+| Sur quel chemin répond-elle ? | le fichier (slug) ; l'admin le voit |
+| Qui doit la trouver ? | la fiche (`seo`, `geo`) — **à remplir à la création** |
 | Que contient-elle, à quoi ressemble-t-elle ? | **le code** |
 
 Trois modèles de contenu ont été essayés puis retirés de ce dépôt : une union
@@ -42,10 +42,13 @@ Omettre le slug. `loadPage` le dérive du chemin. Le seul appelant légitime
 d'un slug explicite est `index.astro`, parce que `/` n'a pas de segment.
 
 `loadPage` fait tout le reste : la recherche publiée, l'aperçu par `?t=`, le
-statut 404, et les tags de cache. `PageHead` rend le titre, la description,
-le canonique, `robots`, l'Open Graph et les champs GEO.
+statut 404, et les tags de cache. `PageHead` vit dans `BaseLayout` : titre,
+description, canonique, `robots`, Open Graph, GEO. Ne pas le réimporter
+dans la page.
 
-Prendre `apps/web/src/pages/contact.astro` comme modèle minimal.
+Le gabarit à recopier est `apps/web/src/pages/fonctionnalites.astro` :
+`BaseLayout` sans ternaire. `contact.astro` et `tarifs.astro` ont encore
+un `{page === null ? …}` — **ne pas le copier**.
 
 ### 2. Envelopper dans `BaseLayout`
 
@@ -56,16 +59,83 @@ Prendre `apps/web/src/pages/contact.astro` comme modèle minimal.
 ```
 
 `loadPage` pose le statut 404 quand la ligne n'est pas publiée. `BaseLayout`
-rend alors le corps 404 à la place du slot — **aucun ternaire n'est requis**.
-Un vibecodeur qui oublie `{page === null ? …}` n'expose pas un brouillon.
+rend alors `NotFoundBody` à la place du slot, et le bandeau d'aperçu quand
+`Astro.locals.preview` est vrai — **aucun ternaire, aucun bandeau à
+ajouter**. Un vibecodeur qui oublie `{page === null ? …}` n'expose pas un
+brouillon.
 
-### 3. Créer la ligne dans l'admin
+### 3. Créer la fiche Convex — pas depuis l'admin
 
-Même slug, puis **publier**. Tant qu'elle est en brouillon, la route répond
-404 — c'est l'invariant, pas un défaut.
+L'écran Pages n'a **pas** de bouton « Nouvelle page ». C'est l'agent qui
+crée la ligne, dans le même geste que le fichier, **même slug**. Deux
+mécanismes réels, aucun autre :
 
-Le nom du fichier et le slug sont identiques, sauf pour l'accueil :
-`index.astro` sert `/`, qui n'a pas de segment à nommer.
+- **`pages.create({ title, slug })`** — mutation publique, brouillon,
+  session owner/admin/editor. C'est le chemin pour une page d'un site
+  déjà installé. `npx convex run pages:create` **échoue** : la mutation
+  lit la session, le CLI n'en a pas.
+- **Page du template** (elle voyage avec le dépôt) : une entrée dans
+  `DEMO_PAGES` de `packages/backend/convex/seed.ts`, puis
+  `npx convex run seed:demoContent`. Idempotent par slug, écrit via
+  `ctx.db` sans session — le seul `npx convex run` qui crée une fiche.
+
+`pages.create` ne prend que `{ title, slug }`. **Enchaîner tout de suite
+`pages.update({ id, seo, geo })`** — ou, dans le seed, poser `seo` et
+`geo` sur l'`insert`. L'admin peut encore les ajuster et publier
+(`pages.publishPage`) ; ce n'est pas une raison de les laisser vides.
+Tant que la fiche est en brouillon, la route répond 404 — c'est
+l'invariant, pas un défaut.
+
+Le menu admin liste **chaque** fichier, même sans fiche :
+`pages.list` fusionne les lignes Convex et `cmsSlugsFromServedPaths()` ;
+sans fiche : `missingRow: true`, `_id: null`, badge « Sans fiche ». Sans
+fiche on ne peut ni publier ni régler le SEO. Fichier et slug sont
+identiques, sauf l'accueil : `index.astro` sert `/`.
+
+### SEO et GEO — checklist à la création
+
+Valeurs **de cette page**, pas un reste de template (« Page de
+démonstration livrée avec AstroTan »). Bornes : `content.ts`.
+
+**`seo`** (`seoValidator`) — ce que `PageHead` met dans `<head>` :
+
+| Champ | Rôle | Borne |
+|---|---|---|
+| `title` | `<title>` / `og:title` ; sinon `page.title` | 70 |
+| `description` | meta / `og:description` ; sinon `settings.defaultSeo` | 160 |
+| `canonicalUrl` | sinon l'URL courante (sans query) | 2048, href sûr |
+| `noindex` | `robots` → `noindex, nofollow` ; exclus de `llms.txt` | bool |
+| `ogImageId` | image de partage (`_storage`) ; sinon `defaultSeo.ogImageId` | id média existant, sinon omettre |
+
+Pas de champ `robots` ni d'objet `og` : `robots` est dérivé de
+`noindex` + `geo.noai`.
+
+**`geo`** (`geoValidator`) — citation par un moteur de réponse :
+
+| Champ | Rôle | Borne |
+|---|---|---|
+| `summary` | extrait ; `llms.txt` + meta `description:summary` | 500 |
+| `faq` | `{ question, answer }[]` → JSON-LD `FAQPage` | 20 × (200 / 1000) |
+| `entities` | sujets de la page → meta `keywords` | 20 × 100 |
+| `noai` | interdit la reproduction (`noai`, pas de JSON-LD / `llms.txt`). Distinct de `seo.noindex`. | bool |
+
+Pages légales : tant que `ASTROTAN_TEMPLATE_NOT_YET_CUSTOMIZED`
+(`apps/web/src/config/legal.ts`) est `true`, le site **refuse de publier
+l'identité d'exemple** (AstroTan comme responsable) et force `noindex`
+sur mentions / confidentialité / cookies. Ne pas recopier ces valeurs
+dans `seo` / `geo`.
+
+### 4. `servedPaths` suit le prochain `dev` / `build`
+
+`apps/web` a `predev` et `prebuild` → `generate:served-paths`
+(`scripts/generate-served-paths.mjs`), qui réécrit
+`packages/backend/convex/lib/servedPaths.generated.ts`. C'est ce
+manifeste que `cmsSlugsFromServedPaths()` lit. Relancer
+`pnpm --filter @astrotan/web dev` suffit.
+
+Si l'admin tourne déjà et que le nouveau slug n'apparaît pas : une fois
+`pnpm --filter @astrotan/web generate:served-paths`. Ce n'est pas un
+rituel — c'est le même hook que le build.
 
 ## Le piège qui coûte cher, et qui est silencieux
 
@@ -100,14 +170,17 @@ retirer l'une des deux au motif que l'autre suffit.
 
 ## À ne jamais faire
 
-- Rendre du contenu venu de la base sans passer par `renderMarkdown`
-  (`lib/markdown.ts`). Il assainit **après** le rendu, jamais avant : Markdown
-  laisse passer le HTML brut par conception, donc « ce n'est que du Markdown »
-  n'est pas une propriété de sécurité.
+- Réintroduire un corps de page en base (Markdown, blocs, champs de texte).
+  Une page n'a pas de `body`. `renderMarkdown` est pour les **articles**
+  (`posts.body`), pas pour les pages.
 - Appeler une query Convex qui ne filtre pas `status === "published"`.
-  `apps/web` n'a ni session ni clé admin.
+  `apps/web` n'a ni session ni clé admin. L'aperçu passe par
+  `pages.previewPage` et le jeton HMAC, jamais par une query publique
+  relâchée.
 - Recréer une route attrape-tout `[...slug].astro`. Elle a existé et a été
   supprimée avec le modèle de contenu qu'elle servait.
+- Ajouter un bandeau d'aperçu ou un ternaire `{page === null ? …}` dans
+  le fichier de page. Les deux sont dans `BaseLayout`.
 
 ## Vérifier
 

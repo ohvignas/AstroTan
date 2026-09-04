@@ -68,16 +68,14 @@ export const CATALOGUE: readonly DescriptionEmail[] = [
       "libre, aucun OAuth). Son jeton en clair est effacé de la base avant même que l'envoi ne " +
       "soit tenté, et il n'existe aucune action « renvoyer » : la désactiver fermerait cette " +
       "porte sans recours.",
-    variables: ["lien"],
+    variables: ["lien", "nom_du_site"],
     variablesObligatoires: ["lien"],
-    // Repris mot pour mot du `subject` qu'`invitations.ts` écrivait à la
-    // main — aucune interpolation à convertir. Depuis que
-    // `sendInvitationEmail` rend le gabarit, ce littéral n'est plus une
-    // copie : c'est le seul exemplaire, et le changer change ce qui part.
-    objetParDefaut: "Invitation à rejoindre AstroTan",
-    // Même provenance pour le `text`, seule interpolation (`${link}`)
-    // convertie en `{{lien}}`.
-    corpsParDefaut: "Vous avez été invité·e à rejoindre AstroTan : {{lien}}",
+    // `{{nom_du_site}}` plutôt qu'AstroTan en dur : l'en-tête HTML porte
+    // déjà le nom posé dans les réglages, et le corps doit le suivre —
+    // sinon un cabinet qui n'a jamais ouvert cet écran envoie encore le
+    // nom du template.
+    objetParDefaut: "Invitation à rejoindre {{nom_du_site}}",
+    corpsParDefaut: "Vous avez été invité·e à rejoindre {{nom_du_site}} : {{lien}}",
   },
   {
     cle: "leadNotification",
@@ -134,11 +132,11 @@ export const CATALOGUE: readonly DescriptionEmail[] = [
       "Sur un déploiement où l'inscription est fermée (aucune inscription libre, aucun OAuth), " +
       "cet email est le dernier chemin de récupération d'un compte : le désactiver enfermerait " +
       "définitivement quiconque perd son mot de passe.",
-    variables: ["lien"],
+    variables: ["lien", "nom_du_site"],
     variablesObligatoires: ["lien"],
     objetParDefaut: "Réinitialisez votre mot de passe",
     corpsParDefaut:
-      "Vous avez demandé la réinitialisation de votre mot de passe. " +
+      "Vous avez demandé la réinitialisation de votre mot de passe sur {{nom_du_site}}. " +
       "Cliquez sur ce lien pour en choisir un nouveau : {{lien}}",
   },
   {

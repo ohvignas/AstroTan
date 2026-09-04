@@ -46,6 +46,52 @@ const MEDIA_ERROR_MESSAGES: Record<string, string> = {
   ALREADY_REGISTERED: "Ce fichier est déjà présent dans la médiathèque.",
   MEDIA_IN_USE:
     "Suppression refusée : ce fichier est encore référencé par une page ou un article. Retirez-le d'abord de son contenu.",
+  MEDIA_IS_IDENTITY:
+    "Ce fichier est le logo, l'icône ou une image d'identité du site. Remplacez-le depuis les réglages, ne le supprimez pas.",
+}
+
+export type IdentityRole = "logo" | "icon" | "og" | "agent"
+
+const IDENTITY_ROLE_VALUES = new Set<IdentityRole>(["logo", "icon", "og", "agent"])
+
+function parseIdentityRoles(value: unknown): IdentityRole[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (role): role is IdentityRole =>
+      typeof role === "string" && IDENTITY_ROLE_VALUES.has(role as IdentityRole)
+  )
+}
+
+const IDENTITY_HINTS: Record<IdentityRole, string> = {
+  logo: "Ce fichier est le logo du site. Remplacez-le depuis Réglages → Identité, ne le supprimez pas.",
+  icon: "Ce fichier est l'icône du site. Remplacez-la depuis Réglages → Identité, ne la supprimez pas.",
+  og: "Ce fichier est l'image de partage par défaut. Ne le supprimez pas.",
+  agent: "Ce fichier est l'avatar de l'agent. Remplacez-le depuis Réglages → Agent, ne le supprimez pas.",
+}
+
+/**
+ * Why this file has no « Supprimer » in the library.
+ *
+ * The mutation refuses on its own (`MEDIA_IS_IDENTITY`); this sentence is
+ * only what the grid and the table show in place of the action.
+ */
+function joinIdentityNouns(roles: readonly IdentityRole[]): string {
+  const parts: string[] = []
+  if (roles.includes("logo")) parts.push("de logo")
+  if (roles.includes("icon")) parts.push("d'icône")
+  if (roles.includes("og")) parts.push("d'image de partage par défaut")
+  if (roles.includes("agent")) parts.push("d'avatar de l'agent")
+  if (parts.length <= 1) return parts[0] ?? ""
+  if (parts.length === 2) return `${parts[0]} et ${parts[1]}`
+  return `${parts.slice(0, -1).join(", ")} et ${parts[parts.length - 1]}`
+}
+
+export function describeIdentityMedia(roles: readonly IdentityRole[]): string {
+  if (roles.length === 0) return ""
+  if (roles.length === 1) return IDENTITY_HINTS[roles[0]!]
+  const fromOg = roles.includes("og")
+  const from = fromOg ? "les réglages" : "Réglages → Identité"
+  return `Ce fichier sert ${joinIdentityNouns(roles)} du site. Remplacez-le depuis ${from}, ne le supprimez pas.`
 }
 
 // `UNSUPPORTED_MIME` and `FILE_TOO_LARGE` carry a payload worth surfacing —
@@ -79,6 +125,10 @@ export function describeMediaError(error: unknown): string {
       if (code === "UNSUPPORTED_MIME") return describeUnsupportedMime(payload)
       if (code === "FILE_TOO_LARGE") return describeFileTooLarge(payload)
       if (code === "FIELD_TOO_LONG") return describeFieldTooLong(payload)
+      if (code === "MEDIA_IS_IDENTITY") {
+        const described = describeIdentityMedia(parseIdentityRoles(payload.roles))
+        if (described) return described
+      }
       if (typeof code === "string" && MEDIA_ERROR_MESSAGES[code])
         return MEDIA_ERROR_MESSAGES[code]
     }

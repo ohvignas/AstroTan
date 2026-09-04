@@ -26,6 +26,7 @@ import {
   ALLOWED_MIME_TYPES,
   MAX_ALT_LENGTH,
   MAX_FILENAME_LENGTH,
+  MAX_MEDIA_TITLE_LENGTH,
   MAX_MEDIA_SIZE_BYTES,
 } from "./content"
 
@@ -33,6 +34,7 @@ export {
   ALLOWED_MIME_TYPES,
   MAX_ALT_LENGTH,
   MAX_FILENAME_LENGTH,
+  MAX_MEDIA_TITLE_LENGTH,
   MAX_MEDIA_SIZE_BYTES,
 }
 
@@ -61,6 +63,19 @@ function assertFilename(raw: string): string {
   const filename = raw.trim()
   if (filename.length === 0) throw new ConvexError({ code: "INVALID_FILENAME" })
   return filename
+}
+
+function assertTitle(raw: string): string {
+  if (raw.length > MAX_MEDIA_TITLE_LENGTH) {
+    throw new ConvexError({
+      code: "FIELD_TOO_LONG",
+      field: "title",
+      max: MAX_MEDIA_TITLE_LENGTH,
+    })
+  }
+  const title = raw.trim()
+  if (title.length === 0) throw new ConvexError({ code: "INVALID_TITLE" })
+  return title
 }
 
 /** The two checks `register` and `replaceFile` must answer identically. */
@@ -102,6 +117,7 @@ export const register = mutation({
     mime: v.string(),
     size: v.number(),
     alt: v.string(),
+    title: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
   },
@@ -109,6 +125,7 @@ export const register = mutation({
     const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
 
     const alt = assertAlt(args.alt)
+    const title = args.title !== undefined ? assertTitle(args.title) : undefined
 
     const filename = assertFilename(args.filename)
     assertMimeAndSize(args.mime, args.size)
@@ -128,6 +145,7 @@ export const register = mutation({
       mime: args.mime as AllowedMime,
       size: args.size,
       alt,
+      ...(title !== undefined ? { title } : {}),
       width: args.width,
       height: args.height,
       createdBy: authUser._id,
@@ -135,17 +153,44 @@ export const register = mutation({
   },
 })
 
+/** Roles a settings image can play — logo, favicon, default share image. */
+type IdentityRole = "logo" | "icon" | "og" | "agent"
+
+function identityRolesFor(
+  storageId: Id<"_storage">,
+  settings: {
+    logoId?: Id<"_storage">
+    iconId?: Id<"_storage">
+    defaultSeo?: { ogImageId?: Id<"_storage"> }
+    agentAvatarMediaId?: Id<"_storage">
+  } | null
+): IdentityRole[] {
+  if (settings === null) return []
+  const roles: IdentityRole[] = []
+  if (settings.logoId === storageId) roles.push("logo")
+  if (settings.iconId === storageId) roles.push("icon")
+  if (settings.defaultSeo?.ogImageId === storageId) roles.push("og")
+  if (settings.agentAvatarMediaId === storageId) roles.push("agent")
+  return roles
+}
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
     await requireRole(ctx, ["owner", "admin", "editor"])
-    const rows = await ctx.db.query("media").order("desc").collect()
+    const [rows, settings] = await Promise.all([
+      ctx.db.query("media").order("desc").collect(),
+      ctx.db.query("settings").first(),
+    ])
     return Promise.all(
       rows.map(async (row) => ({
         ...row,
         // Resolved here rather than in the client: a storage URL is only
         // obtainable server-side, and the library grid needs one per row.
         url: await ctx.storage.getUrl(row.storageId),
+        // The library hides « Supprimer » from this, not the other way
+        // around: `remove` still refuses on its own (`MEDIA_IS_IDENTITY`).
+        identityRoles: identityRolesFor(row.storageId, settings),
       }))
     )
   },
@@ -163,6 +208,22 @@ export const list = query({
 export const publicUrl = query({
   args: { storageId: v.id("_storage") },
   handler: async (ctx, args) => ctx.storage.getUrl(args.storageId),
+})
+
+/**
+ * Alt et title d'un fichier, sans session — même contrat étroit que
+ * `publicUrl` : le caller a déjà le `storageId` (page publiée, OG, une).
+ */
+export const publicCaption = query({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("media")
+      .withIndex("by_storage", (q) => q.eq("storageId", args.storageId))
+      .unique()
+    if (row === null) return null
+    return { alt: row.alt, title: row.title }
+  },
 })
 
 /**
@@ -194,6 +255,7 @@ export const update = mutation({
     id: v.id("media"),
     filename: v.optional(v.string()),
     alt: v.optional(v.string()),
+    title: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
@@ -201,9 +263,10 @@ export const update = mutation({
     if (!row) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, row)
 
-    const patch: { filename?: string; alt?: string } = {}
+    const patch: { filename?: string; alt?: string; title?: string } = {}
     if (args.alt !== undefined) patch.alt = assertAlt(args.alt)
     if (args.filename !== undefined) patch.filename = assertFilename(args.filename)
+    if (args.title !== undefined) patch.title = assertTitle(args.title)
     await ctx.db.patch(args.id, patch)
   },
 })
@@ -299,12 +362,14 @@ export const replaceFile = mutation({
         logoId?: Id<"_storage">
         iconId?: Id<"_storage">
         defaultSeo?: typeof row.defaultSeo
+        agentAvatarMediaId?: Id<"_storage">
       } = {}
       if (row.logoId === previous) patch.logoId = args.storageId
       if (row.iconId === previous) patch.iconId = args.storageId
       if (row.defaultSeo?.ogImageId === previous) {
         patch.defaultSeo = { ...row.defaultSeo, ogImageId: args.storageId }
       }
+      if (row.agentAvatarMediaId === previous) patch.agentAvatarMediaId = args.storageId
       if (Object.keys(patch).length > 0) await ctx.db.patch(row._id, patch)
     }
 
@@ -320,7 +385,7 @@ export const replaceFile = mutation({
  * references — the test for `MEDIA_IN_USE` is what catches that.
  */
 async function isReferenced(
-  ctx: { db: { query: (table: "pages" | "posts" | "settings") => any } },
+  ctx: { db: { query: (table: "pages" | "posts" | "settings" | "agentKnowledgeFiles") => any } },
   storageId: Id<"_storage">
 ): Promise<boolean> {
   const pages = await ctx.db.query("pages").collect()
@@ -339,8 +404,15 @@ async function isReferenced(
   const posts = await ctx.db.query("posts").collect()
   if (
     posts.some(
-      (post: { coverId?: Id<"_storage">; seo?: { ogImageId?: Id<"_storage"> } }) =>
-        post.coverId === storageId || post.seo?.ogImageId === storageId
+      (post: {
+        coverId?: Id<"_storage">
+        seo?: { ogImageId?: Id<"_storage"> }
+        workingCopy?: { coverId?: Id<"_storage">; seo?: { ogImageId?: Id<"_storage"> } }
+      }) =>
+        post.coverId === storageId ||
+        post.seo?.ogImageId === storageId ||
+        post.workingCopy?.coverId === storageId ||
+        post.workingCopy?.seo?.ogImageId === storageId
     )
   ) {
     return true
@@ -351,16 +423,23 @@ async function isReferenced(
   // référence restait, et l'écran des réglages affichait « fichier hors
   // médiathèque » sans que personne comprenne pourquoi. Trois champs, et
   // ils tiennent dans une seule ligne.
+  const knowledge = await ctx.db.query("agentKnowledgeFiles").collect()
+  if (knowledge.some((row: { storageId?: Id<"_storage"> }) => row.storageId === storageId)) {
+    return true
+  }
+
   const settings = await ctx.db.query("settings").collect()
   return settings.some(
     (row: {
       logoId?: Id<"_storage">
       iconId?: Id<"_storage">
       defaultSeo?: { ogImageId?: Id<"_storage"> }
+      agentAvatarMediaId?: Id<"_storage">
     }) =>
       row.logoId === storageId ||
       row.iconId === storageId ||
-      row.defaultSeo?.ogImageId === storageId
+      row.defaultSeo?.ogImageId === storageId ||
+      row.agentAvatarMediaId === storageId
   )
 }
 
@@ -373,6 +452,17 @@ export const remove = mutation({
     // Owner and admin delete anything; an editor only what they uploaded —
     // the same ownership rule pages use, through the same helper.
     requireOwnDocument(authUser, row)
+
+    // Identity images first, and with their own code: the operator must
+    // replace the logo (or icon, or default share image) from settings,
+    // not delete the file out from under the site. `isReferenced` still
+    // covers those fields as a backstop — this check only changes the
+    // message the UI can show.
+    const settings = await ctx.db.query("settings").first()
+    const identityRoles = identityRolesFor(row.storageId, settings)
+    if (identityRoles.length > 0) {
+      throw new ConvexError({ code: "MEDIA_IS_IDENTITY", roles: identityRoles })
+    }
 
     if (await isReferenced(ctx, row.storageId)) {
       throw new ConvexError({ code: "MEDIA_IN_USE" })

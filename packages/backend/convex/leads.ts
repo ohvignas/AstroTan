@@ -16,7 +16,8 @@ import { resoudreExpediteur } from "./lib/expediteur"
 // Déplacés dans `lib/gabarit.ts`, où le rendu des gabarits d'email en a
 // besoin aussi. Une règle d'échappement recopiée en deux endroits finit
 // par diverger, et c'est la copie oubliée qui laisse passer l'injection.
-import { escapeHtml, rendreHtml, rendreTexte, singleLine } from "./lib/gabarit"
+import { singleLine } from "./lib/gabarit"
+import { composerMessage, identiteAvecLogoJoignable } from "./lib/emailLayout"
 import { lireSecret } from "./secrets"
 import { listUsersWithRole } from "./users"
 import { ecrireCloches, marquerLuesPourLead } from "./lib/notifier"
@@ -816,8 +817,10 @@ export const notifyStaff = internalAction({
     )
     if (!siteUrl) throw new Error("SITE_URL is not set on this Convex deployment")
     const link = `${siteUrl}/leads`
-    const settings = await ctx.runQuery(api.settings.get, {})
-    const nomDuSite = settings?.siteName || "AstroTan"
+    const identite = await identiteAvecLogoJoignable(
+      await ctx.runQuery(internal.settings.identiteEmail, {}),
+    )
+    const nomDuSite = identite.siteName
 
     const name = singleLine(args.name)
     const subject = args.subject ? singleLine(args.subject) : "(sans sujet)"
@@ -866,22 +869,13 @@ export const notifyStaff = internalAction({
     // le corps rendu, à une place que l'adoptant ne peut ni déplacer ni
     // faire disparaître — c'est ce que garde le test « la mention de
     // relance survit au passage par le gabarit ».
-    const corpsTexte = rendreTexte(gabarit.corps, valeurs)
-    const text = relance ? `${relance}\n\n${corpsTexte}` : corpsTexte
-
-    // Le gabarit est du texte brut : ses sauts de ligne ont besoin de
-    // `pre-wrap`. `rendreHtml` échappe les valeurs (elles viennent
-    // d'Internet), pas le gabarit — et c'est ici que la distinction compte
-    // le plus de tout le dépôt : la clé `leadNotification` lui dit que
-    // `lien` est construit par le serveur, donc cliquable, et que `nom`,
-    // `email`, `sujet` et `message` sortent du formulaire de contact public,
-    // donc jamais. Sans cette séparation, un visiteur anonyme ferait arriver
-    // le lien de son choix, cliquable et signé du domaine du site, dans la
-    // boîte de chaque owner et admin.
-    const html = [
-      relance ? `<p>${escapeHtml(relance)}</p>` : "",
-      `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs, "leadNotification")}</p>`,
-    ].join("")
+    const message = composerMessage(
+      gabarit,
+      valeurs,
+      "leadNotification",
+      identite,
+      relance ? { preface: relance } : undefined,
+    )
 
     const resend = await makeResend(ctx)
     // Hissé hors de la boucle : la valeur est constante pour tout l'appel,
@@ -906,9 +900,9 @@ export const notifyStaff = internalAction({
         // après toute validation. C'est la protection que la version
         // écrite à la main appliquait déjà ici même ; passer par le
         // gabarit ne doit pas la perdre.
-        subject: singleLine(rendreTexte(gabarit.objet, valeurs)),
-        html,
-        text,
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
         // Répondre à cet email, c'est répondre à la personne qui a écrit.
         ...(args.email.length > 0 ? { replyTo: [args.email] } : {}),
       })

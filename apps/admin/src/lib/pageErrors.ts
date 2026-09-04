@@ -29,17 +29,35 @@ export const PAGE_ERROR_MESSAGES: Record<string, string> = {
   INVALID_TITLE: "Le titre ne peut pas être vide.",
   INVALID_SLUG: "Le slug ne peut pas être vide.",
   INVALID_PREVIEW_TOKEN: "Le lien de prévisualisation n'est plus valide.",
+  OPENROUTER_NOT_CONFIGURED:
+    "OpenRouter n'est pas configuré. Ajoutez une clé dans Réglages → Agent IA & Modèle IA.",
+  OPENROUTER_REFUSED:
+    "OpenRouter a refusé la clé. Vérifiez-la dans Réglages → Agent IA & Modèle IA.",
+  OPENROUTER_UNAVAILABLE:
+    "OpenRouter n'a pas répondu à temps, ou est injoignable. Réessayez.",
+  OPENROUTER_BAD_RESPONSE:
+    "L'IA a renvoyé un texte que nous n'avons pas pu lire comme des métadonnées. Réessayez, ou changez de modèle dans Réglages → Agent IA & Modèle IA.",
+  OPENROUTER_BAD_IMAGE:
+    "L'IA n'a pas renvoyé d'image utilisable. Réessayez, ou changez le modèle d'image dans Réglages → Agent IA & Modèle IA.",
+  INVALID_TARGET: "Indiquez une page ou un article, pas les deux.",
+  NOTHING_TO_RETRY:
+    "Aucune propagation en échec à relancer — réessayez depuis le badge d'erreur.",
 }
 
 // `FIELD_TOO_LONG` carries a `field`/`max` payload (`content.ts`'s
 // `assertLength`) worth surfacing precisely — which field, what the limit
 // actually is — rather than a generic "too long" that leaves an operator
 // guessing which of several inputs on the page tripped it.
+const FIELD_LABELS: Record<string, string> = {
+  extraInstructions: "Instruction complémentaire",
+}
+
 function describeFieldTooLong(data: {
   field?: unknown
   max?: unknown
 }): string {
-  const field = typeof data.field === "string" ? data.field : "un champ"
+  const raw = typeof data.field === "string" ? data.field : "un champ"
+  const field = FIELD_LABELS[raw] ?? raw
   const max =
     typeof data.max === "number" ? ` (maximum ${data.max} caractères)` : ""
   return `${field} dépasse la limite autorisée${max}.`
@@ -95,6 +113,12 @@ export function describePageError(error: unknown): string {
       if (typeof code === "string") {
         const refusal = describeSlugRefusal(code, data as Record<string, unknown>)
         if (refusal !== null) return refusal
+      }
+      if (code === "OPENROUTER_BAD_RESPONSE") {
+        const reason = (data as { reason?: unknown }).reason
+        if (reason === "empty") {
+          return "L'IA n'a pas rempli les champs SEO ou GEO. Réessayez, ou changez de modèle dans Réglages → Agent IA & Modèle IA."
+        }
       }
       if (typeof code === "string" && PAGE_ERROR_MESSAGES[code])
         return PAGE_ERROR_MESSAGES[code]

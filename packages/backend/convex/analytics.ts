@@ -356,6 +356,11 @@ export interface SiteSummary {
   topPages: RankedItem[] | null
   topReferrers: RankedItem[] | null
   status: AnalyticsResult["status"]
+  /**
+   * Instant du tirage Umami qui a produit ces chiffres.
+   * `null` s'il n'y a pas eu de réponse — jamais `Date.now()` à vide.
+   */
+  fetchedAt: number | null
 }
 
 export interface UmamiLinks {
@@ -443,9 +448,14 @@ export const siteSummary = action({
   // Optionnel, et le défaut est `jour` : l'accueil de l'administration
   // appelle sans argument et obtient exactement ce qu'il obtenait avant
   // que la granularité existe.
-  args: { periode: v.optional(periodeValidator) },
+  args: {
+    periode: v.optional(periodeValidator),
+    /** Relogin Umami : le cache de jeton ne fait pas passer le clic pour un no-op. */
+    force: v.optional(v.boolean()),
+  },
   handler: async (ctx, args): Promise<SiteSummary> => {
     await requireRole(ctx, ["owner", "admin", "editor"])
+    if (args.force) clearUmamiToken()
 
     const fenetre = fenetreFor(args.periode ?? "mois", Date.now())
     const empty = {
@@ -457,6 +467,7 @@ export const siteSummary = action({
       series: null,
       topPages: null,
       topReferrers: null,
+      fetchedAt: null as number | null,
     }
 
     const cfg = await resoudreUmamiConfig(ctx)
@@ -562,6 +573,7 @@ export const siteSummary = action({
         topPages: rank(pages),
         topReferrers: rank(referrers),
         status: "ok",
+        fetchedAt: Date.now(),
       }
     } catch {
       return { ...empty, status: "unreachable" }

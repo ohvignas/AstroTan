@@ -3,6 +3,7 @@ export type GeoCheckStatus = "missing" | "ok" | "warn" | "blocked" | "pending"
 export type GeoCheckItem = {
   id: "summary" | "entities" | "faq" | "noai" | "schemaFaq" | "schemaArticle"
   status: GeoCheckStatus
+  title: string
   label: string
 }
 
@@ -22,6 +23,7 @@ export function geoChecklist(input: {
   return [
     {
       id: "summary",
+      title: "Résumé extractible",
       status: summary ? "ok" : "missing",
       label: summary
         ? "Résumé extractible renseigné."
@@ -29,6 +31,7 @@ export function geoChecklist(input: {
     },
     {
       id: "entities",
+      title: "Entités",
       status: entities ? "ok" : "missing",
       label: entities
         ? "Des entités sont posées."
@@ -36,6 +39,7 @@ export function geoChecklist(input: {
     },
     {
       id: "faq",
+      title: "FAQ",
       status: faq ? "ok" : "missing",
       label: faq
         ? "Une FAQ complète est prête."
@@ -43,6 +47,7 @@ export function geoChecklist(input: {
     },
     {
       id: "noai",
+      title: "Reprise IA",
       status: noai ? "warn" : "ok",
       label: noai
         ? "noai : résumé, mots-clés et JSON-LD publics sont coupés."
@@ -50,6 +55,7 @@ export function geoChecklist(input: {
     },
     {
       id: "schemaFaq",
+      title: "FAQPage",
       status: noai ? "blocked" : faq ? "ok" : "missing",
       label: noai
         ? "FAQPage ne sera pas émis (noai)."
@@ -59,6 +65,7 @@ export function geoChecklist(input: {
     },
     {
       id: "schemaArticle",
+      title: "Article JSON-LD",
       status: noai
         ? "blocked"
         : input.publishedAt === undefined

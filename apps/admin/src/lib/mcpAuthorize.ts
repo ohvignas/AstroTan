@@ -47,6 +47,23 @@ export function needsMcpOAuth(serverUrl: string, authorizeUrl: string): boolean 
   return canOpenAuthorize(serverUrl.trim())
 }
 
+export function mcpConnectorSubtitle(server: {
+  url: string
+  authorizeUrl?: string | null
+  headersConfigured: boolean
+}): string {
+  let host = "MCP"
+  try {
+    host = new URL(server.url).hostname
+  } catch {
+    /* URL invalide : garder le libellé générique */
+  }
+  if (!server.headersConfigured && needsMcpOAuth(server.url, server.authorizeUrl ?? "")) {
+    return `À autoriser · ${host}`
+  }
+  return `Connecté · ${host}`
+}
+
 export function deriveAuthorizeUrl(_serverUrl: string): string | null {
   return null
 }

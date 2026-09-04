@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { useMutation, useQuery } from "convex/react"
 import { PlusIcon } from "lucide-react"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import { AgentConnectorCard } from "@/components/agent-connector-card"
 import { AgentGoogleConnectDialog } from "@/components/agent-google-connect-dialog"
 import { AgentMcpDialog } from "@/components/agent-mcp-dialog"
 import { AgentMcpList } from "@/components/agent-mcp-list"
@@ -67,26 +68,26 @@ export function AgentConnectorsRow({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {connected ? (
-          <div className="flex min-h-11 items-center gap-2 rounded-xl bg-card px-3 py-2 ring-1 ring-foreground/10">
-            <GoogleCalendarMark />
-            <div className="min-w-0">
-              <p className="max-w-44 truncate font-medium">{status?.email ?? "Compte Google"}</p>
-              <p className="text-muted-foreground">Connecté · {agendaLabel}</p>
-            </div>
-            <Button
-              variant="ghost"
-              className="min-h-11"
-              disabled={!canWrite || envRefresh}
-              onClick={() => void disconnect()}
-            >
-              Déconnecter
-            </Button>
-          </div>
+          <AgentConnectorCard
+            mark={<GoogleCalendarMark />}
+            title={status?.email ?? "Compte Google Agenda"}
+            subtitle={`Connecté · ${agendaLabel}`}
+            action={
+              <Button
+                variant="ghost"
+                className="min-h-11 shrink-0"
+                disabled={!canWrite || envRefresh}
+                onClick={() => void disconnect()}
+              >
+                Déconnecter
+              </Button>
+            }
+          />
         ) : (
           <Button
-            className="min-h-11"
+            className="min-h-16 w-full"
             disabled={!canWrite}
             onClick={() => setGoogleOpen(true)}
           >
@@ -99,16 +100,16 @@ export function AgentConnectorsRow({
           servers={servers}
           onRemove={(id) => void remove({ id })}
         />
-        <Button
-          variant="outline"
-          className="min-h-11"
-          disabled={!canWrite}
-          onClick={() => setMcpOpen(true)}
-        >
-          <PlusIcon data-icon="inline-start" />
-          Ajouter un connecteur
-        </Button>
       </div>
+      <Button
+        variant="outline"
+        className="min-h-11 w-fit"
+        disabled={!canWrite}
+        onClick={() => setMcpOpen(true)}
+      >
+        <PlusIcon data-icon="inline-start" />
+        Ajouter un connecteur
+      </Button>
       {envRefresh ? (
         <p className="text-sm text-muted-foreground">
           Ce jeton vient de l'environnement Convex.

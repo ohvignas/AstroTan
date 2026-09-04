@@ -840,3 +840,40 @@ Après tout changement `convex/` : `pnpm --filter @astrotan/backend exec tsc --n
 ## Hors périmètre (spec §2)
 
 GSC, score /100, AI visibility, trafic estimé DFS, backlinks par URL, courbe sur la fiche, dual-axis rang, mot-clé dans `seo` / HTML, bump `consentVersion`.
+
+---
+
+## Addendum 2026-09-01 — génération SEO/GEO, extrait et image de une
+
+Complète Task 13 (`GenerateSeoGeoButton` / `ai.generateSeoGeo`) : le bouton remplit aussi l'extrait d'un article, et une action séparée génère la couverture.
+
+### Cause du « L'IA a renvoyé une réponse inutilisable »
+
+`draftFromModel` ne lisait que des clés plates (`seoTitle`, `geoSummary`). Les flagships (Grok 4.6, etc.) renvoient souvent `{ seo: { title }, geo: { summary } }` — JSON valide, brouillon vide, `OPENROUTER_BAD_RESPONSE`. Second piège : timeout chat à 8 s, trop court pour un flagship. Correctifs : parser plat **et** imbriqué, extraction d'un fence markdown / virgules finales / `content` en parties, timeout chat 60 s, messages d'erreur plus précis (`reason: parse | empty`).
+
+### Prompts par type de page
+
+`lib/seoGeoPageKind.ts` + `lib/seoGeoPrompt.ts`. Templates : accueil, contact, mentions/légal, service, index blog, article, générique. Contexte injecté : identité (`siteName`, domaine, SEO par défaut, réseaux), URL, mot-clé cible, SEO/GEO déjà saisis, lieu SERP, corps d'article tronqué (jamais le HTML d'une `page`). Objectif : n°1 Google + formulations citables (GEO / AI Overviews). Interdit d'inventer SIRET / raison sociale.
+
+### Extrait IA
+
+Le contrat JSON gagne `excerpt` (≤ 300). `applyDraft` sur `$postId` le pose dans le champ chapô existant — **pas** un 3e bouton. Les pages n'ont pas d'extrait.
+
+### Image IA
+
+- Action `aiImage.generatePostCover` : OpenRouter `POST /api/v1/images`, blob Convex, `media.register`, `posts.update.coverId`.
+- Bouton FR près de la couverture : « Générer une image avec l'IA ».
+- **Modèle retenu (défaut)** : `google/gemini-3-pro-image` — Nano Banana Pro, flagship Gemini image réellement servi le 2026-09-01.
+  - Preuve : https://openrouter.ai/google/gemini-3-pro-image
+  - Doc Image API : https://openrouter.ai/docs/guides/overview/multimodal/image-generation
+  - Collection (classement usage) : https://openrouter.ai/collections/image-models
+- Allowlist aussi : `google/gemini-3.1-flash-image` (Nano Banana 2, plus rapide), `google/gemini-2.5-flash-image` (Nano Banana GA).
+- Prompt image : titre + extrait + mot-clé + marque, photo éditoriale 16:9, **aucun texte dans l'image**.
+
+### Réglages `/settings/ia`
+
+Champ privé `settings.openRouterImageModel` (expand-only, `getPrivate` seulement, jamais `settings.get`). Sélecteur « Modèle d'image », même pattern que le modèle texte.
+
+### Fichiers
+
+`convex/lib/parseModelJson.ts`, `seoGeoDraft.ts`, `seoGeoPrompt.ts`, `seoGeoPageKind.ts`, `openRouterImage.ts`, `openRouterImageModels.ts`, `coverPrompt.ts`, `aiSiteContext.ts`, `ai.ts`, `aiImage.ts` ; admin : `generate-cover-button`, `ai-model-select`, `$postId`, `/settings/ia`.

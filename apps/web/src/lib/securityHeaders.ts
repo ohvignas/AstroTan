@@ -9,6 +9,12 @@
 export interface SecurityEnv {
   PUBLIC_CONVEX_URL?: string
   PUBLIC_UMAMI_URL?: string
+  /**
+   * `"true"` charge `recorder.js` (Replays / Heatmaps) après consentement.
+   * Ouvre aussi `frame-ancestors` vers l'origine Umami : le fond d'une
+   * heatmap est un iframe du site, et `DENY` le laisse blanc.
+   */
+  PUBLIC_UMAMI_RECORDER?: string
   /** Meta (Facebook) Pixel — sa présence seule ouvre les origines de Meta. */
   PUBLIC_META_PIXEL_ID?: string
   /** Balise Google (`G-`, `AW-`, `GT-`) — même règle. */
@@ -176,6 +182,12 @@ function origine(url: string | undefined): string | null {
   }
 }
 
+function wsSibling(origin: string): string {
+  if (origin.startsWith("https://")) return `wss://${origin.slice("https://".length)}`
+  if (origin.startsWith("http://")) return `ws://${origin.slice("http://".length)}`
+  return origin
+}
+
 export function enTetesSecurite(
   nonce: string,
   env: SecurityEnv,
@@ -198,6 +210,11 @@ export function enTetesSecurite(
   //    `'strict-dynamic'` ne couvre que `script-src` — un script autorisé ne
   //    gagne aucun droit de connexion.
   const umami = origine(env.PUBLIC_UMAMI_URL)
+  // Heatmaps : Umami recharge le site dans un iframe (doc v3.2+). Sans
+  // cette origine dans `frame-ancestors`, et avec `X-Frame-Options: DENY`,
+  // le tableau de bord a des points et un fond blanc. Le comptage seul
+  // n'a pas besoin d'être encadré — d'où le ET avec l'enregistreur.
+  const umamiPeutEncadrer = Boolean(umami) && env.PUBLIC_UMAMI_RECORDER === "true"
 
   // Les origines des traceurs configurés — vides sur un site qui n'en a
   // aucun, ce qui laisse la politique exactement telle qu'elle était.
@@ -258,22 +275,30 @@ export function enTetesSecurite(
       // fichiers, n'en montrait rien. C'est la violation que seul un build
       // réel fait apparaître.
       "font-src 'self' data:",
-      `connect-src 'self'${convex ? ` ${convex}` : ""}${umami ? ` ${umami}` : ""}${connectTiers}`,
+      `connect-src 'self'${convex ? ` ${convex} ${wsSibling(convex)}` : ""}${umami ? ` ${umami}` : ""}${connectTiers}`,
       // `frame-src` n'apparaît QUE si un traceur est configuré. Absente, la
       // directive retombe sur `default-src 'self'` — la politique stricte
       // d'origine, qu'un site sans pixel doit garder intacte. L'écrire
       // inconditionnellement, ne serait-ce qu'en `'self'`, changerait la
       // CSP de tous les adoptants pour le confort de deux.
       ...(frameTiers ? [`frame-src 'self'${frameTiers}`] : []),
-      "frame-ancestors 'none'",
+      umami && env.PUBLIC_UMAMI_RECORDER === "true"
+        ? `frame-ancestors 'self' ${umami}`
+        : "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
       "object-src 'none'",
     ].join("; "),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "X-Frame-Options": "DENY",
     "Permissions-Policy": "geolocation=(), camera=(), microphone=(), payment=()",
+  }
+  // `X-Frame-Options` écrase `frame-ancestors` dans certains navigateurs
+  // (doc Umami Heatmaps). On ne le pose donc que quand on refuse tout
+  // cadrage. Umami Cloud : l'origine est celle de `PUBLIC_UMAMI_URL`
+  // (`https://cloud.umami.is` si c'est le cas).
+  if (!umamiPeutEncadrer) {
+    entetes["X-Frame-Options"] = "DENY"
   }
   // Jamais en HTTP : posé sur `http://localhost`, HSTS épingle le
   // navigateur sur une origine sans certificat, et le site devient

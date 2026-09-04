@@ -23,6 +23,17 @@ beforeEach(() => {
   // pas dans le dépôt. Chaque test qui a besoin d'un hôte courant la pose
   // lui-même.
   delete process.env.WEB_DOMAIN
+  // Même motif : un shell qui porterait `UMAMI_DOMAIN` ajouterait une
+  // troisième ligne A (`stats.<domaine>`) à tous les tests, et ferait
+  // échouer les comptes d'appels et les listes à deux hôtes.
+  delete process.env.UMAMI_DOMAIN
+  // Les origines locales : `SITE_URL` vaut déjà `localhost:3001` (ORIGIN).
+  // `WEB_SITE_URL` n'est posé que par les tests qui en ont besoin ; sans
+  // lui, un déploiement local replie sur le port documenté du site (4321).
+  delete process.env.WEB_SITE_URL
+  // L'IP du VPS n'est jamais supposée déjà posée : c'est elle, et non le
+  // lookup du domaine déclaré, qui décide de « Connecté ».
+  delete process.env.VPS_IP4
 })
 
 afterEach(() => {
@@ -60,18 +71,14 @@ function stubDns(reponses: Record<string, string[]>) {
 }
 
 test("checkSite : A présent sur les deux hôtes rend deux verdicts ok", async () => {
-  // `WEB_DOMAIN` posée, et l'hôte courant résolu : sans elle, ce test
-  // passait sur le REPLI de forme (`ReferenceServeur.aucune`) tout en
-  // annonçant une comparaison. Il rendait donc `ok` pour n'importe quelle
-  // IPv4 publique, y compris celle d'un proxy — c'est-à-dire exactement ce
-  // que ce module existe pour refuser.
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
-  process.env.WEB_DOMAIN = "actuel.fr"
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  process.env.VPS_IP4 = "203.0.113.7"
   vi.stubGlobal(
     "fetch",
     stubDns({
-      "actuel.fr/A": ["203.0.113.7"],
       "exemple.fr/A": ["203.0.113.7"],
       "admin.exemple.fr/A": ["203.0.113.7"],
     }),
@@ -96,7 +103,9 @@ test("checkSite : un enregistrement absent porte le type et le nom à créer", a
   // noms de son côté — deux copies de cette table qui divergeraient.
   expect(ligne.type).toBe("A")
   expect(ligne.nom).toBe("admin.exemple.fr")
-  expect(ligne.attendu).toBe("l'adresse IPv4 publique de votre serveur")
+  // Pas de lookup, pas de serveur de référence : en local on affiche
+  // l'origine du dashboard, jamais le libellé pédagogique.
+  expect(ligne.attendu).toBe("localhost:3001")
 })
 
 test("checkEmail : chaque ligne porte le nom et la valeur exacts à saisir", async () => {
@@ -142,11 +151,12 @@ test("checkSite : un A derrière un CNAME reste joignable", async () => {
   // Même raison qu'au-dessus : un hôte courant, sinon le CNAME serait
   // « joignable » par simple contrôle de forme et la chaîne ne serait pas
   // vraiment déroulée jusqu'à une adresse COMPARÉE.
-  process.env.WEB_DOMAIN = "actuel.fr"
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  process.env.VPS_IP4 = "203.0.113.7"
   vi.stubGlobal(
     "fetch",
     stubDns({
-      "actuel.fr/A": ["203.0.113.7"],
       "exemple.fr/A": ["cible.hebergeur.test.", "203.0.113.7"],
       "admin.exemple.fr/A": ["203.0.113.7"],
     }),
@@ -207,6 +217,9 @@ test("un résolveur en panne rend « indisponible », jamais « manquant »", as
   // dépend pas du résolveur, seul son état en dépend.
   expect(verdicts[0]!.nom).toBe("exemple.fr")
   expect(verdicts[0]!.type).toBe("A")
+  // La raison traverse jusqu'à l'écran : « Non connecté » seul ne dit
+  // pas si c'est le réseau, un délai, ou une absence de réponse.
+  expect(verdicts[0]!.raison).toBe("Réseau : le résolveur est injoignable.")
 })
 
 test("plan : les cinq enregistrements sont connus sans une seule requête", async () => {
@@ -222,9 +235,9 @@ test("plan : les cinq enregistrements sont connus sans une seule requête", asyn
     domaine: "exemple.fr",
   })
   expect(appels).not.toHaveBeenCalled()
-  expect(site.map((e) => [e.type, e.nom])).toEqual([
-    ["A", "exemple.fr"],
-    ["A", "admin.exemple.fr"],
+  expect(site.map((e) => [e.type, e.nom, e.attendu])).toEqual([
+    ["A", "exemple.fr", "localhost:4321"],
+    ["A", "admin.exemple.fr", "localhost:3001"],
   ])
   expect(email.map((e) => [e.type, e.nom])).toEqual([
     ["TXT", "exemple.fr"],
@@ -247,7 +260,7 @@ test("plan : les mêmes lignes que la vérification, dans le même ordre", async
     ...(await admin.identity.action(api.dns.checkEmail, { domaine: "exemple.fr" })),
   ]
   expect([...site, ...email]).toEqual(
-    verdicts.map(({ trouve: _t, etat: _e, ...enregistrement }) => enregistrement),
+    verdicts.map(({ trouve: _t, etat: _e, raison: _r, ...enregistrement }) => enregistrement),
   )
 })
 
@@ -333,14 +346,12 @@ test("un appelant sans session est refusé", async () => {
 // l'adoptant enregistrait, le challenge HTTP-01 échouait chez le proxy, et
 // l'échec comptait dans le quota de cinq par domaine et par semaine.
 //
-// L'adresse de référence est celle de l'hôte web COURANT, celui qui sert
-// déjà — `routing.deriverHotes` : le domaine déclaré, sinon `WEB_DOMAIN`.
+// L'adresse de référence est `VPS_IP4`, pas le lookup du domaine déclaré.
 //
 // CE QUE CES TESTS DISCRIMINENT, vérifié en retirant la garde :
 //   - `jugerA` qui rend `"ok"` dès qu'une IPv4 publique est trouvée (le
 //     code d'avant) → 3 échecs.
-//   - la référence `indisponible` traitée comme `aucune` → 1 échec.
-//   - `hoteCourant` qui rendrait toujours `null` → 4 échecs.
+//   - le lookup du domaine déclaré pris pour attendu → tautologie, 2 échecs.
 // ---------------------------------------------------------------------
 
 /** L'adresse du serveur qui sert déjà, dans tous les tests ci-dessous. */
@@ -352,15 +363,12 @@ const IP_DU_PROXY = "104.21.5.9"
 test("checkSite : une IP publique qui n'est pas celle du serveur n'arme rien", async () => {
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
-  // L'hôte courant, celui que Traefik sert : c'est lui qui donne
-  // l'adresse de référence, sans qu'on la demande à personne.
-  process.env.WEB_DOMAIN = "actuel.fr"
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  process.env.VPS_IP4 = NOTRE_IP
   vi.stubGlobal(
     "fetch",
     stubDns({
-      "actuel.fr/A": [NOTRE_IP],
-      // Le domaine visé pointe vers un proxy. Rien n'est « manquant » :
-      // l'enregistrement existe, il mène ailleurs.
       "exemple.fr/A": [IP_DU_PROXY],
       "admin.exemple.fr/A": [IP_DU_PROXY],
     }),
@@ -378,11 +386,12 @@ test("checkSite : une IP publique qui n'est pas celle du serveur n'arme rien", a
 test("checkSite : l'adresse du serveur qui sert déjà arme le bouton", async () => {
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
-  process.env.WEB_DOMAIN = "actuel.fr"
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  process.env.VPS_IP4 = NOTRE_IP
   vi.stubGlobal(
     "fetch",
     stubDns({
-      "actuel.fr/A": [NOTRE_IP],
       "exemple.fr/A": [NOTRE_IP],
       "admin.exemple.fr/A": [NOTRE_IP],
     }),
@@ -394,65 +403,32 @@ test("checkSite : l'adresse du serveur qui sert déjà arme le bouton", async ()
   ])
 })
 
-test("checkSite : le domaine déclaré est l'hôte de référence, pas `WEB_DOMAIN`", async () => {
-  // `WEB_DOMAIN` n'est plus que le repli (`routing.deriverHotes`). Après un
-  // premier changement de domaine il désigne un hôte que Traefik ne sert
-  // plus, et s'y référer comparerait à l'adresse d'un serveur d'avant.
+test("checkSite : sans VPS_IP4 en prod, le verdict est `forme` — pas `ok`", async () => {
+  // Origines publiques, pas d'IP connue : on a vu un A, on ne sait pas
+  // s'il mène ICI. `forme`, pas `ok` — et surtout on ne recopie pas le
+  // lookup dans l'attendu.
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
-  process.env.WEB_DOMAIN = "repli.fr"
-  await t.run((ctx) =>
-    ctx.db.insert("settings", { siteName: "Mon site", declaredDomain: "actuel.fr" }),
-  )
-  vi.stubGlobal(
-    "fetch",
-    stubDns({
-      "actuel.fr/A": ["198.51.100.4"],
-      "repli.fr/A": [NOTRE_IP],
-      "exemple.fr/A": [NOTRE_IP],
-      "admin.exemple.fr/A": [NOTRE_IP],
-    }),
-  )
-  const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
-  // Vert si la référence venait de `repli.fr` ; rouge parce qu'elle vient
-  // du domaine déclaré.
-  expect(verdicts.map((v) => v.etat)).toEqual(["different", "different"])
-})
-
-test("checkSite : sans hôte courant, le verdict est `forme` — pas `ok`", async () => {
-  // Ni domaine déclaré, ni `WEB_DOMAIN` : il n'existe aucun serveur à qui
-  // comparer. Refuser ici enfermerait un déploiement neuf dans un écran où
-  // le premier domaine ne peut jamais être enregistré. On retombe sur ce
-  // qu'on sait dire de vrai — la forme — et ON LE DIT.
-  //
-  // `IP_DU_PROXY`, exprès : c'est le cas de la panne. Cet état n'est pas
-  // réservé au premier jour — `deploy.yml` ne pose aucune variable Convex —
-  // et depuis que le routage de secours fait tenir le site debout sans
-  // elles, l'écran est atteignable ici. Un adoptant derrière Cloudflare y
-  // arme le bouton sur une adresse qui n'est pas la sienne. `forme` est ce
-  // qui rend la chose visible à l'écran ; rendre `ok` la cachait.
-  const t = makeTestConvex()
-  const admin = await seedActor(t, "admin")
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
   vi.stubGlobal(
     "fetch",
     stubDns({ "exemple.fr/A": [IP_DU_PROXY], "admin.exemple.fr/A": [IP_DU_PROXY] }),
   )
   const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
   expect(verdicts.map((v) => v.etat)).toEqual(["forme", "forme"])
+  expect(verdicts.map((v) => v.attendu)).toEqual(["", ""])
 })
 
-test("checkSite : `forme` ne survit pas à l'existence d'un serveur de référence", async () => {
-  // La discrimination qui compte côté serveur : `forme` doit être la
-  // conséquence de l'ABSENCE de référence, jamais un synonyme paresseux de
-  // « c'est une IPv4 publique ». Mêmes adresses trouvées qu'au-dessus, un
-  // hôte courant en plus — et les deux verdicts changent.
+test("checkSite : `forme` ne survit pas à `VPS_IP4`", async () => {
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
-  process.env.WEB_DOMAIN = "actuel.fr"
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  process.env.VPS_IP4 = NOTRE_IP
   vi.stubGlobal(
     "fetch",
     stubDns({
-      "actuel.fr/A": [NOTRE_IP],
       "exemple.fr/A": [IP_DU_PROXY],
       "admin.exemple.fr/A": [NOTRE_IP],
     }),
@@ -461,51 +437,32 @@ test("checkSite : `forme` ne survit pas à l'existence d'un serveur de référen
   expect(verdicts.map((v) => v.etat)).toEqual(["different", "ok"])
 })
 
-test("checkSite : un hôte courant illisible ne dit ni « en place » ni « à poser »", async () => {
-  // Il y a un hôte courant, et le résolveur n'a rien rendu pour lui. Les
-  // trois états ne se confondent pas : ce n'est pas « en place », ce n'est
-  // pas « à créer », c'est « le résolveur n'a pas répondu ». Rendre `ok`
-  // ici rouvrirait le verrou à chaque hoquet du résolveur — donc en
-  // permanence, pour qui insiste.
-  const t = makeTestConvex()
-  const admin = await seedActor(t, "admin")
-  process.env.WEB_DOMAIN = "actuel.fr"
-  vi.stubGlobal(
-    "fetch",
-    stubDns({ "exemple.fr/A": [IP_DU_PROXY], "admin.exemple.fr/A": [IP_DU_PROXY] }),
-  )
-  const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
-  expect(verdicts.map((v) => v.etat)).toEqual(["indisponible", "indisponible"])
-})
-
 test("checkSite : une adresse privée reste fausse, référence ou pas", async () => {
   // `192.168.1.10` ne mène nulle part depuis l'extérieur, et ça se sait
   // sans rien comparer. Le dire « indisponible » parce que la référence
   // manque enverrait réessayer une lecture qui redonnera la même chose.
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
-  process.env.WEB_DOMAIN = "actuel.fr"
+  process.env.VPS_IP4 = NOTRE_IP
   vi.stubGlobal("fetch", stubDns({ "exemple.fr/A": ["192.168.1.10"] }))
   const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
   expect(verdicts.find((v) => v.cle === "site")!.etat).toBe("different")
 })
 
-test("checkSite : l'hôte de référence n'est résolu qu'une fois pour les deux lignes", async () => {
-  // Les deux lignes A partagent la même référence : la résoudre par ligne
-  // doublerait une requête sortante pour une réponse identique.
+test("checkSite : le lookup ne sert qu'à juger, pas à fabriquer l'attendu", async () => {
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
-  process.env.WEB_DOMAIN = "actuel.fr"
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  process.env.VPS_IP4 = NOTRE_IP
   const appels = stubDns({
-    "actuel.fr/A": [NOTRE_IP],
     "exemple.fr/A": [NOTRE_IP],
     "admin.exemple.fr/A": [NOTRE_IP],
   })
   vi.stubGlobal("fetch", appels)
   await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
   const noms = appels.mock.calls.map(([url]) => new URL(String(url)).searchParams.get("name"))
-  expect(noms.filter((nom) => nom === "actuel.fr")).toHaveLength(1)
-  expect(noms).toHaveLength(3)
+  expect(noms).toEqual(["exemple.fr", "admin.exemple.fr"])
 })
 
 test("checkEmail : la référence du serveur ne le concerne pas", async () => {
@@ -513,10 +470,188 @@ test("checkEmail : la référence du serveur ne le concerne pas", async () => {
   // serveur, et surtout aucune requête de plus à émettre pour eux.
   const t = makeTestConvex()
   const admin = await seedActor(t, "admin")
-  process.env.WEB_DOMAIN = "actuel.fr"
+  process.env.VPS_IP4 = NOTRE_IP
   const appels = stubDns({})
   vi.stubGlobal("fetch", appels)
   await admin.identity.action(api.dns.checkEmail, { domaine: "exemple.fr" })
-  const noms = appels.mock.calls.map(([url]) => new URL(String(url)).searchParams.get("name"))
-  expect(noms).not.toContain("actuel.fr")
+  const types = appels.mock.calls.map(([url]) => new URL(String(url)).searchParams.get("type"))
+  expect(types.every((type) => type === "TXT")).toBe(true)
+})
+
+test("checkSite : le lookup part vers Cloudflare DoH", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  const appels = stubDns({ "exemple.fr/A": ["198.202.211.1"] })
+  vi.stubGlobal("fetch", appels)
+  await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
+  const urls = appels.mock.calls.map(([url]) => String(url))
+  expect(urls.every((url) => url.startsWith("https://cloudflare-dns.com/dns-query"))).toBe(
+    true,
+  )
+  expect(urls.some((url) => url.includes("name=exemple.fr") && url.includes("type=A"))).toBe(
+    true,
+  )
+})
+
+test("checkSite : DEV + lookup Cloudflare 198.x n'est pas Connecté", async () => {
+  // SITE_URL est déjà localhost (ORIGIN). Sans VPS_IP4, l'attendu est
+  // localhost:port — le A public d'illith.com ne peut pas peindre du vert.
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  vi.stubGlobal(
+    "fetch",
+    stubDns({
+      "illith.com/A": ["198.202.211.1"],
+      "admin.illith.com/A": ["198.202.211.1"],
+    }),
+  )
+  const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "illith.com" })
+  expect(verdicts.map((v) => [v.cle, v.etat, v.attendu])).toEqual([
+    ["site", "different", "localhost:4321"],
+    ["admin", "different", "localhost:3001"],
+  ])
+  expect(verdicts[0]!.trouve).toEqual(["198.202.211.1"])
+  expect(verdicts.every((v) => v.etat !== "ok")).toBe(true)
+})
+
+test("checkSite : prod + VPS_IP4 = lookup Cloudflare → ok", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  process.env.VPS_IP4 = "198.202.211.1"
+  vi.stubGlobal(
+    "fetch",
+    stubDns({
+      "exemple.fr/A": ["198.202.211.1"],
+      "admin.exemple.fr/A": ["198.202.211.1"],
+    }),
+  )
+  const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
+  expect(verdicts.map((v) => [v.cle, v.etat, v.attendu])).toEqual([
+    ["site", "ok", "198.202.211.1"],
+    ["admin", "ok", "198.202.211.1"],
+  ])
+})
+
+test("checkSite : sans VPS_IP4, le lookup du domaine déclaré n'est pas l'attendu", async () => {
+  // La tautologie : declaredDomain = illith.com, le DoH rend 198.x, et
+  // l'ancien code prenait ce 198.x pour référence puis le comparait à
+  // lui-même. Plus maintenant : pas d'IP connue → pas ok, pas d'attendu
+  // recopié depuis le lookup.
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.SITE_URL = "https://admin.illith.com"
+  process.env.WEB_SITE_URL = "https://illith.com"
+  await t.run((ctx) =>
+    ctx.db.insert("settings", { siteName: "Illith", declaredDomain: "illith.com" }),
+  )
+  vi.stubGlobal(
+    "fetch",
+    stubDns({
+      "illith.com/A": ["198.202.211.1"],
+      "admin.illith.com/A": ["198.202.211.1"],
+    }),
+  )
+  const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "illith.com" })
+  expect(verdicts.every((v) => v.etat !== "ok")).toBe(true)
+  expect(verdicts.map((v) => v.attendu)).not.toContain("198.202.211.1")
+  expect(verdicts[0]!.trouve).toEqual(["198.202.211.1"])
+})
+
+test("checkSite : l'attendu d'un A est l'IP de référence, pas un libellé", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  process.env.VPS_IP4 = NOTRE_IP
+  vi.stubGlobal(
+    "fetch",
+    stubDns({
+      "exemple.fr/A": [NOTRE_IP],
+      "admin.exemple.fr/A": [NOTRE_IP],
+    }),
+  )
+  const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
+  expect(verdicts.map((v) => v.attendu)).toEqual([NOTRE_IP, NOTRE_IP])
+  expect(verdicts[0]!.attendu).not.toMatch(/adresse IPv4/i)
+})
+
+test("plan : une origine publique n'invente pas localhost", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  const { site } = await admin.identity.query(api.dns.plan, { domaine: "exemple.fr" })
+  expect(site.map((e) => e.attendu)).toEqual(["", ""])
+  expect(site[0]!.attendu).not.toMatch(/localhost/)
+})
+
+test("plan : VPS_IP4 est l'attendu, même sans lookup", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  process.env.VPS_IP4 = "198.202.211.1"
+  const { site } = await admin.identity.query(api.dns.plan, { domaine: "exemple.fr" })
+  expect(site.map((e) => e.attendu)).toEqual(["198.202.211.1", "198.202.211.1"])
+})
+
+test("plan : le port du site local vient de WEB_SITE_URL", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.WEB_SITE_URL = "http://localhost:4321"
+  const { site } = await admin.identity.query(api.dns.plan, { domaine: "exemple.fr" })
+  expect(site.find((e) => e.cle === "site")!.attendu).toBe("localhost:4321")
+  expect(site.find((e) => e.cle === "admin")!.attendu).toBe("localhost:3001")
+})
+
+test("plan : pas de ligne Umami tant que UMAMI_DOMAIN est local ou absent", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  const sans = await admin.identity.query(api.dns.plan, { domaine: "exemple.fr" })
+  expect(sans.site.map((e) => e.cle)).toEqual(["site", "admin"])
+
+  process.env.UMAMI_DOMAIN = "localhost"
+  const local = await admin.identity.query(api.dns.plan, { domaine: "exemple.fr" })
+  expect(local.site.map((e) => e.cle)).toEqual(["site", "admin"])
+})
+
+test("plan : Umami publié gagne un A sur stats.<domaine>", async () => {
+  // `routing.deriverHotes` publie `stats.<déclaré>` dès que `UMAMI_DOMAIN`
+  // est un hôte réel. Sans cet A, Traefik demande un certificat pour un
+  // nom que le DNS ne connaît pas — quota Let's Encrypt, même piège que
+  // `admin.<domaine>`.
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.UMAMI_DOMAIN = "stats.exemple.fr"
+  const { site } = await admin.identity.query(api.dns.plan, { domaine: "exemple.fr" })
+  expect(site.map((e) => [e.cle, e.type, e.nom])).toEqual([
+    ["site", "A", "exemple.fr"],
+    ["admin", "A", "admin.exemple.fr"],
+    ["umami", "A", "stats.exemple.fr"],
+  ])
+})
+
+test("checkSite : la ligne Umami est vérifiée avec les deux autres A", async () => {
+  const t = makeTestConvex()
+  const admin = await seedActor(t, "admin")
+  process.env.SITE_URL = "https://admin.exemple.fr"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
+  process.env.VPS_IP4 = NOTRE_IP
+  process.env.UMAMI_DOMAIN = "stats.exemple.fr"
+  vi.stubGlobal(
+    "fetch",
+    stubDns({
+      "exemple.fr/A": [NOTRE_IP],
+      "admin.exemple.fr/A": [NOTRE_IP],
+      "stats.exemple.fr/A": [NOTRE_IP],
+    }),
+  )
+  const verdicts = await admin.identity.action(api.dns.checkSite, { domaine: "exemple.fr" })
+  expect(verdicts.map((v) => [v.cle, v.etat, v.attendu])).toEqual([
+    ["site", "ok", NOTRE_IP],
+    ["admin", "ok", NOTRE_IP],
+    ["umami", "ok", NOTRE_IP],
+  ])
 })

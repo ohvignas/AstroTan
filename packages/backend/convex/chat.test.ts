@@ -71,14 +71,80 @@ test("start avec e-mail conserve IP et geo de confiance", async () => {
     ip: "203.0.113.42",
     country: "fr",
     city: "Lyon",
+    latitude: 45.75,
+    longitude: 4.85,
+    timezone: "Europe/Paris",
+    pageUrl: "https://exemple.fr/tarifs?utm=1",
   })
   const lead = await t.run((ctx) => ctx.db.get(leadId))
   expect(lead).toMatchObject({
     ip: "203.0.113.42",
     country: "FR",
     city: "Lyon",
+    latitude: 45.75,
+    longitude: 4.85,
+    timezone: "Europe/Paris",
+    pageUrl: "https://exemple.fr/tarifs",
     source: "chat",
   })
+})
+
+test("getAgentConfig expose le contexte visiteur du fil", async () => {
+  const t = makeTestConvex()
+  await t.run(async (ctx) => {
+    await ctx.db.insert("settings", {
+      siteName: "Cabinet Dupont",
+      openRouterModel: "x-ai/grok-4.6",
+      openRouterAgentModel: "google/gemini-3.7-flash",
+    })
+  })
+  const { leadId, threadId } = await t.mutation(api.chat.start, {
+    secret: SECRET,
+    email: "ada@example.com",
+    name: "Ada",
+    origin: "aa".repeat(32),
+    ip: "203.0.113.42",
+    country: "FR",
+    city: "Lyon",
+    pageUrl: "https://exemple.fr/tarifs",
+  })
+  expect(leadId).toBeDefined()
+  const config = await t.query(internal.chatStream.getAgentConfig, { threadId })
+  expect(config.openRouterModel).toBe("x-ai/grok-4.6")
+  expect(config.openRouterAgentModel).toBe("google/gemini-3.7-flash")
+  expect(config.visitor).toMatchObject({
+    siteName: "Cabinet Dupont",
+    language: "fr",
+    pageUrl: "https://exemple.fr/tarifs",
+    country: "FR",
+    city: "Lyon",
+    ip: "203.0.113.42",
+    leadEmail: "ada@example.com",
+    leadName: "Ada",
+  })
+})
+
+test("getAgentConfig retombe sur le modèle texte si l'agent n'est pas posé", async () => {
+  const t = makeTestConvex()
+  await t.run(async (ctx) => {
+    await ctx.db.insert("settings", {
+      siteName: "Cabinet Dupont",
+      openRouterModel: "x-ai/grok-4.6",
+    })
+  })
+  const { threadId } = await t.mutation(api.chat.start, {
+    secret: SECRET,
+    email: "ada@example.com",
+    name: "Ada",
+    origin: "aa".repeat(32),
+    ip: "203.0.113.42",
+    country: "FR",
+    city: "Lyon",
+    pageUrl: "https://exemple.fr/tarifs",
+  })
+  const config = await t.query(internal.chatStream.getAgentConfig, { threadId })
+  expect(config.openRouterAgentModel).toBeNull()
+  expect(config.openRouterModel).toBe("x-ai/grok-4.6")
 })
 
 test("attachEmail pose IP et geo sur la fiche créée", async () => {

@@ -213,13 +213,15 @@ export const processings: Processing[] = [
   {
     purpose: "Répondre à un message envoyé par le formulaire de contact",
     data:
-      "Nom, adresse électronique, sujet, contenu du message, dates du premier " +
-      "et du dernier envoi, nombre de messages, et le « user-agent » — la " +
+      "Nom, adresse électronique, numéro de téléphone, sujet, contenu du " +
+      "message, dates du premier et du dernier envoi, nombre de messages, et " +
+      "le « user-agent » — la " +
       "carte de visite que votre navigateur envoie à chaque requête. " +
-      "S'ajoute une empreinte de votre adresse IP — le condensé de cette " +
-      "adresse et d'un secret, jamais l'adresse elle-même — qui sert " +
-      "uniquement à compter les envois et à arrêter les rafales " +
-      "automatisées",
+      "S'ajoute l'adresse IP, le pays et la ville s'ils sont connus — " +
+      "visibles seulement dans l'administration, jamais dans une query " +
+      "publique. Une empreinte de cette adresse — le condensé de l'adresse " +
+      "et d'un secret — sert uniquement à compter les envois et à arrêter " +
+      "les rafales automatisées",
     basis: "Intérêt légitime — répondre à quelqu'un qui nous écrit",
     // La durée est celle de `LEAD_RETENTION_DAYS`
     // (`packages/backend/convex/retention.ts`), recopiée ici — `apps/web`
@@ -244,8 +246,9 @@ export const processings: Processing[] = [
       "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande",
     data:
       "Adresse électronique, nom le cas échéant, contenu des messages, " +
-      "horodatages, identifiant de fil, empreinte d'origine — le condensé " +
-      "de l'adresse IP et d'un secret, jamais l'adresse elle-même —, et le " +
+      "horodatages, identifiant de fil, adresse IP, pays et ville s'ils " +
+      "sont connus — visibles seulement dans l'administration —, empreinte " +
+      "d'origine — le condensé de l'adresse IP et d'un secret —, et le " +
       "user-agent s'il est transmis. L'adresse électronique figure aussi " +
       "en titre du fil côté assistant",
     basis: "Intérêt légitime — répondre à quelqu'un qui nous écrit",
@@ -334,15 +337,19 @@ export const processings: Processing[] = [
     purpose: "Gérer les comptes de l'administration",
     data:
       "Nom, adresse électronique, rôle, état de bannissement et son motif, " +
-      "empreinte du mot de passe, nom d'affichage et photo de profil",
+      "empreinte du mot de passe, nom d'affichage et photo de profil ; " +
+      "préférences de notification (cloche, e-mail) ; lignes de cloche " +
+      "(destinataire, type, libellé, identifiant de cible)",
     basis:
       "Intérêt légitime — permettre aux personnes autorisées d'administrer le " +
       "site, et à personne d'autre",
     retention:
-      "Jusqu'à la suppression du compte — pour ces trois tables. Le journal " +
-      "d'administration, décrit plus bas, conserve toutefois sans limite " +
-      "l'adresse électronique d'un compte dont le rôle a changé ou qui a été " +
-      "supprimé : supprimer un compte ne l'efface donc pas de ce journal.",
+      "Jusqu'à la suppression du compte — pour les tables de comptes et les " +
+      "préférences de notification. Les lignes de cloche partent avec le " +
+      "compte, et au-delà au bout de 90 jours. Le journal d'administration, " +
+      "décrit plus bas, conserve toutefois sans limite l'adresse électronique " +
+      "d'un compte dont le rôle a changé ou qui a été supprimé : supprimer un " +
+      "compte ne l'efface donc pas de ce journal.",
     recipients: "Convex, Inc. (hébergement de la base, États-Unis)",
   },
   // Table `session` (Better Auth), plus les compteurs du composant

@@ -1625,7 +1625,7 @@ test("une ligne de gabarit devenue invalide n'empêche pas l'invitation de parti
   await runScheduledFunctions(t)
 
   expect(envois).toHaveLength(1)
-  expect(envois[0]!.subject).toBe(INVITATION.objetParDefaut)
+  expect(envois[0]!.subject).toContain("Invitation à rejoindre")
   expect(envois[0]!.text).toContain("/accept-invite?token=")
 })
 

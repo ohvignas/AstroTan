@@ -67,9 +67,18 @@ const navLinks = mainNav.map((item) => ({
         une image décorative serait muet, d'où le texte hors écran. */}
     <a href="/" class="header__brand">
       {logoUrl ? (
-        <Image src={logoUrl} alt="" width={144} height={48} class="header__logo" />
+        <Image
+          src={logoUrl}
+          alt=""
+          width={144}
+          height={48}
+          densities={[1, 2]}
+          loading="eager"
+          fetchpriority="high"
+          class="header__logo"
+        />
       ) : (
-        <SiteBrand variant="logo" size={48} class="header__logo" />
+        <SiteBrand variant="logo" size={48} priority class="header__logo" />
       )}
       <span class="header__brand-name">{siteName}</span>
     </a>

@@ -186,6 +186,12 @@ export default defineSchema({
     ip: v.optional(v.string()),
     country: v.optional(v.string()),
     city: v.optional(v.string()),
+    // Expand : en-têtes déjà posés par Cloudflare / Vercel au start,
+    // jamais un appel de géoloc payant. Absents = inconnus.
+    latitude: v.optional(v.number()),
+    longitude: v.optional(v.number()),
+    timezone: v.optional(v.string()),
+    pageUrl: v.optional(v.string()),
   })
     // Résolution : e-mail d'abord, sinon IP. Convex n'a pas de contrainte
     // d'unicité — ces index rendent la vérification possible avant écriture.
@@ -435,6 +441,9 @@ export default defineSchema({
     // distinct de l'absence (`undefined`) qui laisse le fallback PUBLIC_*.
     metaPixelId: v.optional(v.string()),
     googleTagId: v.optional(v.string()),
+    // Label de l'action de conversion Google Ads (`send_to: AW-XXX/label`).
+    // Pas un secret : il finit dans le HTML, comme l'ID de balise. Expand.
+    googleConversionLabel: v.optional(v.string()),
 
     // Lieu du crawl SERP. Pas un secret, pas public non plus — `getPrivate`
     // seulement. L'absence vaut Google France (2250 / "fr").
@@ -442,8 +451,11 @@ export default defineSchema({
     serpLanguageCode: v.optional(v.string()),
 
     // Modèle OpenRouter pour la génération SEO/GEO. Pas un secret, pas
-    // public — `getPrivate` seulement. L'absence vaut GPT-4o mini.
+    // public — `getPrivate` seulement. L'absence vaut Gemini 3.7 Flash.
     openRouterModel: v.optional(v.string()),
+    // Modèle du chat visiteur. Distinct de `openRouterModel` (SEO/texte).
+    // Expand : l'absence retombe sur `openRouterModel`, puis le défaut.
+    openRouterAgentModel: v.optional(v.string()),
     // Modèle image OpenRouter (couverture d'article). Même règle : privé,
     // allowlist, expand-only. L'absence vaut Gemini 3 Pro Image.
     openRouterImageModel: v.optional(v.string()),

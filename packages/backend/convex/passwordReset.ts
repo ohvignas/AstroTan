@@ -6,7 +6,7 @@ import { isCurrentlyBanned } from "./lib/authz"
 import { journaliser } from "./lib/auditEvent"
 import { makeResend } from "./lib/resend"
 import { resoudreExpediteur } from "./lib/expediteur"
-import { rendreHtml, rendreTexte, singleLine } from "./lib/gabarit"
+import { composerMessage, identiteAvecLogoJoignable } from "./lib/emailLayout"
 
 // ---------------------------------------------------------------------
 // La récupération de mot de passe : le seul chemin de retour dans un
@@ -124,24 +124,16 @@ export const envoyer = internalAction({
     // jamais valoir faux — enfermerait quelqu'un le jour où une ligne
     // arriverait par une restauration de sauvegarde.
     const gabarit = await ctx.runQuery(internal.emails.gabarit, { cle: "passwordReset" })
-    const valeurs = { lien: args.lien }
+    const identite = await identiteAvecLogoJoignable(
+      await ctx.runQuery(internal.settings.identiteEmail, {}),
+    )
+    const valeurs = { lien: args.lien, nom_du_site: identite.siteName }
 
     const resend = await makeResend(ctx)
     await resend.sendEmail(ctx, {
       from: await resoudreExpediteur(ctx),
       to: args.email,
-      // `singleLine` APRÈS le rendu : `validerGabarit` garantit que le
-      // GABARIT de l'objet tient sur une ligne, jamais ce que les valeurs
-      // y injectent. Même geste que les deux autres envois du dépôt, pour
-      // qu'ils se relisent pareil.
-      subject: singleLine(rendreTexte(gabarit.objet, valeurs)),
-      // La clé dit à `rendreHtml` quelles variables le serveur construit,
-      // donc lesquelles peuvent devenir une ancre `<a href>` : ici `lien`,
-      // et rien d'autre. Sans elle, cet email — le seul chemin de
-      // récupération d'un compte — repartirait avec une URL nue, que
-      // certaines messageries ne rendent pas cliquable.
-      html: `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs, "passwordReset")}</p>`,
-      text: rendreTexte(gabarit.corps, valeurs),
+      ...composerMessage(gabarit, valeurs, "passwordReset", identite),
     })
   },
 })

@@ -9,12 +9,10 @@ import { estHoteNu } from "./hoteNu"
 // HTTPS, comme les autres appels sortants du dépôt (`analytics.ts`,
 // `lib/umamiToken.ts`).
 //
-// Cloudflare plutôt que Google : c'est le seul des deux qui publie une
-// politique de non-conservation des requêtes, et l'écran envoie le domaine
-// de l'adoptant. Le choix est écrit ici plutôt que dans un réglage — un
-// résolveur configurable serait une valeur saisie par l'opérateur vers
-// laquelle on ferait des requêtes sortantes, donc une surface SSRF pour
-// une souplesse dont personne n'a besoin.
+// Cloudflare DoH (JSON) : gratuit, sans clé, Accept: application/dns-json.
+//   https://cloudflare-dns.com/dns-query?name=…&type=A
+// Second avis possible, non branché : https://dns.google/resolve?name=…&type=A
+// Le choix est figé ici — un résolveur configurable serait une surface SSRF.
 export const RESOLVEUR = "https://cloudflare-dns.com/dns-query"
 
 /** 8 s, la même borne que les appels Umami (`analytics.ts`). */
@@ -25,7 +23,7 @@ export type TypeDns = "A" | "AAAA" | "TXT" | "CNAME" | "MX"
 export type ReponseDns =
   | { statut: "ok"; valeurs: string[] }
   /** Le nom ne porte pas cet enregistrement — réponse ordinaire, pas une panne. */
-  | { statut: "absent" }
+  | { statut: "absent"; nxdomain?: boolean }
   | { statut: "erreur"; raison: string }
 
 /**
@@ -103,7 +101,7 @@ export function lireReponse(charge: unknown): ReponseDns {
     return { statut: "erreur", raison: "Réponse illisible du résolveur DNS." }
   }
   // 3 = NXDOMAIN. 0 sans réponse = le nom existe mais pas ce type.
-  if (objet.Status === 3) return { statut: "absent" }
+  if (objet.Status === 3) return { statut: "absent", nxdomain: true }
   if (objet.Status !== 0) {
     return { statut: "erreur", raison: `Le résolveur DNS a répondu ${objet.Status}.` }
   }
@@ -119,6 +117,19 @@ export function lireReponse(charge: unknown): ReponseDns {
   return valeurs.length === 0 ? { statut: "absent" } : { statut: "ok", valeurs }
 }
 
+function raisonFetch(err: unknown): string {
+  const nom =
+    err instanceof Error
+      ? err.name
+      : err instanceof DOMException
+        ? err.name
+        : ""
+  if (nom === "TimeoutError" || nom === "AbortError") {
+    return "Délai dépassé — Cloudflare n'a pas répondu."
+  }
+  return "Réseau : le résolveur est injoignable."
+}
+
 export async function resoudre(nom: string, type: TypeDns): Promise<ReponseDns> {
   let reponse: Response
   try {
@@ -126,10 +137,10 @@ export async function resoudre(nom: string, type: TypeDns): Promise<ReponseDns> 
       headers: { accept: "application/dns-json" },
       signal: AbortSignal.timeout(DELAI_MS),
     })
-  } catch {
+  } catch (err) {
     // Le nom invalide lève aussi ici. Dans les deux cas l'écran doit
     // afficher une ligne, jamais faire tomber la vérification entière.
-    return { statut: "erreur", raison: "Le résolveur DNS est injoignable." }
+    return { statut: "erreur", raison: raisonFetch(err) }
   }
   if (!reponse.ok) {
     return { statut: "erreur", raison: `Le résolveur DNS a répondu ${reponse.status}.` }

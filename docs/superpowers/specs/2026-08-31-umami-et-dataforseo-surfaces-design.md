@@ -172,7 +172,8 @@ fiches — à côté de `seo.title` / `seo.description`, **pas** dedans.
 
 `GenerateSeoGeoButton` / `ai.generateSeoGeo` ne remplissent pas ce
 champ : un mot-clé cible est un choix d'opérateur, pas une phrase à
-générer.
+générer. Le même bouton remplit en revanche l'extrait d'un article ;
+l'image de une est une action distincte (`aiImage.generatePostCover`).
 
 ## 4. Dashboard — `SiteDashboard`
 

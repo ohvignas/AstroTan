@@ -9,9 +9,15 @@ import {
 import { api } from "./_generated/api"
 import { requireRole } from "./lib/authz"
 import { MUTATION_REGISTRY } from "./_registry"
-import { rankForDocument, readSiteSnapshot } from "./lib/seoRanksQueries"
+import { fenetreFor, PERIODES } from "./analytics"
+import {
+  enregistrerMoyennePosition,
+  rankForDocument,
+  readSiteSeries,
+  readSiteSnapshot,
+} from "./lib/seoRanksQueries"
 import { executerRelever } from "./lib/seoRelever"
-import { executerRefreshWeekly } from "./lib/seoWeekly"
+import { executerRefreshSiteSnapshot, executerRefreshWeekly } from "./lib/seoWeekly"
 import {
   replaceKeywordRows,
   upsertBacklinksRow,
@@ -19,6 +25,13 @@ import {
 } from "./lib/seoRanksWrite"
 
 const kindValidator = v.union(v.literal("page"), v.literal("post"))
+const periodeValidator = v.union(
+  ...(PERIODES.map((p) => v.literal(p)) as [
+    ReturnType<typeof v.literal<"semaine">>,
+    ReturnType<typeof v.literal<"mois">>,
+    ReturnType<typeof v.literal<"annee">>,
+  ]),
+)
 
 export const forDocument = query({
   args: {
@@ -37,6 +50,22 @@ export const siteSnapshot = query({
   handler: async (ctx) => {
     await requireRole(ctx, ["owner", "admin", "editor"])
     return readSiteSnapshot(ctx)
+  },
+})
+
+export const siteSeries = query({
+  args: { periode: v.optional(periodeValidator) },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    const fenetre = fenetreFor(args.periode ?? "mois", Date.now())
+    return readSiteSeries(ctx, fenetre.startAt, fenetre.endAt)
+  },
+})
+
+export const recordPositionHistory = internalMutation({
+  args: { fetchedAt: v.number() },
+  handler: async (ctx, args) => {
+    await enregistrerMoyennePosition(ctx, args.fetchedAt)
   },
 })
 
@@ -162,6 +191,15 @@ export const relever = action({
   handler: async (ctx, args) => executerRelever(ctx, args, { throttle: true }),
 })
 
+/** Snapshot site (Labs + Overview) — le même jeu que les pastilles d'accueil. */
+export const refreshSite = action({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+    return executerRefreshSiteSnapshot(ctx)
+  },
+})
+
 export const refreshWeekly = internalAction({
   args: {},
   handler: async (ctx) => {
@@ -169,8 +207,15 @@ export const refreshWeekly = internalAction({
   },
 })
 
-MUTATION_REGISTRY.push({
-  name: "seoRanks.relever",
-  allowedRoles: ["owner", "admin", "editor"],
-  invoke: (t) => t.action(api.seoRanks.relever, { kind: "page" }),
-})
+MUTATION_REGISTRY.push(
+  {
+    name: "seoRanks.relever",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: (t) => t.action(api.seoRanks.relever, { kind: "page" }),
+  },
+  {
+    name: "seoRanks.refreshSite",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: (t) => t.action(api.seoRanks.refreshSite, {}),
+  },
+)

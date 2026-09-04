@@ -33,6 +33,12 @@ describe("le slug suit le titre", () => {
     expect(etat.slug).not.toContain("à")
   })
 
+  test("« Les bases du vibecoding » devient les-bases-du-vibecoding", () => {
+    expect(saisirTitre(ETAT_SLUG_INITIAL, "Les bases du vibecoding").slug).toBe(
+      "les-bases-du-vibecoding"
+    )
+  })
+
   test("la ponctuation et les espaces ne fabriquent pas d'URL cassée", () => {
     expect(saisirTitre(ETAT_SLUG_INITIAL, "  L'IA & le No-Code !  ").slug).toBe(
       "l-ia-le-no-code"

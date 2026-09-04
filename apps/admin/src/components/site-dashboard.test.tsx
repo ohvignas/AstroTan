@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import type { SiteSummary, UmamiLinks } from "@astrotan/backend/convex/analytics"
 import type { SiteSnapshot } from "@astrotan/backend/convex/lib/seoSnapshot"
+import type { SiteSeries } from "@astrotan/backend/convex/lib/seoSiteHistory"
+import type { SerieGraphe } from "@/lib/seoChartSeries"
 import { SiteDashboard, trend } from "./site-dashboard"
 
 const OK: SiteSummary = {
@@ -23,6 +25,7 @@ const OK: SiteSummary = {
   topPages: [{ label: "/blog/bienvenue", visits: 312 }],
   topReferrers: [{ label: "Accès direct", visits: 94 }],
   status: "ok",
+  fetchedAt: 1_787_000_000_000,
 }
 
 const SHARED: UmamiLinks = {
@@ -39,12 +42,22 @@ const SNAPSHOT: SiteSnapshot = {
   referringDomains: { value: 12, prev: 10 },
   keywords: [{ keyword: "agence web", position: 4 }],
   rankingPages: [{ path: "/", position: 4 }],
+  keywordCount: 18,
+  fetchedAt: 1,
 }
 
 function render(
   summary: SiteSummary | undefined,
   umami: UmamiLinks | null = null,
   snapshot: SiteSnapshot | null = null,
+  extras: {
+    onRefresh?: () => void
+    refreshBusy?: boolean
+    refreshError?: string | null
+    lastRefreshedAt?: number
+    history?: SiteSeries
+    serie?: SerieGraphe
+  } = {},
 ) {
   return renderToStaticMarkup(
     <SiteDashboard
@@ -53,6 +66,12 @@ function render(
       periode="mois"
       onPeriode={() => {}}
       snapshot={snapshot}
+      onRefresh={extras.onRefresh}
+      refreshBusy={extras.refreshBusy}
+      refreshError={extras.refreshError}
+      lastRefreshedAt={extras.lastRefreshedAt}
+      history={extras.history}
+      serie={extras.serie}
     />,
   )
 }
@@ -117,6 +136,7 @@ const PANNE: SiteSummary = {
   topPages: null,
   topReferrers: null,
   status: "unreachable",
+  fetchedAt: null,
 }
 
 describe("le cadre du graphique", () => {
@@ -226,21 +246,102 @@ describe("SiteDashboard", () => {
     expect(html).toContain("Pages les plus visitées")
     expect(html).toContain("viennent-ils")
     expect(html).toContain("sm:grid-cols-2")
+    expect(html).not.toContain("lg:grid-cols-3")
+    expect(html).toContain("--color-pageviews")
+    expect(html).not.toContain("--color-rank")
+  })
+
+  test("avec DataForSEO : pastilles et trois listes, aucun axe de rang", () => {
+    const html = render(OK, null, SNAPSHOT)
+    expect(html).toContain("Position moyenne")
+    expect(html).toContain("Backlinks")
+    expect(html).toContain("Mots-clés")
+    expect(html).toContain("18")
+    expect(html).not.toContain("Domaines référents")
+    expect(html).toContain("Mots-clés qui amènent")
+    expect(html).not.toContain("Pages qui sortent déjà")
+    expect(html).toContain("agence web")
+    expect(html).toContain("lg:grid-cols-3")
     expect(html).not.toContain("lg:grid-cols-4")
     expect(html).toContain("--color-pageviews")
     expect(html).not.toContain("--color-rank")
   })
 
-  test("avec DataForSEO : pastilles et quatre listes, aucun axe de rang", () => {
-    const html = render(OK, null, SNAPSHOT)
-    expect(html).toContain("Position moyenne")
+  test("clic Position moyenne : la courbe de rang remplace les visites", () => {
+    const html = render(OK, null, SNAPSHOT, {
+      serie: "position",
+      history: {
+        position: [
+          { fetchedAt: Date.UTC(2026, 7, 3, 6, 0, 0), value: 11 },
+          { fetchedAt: Date.UTC(2026, 7, 10, 6, 0, 0), value: 8 },
+        ],
+        backlinks: [],
+        keywords: [],
+      },
+    })
+    expect(html).toContain("--color-rank")
+    expect(html).not.toContain("--color-pageviews")
+    expect(html).toContain('aria-pressed="true"')
+  })
+
+  test("le même bouton de relance que les fiches, pour l'audience", () => {
+    const html = render(OK, null, null, { onRefresh: () => {} })
+    expect(html).toContain("Recharger")
+    expect(html).not.toMatch(/>Relever</)
+    const busy = render(OK, null, null, { onRefresh: () => {}, refreshBusy: true })
+    expect(busy).toContain("animate-spin")
+    expect(busy).toContain("Actualisation…")
+    expect(busy).not.toContain("sr-only")
+  })
+
+  test("la date du jeu affiché reste à côté de la roue, sans flash", () => {
+    const at = Date.UTC(2026, 7, 20, 9, 0, 0)
+    const html = render(OK, null, null, {
+      onRefresh: () => {},
+      lastRefreshedAt: at,
+    })
+    expect(html).toMatch(/20/)
+    expect(html).not.toContain("Actualisé à")
+    const busy = render(OK, null, null, {
+      onRefresh: () => {},
+      refreshBusy: true,
+      lastRefreshedAt: at,
+    })
+    expect(busy).toContain("Actualisation…")
+    expect(busy).toMatch(/20/)
+  })
+
+  test("roue cliquable pendant le chargement Umami", () => {
+    const html = render(undefined, null, null, { onRefresh: () => {} })
+    const wheel = html.match(/<button[^>]*aria-label="Recharger"[^>]*>/)
+    expect(wheel?.[0]).toBeDefined()
+    expect(wheel?.[0]).not.toContain('disabled=""')
+  })
+
+  test("un échec de Recharger s'écrit à côté, pas un bouton mort", () => {
+    const html = render(OK, null, null, {
+      onRefresh: () => {},
+      refreshError: "Le service d'audience n'a pas répondu.",
+    })
+    expect(html).toContain("role=\"alert\"")
+    expect(html).toContain("audience n")
+    expect(html).not.toContain("sr-only")
+    const wheel = html.match(/<button[^>]*aria-label="Recharger"[^>]*>/)
+    expect(wheel?.[0]).not.toContain('disabled=""')
+  })
+
+  test("sans relevé backlinks : tiret, pas un faux zéro ; les mots-clés restent", () => {
+    const html = render(OK, null, {
+      ...SNAPSHOT,
+      backlinks: null,
+      referringDomains: null,
+    })
+    expect(html).not.toContain("Pas encore relevé")
     expect(html).toContain("Backlinks")
-    expect(html).toContain("Domaines référents")
-    expect(html).toContain("Mots-clés qui amènent")
-    expect(html).toContain("Pages qui sortent déjà")
-    expect(html).toContain("agence web")
-    expect(html).toContain("lg:grid-cols-4")
-    expect(html).toContain("--color-pageviews")
-    expect(html).not.toContain("--color-rank")
+    expect(html).toContain("Mots-clés")
+    expect(html).not.toContain("Domaines référents")
+    expect(html).toContain("—")
+    expect(html.match(/tabular-nums">0</g)).toBeNull()
+    expect(html).toContain("18")
   })
 })

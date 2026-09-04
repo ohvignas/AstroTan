@@ -393,7 +393,7 @@ depuis l'administration. Sans elle, `secrets.set` refuse proprement
 (`SECRETS_KEY_MISSING`, bouton désactivé, commande affichée à l'écran) —
 mais toute la famille `secrets` est alors inerte : les sept jetons ne se
 posent plus que par `convex env set`, donc `/settings/mesure` et
-`/settings/ia` sont décoratifs. `pnpm bootstrap` la génère et la pose ; à
+`/settings/agent` sont décoratifs. `pnpm bootstrap` la génère et la pose ; à
 la main, c'est exactement la commande que l'écran affiche :
 
 ```bash
@@ -1083,23 +1083,37 @@ en silence. Le bloc « Tracking code » de cette page affiche alors une
 ```
 
 **2. Côté site** — poser `PUBLIC_UMAMI_RECORDER=true` (secret GitHub ou
-`apps/web/.env.local`) et **reconstruire**. `Analytics.astro` émet alors la
-seconde balise.
+`apps/web/.env.local`) et **reconstruire**. Le bandeau de consentement
+injecte alors `recorder.js` **après** un accord « Mesure d'audience » —
+jamais dans le HTML servi avant réponse (`Analytics.astro` ne pose que
+`script.js`, le comptage).
 
 Les deux sont nécessaires et l'ordre est indifférent, mais l'un sans
 l'autre ne produit rien : sans l'interrupteur d'Umami, `recorder.js` est
 chargé pour rien ; sans la variable, l'interrupteur n'a aucun script à
 commander. Le contrôle qui tranche, dans l'onglet réseau d'une page du
-site :
+site, **après avoir accepté la mesure** :
 
 ```
 GET  /recorder.js                         → 200
 GET  /api/websites/<id>/recorder          → 200
 POST /api/send                            → 200
+POST /api/record                          → 200
 ```
 
 La deuxième ligne est la plus parlante : l'enregistreur demande sa
 configuration au serveur, donc l'interrupteur d'Umami commande vraiment.
+`POST /api/record` n'apparaît que si le tirage d'échantillonnage a
+retenu cette visite (défaut 15 % — poser `sampleRate: 1` pour tester).
+
+**Heatmaps — le fond est un iframe.** Umami recharge le site dans un
+cadre et pose les points par-dessus. `PUBLIC_UMAMI_RECORDER=true` ouvre
+`frame-ancestors` vers l'origine d'Umami et retire `X-Frame-Options:
+DENY` (cet en-tête écrase sinon la CSP). Sans ça, des points existent
+et l'écran reste blanc. Dans Umami : onglet *Heatmap*, choisir une page
+dans *Pages* — sans `urlPath` l'API rend `points: []`. Un site en
+`localhost:4321` n'aura pas de fond correct : Umami reconstruit l'URL
+depuis le champ *domain* du site et **perd le port**.
 
 **Ce n'est pas la même promesse que le comptage, et c'est la raison pour
 laquelle cette variable est séparée et éteinte par défaut.** Compter une

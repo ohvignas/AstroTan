@@ -1,6 +1,6 @@
 ---
 // Le gabarit d'un article, porté de `src/layouts/BlogLayout.astro`
-// d'`astro-emdash` : en-tête d'article, sommaire dans un rail droit
+// d'`astro-emdash` : en-tête d'article, sommaire dans un rail gauche
 // collant, corps à mesure de lecture confortable, partage, articles liés,
 // lien de retour.
 //
@@ -15,7 +15,7 @@
 //
 // Le placement en grille est explicite (`grid-column` / `grid-row`) et non
 // laissé à l'ordre du DOM : le sommaire est écrit AVANT le corps pour
-// tomber en haut sur mobile, mais doit occuper la colonne étroite de droite
+// tomber en haut sur mobile, et occupe la colonne étroite de gauche
 // sur grand écran.
 import BaseLayout from "./BaseLayout.astro"
 import ArticleHero from "../components/blog/ArticleHero.astro"
@@ -30,6 +30,7 @@ export interface Props {
   headings: Heading[]
   coverUrl: string | null
   coverAlt: string
+  coverTitle?: string
   canonicalUrl: string
   relatedPosts: PostSummary[]
   preview: boolean
@@ -40,6 +41,7 @@ const {
   headings,
   coverUrl,
   coverAlt,
+  coverTitle,
   canonicalUrl,
   relatedPosts,
   preview: _preview,
@@ -56,6 +58,7 @@ const hasToc = headings.length >= 2
     excerpt: post.excerpt,
     publishedAt: post.publishedAt,
     coverUrl,
+    coverAlt,
   }}
 >
   <article class="blog-layout container">
@@ -66,6 +69,7 @@ const hasToc = headings.length >= 2
       publishedAt={post.publishedAt}
       coverUrl={coverUrl}
       coverAlt={coverAlt}
+      coverTitle={coverTitle}
     />
 
     <div class={`blog-layout__content${hasToc ? " blog-layout__content--with-toc" : ""}`}>
@@ -109,23 +113,23 @@ const hasToc = headings.length >= 2
   }
 
   .blog-layout__content--with-toc {
-    grid-template-columns: minmax(0, 1fr) 16rem;
-  }
-
-  .blog-layout__content--with-toc .blog-layout__article {
-    grid-column: 1;
-    grid-row: 1;
-    min-width: 0;
+    grid-template-columns: 16rem minmax(0, 1fr);
   }
 
   .blog-layout__content--with-toc .blog-layout__toc {
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 1;
     position: sticky;
     /* Sous l'en-tête collant, sinon le sommaire passe dessous. */
     top: calc(var(--header-height) + 1.25rem);
     max-height: calc(100vh - var(--header-height) - 3rem);
     overflow-y: auto;
+  }
+
+  .blog-layout__content--with-toc .blog-layout__article {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
   }
 
   /* Mesure de lecture confortable : au-delà, l'œil perd la ligne suivante. */

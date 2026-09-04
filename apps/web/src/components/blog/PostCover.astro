@@ -16,12 +16,13 @@ import { Image } from "astro:assets"
 export interface Props {
   coverUrl?: string | null
   coverAlt?: string
+  coverTitle?: string
   title: string
   /** `eager` sur la couverture d'article (élément LCP), `lazy` en liste. */
   eager?: boolean
 }
 
-const { coverUrl, coverAlt, title, eager = false } = Astro.props as Props
+const { coverUrl, coverAlt, coverTitle, title, eager = false } = Astro.props as Props
 ---
 
 {coverUrl ? (
@@ -30,11 +31,18 @@ const { coverUrl, coverAlt, title, eager = false } = Astro.props as Props
      (`image.remotePatterns`). Sans cette autorisation elle traverserait le
      pipeline sans être touchée — pas de `srcset`, pas d'AVIF/WebP — et rien
      ne le signalerait. `inferSize` lit les dimensions réelles du fichier
-     distant, ce qui évite le décalage de mise en page. */
+     distant, ce qui évite le décalage de mise en page. `format="webp"` est
+     le défaut documenté d'`<Image>` ; on le fixe pour qu'une une PNG Convex
+     ne reparte pas en PNG. `widths` borne le srcset à une une vitrine, pas
+     à un 2K/4K éventuel. */
   <Image
     src={coverUrl}
     alt={coverAlt ?? ""}
+    title={coverTitle}
     inferSize
+    format="webp"
+    widths={[640, 960, 1280]}
+    sizes={eager ? "100vw" : "(min-width: 768px) 50vw, 100vw"}
     loading={eager ? "eager" : "lazy"}
     fetchpriority={eager ? "high" : undefined}
     class="post-cover__img"

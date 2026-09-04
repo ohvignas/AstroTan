@@ -4,17 +4,9 @@ import { useMutation, useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
-import { PAGE_ERROR_MESSAGES, describePageError } from "@/lib/pageErrors"
-import {
-  ETAT_SLUG_INITIAL,
-  saisirSlug,
-  saisirTitre,
-  slugDejaPris,
-} from "@/lib/slugSync"
-import type { EtatSlug } from "@/lib/slugSync"
+import { describePageError } from "@/lib/pageErrors"
 import { RowActionButton, RowActionsMenu } from "@/components/row-actions"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   AlertDialog,
@@ -27,26 +19,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import {
-  Field,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import {
   Table,
   TableBody,
@@ -60,7 +35,6 @@ import {
   GlobeIcon,
   HomeIcon,
   PencilIcon,
-  PlusIcon,
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react"
@@ -98,19 +72,13 @@ function PagesListPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-medium">Pages</h1>
-          <p className="text-sm text-muted-foreground">
-            {profile.role === "editor"
-              ? "Vous voyez toutes les pages, mais ne modifiez ou supprimez que les vôtres."
-              : "Créer, éditer, prévisualiser et publier les pages du site."}
-          </p>
-        </div>
-        {/* Les slugs déjà pris, depuis la liste que cet écran a déjà
-            chargée : le dialogue signale la collision AVANT le clic sur
-            « Créer », sans souscrire une seconde query pour cela. */}
-        <CreatePageDialog slugsExistants={pages.map((page) => page.slug)} />
+      <div>
+        <h1 className="text-lg font-medium">Pages</h1>
+        <p className="text-sm text-muted-foreground">
+          {profile.role === "editor"
+            ? "Vous voyez toutes les pages du site, mais ne modifiez ou supprimez que les vôtres."
+            : "Toutes les pages du site. Un agent écrit le fichier ; ici on publie et on règle le SEO."}
+        </p>
       </div>
 
       <Card>
@@ -186,11 +154,14 @@ function PagesTable({
         <TableBody>
           {pages.map((page) => {
             const isOwn = page.createdBy === selfAuthUserId
-            const pending = pendingId === page._id
+            const pending = page._id !== null && pendingId === page._id
             return (
-              <TableRow key={page._id}>
+              <TableRow key={page._id ?? `missing:${page.slug}`}>
                 <TableCell className="font-medium">
                   <span className="flex items-center gap-1.5">
+                    {page._id === null ? (
+                      <span>{page.title}</span>
+                    ) : (
                     <Link
                       to="/pages/$pageId"
                       params={{ pageId: page._id }}
@@ -198,6 +169,16 @@ function PagesTable({
                     >
                       {page.title}
                     </Link>
+                    )}
+                    {page.missingRow && (
+                      <span
+                        title="Le fichier existe, la fiche Convex n'a pas encore été créée. Un agent doit appeler pages.create avec ce slug."
+                        className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive"
+                      >
+                        <TriangleAlertIcon className="size-3" aria-hidden="true" />
+                        Sans fiche
+                      </span>
+                    )}
                     {page.servedByRoute === false && (
                       <span
                         title="Aucun fichier de route ne sert ce chemin : la page rend 404 malgré son statut. Créez src/pages/<slug>.astro, ou supprimez cette ligne."
@@ -233,21 +214,23 @@ function PagesTable({
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
+                  {page._id !== null && (
                   <PageRowActions
                     page={page}
                     canPublish={canPublish}
                     isOwn={isOwn}
                     pending={pending}
                     onPublish={() =>
-                      withPending(page._id, () => publishPage({ id: page._id }))
+                      withPending(page._id!, () => publishPage({ id: page._id! }))
                     }
                     onUnpublish={() =>
-                      withPending(page._id, () => unpublish({ id: page._id }))
+                      withPending(page._id!, () => unpublish({ id: page._id! }))
                     }
                     onDelete={() =>
-                      withPending(page._id, () => removePage({ id: page._id }))
+                      withPending(page._id!, () => removePage({ id: page._id! }))
                     }
                   />
+                  )}
                 </TableCell>
               </TableRow>
             )
@@ -280,7 +263,7 @@ function PageRowActions({
   onUnpublish,
   onDelete,
 }: {
-  page: PageRow
+  page: PageRow & { _id: NonNullable<PageRow["_id"]> }
   canPublish: boolean
   isOwn: boolean
   pending: boolean
@@ -356,159 +339,5 @@ function PageRowActions({
         </AlertDialog>
       )}
     </div>
-  )
-}
-
-function CreatePageDialog({
-  slugsExistants,
-}: {
-  slugsExistants: readonly string[]
-}) {
-  const createPage = useMutation(api.pages.create)
-  const [open, setOpen] = useState(false)
-  // Un seul état pour le couple titre/slug : le slug suit le titre tant
-  // qu'on n'y a pas touché, et c'est une propriété du COUPLE, pas de l'un
-  // ou l'autre. Deux `useState` indépendants auraient obligé à porter le
-  // « a-t-on déjà édité le slug » dans un troisième, à côté des deux
-  // valeurs qu'il décrit. Les règles vivent dans `lib/slugSync.ts`, où
-  // elles sont testables sans DOM.
-  const [etat, setEtat] = useState<EtatSlug>(ETAT_SLUG_INITIAL)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const dejaPris = slugDejaPris(etat.slug, slugsExistants)
-
-  function handleOpenChange(next: boolean) {
-    setOpen(next)
-    if (!next) {
-      setEtat(ETAT_SLUG_INITIAL)
-      setError(null)
-    }
-  }
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError(null)
-    setSubmitting(true)
-    try {
-      const id = await createPage({ title: etat.titre, slug: etat.slug })
-      handleOpenChange(false)
-      // Full navigation to the freshly-created page's own editor route,
-      // rather than staying on this list — creating a page is only ever
-      // step one of actually building it.
-      window.location.assign(`/pages/${id}`)
-    } catch (err) {
-      setError(describePageError(err))
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger render={<Button />}>
-        <PlusIcon data-icon="inline-start" />
-        Nouvelle page
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Nouvelle page</DialogTitle>
-          {/* Ce que la phrase précédente ne disait pas assez fort : ce
-              dialogue n'écrit RIEN dans `apps/web`. Elle annonçait « elle
-              ne s'affichera que lorsque son fichier existera », ce qui est
-              vrai et se lit comme une promesse que quelque chose va
-              apparaître. Elle omettait aussi la publication, qui est
-              l'autre condition. */}
-          <DialogDescription>
-            Crée la fiche, pas le fichier. La page s'affichera une fois
-            publiée, si <code>{"src/pages/<slug>.astro"}</code> existe.
-          </DialogDescription>
-        </DialogHeader>
-        <form id="create-page-form" onSubmit={handleSubmit} noValidate>
-          <CorpsNouvellePage
-            etat={etat}
-            dejaPris={dejaPris}
-            error={error}
-            onTitre={(titre) => setEtat((actuel) => saisirTitre(actuel, titre))}
-            onSlug={(slug) => setEtat((actuel) => saisirSlug(actuel, slug))}
-          />
-        </form>
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>
-            Annuler
-          </DialogClose>
-          <Button
-            type="submit"
-            form="create-page-form"
-            disabled={
-              submitting ||
-              etat.titre.trim().length === 0 ||
-              etat.slug.trim().length === 0 ||
-              dejaPris
-            }
-          >
-            {submitting ? "Création…" : "Créer"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-/**
- * Les deux champs du dialogue, pilotés de l'extérieur.
- *
- * Séparé du dialogue pour être rendu seul dans un test : `vitest.config.ts`
- * est en `environment: "node"` et rend avec `renderToStaticMarkup`, sans
- * DOM ni interaction. Ce composant-ci est ce qui relie l'état calculé par
- * `lib/slugSync.ts` à ce que l'opérateur voit — le maillon qu'un test de
- * fonction pure ne couvre pas.
- */
-export function CorpsNouvellePage({
-  etat,
-  dejaPris,
-  error,
-  onTitre,
-  onSlug,
-}: {
-  etat: EtatSlug
-  dejaPris: boolean
-  error: string | null
-  onTitre: (titre: string) => void
-  onSlug: (slug: string) => void
-}) {
-  return (
-    <FieldGroup>
-      <Field>
-        <FieldLabel htmlFor="page-title">Titre</FieldLabel>
-        <Input
-          id="page-title"
-          autoComplete="off"
-          required
-          value={etat.titre}
-          onChange={(event) => onTitre(event.target.value)}
-        />
-      </Field>
-      <Field data-invalid={dejaPris || undefined}>
-        <FieldLabel htmlFor="page-slug">Slug</FieldLabel>
-        <Input
-          id="page-slug"
-          autoComplete="off"
-          required
-          placeholder="a-propos"
-          aria-invalid={dejaPris || undefined}
-          value={etat.slug}
-          onChange={(event) => onSlug(event.target.value)}
-        />
-        {/* Le refus que `pages.create` prononcerait, dit avant le clic :
-            le champ se remplit désormais tout seul, ce qui rend deux pages
-            « Contact » plus faciles à tenter qu'avant. Même phrase que le
-            refus serveur, prise à la même source. */}
-        {dejaPris && (
-          <FieldError>{PAGE_ERROR_MESSAGES.SLUG_ALREADY_EXISTS}</FieldError>
-        )}
-      </Field>
-      {error && <FieldError>{error}</FieldError>}
-    </FieldGroup>
   )
 }

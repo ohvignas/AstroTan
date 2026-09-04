@@ -1,6 +1,8 @@
+import { useState } from "react"
 import type { FunctionReturnType } from "convex/server"
 import type { api } from "@astrotan/backend/convex/_generated/api"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { CheckIcon, CircleHelpIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react"
 
 // Pulled out of `routes/_authed/pages/$pageId.tsx` (whole-lot review, the
@@ -24,9 +26,11 @@ export type PublicationStatus = FunctionReturnType<typeof api.pages.publicationS
 export function PublicationStatusBadge({
   status,
   pageStatus,
+  onRetry,
 }: {
   status: PublicationStatus | undefined
   pageStatus: "draft" | "published"
+  onRetry?: () => void | Promise<void>
 }) {
   if (status === undefined) {
     return <Badge variant="outline">…</Badge>
@@ -68,10 +72,55 @@ export function PublicationStatusBadge({
   }
   // "failed"
   return (
-    <Badge variant="destructive" title={status.lastError ?? undefined}>
-      <TriangleAlertIcon data-icon="inline-start" />
-      Échec de la propagation
-      {pageStatus === "published" ? "" : " (dernière tentative)"}
-    </Badge>
+    <>
+      <Badge variant="destructive" title={status.lastError ?? undefined}>
+        <TriangleAlertIcon data-icon="inline-start" />
+        Échec de la propagation
+        {pageStatus === "published" ? "" : " (dernière tentative)"}
+      </Badge>
+      {onRetry ? <RetryPropagationButton onRetry={onRetry} /> : null}
+    </>
+  )
+}
+
+function RetryPropagationButton({ onRetry }: { onRetry: () => void | Promise<void> }) {
+  const [phase, setPhase] = useState<"idle" | "loading" | "success" | "error">("idle")
+
+  async function handleClick() {
+    if (phase === "loading") return
+    setPhase("loading")
+    try {
+      await onRetry()
+      setPhase("success")
+    } catch {
+      setPhase("error")
+    }
+  }
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        disabled={phase === "loading"}
+        onClick={() => void handleClick()}
+      >
+        {phase === "loading" ? (
+          <>
+            <Loader2Icon data-icon="inline-start" className="animate-spin" />
+            Nouvelle tentative…
+          </>
+        ) : (
+          "Réessayer la propagation"
+        )}
+      </Button>
+      {phase === "success" ? (
+        <span className="text-xs text-muted-foreground">Propagation relancée</span>
+      ) : null}
+      {phase === "error" ? (
+        <span className="text-xs text-destructive">Impossible de relancer la propagation</span>
+      ) : null}
+    </>
   )
 }

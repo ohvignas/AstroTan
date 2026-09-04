@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest"
-import { isServedByRoute, isUnderDynamicRoute } from "./servedPaths"
+import {
+  cmsSlugsFromServedPaths,
+  isServedByRoute,
+  isUnderDynamicRoute,
+} from "./servedPaths"
 
 // Le manifeste est engendré depuis `apps/web/src/pages` par
 // `scripts/generate-served-paths.mjs`. Ces tests portent sur la
@@ -51,5 +55,14 @@ describe("les chemins qu'un fichier de route sert déjà", () => {
     // `/blogue` n'est pas sous `/blog` : sans la vérification du séparateur
     // la garde refuserait un chemin parfaitement libre.
     expect(isServedByRoute("/blogue")).toBe(false)
+  })
+
+  test("les slugs CMS excluent les routes qui ne sont pas une ligne pages", () => {
+    const slugs = cmsSlugsFromServedPaths()
+    expect(slugs).toContain("contact")
+    expect(slugs).toContain("tarifs")
+    expect(slugs).not.toContain("")
+    expect(slugs).not.toContain("404")
+    expect(slugs).not.toContain("blog")
   })
 })

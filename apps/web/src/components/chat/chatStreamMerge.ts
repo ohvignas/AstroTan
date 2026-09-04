@@ -109,9 +109,8 @@ export function toolNamesFromParts(parts: unknown[]): string[] {
   return [...new Set(names)]
 }
 
-export function shortToolName(name: string): string {
-  const parts = name.split("__")
-  return parts[parts.length - 1] ?? name
+function isCalendarTool(name: string): boolean {
+  return name.toLowerCase().includes("calendar")
 }
 
 export function streamingBusyLabel(messages: readonly DisplayedMessage[]): string {
@@ -121,10 +120,12 @@ export function streamingBusyLabel(messages: readonly DisplayedMessage[]): strin
     if (message.toolCalls) names.push(...message.toolCalls)
     else if (message.tool) names.push(message.tool)
   }
-  const cleaned = [...new Set(names.map(shortToolName).filter((name) => name && name !== "outil"))]
   if (names.length === 0) return "Réponse en cours…"
-  if (cleaned.length === 1) return cleaned[0] ?? "Utilisation d'un outil…"
-  if (cleaned.length > 1) return "Utilisation d'outils…"
+  const unique = [...new Set(names.filter((name) => name && name !== "outil"))]
+  if (unique.length > 0 && unique.every(isCalendarTool)) {
+    return "Consultation de l'agenda…"
+  }
+  if (unique.length > 1) return "Utilisation d'outils…"
   return "Utilisation d'un outil…"
 }
 

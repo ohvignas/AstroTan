@@ -13,6 +13,7 @@ import {
   readJson,
   stringField,
   visitorClient,
+  visitorPageUrl,
 } from "./_door"
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
@@ -36,6 +37,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       ip: client.ip,
       country: client.country,
       city: client.city,
+      latitude: client.latitude,
+      longitude: client.longitude,
+      timezone: client.timezone,
+      pageUrl: visitorPageUrl(request, payload),
     })
     return json({ ok: true, ...result })
   } catch (error) {

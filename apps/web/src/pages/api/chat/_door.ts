@@ -94,6 +94,17 @@ export async function visitorClient(
   return { origin: await empreinteOrigine(ip, secret), ...geoFromTrustedIp(ip, ctx.request.headers) }
 }
 
+/** Page du widget : payload d'abord, sinon Referer déjà posé au start. */
+export function visitorPageUrl(
+  request: Request,
+  payload?: Record<string, unknown>,
+): string | undefined {
+  const fromPayload = payload ? stringField(payload, "pageUrl") : ""
+  const referer = request.headers.get("referer") ?? ""
+  const raw = fromPayload.length > 0 ? fromPayload : referer
+  return raw.length > 0 ? raw : undefined
+}
+
 function convexCode(error: unknown): string | undefined {
   if (error === null || typeof error !== "object" || !("data" in error)) return undefined
   const data = (error as { data?: unknown }).data

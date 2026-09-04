@@ -1,12 +1,26 @@
 import { ConvexError, v } from "convex/values"
-import { internalQuery, mutation, query } from "./_generated/server"
-import type { QueryCtx } from "./_generated/server"
-import { api } from "./_generated/api"
+import {
+  action,
+  internalAction,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server"
+import type { ActionCtx, QueryCtx } from "./_generated/server"
+import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
 import { requireRole } from "./lib/authz"
 import { journaliser } from "./lib/auditEvent"
 import { CATALOGUE, type CleEmail, type DescriptionEmail } from "./lib/catalogueEmails"
 import { validerGabarit } from "./lib/gabarit"
+import { composerMessage, identiteAvecLogoJoignable, valeursExemple } from "./lib/emailLayout"
+import { makeResend } from "./lib/resend"
+import { resoudreExpediteur } from "./lib/expediteur"
+import { deriverOrigines } from "./lib/origines"
+import { lireSecret } from "./secrets"
+import { listUsersWithRole } from "./users"
+import { isCurrentlyBanned } from "./lib/authz"
+import { choisirDestinataireInterne } from "./lib/destinataireInterne"
 
 // ---------------------------------------------------------------------
 // L'écran « envoi des emails » : ce que le site écrit, à qui, et ce que
@@ -377,6 +391,106 @@ export const resetTemplate = mutation({
   },
 })
 
+export type ResultatExemple =
+  | { ok: true; to: string; testMode: boolean }
+  | { ok: false; raison: "sans_cle" | "inactif" | "sans_owner" }
+
+const ADRESSE_TEST_RESEND = "delivered@resend.dev"
+
+function destinataireExemple(to: string, testMode: boolean): string {
+  if (!testMode) return to
+  return to.toLowerCase().endsWith("@resend.dev") ? to : ADRESSE_TEST_RESEND
+}
+
+async function expedierExemple(
+  ctx: ActionCtx,
+  cle: CleEmail,
+  to: string,
+): Promise<ResultatExemple> {
+  const gabarit = await ctx.runQuery(internal.emails.gabarit, { cle })
+  if (!gabarit.actif) return { ok: false, raison: "inactif" }
+
+  const cleResend = await lireSecret(ctx, "RESEND_API_KEY")
+  if (!cleResend) return { ok: false, raison: "sans_cle" }
+
+  const identite = await identiteAvecLogoJoignable(
+    await ctx.runQuery(internal.settings.identiteEmail, {}),
+  )
+  const { admin: siteUrl } = deriverOrigines(
+    await ctx.runQuery(internal.settings.domaineDeclare, {}),
+  )
+  const valeurs = valeursExemple(cle, {
+    siteName: identite.siteName,
+    adminUrl: siteUrl ?? "https://admin.exemple.fr",
+  })
+  const message = composerMessage(gabarit, valeurs, cle, identite)
+  const testMode = process.env.RESEND_TEST_MODE !== "false"
+  const dest = destinataireExemple(to, testMode)
+  const resend = await makeResend(ctx)
+  await resend.sendEmail(ctx, {
+    from: await resoudreExpediteur(ctx),
+    to: dest,
+    ...message,
+  })
+  return { ok: true, to: dest, testMode }
+}
+
+/**
+ * Destinataire des exemples sans session (`envoyerExempleInterne`).
+ *
+ * Plus le premier owner aveugle : un owner `@domaine.test` n'est pas une
+ * boîte. On préfère un compte staff dont l'hôte est le domaine déclaré,
+ * sinon `emailFrom` s'il y est déjà, et seulement ensuite l'owner.
+ */
+export const adresseOwner = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<string | null> => {
+    const [owners, admins, editors] = await Promise.all([
+      listUsersWithRole(ctx, "owner"),
+      listUsersWithRole(ctx, "admin"),
+      listUsersWithRole(ctx, "editor"),
+    ])
+    const actifs = [...owners, ...admins, ...editors].filter((user) => !isCurrentlyBanned(user))
+    const settings = await ctx.db.query("settings").first()
+    return choisirDestinataireInterne({
+      owners: owners.filter((user) => !isCurrentlyBanned(user)).map((user) => user.email),
+      staff: actifs.map((user) => user.email),
+      declaredDomain: settings?.declaredDomain ?? null,
+      emailFrom: settings?.emailFrom ?? null,
+    })
+  },
+})
+
+/**
+ * Envoie UN exemplaire de cet email à l'adresse de qui clique.
+ *
+ * Le texte est celui qui part vraiment (`gabaritPour`), pas le brouillon
+ * ouvert dans l'éditeur. Les valeurs sont fictives — le jeton d'un
+ * exemple n'ouvre aucune porte. Owner/admin seulement : c'est le même
+ * pouvoir que réécrire le gabarit.
+ */
+export const envoyerExemple = action({
+  args: { cle: cleValidator },
+  handler: async (ctx, args): Promise<ResultatExemple> => {
+    const acteur = await requireRole(ctx, ["owner", "admin"])
+    return expedierExemple(ctx, args.cle, acteur.email)
+  },
+})
+
+/**
+ * Même envoi, pour `npx convex run` — pas de session, donc l'adresse
+ * vient de `adresseOwner` (staff du domaine déclaré, pas un owner `.test`).
+ * Inatteignable depuis un client.
+ */
+export const envoyerExempleInterne = internalAction({
+  args: { cle: cleValidator },
+  handler: async (ctx, args): Promise<ResultatExemple> => {
+    const to = await ctx.runQuery(internal.emails.adresseOwner, {})
+    if (!to) return { ok: false, raison: "sans_owner" }
+    return expedierExemple(ctx, args.cle, to)
+  },
+})
+
 // Les trois mutations publiques de ce module, déclarées comme chaque
 // module le fait lui-même à l'import. `_registry.test.ts` exige l'égalité
 // stricte dans les deux sens : une entrée manquante ET une entrée
@@ -406,6 +520,11 @@ MUTATION_REGISTRY.push(
     name: "emails.resetTemplate",
     allowedRoles: ["owner", "admin"],
     invoke: (t) => t.mutation(api.emails.resetTemplate, { cle: "leadNotification" }),
+  },
+  {
+    name: "emails.envoyerExemple",
+    allowedRoles: ["owner", "admin"],
+    invoke: (t) => t.action(api.emails.envoyerExemple, { cle: "leadNotification" }),
   },
 )
 

@@ -3,6 +3,7 @@ import type { ConsentEnv } from "./consent"
 export type PixelSettings = {
   metaPixelId?: string | null
   googleTagId?: string | null
+  googleConversionLabel?: string | null
 }
 
 /**
@@ -25,10 +26,12 @@ export function choisirIdentifiant(
 export function fusionnerPixels(
   settings: PixelSettings | null,
   env: ConsentEnv,
-): ConsentEnv {
+): ConsentEnv & { googleConversionLabel?: string } {
   return {
     ...env,
     PUBLIC_META_PIXEL_ID: choisirIdentifiant(settings?.metaPixelId, env.PUBLIC_META_PIXEL_ID),
     PUBLIC_GOOGLE_TAG_ID: choisirIdentifiant(settings?.googleTagId, env.PUBLIC_GOOGLE_TAG_ID),
+    // Pas de fallback PUBLIC_* : le label n'existe que saisi ici.
+    googleConversionLabel: choisirIdentifiant(settings?.googleConversionLabel, undefined),
   }
 }

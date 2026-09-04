@@ -46,6 +46,7 @@ const ask = shouldAskConsent(fused, consentConfig.googleConsentMode.enabled)
         data-consent-banner
         data-meta-pixel-id={fused.PUBLIC_META_PIXEL_ID ?? ""}
         data-google-tag-id={fused.PUBLIC_GOOGLE_TAG_ID ?? ""}
+        data-google-conversion-label={fused.googleConversionLabel ?? ""}
         role="dialog"
         aria-modal="false"
         aria-labelledby="consent-title"
@@ -247,6 +248,9 @@ const ask = shouldAskConsent(fused, consentConfig.googleConsentMode.enabled)
           el.setAttribute(name, value)
         }
         document.head.appendChild(el)
+      }
+      if (injected.size > 0) {
+        document.dispatchEvent(new CustomEvent("astrotan:pixels-ready"))
       }
     }
 

@@ -14,6 +14,7 @@ import Icon from "../ui/primitives/Icon/Icon.astro"
 import { footerNav, REPO_URL } from "../../config/nav"
 import { shouldAskConsent } from "../../lib/consent"
 import { consentConfig } from "../../config/consent"
+import { visibleSocials } from "../../lib/socialLinks"
 
 // Le lien « Gérer les cookies » n'a de sens que si quelque chose est à
 // gérer. Un site sans traceur soumis à consentement n'affiche ni bandeau ni
@@ -22,19 +23,8 @@ const ask = shouldAskConsent(import.meta.env, consentConfig.googleConsentMode.en
 
 const settings = await getConvexClient().query(api.settings.get, {})
 const siteName = settings?.siteName ?? "AstroTan"
-const socials = settings?.socials ?? []
+const socials = visibleSocials(settings?.socials ?? [])
 const year = new Date().getFullYear()
-
-// L'icône se déduit de l'URL : demander à l'opérateur de la choisir dans
-// l'administration ajouterait un champ pour une information déjà présente.
-function socialIcon(url: string): string {
-  if (url.includes("github.com")) return "lucide:github"
-  if (url.includes("twitter.com") || url.includes("x.com"))
-    return "lucide:twitter"
-  if (url.includes("linkedin.com")) return "lucide:linkedin"
-  if (url.startsWith("mailto:")) return "lucide:mail"
-  return "lucide:link"
-}
 ---
 
 <footer class="footer">
@@ -85,7 +75,7 @@ function socialIcon(url: string): string {
                   l'URL vient de l'opérateur, et un onglet ouvert sans lui
                   peut remonter par `window.opener`. */}
               <a href={social.url} target="_blank" rel="noopener noreferrer">
-                <Icon name={socialIcon(social.url)} />
+                <Icon name={social.icon} />
                 <span>{social.label}</span>
               </a>
             </li>

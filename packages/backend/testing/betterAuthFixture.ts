@@ -127,5 +127,26 @@ export async function identityFor(t: TestConvex<typeof schema>, userId: string) 
   )
   const sessionId = (sessionDoc as { _id?: string } | null)?._id
   if (!sessionId) throw new Error("no session found for user " + userId)
-  return t.withIdentity({ subject: userId, sessionId })
+  const userDoc = await t.run(async (ctx) =>
+    ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user",
+      where: [{ field: "_id", value: userId }],
+    }),
+  )
+  const user = userDoc as {
+    role?: string | null
+    email?: string
+    banned?: boolean | null
+    banExpires?: number | null
+  } | null
+  // Les claims du jeton de production (`definePayload` = user hors id/image).
+  // `requireRoleFromIdentity` les lit ; `requireRole` n'en a pas besoin.
+  return t.withIdentity({
+    subject: userId,
+    sessionId,
+    role: user?.role ?? undefined,
+    email: user?.email,
+    banned: user?.banned ?? undefined,
+    banExpires: user?.banExpires ?? undefined,
+  })
 }

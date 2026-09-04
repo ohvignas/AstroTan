@@ -250,6 +250,14 @@ const INPUT = [
     key: "VPS_HOST",
     check: (v) => (/^https?:\/\//i.test(v) ? "attendu un hôte ou une IP, sans schéma" : null),
   },
+  {
+    key: "VPS_IP4",
+    optional: true,
+    check: (v) =>
+      !/^(\d{1,3}\.){3}\d{1,3}$/.test(v)
+        ? "attendu une IPv4 publique (celle du VPS) — `/settings/domaine` compare le DNS à cette valeur"
+        : null,
+  },
   { key: "VPS_USER", check: (v) => (v === "root" ? "le pipeline exige un utilisateur NON-root du groupe docker (docker/README.md §1)" : null) },
   { key: "VPS_SSH_KEY_PATH", check: checkSshKeyPath },
   // Optionnelles : une valeur vide est un choix documenté, pas un oubli.
@@ -340,7 +348,7 @@ const GENERATED = [
   // Sans elle, `secrets.set` lève `SECRETS_KEY_MISSING` : le refus est
   // propre, mais toute la famille `secrets` est inerte et les sept jetons
   // ne se posent plus que par `convex env set`. `/settings/mesure` et
-  // `/settings/ia` sont alors décoratifs sur un déploiement neuf.
+  // `/settings/agent` sont alors décoratifs sur un déploiement neuf.
   { key: "SECRETS_KEY", gen: ["rand", "-base64", "32"], minLength: 44 },
   // Umami. Ces trois-là ne partent PAS sur Convex : elles ne servent qu'aux
   // conteneurs `umami` et `umami-db`, et le compose les exige en
@@ -599,6 +607,12 @@ const CONVEX_VARS = [
   { name: "WEB_DOMAIN", value: g("WEB_DOMAIN") },
   { name: "ADMIN_DOMAIN", value: g("ADMIN_DOMAIN") },
   { name: "UMAMI_DOMAIN", value: UMAMI_DOMAIN },
+  {
+    name: "VPS_IP4",
+    value: g("VPS_IP4"),
+    optional: true,
+    skip: "non posée (valeur vide). `/settings/domaine` dira Non connecté : le lookup du domaine déclaré n'est plus la référence.",
+  },
 ];
 
 // Les secrets de docker/README.md §7, dans son ordre.
@@ -683,7 +697,7 @@ if (SKIP_CONVEX) {
   for (const v of CONVEX_VARS) {
     if (v.optional && !v.value) {
       skip(
-        `${v.name.padEnd(20)} non posée (valeur vide). Conséquence documentée : les invitations sont bien créées, c'est l'envoi PROGRAMMÉ qui échoue — un job en échec dans le dashboard Convex, jamais un échec d'invitation.`,
+        `${v.name.padEnd(20)} ${v.skip ?? "non posée (valeur vide). Conséquence documentée : les invitations sont bien créées, c'est l'envoi PROGRAMMÉ qui échoue — un job en échec dans le dashboard Convex, jamais un échec d'invitation."}`,
       );
       continue;
     }

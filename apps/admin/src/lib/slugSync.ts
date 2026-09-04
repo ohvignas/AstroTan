@@ -1,7 +1,7 @@
 import { normalizeSlug, slugify } from "@astrotan/backend/convex/lib/slug"
 
 // ---------------------------------------------------------------------
-// Le couple titre / slug du dialogue « Nouvelle page ».
+// Le couple titre / slug de l'éditeur de page.
 //
 // Trois règles, et chacune existe parce que son absence est un défaut
 // connu de cette fonctionnalité :

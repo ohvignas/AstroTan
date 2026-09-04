@@ -9,6 +9,15 @@ const fields = {
 }
 
 describe("buildSeo", () => {
+  test("un article sans champ partage préserve l'ogImageId encore en base", () => {
+    const result = buildSeo({
+      existing: { ogImageId: "kg_legacy" },
+      fields,
+    })
+    expect(result.ogImageId).toBe("kg_legacy")
+    expect(fields).not.toHaveProperty("ogImageId")
+  })
+
   test("préserve l'ogImageId existant quand le formulaire ne le touche pas", () => {
     const result = buildSeo({
       existing: { ogImageId: "kg01" },

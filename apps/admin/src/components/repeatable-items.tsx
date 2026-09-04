@@ -146,6 +146,7 @@ export function RepeatableItems<T extends Record<string, string>>({
           {!disabled && (
             <div className="flex justify-end">
               <Button
+                type="button"
                 variant="ghost"
                 size="xs"
                 onClick={() => onChange(items.filter((_, i) => i !== index))}
@@ -159,6 +160,7 @@ export function RepeatableItems<T extends Record<string, string>>({
       ))}
       {!disabled && (
         <Button
+          type="button"
           variant="outline"
           size="sm"
           onClick={() => onChange([...items, emptyItem])}

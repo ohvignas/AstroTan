@@ -207,14 +207,17 @@ describe("le collage en bas de l'écran", () => {
   })
 
   test("la rangée des réglages n'aligne plus toute la page en haut", () => {
-    // `lg:items-start` visait le menu — qui porte désormais son propre
-    // `lg:self-start` — mais atteignait aussi la colonne de droite, et
-    // l'empêchait de descendre jusqu'en bas de la fenêtre. La chaîne
-    // entière, et non `not.toContain` : le commentaire qui explique le
-    // retrait nomme forcément la classe retirée.
+    // `lg:items-start` sur la rangée atteindrait aussi la colonne de
+    // droite et l'empêcherait de descendre jusqu'en bas de la fenêtre.
+    // Le menu, lui, S'ÉTARE (`self-stretch`) : son `border-r` doit aller
+    // du header au bas de la zone. La liste reste `sticky` à l'intérieur.
+    // La chaîne entière, et non `not.toContain` : le commentaire qui
+    // explique le retrait nomme forcément la classe retirée.
     expect(SETTINGS_LAYOUT).toContain(
       '"flex flex-col gap-4 lg:flex-row lg:gap-8"'
     )
-    expect(SETTINGS_NAV).toContain("lg:self-start")
+    expect(SETTINGS_NAV).toContain("lg:self-stretch")
+    expect(SETTINGS_NAV).not.toContain("lg:self-start")
+    expect(SETTINGS_NAV).toMatch(/<ul className="[^"]*lg:sticky/)
   })
 })

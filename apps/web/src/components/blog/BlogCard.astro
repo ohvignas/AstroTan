@@ -40,7 +40,12 @@ const excerpt = raw.length > 180 ? `${raw.slice(0, 177)}…` : raw
       `tabindex="-1"` l'ôtent au clavier et aux lecteurs d'écran, pour ne
       pas annoncer deux fois le même article. */}
   <a slot="header" class="blog-card__media" href={href} aria-hidden="true" tabindex="-1">
-    <PostCover coverUrl={post.coverUrl} coverAlt={post.coverAlt} title={post.title} />
+    <PostCover
+      coverUrl={post.coverUrl}
+      coverAlt={post.coverAlt}
+      coverTitle={post.coverTitle}
+      title={post.title}
+    />
   </a>
   <div class="blog-card__body">
     {variant === "list" && <span class="blog-card__kicker">À la une</span>}

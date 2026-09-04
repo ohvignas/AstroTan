@@ -4,8 +4,13 @@
 // only thing the SEO and GEO panels reach.
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
-import { getImage } from "astro:assets"
 import { getConvexClient } from "../lib/convexClient"
+import {
+  proxifierFavicon,
+  proxifierPartage,
+  resolveShareImage,
+  texteAltPartage,
+} from "../lib/headImages"
 import siteIcon from "../assets/icon_astrotan.png"
 import type { PageRecord } from "../lib/loadPage"
 import {
@@ -30,6 +35,7 @@ interface Props {
     excerpt?: string
     publishedAt?: number
     coverUrl?: string | null
+    coverAlt?: string
   }
 }
 
@@ -66,58 +72,53 @@ const site: SiteIdentity = {
   socials: settings?.socials ?? [],
 }
 
-// The image a shared link shows. Falls back to the site's default, then to
-// nothing at all — an empty `og:image` is worse than none, because a
-// platform renders it as a broken frame rather than skipping it.
-const ogImageId = page?.seo?.ogImageId ?? settings?.defaultSeo?.ogImageId
-const ogImageUrl = ogImageId
-  ? await getConvexClient().query(api.media.publicUrl, {
-      // `PageRecord` décrit la ligne en chaînes simples pour ne pas faire
-      // entrer les types Convex dans le site ; la conversion se fait donc
-      // ici, au seul endroit qui parle à Convex.
-      storageId: ogImageId as Id<"_storage">,
+// Image de partage : couverture d'article d'abord, puis `seo.ogImageId`
+// encore en base (expand), puis le défaut du site. Une balise `og:image`
+// vide est pire que rien — la plateforme affiche un cadre cassé.
+const shareImage = resolveShareImage({
+  coverUrl: article?.coverUrl,
+  ogImageId: page?.seo?.ogImageId,
+  defaultOgImageId: settings?.defaultSeo?.ogImageId,
+})
+const shareStorageId =
+  shareImage?.kind === "storage" ? (shareImage.storageId as Id<"_storage">) : null
+const ogImageBrute =
+  shareImage?.kind === "cover"
+    ? shareImage.url
+    : shareStorageId
+      ? await getConvexClient().query(api.media.publicUrl, {
+          storageId: shareStorageId,
+        })
+      : null
+const ogImage = ogImageBrute
+  ? await proxifierPartage(ogImageBrute, Astro.url.origin)
+  : null
+const ogCaption = shareStorageId
+  ? await getConvexClient().query(api.media.publicCaption, {
+      storageId: shareStorageId,
     })
-  : article?.coverUrl ?? null
+  : article?.coverAlt
+    ? { alt: article.coverAlt }
+    : null
+const ogImageAlt = texteAltPartage(ogCaption, title)
 
 const description = page?.seo?.description ?? settings?.defaultSeo?.description
 
 // L'icône téléversée depuis les réglages l'emporte sur celle du dépôt —
-// même arbitrage que le logo dans l'en-tête. Le fichier embarqué reste le
-// repli, pour qu'un template fraîchement cloné ait quand même un favicon.
-const iconDistante = settings?.iconId
-  ? await getConvexClient().query(api.media.publicUrl, { storageId: settings.iconId })
+// même arbitrage que le logo dans l'en-tête. Sans icône, le logo sert
+// quand même de favicon plutôt que de laisser le fichier du template.
+// Le fichier embarqué reste le dernier repli, pour un clone jamais configuré.
+const iconStorageId = settings?.iconId ?? settings?.logoId
+const iconDistante = iconStorageId
+  ? await getConvexClient().query(api.media.publicUrl, { storageId: iconStorageId })
   : null
 
-/**
- * Le favicon, proxifié par `astro:assets`.
- *
- * C'est le SEUL média du site qui n'empruntait pas ce chemin : le logo et les
- * couvertures d'articles passent par `<Image>` et sortent en
- * `/_image?href=…`, donc sur notre origine. L'icône, elle, arrivait
- * directement sur l'origine du déploiement Convex — et un
- * `<link rel="icon">` est arbitré par `img-src`, qui la refusait. La panne
- * était latente : elle ne se déclenchait qu'au premier téléversement
- * d'icône, et silencieusement.
- *
- * `getImage` rend un `/_image?href=…` : proxifiée, l'icône devient `'self'`
- * et ne dépend plus d'aucune origine autorisée. La CSP autorise en plus
- * l'origine Convex — ceinture et bretelles, et la bretelle sert le jour où
- * quelqu'un resserrera `img-src`.
- *
- * Le repli sur l'URL brute couvre le cas où le domaine n'est pas dans
- * `image.remotePatterns` : mieux vaut un favicon non optimisé qu'aucun.
- */
-async function proxifier(url: string): Promise<string> {
-  try {
-    // 64 px et non 32 : un onglet sur écran à haute densité affiche le
-    // favicon en 32 points, donc 64 pixels réels.
-    return (await getImage({ src: url, width: 64, height: 64, format: "png" })).src
-  } catch {
-    return url
-  }
-}
-
-const faviconUrl = iconDistante ? await proxifier(iconDistante) : siteIcon.src
+// 64 px et non 32 : un onglet sur écran à haute densité affiche le
+// favicon en 32 points, donc 64 pixels réels. 180 px pour l'icône iOS.
+const faviconUrl = iconDistante ? await proxifierFavicon(iconDistante, 64) : siteIcon.src
+const appleTouchUrl = iconDistante
+  ? await proxifierFavicon(iconDistante, 180)
+  : siteIcon.src
 
 // `noai` suppresses every structured block, not just the robots hint. An
 // extract built to be quoted, published on a page whose operator asked not
@@ -146,11 +147,11 @@ const nonce = Astro.locals.nonce
 ---
 
 {/* L'ICÔNE, jamais le logo large : un favicon de 32 px rendrait le nom
-    écrit illisible. L'icône téléversée depuis les réglages l'emporte sur
-    celle du dépôt — même arbitrage que le logo dans l'en-tête — et le
-    fichier embarqué reste le repli, pour qu'un template fraîchement cloné
-    ait quand même un favicon. */}
+    écrit illisible. L'icône téléversée l'emporte, puis le logo, puis le
+    fichier du dépôt — pour qu'un clone jamais configuré ait quand même
+    un favicon. */}
 <link rel="icon" href={faviconUrl} />
+<link rel="apple-touch-icon" href={appleTouchUrl} />
 
 <title>{title}</title>
 {description && <meta name="description" content={description} />}
@@ -173,15 +174,17 @@ const nonce = Astro.locals.nonce
   <meta name="keywords" content={page.geo.entities.join(", ")} />
 )}
 
-{ogImageUrl && <meta property="og:image" content={ogImageUrl} />}
-{ogImageUrl && <meta property="og:image:alt" content={title} />}
+{ogImage && <meta property="og:image" content={ogImage.href} />}
+{ogImage && <meta property="og:image:alt" content={ogImageAlt} />}
+{ogImage?.width && <meta property="og:image:width" content={String(ogImage.width)} />}
+{ogImage?.height && <meta property="og:image:height" content={String(ogImage.height)} />}
 
 {/* `summary_large_image` only when there IS an image: the large card
     renders an empty band without one. */}
-<meta name="twitter:card" content={ogImageUrl ? "summary_large_image" : "summary"} />
+<meta name="twitter:card" content={ogImage ? "summary_large_image" : "summary"} />
 <meta name="twitter:title" content={title} />
 {description && <meta name="twitter:description" content={description} />}
-{ogImageUrl && <meta name="twitter:image" content={ogImageUrl} />}
+{ogImage && <meta name="twitter:image" content={ogImage.href} />}
 
 {/* Le nonce sur un bloc JSON-LD n'est pas de la superstition : ce n'est pas
     du code exécutable, mais plusieurs navigateurs appliquent quand même

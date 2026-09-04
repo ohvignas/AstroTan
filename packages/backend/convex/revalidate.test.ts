@@ -371,15 +371,17 @@ test("drain n'échoue qu'une fois le déclaré ET tous les sortants épuisés", 
 
   await t.action(internal.revalidate.drain, {})
 
-  expect(fetchMock).toHaveBeenCalledTimes(2)
+  expect(fetchMock).toHaveBeenCalledTimes(3)
   const row = await getRow(t, id)
   expect(row?.status).toBe("pending")
   expect(row?.attempts).toBe(1)
-  // Les deux origines essayées sont nommées, pas seulement la dernière —
-  // « le nouveau ne répond pas encore » et « le sortant a expiré » sont
-  // deux diagnostics différents pour l'opérateur qui relit `lastError`.
+  // Chaque origine essayée est nommée, pas seulement la dernière —
+  // « le nouveau ne répond pas encore », « le sortant a expiré » et
+  // « l'origine d'environnement non plus » sont trois diagnostics
+  // différents pour l'opérateur qui relit `lastError`.
   expect(row?.lastError).toContain("nouveau.test")
   expect(row?.lastError).toContain("ancien.test")
+  expect(row?.lastError).toContain("web.test")
 })
 
 test("un sortant hors de sa fenêtre de 72h n'est pas réessayé", async () => {
@@ -390,13 +392,42 @@ test("un sortant hors de sa fenêtre de 72h n'est pas réessayé", async () => {
   ])
   const id = await insertPendingRow(t)
 
-  fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
+  fetchMock.mockResolvedValue({ ok: false, status: 503 })
 
   await t.action(internal.revalidate.drain, {})
 
-  // Une seule tentative : le sortant périmé n'est même pas essayé.
-  expect(fetchMock).toHaveBeenCalledTimes(1)
+  // Le sortant périmé n'est même pas essayé. WEB_SITE_URL reste le
+  // dernier repli — c'est lui qui sert vraiment cette instance en local.
+  const urls = fetchMock.mock.calls.map((c) => c[0] as string)
+  expect(urls).not.toContain("https://perime.test/api/revalidate")
+  expect(urls).toContain(`${WEB_SITE_URL}/api/revalidate`)
   const row = await getRow(t, id)
   expect(row?.status).toBe("pending")
   expect(row?.lastError).not.toContain("perime.test")
+})
+
+// En local, `declaredDomain` pointe souvent vers le domaine de prod
+// (certificat / Traefik ailleurs) alors que le cache à invalider est
+// celui de `astro dev` sur WEB_SITE_URL. Sans ce repli, les six
+// tentatives s'épuisent sur un 405/timeout distant et le badge reste
+// « Propagation en cours » alors que localhost répond 200.
+test("drain retombe sur WEB_SITE_URL quand le domaine déclaré échoue et qu'aucun sortant ne sert", async () => {
+  const t = convexTest(schema, modules)
+  await declarerDomaine(t, "prod.test")
+  const id = await insertPendingRow(t)
+
+  fetchMock
+    .mockResolvedValueOnce({ ok: false, status: 405 })
+    .mockResolvedValueOnce({ ok: true, status: 200 })
+
+  await t.action(internal.revalidate.drain, {})
+
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  const [premierUrl] = fetchMock.mock.calls[0] as [string, RequestInit]
+  const [deuxiemeUrl] = fetchMock.mock.calls[1] as [string, RequestInit]
+  expect(premierUrl).toBe("https://prod.test/api/revalidate")
+  expect(deuxiemeUrl).toBe(`${WEB_SITE_URL}/api/revalidate`)
+
+  const row = await getRow(t, id)
+  expect(row?.status).toBe("done")
 })

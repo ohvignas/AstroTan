@@ -2,6 +2,7 @@ import { ConvexError } from "convex/values"
 import type { MutationCtx } from "../_generated/server"
 import type { Id } from "../_generated/dataModel"
 import { MAX_CANONICAL_URL_LENGTH, MAX_TARGET_KEYWORD_LENGTH } from "../content"
+import { insererReleve } from "./seoSiteHistory"
 
 function bound(value: string, max: number, field: string) {
   if (value.length > max) {
@@ -81,6 +82,13 @@ export async function replaceKeywordRows(
       fetchedAt: args.fetchedAt,
     })
   }
+  const count = Math.min(args.rows.length, 50)
+  await insererReleve(ctx, "keywords", count, args.fetchedAt)
+  if (count > 0) {
+    const avg =
+      args.rows.slice(0, 50).reduce((sum, row) => sum + row.position, 0) / count
+    await insererReleve(ctx, "position", avg, args.fetchedAt)
+  }
 }
 
 export async function upsertBacklinksRow(
@@ -90,13 +98,14 @@ export async function upsertBacklinksRow(
   const existing = await ctx.db.query("seoSiteBacklinks").first()
   if (existing === null) {
     await ctx.db.insert("seoSiteBacklinks", args)
-    return
+  } else {
+    await ctx.db.patch(existing._id, {
+      backlinks: args.backlinks,
+      referringDomains: args.referringDomains,
+      backlinksPrev: existing.backlinks,
+      referringDomainsPrev: existing.referringDomains,
+      fetchedAt: args.fetchedAt,
+    })
   }
-  await ctx.db.patch(existing._id, {
-    backlinks: args.backlinks,
-    referringDomains: args.referringDomains,
-    backlinksPrev: existing.backlinks,
-    referringDomainsPrev: existing.referringDomains,
-    fetchedAt: args.fetchedAt,
-  })
+  await insererReleve(ctx, "backlinks", args.backlinks, args.fetchedAt)
 }

@@ -209,7 +209,9 @@ describe("chrome chat shadcn", () => {
       },
     ])
     expect(named).toContain("shimmer text-sm text-muted-foreground")
-    expect(named).toContain("scenarios_list")
+    expect(named).toContain("Utilisation d&#x27;un outil…")
+    expect(named).not.toContain("scenarios_list")
+    expect(named).not.toContain("Make__scenarios_list")
     expect(named).not.toContain("Réponse en cours…")
     const unnamed = renderTranscript([
       { id: "u1", role: "user", text: "Make ?" },
@@ -222,6 +224,18 @@ describe("chrome chat shadcn", () => {
       },
     ])
     expect(unnamed).toContain("Utilisation d&#x27;un outil…")
+    const calendar = renderTranscript([
+      { id: "u1", role: "user", text: "Dispo mardi ?" },
+      {
+        id: "a1",
+        role: "assistant",
+        text: "",
+        streaming: true,
+        toolCalls: ["calendarFreeBusy"],
+      },
+    ])
+    expect(calendar).toContain("Consultation de l&#x27;agenda…")
+    expect(calendar).not.toContain("calendarFreeBusy")
     const many = renderTranscript([
       { id: "u1", role: "user", text: "Make ?" },
       {

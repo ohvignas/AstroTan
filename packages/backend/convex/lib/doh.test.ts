@@ -60,8 +60,9 @@ describe("lireReponse", () => {
     // La différence porte tout l'écran : « le domaine n'existe pas encore »
     // appelle une instruction à suivre, « le résolveur n'a pas répondu »
     // appelle un nouvel essai. Les confondre ferait dire à l'écran de
-    // créer un enregistrement qui existe déjà.
-    expect(lireReponse({ Status: 3 })).toEqual({ statut: "absent" })
+    // créer un enregistrement qui existe déjà. `nxdomain` dit POURQUOI
+    // c'est absent, sans changer l'instruction.
+    expect(lireReponse({ Status: 3 })).toEqual({ statut: "absent", nxdomain: true })
   })
 
   test("Status 0 sans réponse est « absent »", () => {
@@ -89,7 +90,17 @@ describe("resoudre", () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("boom") }))
     await expect(resoudre("exemple.fr", "A")).resolves.toEqual({
       statut: "erreur",
-      raison: "Le résolveur DNS est injoignable.",
+      raison: "Réseau : le résolveur est injoignable.",
+    })
+    vi.unstubAllGlobals()
+  })
+
+  test("un délai dépassé se distingue d'une panne réseau", async () => {
+    const timeout = new DOMException("The operation was aborted due to timeout", "TimeoutError")
+    vi.stubGlobal("fetch", vi.fn(async () => { throw timeout }))
+    await expect(resoudre("exemple.fr", "A")).resolves.toEqual({
+      statut: "erreur",
+      raison: "Délai dépassé — Cloudflare n'a pas répondu.",
     })
     vi.unstubAllGlobals()
   })

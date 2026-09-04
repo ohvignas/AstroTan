@@ -5,6 +5,7 @@ import {
   deriveAuthorizeUrl,
   inferMcpTransport,
   isMcpOAuthPopupMessage,
+  mcpConnectorSubtitle,
   needsMcpOAuth,
   resolveAuthorizeUrl,
 } from "./mcpAuthorize"
@@ -52,6 +53,23 @@ describe("needsMcpOAuth", () => {
     expect(
       needsMcpOAuth("https://mcp.example.com/mcp", "https://auth.example/connect?client_id=x"),
     ).toBe(false)
+  })
+})
+
+describe("mcpConnectorSubtitle", () => {
+  test("connecté si jeton, à autoriser sinon", () => {
+    expect(
+      mcpConnectorSubtitle({
+        url: "https://mcp.make.com/mcp",
+        headersConfigured: true,
+      }),
+    ).toBe("Connecté · mcp.make.com")
+    expect(
+      mcpConnectorSubtitle({
+        url: "https://mcp.make.com/mcp",
+        headersConfigured: false,
+      }),
+    ).toBe("À autoriser · mcp.make.com")
   })
 })
 

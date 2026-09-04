@@ -88,6 +88,15 @@ test("le journal d'audit est déclaré, et sa conservation dit qu'elle est sans 
   expect(ligne!.retention).toContain("sans limite")
 })
 
+test("la ligne comptes annonce les préférences et la cloche à 90 jours", () => {
+  const comptes = processings.find((p) => p.purpose === "Gérer les comptes de l'administration")
+  expect(comptes!.data).toMatch(/préférence/i)
+  expect(comptes!.data).toMatch(/cloche/i)
+  const { NOTIFICATION_RETENTION_DAYS } = constantesDeRetention()
+  expect(NOTIFICATION_RETENTION_DAYS).toBe(90)
+  expect(comptes!.retention).toContain("90 jours")
+})
+
 test("la conservation des comptes ne prétend plus que supprimer un compte l'efface", () => {
   // La contradiction que le journal d'audit a créée : les trois tables de
   // comptes sont bien supprimées, mais `auditLog` garde l'adresse. La
@@ -246,6 +255,16 @@ test("la durée publiée pour les fiches de contact est celle que le cron appliq
   expect(ligne!.retention).not.toMatch(/sans limite/i)
 })
 
+test("le registre des traitements déclare le téléphone du formulaire de contact", () => {
+  const ligne = processings.find(
+    (p) => p.purpose === "Répondre à un message envoyé par le formulaire de contact",
+  )
+  expect(ligne).toBeDefined()
+  expect(ligne!.data).toMatch(/téléphone/i)
+  expect(ligne!.data).toMatch(/adresse IP/i)
+  expect(ligne!.data).toMatch(/pays/i)
+})
+
 test("la durée publiée pour le chat est celle que le cron applique", () => {
   const { LEAD_RETENTION_DAYS } = constantesDeRetention()
   expect(LEAD_RETENTION_DAYS, "LEAD_RETENTION_DAYS introuvable dans retention.ts").toBeGreaterThan(0)
@@ -268,6 +287,8 @@ test("la durée publiée pour le chat est celle que le cron applique", () => {
   expect(ligne!.data).toMatch(/horodatage/i)
   expect(ligne!.data).toMatch(/identifiant de fil/i)
   expect(ligne!.data).toMatch(/empreinte d'origine/i)
+  expect(ligne!.data).toMatch(/adresse IP/i)
+  expect(ligne!.data).toMatch(/pays/i)
   expect(ligne!.data).toMatch(/user-agent/i)
 })
 

@@ -55,7 +55,7 @@
 //          saisis depuis l'interface. Sans elle, `secrets.set` lève
 //          `SECRETS_KEY_MISSING` et les sept jetons de `secrets.ts` ne se
 //          posent QUE par `convex env set` : `/settings/mesure` et
-//          `/settings/ia` sont décoratifs sur un déploiement neuf.
+//          `/settings/agent` sont décoratifs sur un déploiement neuf.
 //        · les cinq `UMAMI_API_*` et `OPENROUTER_API_KEY` — même famille,
 //          même silence.
 //        · les lectures par ENVIRONNEMENT INJECTÉ — `env.NOM`, où `env`

@@ -153,17 +153,33 @@ describe("SecretField", () => {
   })
 
   test("les pastilles qui restent disent ce que les points ne disent pas", () => {
-    // « Saisi ici, chiffré » doublait les points. Les trois autres, non :
-    // aucun point ne s'affiche pour une variable d'environnement (elle
-    // n'est pas en base), ni pour un jeton absent, et « Illisible » est
-    // un état d'erreur que rien d'autre ne porte.
+    // « Saisi ici, chiffré » doublait les points. Ce qui reste : une
+    // variable d'environnement (pas en base, donc pas de points) et
+    // « Illisible ». Un jeton absent n'a ni points ni pastille — le
+    // champ vide le dit.
     expect(champ({ environnement: true, source: "environnement" })).toContain(
       "Environnement"
     )
-    expect(champ()).toContain("Absent")
+    expect(champ()).not.toContain("Absent")
     expect(champ({ base: true, illisible: true, source: "aucune" })).toContain(
       "Illisible"
     )
+  })
+
+  test("un jeton posé écrit Connecté à côté du bouton, pas en pastille", () => {
+    const pose = champ({ base: true, source: "base" })
+    expect(pose.slice(pose.indexOf("Vérifier et enregistrer"))).toContain(
+      "Connecté"
+    )
+    expect(pose).toContain("text-emerald-600")
+    expect(champ({ environnement: true, source: "environnement" })).toContain(
+      "Connecté"
+    )
+    expect(champ()).not.toContain("Connecté")
+    expect(champ({ base: true, illisible: true, source: "aucune" })).not.toContain(
+      "Connecté"
+    )
+    expect(champ({ base: true, source: "base" }, true)).not.toContain("Connecté")
   })
 
   test("l'état d'un jeton ne porte aucune chaîne, hormis son nom", () => {
@@ -284,6 +300,54 @@ describe("ActionsDuChamp", () => {
     expect(boutonInerte(actions("aucun"), "Vérifier et enregistrer")).toBe(true)
     expect(boutonInerte(actions("supprimer"), "Supprimer")).toBe(false)
     expect(boutonInerte(actions("enregistrer"), "Vérifier et enregistrer")).toBe(false)
+  })
+
+  test("après un enregistrement réussi, Connecté remplace Enregistré", () => {
+    // « Enregistré » était un flash qui restait : le `fait` éphémère
+    // gagnait sur l'état query, et l'écran disait une action au lieu
+    // d'un branchement. DataForSEO écrit Connecté ; ici aussi.
+    const apresClic = renderToStaticMarkup(
+      <ActionsDuChamp
+        geste="aucun"
+        enCours={false}
+        fait="enregistre"
+        connecte={false}
+        onEnregistrer={() => {}}
+        onSupprimer={() => {}}
+      />,
+    )
+    expect(apresClic).toContain("Connecté")
+    expect(apresClic).toContain("text-emerald-600")
+    expect(apresClic).not.toContain("Enregistré")
+
+    const depuisQuery = renderToStaticMarkup(
+      <ActionsDuChamp
+        geste="aucun"
+        enCours={false}
+        fait={null}
+        connecte
+        onEnregistrer={() => {}}
+        onSupprimer={() => {}}
+      />,
+    )
+    expect(depuisQuery).toContain("Connecté")
+    expect(depuisQuery).not.toContain("Enregistré")
+  })
+
+  test("un retrait dit Supprimé, pas Connecté", () => {
+    const html = renderToStaticMarkup(
+      <ActionsDuChamp
+        geste="aucun"
+        enCours={false}
+        fait="supprime"
+        connecte={false}
+        onEnregistrer={() => {}}
+        onSupprimer={() => {}}
+      />,
+    )
+    expect(html).toContain("Supprimé")
+    expect(html).not.toContain("Connecté")
+    expect(html).not.toContain("Enregistré")
   })
 })
 

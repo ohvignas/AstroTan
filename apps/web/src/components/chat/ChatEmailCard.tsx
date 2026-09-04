@@ -5,6 +5,7 @@ import {
 import { useState, type FormEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { programmerSuiviLead } from "@/lib/trackLeadConversion"
 import { attachChatEmail } from "./chatApi"
 import { emailCardMessage } from "./chatWidgetState"
 
@@ -34,6 +35,7 @@ export function ChatEmailCard({
     try {
       const result = await attachChatEmail({ token, email: trimmed, site_web: siteWeb })
       if (result.ok) {
+        programmerSuiviLead()
         onAttached()
         return
       }

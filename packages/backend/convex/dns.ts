@@ -1,12 +1,11 @@
 import { ConvexError, v } from "convex/values"
-import { action, internalQuery, query } from "./_generated/server"
-import { api, internal } from "./_generated/api"
+import { action, query } from "./_generated/server"
+import { api } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
 import { requireRole } from "./lib/authz"
 import { resoudre, type TypeDns } from "./lib/doh"
 import { normaliserHote } from "./lib/hoteNu"
 import { isPrivateIpv4 } from "./lib/webhookUrl"
-import { deriverHotes } from "./routing"
 
 // Dire à l'adoptant quels enregistrements DNS créer, et lesquels sont déjà là.
 //
@@ -93,6 +92,8 @@ export type Verdict = Enregistrement & {
   /** Ce que le résolveur a rendu — vide si absent ou indisponible. */
   trouve: string[]
   etat: EtatVerdict
+  /** Pourquoi le lookup a échoué ou pourquoi le nom est absent (NXDOMAIN). */
+  raison?: string
 }
 
 /**
@@ -177,16 +178,12 @@ function estIpv4Publique(valeur: string): boolean {
 // livré avec son DNS chez Cloudflare : c'est le cas ATTENDU, pas un cas
 // limite.
 //
-// L'ADRESSE DE RÉFÉRENCE NE SE DEMANDE À PERSONNE. Le déploiement la
-// connaît déjà : c'est celle vers laquelle pointe l'hôte web COURANT,
-// celui que Traefik sert en ce moment (`routing.deriverHotes` — le domaine
-// déclaré, sinon `WEB_DOMAIN`). On la résout une fois, et on COMPARE, au
-// lieu de vérifier une forme.
-//
-// Aucun réglage, aucune saisie : une adresse de référence configurable
-// serait une valeur d'opérateur qu'il suffirait de mettre au bon chiffre
-// pour désarmer le verrou — un verrou qu'on peut ouvrir soi-même n'en est
-// pas un.
+// L'ADRESSE DE RÉFÉRENCE NE VIENT PAS DU LOOKUP. Interroger le domaine
+// déclaré pour savoir « quelle IP on attend », puis comparer ce lookup à
+// lui-même, est une tautologie : illith.com rend 198.x, on affiche 198.x,
+// on coche Connecté — y compris depuis un Mac en localhost. L'attendu
+// vient d'une IP connue (`VPS_IP4` dans l'environnement Convex), ou des
+// origines locales (`localhost:4321` / `:3001`). Jamais du DNS public.
 //
 // CE RAISONNEMENT SUPPOSE UN DÉPLOIEMENT EN ACCÈS DIRECT, et il faut le
 // dire, parce que le dépôt propose lui-même la configuration qui le met
@@ -211,75 +208,37 @@ function estIpv4Publique(valeur: string): boolean {
 // ---------------------------------------------------------------------
 
 /**
- * L'adresse du serveur, telle que le DNS la donne aujourd'hui — ou la
- * raison pour laquelle on ne la connaît pas.
+ * L'adresse du serveur que CET environnement connaît — jamais le résultat
+ * du lookup qu'on est en train de juger.
  *
- * Trois cas et non deux, pour la même raison que `EtatVerdict` en tient
- * quatre :
- *
- * - `connue` : l'hôte courant résout vers une ou plusieurs IPv4 publiques.
- *   C'est à elles qu'un A doit mener.
- * - `aucune` : il n'y a pas d'hôte courant à interroger — ni domaine
- *   déclaré, ni `WEB_DOMAIN` dans l'environnement CONVEX. C'est un état
- *   ordinaire, pas une panne, et il n'est PAS réservé au premier jour :
- *   `.github/workflows/deploy.yml` ne pose aucune variable Convex, si
- *   bien qu'un adoptant qui suit le dépôt y reste tant qu'il n'a pas
- *   lancé les `convex env set` à la main (`docker/README.md` §6).
- *   Voir `jugerA`, qui en tire la seule conclusion honnête.
- * - `indisponible` : il y a un hôte courant, et le résolveur n'a rien
- *   rendu d'exploitable pour lui. On ne sait pas, et on le dit.
+ * - `connue` : `VPS_IP4` est posée et publique. C'est à elle qu'un A doit
+ *   mener. Connecté = le DNS public (Cloudflare DoH) égale cette IP.
+ * - `aucune` : pas d'IP connue. En local on affiche localhost:port ; en
+ *   prod on n'invente rien. Dans les deux cas le lookup ne devient pas
+ *   l'attendu, et le verdict n'est pas `ok`.
  */
 export type ReferenceServeur =
   | { etat: "connue"; adresses: string[] }
   | { etat: "aucune" }
-  | { etat: "indisponible" }
 
 /**
- * L'hôte web que Traefik sert en ce moment, s'il y en a un.
+ * L'IPv4 publique posée sur le déploiement Convex, ou `null`.
  *
- * `internalQuery` : une action ne lit pas la base directement, et cette
- * lecture n'a aucune raison d'être atteignable depuis un client. Elle ne
- * rend qu'un hôte — jamais la ligne `settings`, dont `settings.get` est
- * publique (invariant 1).
- *
- * `deriverHotes` et non une seconde règle écrite ici : c'est elle qui
- * décide déjà, pour Traefik, quel hôte est le courant. Deux dérivations
- * divergeraient, et le jour où elles divergent le verrou compare à un
- * serveur qui n'est pas celui qui sert.
+ * `VPS_IP4` est l'adresse du VPS (runbook, `convex env set`). Une valeur
+ * privée ou malformée est ignorée : s'en servir validerait n'importe
+ * quoi, et une IPv4 privée ne rend pas le site joignable depuis dehors.
  */
-export const hoteCourant = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<string | null> => {
-    const settings = await ctx.db.query("settings").first()
-    try {
-      return deriverHotes(settings?.declaredDomain).web
-    } catch {
-      // `NOT_CONFIGURED` : ni domaine déclaré, ni `WEB_DOMAIN`. Un premier
-      // déploiement, pas une erreur — et c'est `deriverHotes` qui porte
-      // cette décision, pas nous.
-      return null
-    }
-  },
-})
+function lireVpsIp4(): string | null {
+  const brute = process.env.VPS_IP4?.trim() ?? ""
+  if (brute === "") return null
+  return estIpv4Publique(brute) ? brute : null
+}
 
-/**
- * L'adresse de référence, résolue une fois pour les deux lignes A.
- *
- * Une seule requête sortante de plus par vérification, partagée par
- * `exemple.fr` et `admin.exemple.fr` : les deux doivent mener au même
- * serveur, et Traefik demande un certificat pour chacune.
- *
- * Le filtre `estIpv4Publique` retire le CNAME que le résolveur rend au
- * milieu d'une chaîne, et refuse de prendre pour référence une adresse
- * privée : un déploiement dont l'hôte courant pointe vers `10.x` ne peut
- * servir de référence à rien, et s'en servir validerait n'importe quoi.
- */
-async function referenceServeur(courant: string | null): Promise<ReferenceServeur> {
-  if (courant === null) return { etat: "aucune" }
-  const reponse = await resoudre(courant, "A")
-  if (reponse.statut !== "ok") return { etat: "indisponible" }
-  const adresses = reponse.valeurs.filter(estIpv4Publique)
-  return adresses.length === 0 ? { etat: "indisponible" } : { etat: "connue", adresses }
+/** La référence de CET environnement — sync, aucun appel réseau. */
+function referenceDepuisEnv(): ReferenceServeur {
+  const ip = lireVpsIp4()
+  if (ip !== null) return { etat: "connue", adresses: [ip] }
+  return { etat: "aucune" }
 }
 
 /**
@@ -297,38 +256,11 @@ async function referenceServeur(courant: string | null): Promise<ReferenceServeu
  *
  * Ensuite, et seulement ensuite, la référence décide :
  *
- * - `connue` : l'adresse doit être celle-là. C'est tout l'objet du verrou.
- * - `aucune` : il n'existe aucun hôte courant, donc rien à quoi comparer
- *   — et refuser ici enfermerait dans un écran où le premier domaine ne
- *   peut jamais être enregistré. On retombe sur le contrôle de forme, qui
- *   est ce qu'on sait dire de vrai à ce moment-là, et on le DIT :
- *   `forme`, pas `ok`.
- *
- *   Cette distinction est le point le plus coûteux du module, et elle
- *   n'existe que parce que deux correctifs se sont rencontrés. Tant que
- *   l'absence d'hôte courant valait 404 sur cet écran, l'état était mort
- *   — inatteignable, donc sans conséquence. Depuis que le routage de
- *   secours fait tenir le site debout sans variable Convex
- *   (`services/routeur`, issue `routage-de-secours`), l'écran est
- *   atteignable DANS cet état : le verrou y est dégradé au contrôle de
- *   forme, et un adoptant derrière Cloudflare — l'IP publique du proxy —
- *   arme le bouton. C'est exactement le cas que ce verrou existe pour
- *   fermer, et le rendre `ok` le rendait invisible.
- *
- *   On ne referme pas le verrou pour autant : ce serait échanger une
- *   panne rare contre une impasse certaine pour tout déploiement neuf.
- *   On rend l'état visible, et l'écran écrit qu'il n'y a pas de serveur
- *   de référence (`etatDesA`, `routes/_authed/settings/domaine.tsx`).
- * - `indisponible` : un hôte courant existe et n'a pas répondu. Ni « en
- *   place » ni « à créer » : « le résolveur n'a pas répondu ». Le verrou
- *   reste fermé, l'écran dit « A non lu », et réessayer est la bonne
- *   conduite. Rendre `ok` ici rouvrirait le trou à chaque hoquet du
- *   résolveur, ce qui en ferait un trou permanent pour qui insiste.
- *
- * Le cas où l'hôte vérifié EST l'hôte courant se juge tout seul : les deux
- * résolutions portent sur le même nom, rendent les mêmes adresses, et le
- * verdict est `ok`. C'est juste — c'est le domaine qui sert déjà, et son
- * certificat est déjà émis.
+ * - `connue` : l'adresse doit être `VPS_IP4`. C'est tout l'objet du verrou.
+ * - `aucune` : pas d'IP connue. En local (origines en boucle) un A public
+ *   ne peut pas être CET environnement — `different`, pas `ok`. En prod
+ *   sans `VPS_IP4`, on ne compare pas le lookup à lui-même : `forme`,
+ *   que l'écran affiche comme Non connecté.
  */
 function jugerA(reference: ReferenceServeur) {
   return (valeurs: string[]): Jugement => {
@@ -340,19 +272,75 @@ function jugerA(reference: ReferenceServeur) {
           ? "ok"
           : "different"
       case "aucune":
-        return "forme"
-      case "indisponible":
-        return "indisponible"
+        // Localhost n'est pas 198.x : le DNS public d'illith.com ne peint
+        // pas du vert sur un `pnpm dev`.
+        return originesLocales() !== null ? "different" : "forme"
     }
   }
 }
 
+const BOUCLE_LOCALE = new Set(["localhost", "127.0.0.1"])
+
+/** Ports documentés de `pnpm dev` / `docker-compose.local.yml`. */
+const WEB_LOCAL = "localhost:4321"
+const ADMIN_LOCAL = "localhost:3001"
+
 /**
- * La valeur d'un A n'est pas connue d'ici : c'est l'adresse du serveur de
- * l'adoptant. On la nomme au lieu de la citer — c'est la seule des cinq
- * lignes dont la valeur ne se copie pas telle quelle.
+ * L'hôte:port d'une origine de boucle, ou `null`.
+ *
+ * Sert à remplir la colonne Valeur en local : on n'invente pas une IPv4
+ * de production, on affiche ce que le navigateur joint vraiment.
  */
-const VALEUR_A = "l'adresse IPv4 publique de votre serveur"
+function hoteLocalDepuis(url: string | undefined): string | null {
+  if (url === undefined || url.trim() === "") return null
+  try {
+    const parsed = new URL(url)
+    if (!BOUCLE_LOCALE.has(parsed.hostname)) return null
+    return parsed.port === "" ? parsed.hostname : `${parsed.hostname}:${parsed.port}`
+  } catch {
+    return null
+  }
+}
+
+function originesLocales(): { web: string; admin: string } | null {
+  const web = hoteLocalDepuis(process.env.WEB_SITE_URL)
+  const admin = hoteLocalDepuis(process.env.SITE_URL)
+  if (web === null && admin === null) return null
+  return { web: web ?? WEB_LOCAL, admin: admin ?? ADMIN_LOCAL }
+}
+
+/**
+ * La valeur à coller pour un A — une adresse, jamais une phrase.
+ *
+ * - `VPS_IP4` connue : cette IPv4 ;
+ * - origines Convex en boucle : `localhost:4321` / `localhost:3001` ;
+ * - sinon rien : on n'invente pas une IP, et on ne recopie pas le lookup.
+ */
+function valeurEnregistrementA(
+  cle: "site" | "admin" | "umami",
+  reference: ReferenceServeur,
+): string {
+  if (reference.etat === "connue") return reference.adresses[0] ?? ""
+  const local = originesLocales()
+  if (local === null) return ""
+  return cle === "admin" ? local.admin : local.web
+}
+
+/**
+ * L'hôte Umami à poser chez le registrar, ou `null`.
+ *
+ * `routing.deriverHotes` publie `stats.<déclaré>` dès que `UMAMI_DOMAIN`
+ * est posé. En local il vaut `localhost` (compose sur :3002) : pas de
+ * ligne DNS, le tableau de bord n'est pas sur l'internet public.
+ */
+function hoteUmamiDuPlan(domaine: string): string | null {
+  const brut = process.env.UMAMI_DOMAIN
+  if (brut === undefined || brut.trim() === "") return null
+  const nu = brut.trim().toLowerCase().split(":")[0] ?? ""
+  if (BOUCLE_LOCALE.has(nu)) return null
+  if (normaliserHote(brut) === null) return null
+  return `stats.${domaine}`
+}
 
 /** Resend expédie par Amazon SES : c'est ce que le SPF doit autoriser. */
 const VALEUR_SPF = "v=spf1 include:amazonses.com ~all"
@@ -373,13 +361,13 @@ function controlesSite(
   reference: ReferenceServeur = { etat: "aucune" },
 ): Controle[] {
   const juger = jugerA(reference)
-  return [
+  const lignes: Controle[] = [
     {
       cle: "site",
       libelle: "Le site public",
       nom: hote,
       type: "A",
-      attendu: VALEUR_A,
+      attendu: valeurEnregistrementA("site", reference),
       juger,
     },
     {
@@ -387,10 +375,22 @@ function controlesSite(
       libelle: "Le tableau de bord",
       nom: `admin.${hote}`,
       type: "A",
-      attendu: VALEUR_A,
+      attendu: valeurEnregistrementA("admin", reference),
       juger,
     },
   ]
+  const umami = hoteUmamiDuPlan(hote)
+  if (umami !== null) {
+    lignes.push({
+      cle: "umami",
+      libelle: "Les statistiques (Umami)",
+      nom: umami,
+      type: "A",
+      attendu: valeurEnregistrementA("umami", reference),
+      juger,
+    })
+  }
+  return lignes
 }
 
 function controlesEmail(hote: string): Controle[] {
@@ -447,16 +447,26 @@ async function verifier(controles: Controle[]): Promise<Verdict[]> {
   return await Promise.all(
     controles.map(async (controle): Promise<Verdict> => {
       const reponse = await resoudre(controle.nom, controle.type)
-      const etat: EtatVerdict =
-        reponse.statut === "erreur"
-          ? "indisponible"
-          : reponse.statut === "absent"
-            ? "manquant"
-            : controle.juger(reponse.valeurs)
+      if (reponse.statut === "erreur") {
+        return {
+          ...enregistrementDe(controle),
+          trouve: [],
+          etat: "indisponible",
+          raison: reponse.raison,
+        }
+      }
+      if (reponse.statut === "absent") {
+        return {
+          ...enregistrementDe(controle),
+          trouve: [],
+          etat: "manquant",
+          ...(reponse.nxdomain ? { raison: "NXDOMAIN" } : {}),
+        }
+      }
       return {
         ...enregistrementDe(controle),
-        trouve: reponse.statut === "ok" ? reponse.valeurs : [],
-        etat,
+        trouve: reponse.valeurs,
+        etat: controle.juger(reponse.valeurs),
       }
     }),
   )
@@ -497,7 +507,7 @@ export const plan = query({
     await requireRole(ctx, ["owner", "admin"])
     const hote = exigerHote(args.domaine)
     return {
-      site: controlesSite(hote).map(enregistrementDe),
+      site: controlesSite(hote, referenceDepuisEnv()).map(enregistrementDe),
       email: controlesEmail(hote).map(enregistrementDe),
     }
   },
@@ -508,10 +518,9 @@ export const checkSite = action({
   handler: async (ctx, args): Promise<Verdict[]> => {
     await requireRole(ctx, ["owner", "admin"])
     const hote = exigerHote(args.domaine)
-    // L'ordre compte : la référence AVANT les deux lignes, parce que les
-    // deux la partagent. Trois requêtes sortantes au total, pas quatre.
-    const courant: string | null = await ctx.runQuery(internal.dns.hoteCourant, {})
-    return await verifier(controlesSite(hote, await referenceServeur(courant)))
+    // La référence vient de `VPS_IP4` / des origines locales — pas d'un
+    // lookup du domaine déclaré (ce lookup est ce qu'on JUGE, plus bas).
+    return await verifier(controlesSite(hote, referenceDepuisEnv()))
   },
 })
 

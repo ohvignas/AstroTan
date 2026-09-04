@@ -25,6 +25,10 @@ export const start = mutation({
     ip: v.optional(v.string()),
     country: v.optional(v.string()),
     city: v.optional(v.string()),
+    latitude: v.optional(v.number()),
+    longitude: v.optional(v.number()),
+    timezone: v.optional(v.string()),
+    pageUrl: v.optional(v.string()),
   },
   handler: (ctx, args) => startVisitorChat(ctx, args),
 })
@@ -39,6 +43,10 @@ export const attachEmail = mutation({
     ip: v.optional(v.string()),
     country: v.optional(v.string()),
     city: v.optional(v.string()),
+    latitude: v.optional(v.number()),
+    longitude: v.optional(v.number()),
+    timezone: v.optional(v.string()),
+    pageUrl: v.optional(v.string()),
   },
   handler: (ctx, args) => attachVisitorEmail(ctx, args),
 })
@@ -52,6 +60,7 @@ export const send = mutation({
     storageId: v.optional(v.id("_storage")),
     filename: v.optional(v.string()),
     mime: v.optional(v.string()),
+    pageUrl: v.optional(v.string()),
   },
   handler: (ctx, args) => sendVisitorMessage(ctx, args),
 })

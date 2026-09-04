@@ -1,7 +1,14 @@
-import { Fragment, useState } from "react"
+import { Fragment } from "react"
 import type { ReactNode } from "react"
 import type { Enregistrement, EtatVerdict, Verdict } from "@astrotan/backend/convex/dns"
-import { Button } from "@/components/ui/button"
+import { valeurLocalePour } from "@/lib/domaineLocal"
+import {
+  CircleCheckIcon,
+  CircleHelpIcon,
+  CircleXIcon,
+  type LucideIcon,
+} from "lucide-react"
+import { CopyButton } from "@/components/copy-button"
 import {
   Table,
   TableBody,
@@ -38,18 +45,52 @@ import {
 // distinguent que dans `data-etat`, pour les tests ; ce qui les sépare à
 // l'écran est l'étiquette au-dessus du tableau.
 //
-// TYPE, NOM, VALEUR : TROIS COLONNES NUES, PLUS L'ÉTAT. `convex/dns.ts`
+// TYPE, NOM, VALEUR, TTL : QUATRE COLONNES NUES, PLUS L'ÉTAT. `convex/dns.ts`
 // porte maintenant `type` et `nom` comme champs à part entière — ce
 // composant les affiche tels quels, sans les recomposer depuis une phrase
 // (l'ancienne version le faisait depuis un champ `instruction`, retiré du
 // serveur). `libelle` (« SPF — qui a le droit d'envoyer en votre nom »)
 // n'apparaît plus dans le flux : il passe en infobulle (`title`), pour
 // qui veut savoir à quoi sert la ligne sans que ça coûte un mot à l'écran.
+//
+// TTL 300 s : c'est la valeur que la recette de mise en service demande
+// de poser chez le registrar (`docs/superpowers/plans/2026-08-30-deploiement-et-recette-ovh.md`
+// §3.2). Ni Traefik ni `docker/README.md` n'en imposent une autre.
+
+/** TTL recommandé chez le registrar — recette OVH §3.2. */
+export const TTL_DNS_RECOMMANDE = 300
+
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+
+function estIpv4(valeur: string): boolean {
+  const octets = IPV4.exec(valeur)
+  if (!octets) return false
+  return octets.slice(1).every((octet) => Number(octet) <= 255)
+}
+
+/**
+ * Ce qui va dans la colonne Valeur : l'attendu de CET environnement.
+ *
+ * Jamais le lookup recyclé en vérité — c'est lui qui affichait 198.x
+ * sur un Mac en localhost. Le DNS public juge la colonne État
+ * (Connecté / Local / Non connecté) ; il n'a pas de seconde ligne
+ * sous la valeur.
+ */
+export function valeurAffichee(
+  ligne: LigneDns,
+  opts: { local?: boolean } = {},
+): string {
+  if (opts.local && ligne.type === "A") {
+    if (/^(localhost|127\.0\.0\.1):\d+$/.test(ligne.attendu)) return ligne.attendu
+    return valeurLocalePour(ligne.cle)
+  }
+  return ligne.attendu
+}
 // ---------------------------------------------------------------------
 
 export type Signe = "ok" | "ko" | "inconnu"
 
-const SIGNES: Record<Signe, { glyphe: string; texte: string; classe: string }> =
+const SIGNES: Record<Signe, { Icone: LucideIcon; texte: string; classe: string }> =
   {
     // `emerald` de la palette Tailwind, et non un `text-success` : le
     // jeton `--color-success` existe dans `packages/tokens/theme.css`, que
@@ -58,57 +99,42 @@ const SIGNES: Record<Signe, { glyphe: string; texte: string; classe: string }> =
     // coche sortait en noir. `password-strength-meter.tsx` prend déjà
     // `bg-emerald-500` pour la même raison.
     ok: {
-      glyphe: "✓",
-      texte: "En place",
+      Icone: CircleCheckIcon,
+      texte: "Connecté",
       classe: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
     },
     ko: {
-      glyphe: "✕",
-      texte: "À poser",
+      Icone: CircleXIcon,
+      texte: "Non connecté",
       classe: "bg-destructive/15 text-destructive",
     },
     inconnu: {
-      glyphe: "?",
-      texte: "Non lu",
+      Icone: CircleHelpIcon,
+      texte: "Non connecté",
       classe: "bg-muted text-muted-foreground",
     },
   }
 
-const SIGNE_DE: Record<EtatVerdict | "attente", Signe> = {
-  ok: "ok",
-  // Vert comme `ok`, et c'est voulu : la LIGNE est en place — un A qui
-  // existe et qui est une IPv4 publique. Ce qui manque n'est pas dans la
-  // ligne, c'est un serveur à qui la comparer, et ça ne se dit pas d'une
-  // ligne de tableau. L'étiquette au-dessus le dit, elle (`etatDesA`).
-  // Même arrangement qu'entre « attente » et `indisponible` : le signe est
-  // partagé, `data-etat` les sépare.
-  forme: "ok",
-  manquant: "ko",
-  different: "ko",
-  indisponible: "inconnu",
-  attente: "inconnu",
-}
-
 /**
  * Le signe, et rien d'autre.
  *
- * Le mot (« En place », « À poser », « Non lu ») vit dans `aria-label` :
- * un lecteur d'écran l'annonce, l'œil ne le lit pas. Une pastille de texte
- * remettrait à l'écran ce que la couleur dit déjà.
+ * Le mot (« Connecté », « Non connecté ») vit dans `aria-label` quand
+ * le glyphe est seul. Sur une ligne DNS, `VerdictConnexion` écrit le
+ * mot à l'œil : le Signal n'y va plus.
  *
  * `muet` retire ce `aria-label` — et lui seul. Il sert aux endroits où le
  * mot est DÉJÀ écrit à côté (voir `Etiquette`) : l'annoncer deux fois
- * ferait lire « En place, A en place » à un lecteur d'écran.
+ * ferait lire « Connecté, Connecté » à un lecteur d'écran.
  */
 export function Signal({ signe, muet = false }: { signe: Signe; muet?: boolean }) {
-  const { glyphe, texte, classe } = SIGNES[signe]
+  const { Icone, texte, classe } = SIGNES[signe]
   return (
     <span
       {...(muet ? { "aria-hidden": true } : { role: "img", "aria-label": texte })}
       data-signe={signe}
-      className={`inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[0.7rem] leading-none font-bold ${classe}`}
+      className={`inline-flex size-5 shrink-0 items-center justify-center rounded-full ${classe}`}
     >
-      {glyphe}
+      <Icone aria-hidden className="size-3.5" />
     </span>
   )
 }
@@ -120,14 +146,94 @@ export function Signal({ signe, muet = false }: { signe: Signe; muet?: boolean }
  * Le tableau se contente du signe parce que la ligne dit déjà de quoi il
  * parle. Ailleurs — à côté du bouton, à côté d'un titre de tableau — un
  * rond de couleur seul ne désigne rien : le mot est ce qui le rattache à
- * quelque chose. Il reste un ÉTAT, jamais une consigne : « A à poser », pas
- * « créez un enregistrement A chez votre hébergeur ».
+ * quelque chose. Il reste un ÉTAT, jamais une consigne : « Non connecté »,
+ * pas « créez un enregistrement A chez votre hébergeur ».
  */
+
+/**
+ * Le verdict durable d'une ligne — icône + mot.
+ *
+ * Après le check : V vert si ça matche, croix rouge si ça manque ou
+ * diverge. Avant (attente) et si le résolveur n'a pas répondu : le
+ * point d'interrogation. En local, jamais le V — « Local » n'est pas
+ * Connecté.
+ */
+export function estConnecte(
+  etat: EtatVerdict | "attente",
+  opts: { local?: boolean } = {},
+): boolean {
+  if (opts.local) return false
+  return etat === "ok"
+}
+
+export function signeDuVerdict(
+  etat: EtatVerdict | "attente",
+  opts: { local?: boolean } = {},
+): Signe {
+  if (estConnecte(etat, opts)) return "ok"
+  if (etat === "manquant" || etat === "different") return "ko"
+  return "inconnu"
+}
+
+export function VerdictConnexion({
+  etat,
+  local = false,
+}: {
+  etat: EtatVerdict | "attente"
+  local?: boolean
+}) {
+  const connecte = estConnecte(etat, { local })
+  const vu = etat === "ok" || etat === "forme" || etat === "different"
+  const texte = local ? (vu ? "Local" : "Non connecté") : connecte ? "Connecté" : "Non connecté"
+  const signe = signeDuVerdict(etat, { local })
+  return (
+    <span
+      data-connexion={connecte ? "connecte" : "non_connecte"}
+      className={`inline-flex items-center gap-1.5 text-xs ${
+        connecte
+          ? "text-emerald-600 dark:text-emerald-400"
+          : "text-muted-foreground"
+      }`}
+    >
+      <Signal signe={signe} muet />
+      {texte}
+    </span>
+  )
+}
+
 export function Etiquette({ signe, texte }: { signe: Signe; texte: string }) {
   return (
     <span
       data-testid="etiquette"
       className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+    >
+      <Signal signe={signe} muet />
+      <span className="min-w-0 wrap-anywhere">{texte}</span>
+    </span>
+  )
+}
+
+/**
+ * À côté du bouton Vérifier — le même couple icône + mot que la ligne.
+ *
+ * V vert / croix rouge / « ? » : ce n'est pas le mot seul. Le libellé
+ * (Connecté, Non connecté, Local) dit ce que le signe désigne.
+ */
+export function EtatVerification({
+  signe,
+  texte,
+}: {
+  signe: Signe
+  texte: string
+}) {
+  return (
+    <span
+      data-testid="etiquette"
+      className={`inline-flex min-w-0 items-center gap-1.5 text-xs ${
+        signe === "ok"
+          ? "text-emerald-600 dark:text-emerald-400"
+          : "text-muted-foreground"
+      }`}
     >
       <Signal signe={signe} muet />
       <span className="min-w-0 wrap-anywhere">{texte}</span>
@@ -231,11 +337,17 @@ export function TableauDns({
   titre,
   lignes,
   etat = null,
+  note = null,
+  local = false,
 }: {
   titre: string
   lignes: LigneDns[]
   /** L'état du groupe entier — celui de Resend, sur « Les emails ». */
   etat?: ReactNode
+  /** Une phrase sous le titre — pourquoi ces lignes existent. */
+  note?: string | null
+  /** Dashboard servi en local : jamais Connecté, jamais une IPv4 publique. */
+  local?: boolean
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -245,6 +357,9 @@ export function TableauDns({
         <h3 className="font-heading text-sm font-medium">{titre}</h3>
         {etat}
       </div>
+      {note !== null ? (
+        <p className="text-xs text-muted-foreground">{note}</p>
+      ) : null}
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
@@ -253,12 +368,15 @@ export function TableauDns({
               Nom
             </TableHead>
             <TableHead className="px-2 whitespace-normal">Valeur</TableHead>
-            <TableHead className="w-9 px-0" aria-label="État" />
+            <TableHead className="w-14 px-2 whitespace-normal">TTL</TableHead>
+            <TableHead className="w-[7.5rem] px-2 whitespace-normal">
+              État
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {lignes.map((ligne) => (
-            <LigneEnregistrement key={ligne.cle} ligne={ligne} />
+            <LigneEnregistrement key={ligne.cle} ligne={ligne} local={local} />
           ))}
         </TableBody>
       </Table>
@@ -266,7 +384,14 @@ export function TableauDns({
   )
 }
 
-function LigneEnregistrement({ ligne }: { ligne: LigneDns }) {
+function LigneEnregistrement({
+  ligne,
+  local,
+}: {
+  ligne: LigneDns
+  local: boolean
+}) {
+  const valeur = valeurAffichee(ligne, { local })
   return (
     <TableRow data-testid={`verdict-${ligne.cle}`} data-etat={ligne.etat}>
       <TableCell
@@ -282,27 +407,24 @@ function LigneEnregistrement({ ligne }: { ligne: LigneDns }) {
         <NomDns nom={ligne.nom} />
       </TableCell>
       <TableCell className="px-2 align-top whitespace-normal">
-        <div className="flex w-full min-w-0 flex-col items-start gap-1.5">
-          {/* `flex-wrap` + `basis-32` : à 390 px la colonne ne tient pas la
-              valeur ET le bouton, et les garder sur une ligne cassait
-              « include:amazonses.com » en trois morceaux. Le bouton passe
-              dessous. `wrap-anywhere` plutôt que `break-all` : une valeur
-              longue casse encore au milieu si elle n'a pas d'espace, mais
-              « l'adresse IPv4 publique de votre serveur » casse à ses
-              espaces, comme une phrase. */}
-          <div className="flex w-full min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
-            <code className="min-w-0 grow basis-32 text-xs wrap-anywhere">
-              {ligne.attendu}
-            </code>
-            {estCopiable(ligne.attendu) ? (
-              <BoutonCopier texte={ligne.attendu} />
-            ) : null}
-          </div>
-          {ligne.trouve.length > 0 ? <Repli trouve={ligne.trouve} /> : null}
+        <div className="inline-flex max-w-full items-start gap-0.5">
+          <code className="min-w-0 text-xs wrap-anywhere">{valeur}</code>
+          {estCopiable(valeur) ? (
+            <CopyButton
+              value={valeur}
+              label="Copier la valeur"
+              className="shrink-0"
+              iconClassName="size-3.5"
+              size="icon-xs"
+            />
+          ) : null}
         </div>
       </TableCell>
-      <TableCell className="px-0 text-right align-top">
-        <Signal signe={SIGNE_DE[ligne.etat]} />
+      <TableCell className="px-2 align-top text-xs tabular-nums">
+        {TTL_DNS_RECOMMANDE}
+      </TableCell>
+      <TableCell className="px-2 align-top">
+        <VerdictConnexion etat={ligne.etat} local={local} />
       </TableCell>
     </TableRow>
   )
@@ -352,58 +474,15 @@ function NomDns({ nom }: { nom: string }) {
 /**
  * Cette valeur se colle-t-elle telle quelle chez l'hébergeur ?
  *
- * Trois des cinq lignes ont pour `attendu` une DESCRIPTION et non une
- * valeur — « l'adresse IPv4 publique de votre serveur » (deux fois), « la
- * clé publique fournie par Resend ». Un bouton qui collerait cette phrase
- * dans le champ « valeur » de l'hébergeur serait pire que pas de bouton.
- *
- * La règle porte sur la forme, pas sur une liste de `cle` : une valeur DNS
- * réelle s'ouvre par un couple `jeton=` (`v=spf1…`, `v=DMARC1;…`, et
- * `p=MIGf…` le jour où Resend fournirait la clé). Une description française
- * n'en a pas. Écrite ainsi, elle suit `convex/dns.ts` sans le recopier : si
- * DKIM y gagne une valeur littérale, le bouton apparaît tout seul.
+ * Une description (« la clé publique fournie par Resend ») ne se copie
+ * pas : coller cette phrase chez l'hébergeur serait pire que pas de
+ * bouton. Une valeur réelle, si : couple `jeton=` (SPF, DMARC, DKIM),
+ * IPv4, ou `localhost:port` en local.
  */
 export function estCopiable(attendu: string): boolean {
-  return /^[a-z][a-z0-9_-]*=/i.test(attendu.trim())
+  const valeur = attendu.trim()
+  if (/^[a-z][a-z0-9_-]*=/i.test(valeur)) return true
+  if (estIpv4(valeur)) return true
+  return /^(localhost|127\.0\.0\.1):\d+$/.test(valeur)
 }
 
-/**
- * Ce que le résolveur a réellement trouvé, replié — utile pour diagnostiquer
- * un `different`, superflu tant qu'il n'y a rien à montrer.
- *
- * `<details>` natif plutôt qu'un `Collapsible` : ces lignes se rendent en
- * `renderToStaticMarkup` dans les tests, et un repli qui dépend de l'état
- * React n'y serait jamais fermé. Fermé, il coûte un mot.
- */
-function Repli({ trouve }: { trouve: string[] }) {
-  return (
-    <details className="w-full min-w-0">
-      <summary className="w-fit cursor-pointer text-xs text-muted-foreground underline decoration-dotted underline-offset-4 marker:content-none">
-        Trouvé
-      </summary>
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        <code className="wrap-anywhere">{trouve.join(" · ")}</code>
-      </p>
-    </details>
-  )
-}
-
-function BoutonCopier({ texte }: { texte: string }) {
-  const [copie, setCopie] = useState(false)
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      aria-label="Copier la valeur"
-      className="h-6 shrink-0 px-2 text-xs"
-      onClick={() => {
-        void navigator.clipboard.writeText(texte)
-        setCopie(true)
-        window.setTimeout(() => setCopie(false), 2_000)
-      }}
-    >
-      {copie ? "Copié" : "Copier"}
-    </Button>
-  )
-}

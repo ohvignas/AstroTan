@@ -85,9 +85,7 @@ export async function startVisitorChat(
   const { leadId, threadId: existingThread } = await createOrLinkChatLead(ctx, {
     ...(email.length > 0 ? { email } : {}),
     name: args.name,
-    ip: args.ip,
-    country: args.country,
-    city: args.city,
+    ...geo,
   })
   let threadId = existingThread
   if (!threadId) {
@@ -131,6 +129,10 @@ export async function attachVisitorEmail(
     ip: args.ip ?? already?.ip,
     country: args.country ?? already?.country,
     city: args.city ?? already?.city,
+    latitude: args.latitude ?? already?.latitude,
+    longitude: args.longitude ?? already?.longitude,
+    timezone: args.timezone ?? already?.timezone,
+    pageUrl: args.pageUrl ?? already?.pageUrl,
   })
   await ctx.db.patch(leadId, { threadId: session.threadId })
   if (!existingThread && !session.leadId) {
@@ -150,6 +152,7 @@ export async function sendVisitorMessage(
     storageId?: Id<"_storage">
     filename?: string
     mime?: string
+    pageUrl?: string
   },
 ): Promise<{ messageId: string }> {
   await assertSharedSecret(args.secret, process.env.LEAD_SUBMIT_SECRET)
@@ -169,7 +172,10 @@ export async function sendVisitorMessage(
     if (lead === null) throw new ConvexError({ code: "INVALID_SESSION" })
     await assertChatMessageBudget(ctx, args.origin, lead.email)
     controller = lead.controller ?? "ai"
-    await ctx.db.patch(lead._id, { lastMessageAt: Date.now() })
+    await ctx.db.patch(lead._id, {
+      lastMessageAt: Date.now(),
+      ...leadGeoPatch({ pageUrl: args.pageUrl }),
+    })
   } else {
     await assertChatMessageBudget(ctx, args.origin)
   }

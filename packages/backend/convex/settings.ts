@@ -19,12 +19,18 @@ import { estAdresseValide } from "./lib/expediteur"
 import { normaliserHote } from "./lib/hoteNu"
 import { noterSortie, type HoteSortant } from "./lib/hotesSortants"
 import { deriverOrigines } from "./lib/origines"
+import { type IdentiteEmail } from "./lib/emailLayout"
+import { piedEmail, urlLogoEmail } from "./lib/emailLogo"
 import { normaliserPixelId } from "./lib/pixelId"
 import { assertSerpLocale } from "./lib/serpLocale"
 import { assertOpenRouterModel } from "./lib/openRouterModels"
 import { assertOpenRouterImageModel } from "./lib/openRouterImageModels"
 import { assertOpenRouterOcrModel } from "./lib/openRouterOcrModels"
-import { assertAgentChatColor, assertAgentTeaser } from "./lib/agentChatAppearance"
+import {
+  DEFAULT_AGENT_CHAT_COLOR,
+  assertAgentChatColor,
+  assertAgentTeaser,
+} from "./lib/agentChatAppearance"
 import {
   DEFAULT_AGENT_INSTRUCTIONS,
   hasAuthoredAgentInstructions,
@@ -114,6 +120,7 @@ export const get = query({
       // reprendrait le fallback `PUBLIC_*` figé au build.
       metaPixelId: settings.metaPixelId ?? null,
       googleTagId: settings.googleTagId ?? null,
+      googleConversionLabel: settings.googleConversionLabel ?? null,
       // L'apparence du widget (interrupteur, nom, avatar, couleur, teaser) vit
       // dans `chatAppearance`, pas ici. `get` est lue par le middleware,
       // le `<head>`, l'en-tête et le pied — six fois par HTML. Y résoudre
@@ -193,9 +200,11 @@ export const getPrivate = query({
       declaredDomain: settings.declaredDomain ?? null,
       metaPixelId: settings.metaPixelId ?? null,
       googleTagId: settings.googleTagId ?? null,
+      googleConversionLabel: settings.googleConversionLabel ?? null,
       serpLocationCode: settings.serpLocationCode ?? null,
       serpLanguageCode: settings.serpLanguageCode ?? null,
       openRouterModel: settings.openRouterModel ?? null,
+      openRouterAgentModel: settings.openRouterAgentModel ?? null,
       openRouterImageModel: settings.openRouterImageModel ?? null,
       openRouterOcrModel: settings.openRouterOcrModel ?? null,
       agentEnabled: settings.agentEnabled === true,
@@ -358,6 +367,31 @@ export const expediteur = internalQuery({
 })
 
 /**
+ * L'identité visuelle des emails : nom, candidat logo public, couleur, pied.
+ *
+ * Le logo n'est PAS `storage.getUrl` : Gmail ne charge pas une URL
+ * Convex (signée, parfois locale). On compose `{origine publique}/logo`
+ * — la route `apps/web` du même nom. L'action d'envoi vérifie ensuite
+ * que l'URL répond vraiment, sinon le chrome n'émet pas de `<img>`.
+ */
+export const identiteEmail = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<IdentiteEmail> => {
+    const settings = await ctx.db.query("settings").first()
+    const { web } = deriverOrigines(settings?.declaredDomain)
+    const pose = settings?.agentChatColor?.trim()
+    const brandColor =
+      pose && pose.toLowerCase() !== DEFAULT_AGENT_CHAT_COLOR ? pose : null
+    return {
+      siteName: settings?.siteName?.trim() || "Mon site",
+      logoUrl: settings?.logoId ? urlLogoEmail(web) : null,
+      brandColor,
+      footerLine: piedEmail(settings?.declaredDomain, web),
+    }
+  },
+})
+
+/**
  * Le domaine déclaré, BRUT, pour les actions qui composent un lien.
  *
  * `internalQuery` et non un champ de plus dans `get` : cette query-là est
@@ -473,9 +507,11 @@ export const update = mutation({
     // `undefined`, qui effacerait le champ et ferait revenir PUBLIC_*.
     metaPixelId: v.optional(v.union(v.string(), v.null())),
     googleTagId: v.optional(v.union(v.string(), v.null())),
+    googleConversionLabel: v.optional(v.union(v.string(), v.null())),
     serpLocationCode: v.optional(v.union(v.number(), v.null())),
     serpLanguageCode: v.optional(v.union(v.string(), v.null())),
     openRouterModel: v.optional(v.union(v.string(), v.null())),
+    openRouterAgentModel: v.optional(v.union(v.string(), v.null())),
     openRouterImageModel: v.optional(v.union(v.string(), v.null())),
     openRouterOcrModel: v.optional(v.union(v.string(), v.null())),
   },
@@ -521,6 +557,7 @@ export const update = mutation({
       serpLanguageCode: args.serpLanguageCode,
     })
     const openRouterModel = assertOpenRouterModel(args.openRouterModel)
+    const openRouterAgentModel = assertOpenRouterModel(args.openRouterAgentModel)
     const openRouterImageModel = assertOpenRouterImageModel(args.openRouterImageModel)
     const openRouterOcrModel = assertOpenRouterOcrModel(args.openRouterOcrModel)
 
@@ -553,9 +590,11 @@ export const update = mutation({
       declaredDomain,
       metaPixelId,
       googleTagId,
+      googleConversionLabel,
       serpLocationCode: _serpLocation,
       serpLanguageCode: _serpLanguage,
       openRouterModel: _openRouterModel,
+      openRouterAgentModel: _openRouterAgentModel,
       openRouterImageModel: _openRouterImageModel,
       openRouterOcrModel: _openRouterOcrModel,
       ...rest
@@ -563,6 +602,7 @@ export const update = mutation({
     void _serpLocation
     void _serpLanguage
     void _openRouterModel
+    void _openRouterAgentModel
     void _openRouterImageModel
     void _openRouterOcrModel
     void _ignore
@@ -596,12 +636,22 @@ export const update = mutation({
     // Jamais `?? undefined` : `normaliserPixelId(null)` rend `""`, et c'est
     // cette chaîne qu'il faut écrire. `undefined` effacerait le champ, et
     // le site public reprendrait le `PUBLIC_*` figé au build.
-    const pixelPatch: { metaPixelId?: string; googleTagId?: string } = {}
+    const pixelPatch: {
+      metaPixelId?: string
+      googleTagId?: string
+      googleConversionLabel?: string
+    } = {}
     if (metaPixelId !== undefined) {
       pixelPatch.metaPixelId = normaliserPixelId("metaPixelId", metaPixelId)
     }
     if (googleTagId !== undefined) {
       pixelPatch.googleTagId = normaliserPixelId("googleTagId", googleTagId)
+    }
+    if (googleConversionLabel !== undefined) {
+      pixelPatch.googleConversionLabel = normaliserPixelId(
+        "googleConversionLabel",
+        googleConversionLabel,
+      )
     }
 
     const patch = {
@@ -624,6 +674,9 @@ export const update = mutation({
         : {}),
       ...(args.openRouterModel !== undefined
         ? { openRouterModel }
+        : {}),
+      ...(args.openRouterAgentModel !== undefined
+        ? { openRouterAgentModel }
         : {}),
       ...(args.openRouterImageModel !== undefined
         ? { openRouterImageModel }
@@ -690,7 +743,8 @@ export const update = mutation({
     // de la même façon : le header le relit à chaque requête.
     if (
       champsModifies.includes("metaPixelId") ||
-      champsModifies.includes("googleTagId")
+      champsModifies.includes("googleTagId") ||
+      champsModifies.includes("googleConversionLabel")
     ) {
       await insertOutboxRow(ctx, { kind: "site" }, ["pages", "posts"])
       await ctx.scheduler.runAfter(0, internal.revalidate.drain, {})

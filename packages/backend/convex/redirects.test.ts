@@ -124,6 +124,8 @@ test("renommer un article publié crée une 301 depuis son ancienne URL", async 
   await owner.identity.mutation(api.posts.publishPost, { id })
 
   await owner.identity.mutation(api.posts.update, { id, slug: "titre-v2" })
+  expect(await t.query(api.redirects.listActive, {})).toEqual([])
+  await owner.identity.mutation(api.posts.publishPost, { id })
 
   expect(await t.query(api.redirects.listActive, {})).toContainEqual({
     from: "blog/titre-v1",

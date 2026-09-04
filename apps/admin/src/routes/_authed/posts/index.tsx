@@ -5,6 +5,7 @@ import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import { describePageError } from "@/lib/pageErrors"
+import { ETAT_SLUG_INITIAL, saisirSlug, saisirTitre } from "@/lib/slugSync"
 import { RowActionButton, RowActionsMenu } from "@/components/row-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -61,7 +62,6 @@ export const Route = createFileRoute("/_authed/posts/")({
 })
 
 type PostRow = FunctionReturnType<typeof api.posts.list>[number]
-type TagRow = FunctionReturnType<typeof api.tags.list>[number]
 
 // `Intl` rather than `toLocaleDateString` with an implicit locale: the
 // dashboard is French regardless of the browser's own preference, and a
@@ -78,9 +78,8 @@ function PostsListPage() {
   // convention as the pages list.
   const profile = useQuery(api.profiles.me)
   const posts = useQuery(api.posts.list)
-  const tags = useQuery(api.tags.list)
 
-  if (profile === undefined || posts === undefined || tags === undefined) {
+  if (profile === undefined || posts === undefined) {
     return <p className="text-sm text-muted-foreground">Chargement…</p>
   }
 
@@ -111,7 +110,6 @@ function PostsListPage() {
         <CardContent>
           <PostsTable
             posts={posts}
-            tags={tags}
             selfAuthUserId={profile.authUserId}
             canPublish={canPublish}
           />
@@ -123,12 +121,10 @@ function PostsListPage() {
 
 function PostsTable({
   posts,
-  tags,
   selfAuthUserId,
   canPublish,
 }: {
   posts: PostRow[]
-  tags: TagRow[]
   selfAuthUserId: string
   canPublish: boolean
 }) {
@@ -137,9 +133,6 @@ function PostsTable({
   const unpublishPost = useMutation(api.posts.unpublishPost)
   const [error, setError] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<Id<"posts"> | null>(null)
-
-  // One pass over the tag list, not one `.find()` per tag per row.
-  const tagsById = new Map(tags.map((tag) => [tag._id, tag]))
 
   if (posts.length === 0) {
     return (
@@ -173,7 +166,7 @@ function PostsTable({
           <TableRow>
             <TableHead>Titre</TableHead>
             <TableHead>Statut</TableHead>
-            <TableHead>Tags</TableHead>
+            <TableHead>Auteur</TableHead>
             <TableHead>Publié le</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -206,23 +199,13 @@ function PostsTable({
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  {post.tagIds.length === 0 ? (
-                    <span className="text-sm text-muted-foreground">—</span>
-                  ) : (
-                    <div className="flex flex-wrap gap-1">
-                      {post.tagIds.map((tagId) => (
-                        <Badge key={tagId} variant="secondary">
-                          {/* A tag deleted out from under the post would
-                              leave a dangling id — `tags.remove` refuses
-                              that (`TAG_IN_USE`), so this fallback should
-                              be unreachable. Rendering the raw id rather
-                              than nothing is what makes it debuggable if
-                              it ever happens anyway. */}
-                          {tagsById.get(tagId)?.name ?? tagId}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
+                  <span>{post.author?.displayName ?? "—"}</span>
+                  {post.author?.email &&
+                    post.author.email !== post.author.displayName && (
+                      <span className="block text-xs font-normal text-muted-foreground">
+                        {post.author.email}
+                      </span>
+                    )}
                 </TableCell>
                 <TableCell className="text-muted-foreground">
                   {post.status === "published" && post.publishedAt
@@ -359,16 +342,14 @@ function PostRowActions({
 function CreatePostDialog() {
   const createPost = useMutation(api.posts.create)
   const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState("")
-  const [slug, setSlug] = useState("")
+  const [etat, setEtat] = useState(ETAT_SLUG_INITIAL)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   function handleOpenChange(next: boolean) {
     setOpen(next)
     if (!next) {
-      setTitle("")
-      setSlug("")
+      setEtat(ETAT_SLUG_INITIAL)
       setError(null)
     }
   }
@@ -378,7 +359,7 @@ function CreatePostDialog() {
     setError(null)
     setSubmitting(true)
     try {
-      const id = await createPost({ title, slug })
+      const id = await createPost({ title: etat.titre, slug: etat.slug })
       handleOpenChange(false)
       // Straight into the editor: creating an article is only ever step
       // one of writing it. Same move as the pages list's own dialog.
@@ -411,8 +392,10 @@ function CreatePostDialog() {
                 id="post-title"
                 autoComplete="off"
                 required
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                value={etat.titre}
+                onChange={(event) =>
+                  setEtat((courant) => saisirTitre(courant, event.target.value))
+                }
               />
             </Field>
             <Field>
@@ -422,8 +405,10 @@ function CreatePostDialog() {
                 autoComplete="off"
                 required
                 placeholder="mon-premier-article"
-                value={slug}
-                onChange={(event) => setSlug(event.target.value)}
+                value={etat.slug}
+                onChange={(event) =>
+                  setEtat((courant) => saisirSlug(courant, event.target.value))
+                }
               />
             </Field>
             {error && <FieldError>{error}</FieldError>}
@@ -438,8 +423,8 @@ function CreatePostDialog() {
             form="create-post-form"
             disabled={
               submitting ||
-              title.trim().length === 0 ||
-              slug.trim().length === 0
+              etat.titre.trim().length === 0 ||
+              etat.slug.trim().length === 0
             }
           >
             {submitting ? "Création…" : "Créer"}

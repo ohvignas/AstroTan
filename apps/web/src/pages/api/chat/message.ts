@@ -15,6 +15,7 @@ import {
   requireVisitorSession,
   stringField,
   visitorOrigin,
+  visitorPageUrl,
 } from "./_door"
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
@@ -48,6 +49,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
             ...(mime.length > 0 ? { mime } : {}),
           }
         : {}),
+      pageUrl: visitorPageUrl(request, payload),
     })
     return json({ ok: true, ...result })
   } catch (error) {

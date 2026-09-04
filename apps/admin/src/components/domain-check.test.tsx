@@ -3,11 +3,14 @@ import { describe, expect, test } from "vitest"
 import type { Enregistrement, Verdict } from "@astrotan/backend/convex/dns"
 import type { ResultatResend } from "@astrotan/backend/convex/resendDomain"
 import {
+  EtatVerification,
   Etiquette,
   TableauDns,
+  TTL_DNS_RECOMMANDE,
   estCopiable,
   fusionnerResend,
   fusionnerVerdicts,
+  valeurAffichee,
 } from "./domain-check"
 import type { ActionsDomaine, Lecture } from "@/routes/_authed/settings/domaine"
 import {
@@ -157,14 +160,35 @@ describe("TableauDns", () => {
     expect(auRepos(html)).toContain("v=DMARC1; p=none;")
   })
 
-  // La régression que cet écran a corrigée une première fois : huit TXT
-  // concaténés dans le flux. Ils restent atteignables, mais repliés.
-  test("les valeurs trouvées ne sont pas dans le flux, seulement dans le repli", () => {
+  test("un A déjà lu affiche l'attendu, le lookup public va en info s'il diffère", () => {
+    const plan = { ...PLAN_SITE, attendu: "203.0.113.7" }
+    const html = renderToStaticMarkup(
+      <TableauDns
+        titre="Le site"
+        lignes={fusionnerVerdicts([plan], [{ ...OK, attendu: "203.0.113.7" }])}
+        local={false}
+      />,
+    )
+    expect(auRepos(html)).toContain("203.0.113.7")
+    expect(auRepos(html)).not.toContain("l'adresse IPv4 publique de votre serveur")
+  })
+
+  test("la colonne TTL porte la valeur documentée du template", () => {
+    expect(TTL_DNS_RECOMMANDE).toBe(300)
+    const html = renderToStaticMarkup(
+      <TableauDns titre="Le site" lignes={fusionnerVerdicts([PLAN_SITE], null)} />
+    )
+    expect(html).toContain(">TTL<")
+    expect(auRepos(html)).toContain("300")
+  })
+
+  test("le lookup ne rajoute plus un « Trouvé » sous la valeur", () => {
     const html = renderToStaticMarkup(
       <TableauDns titre="Les emails" lignes={fusionnerVerdicts([PLAN_SPF], [DIFFERENT])} />
     )
-    expect(auRepos(html)).not.toContain("brevo-code:b18a7cb6")
-    expect(texte(html)).toContain("brevo-code:b18a7cb6")
+    expect(auRepos(html)).not.toContain("Trouvé")
+    expect(texte(html)).not.toContain("Trouvé")
+    expect(texte(html)).not.toContain("brevo-code:b18a7cb6")
   })
 
   test("le libellé ne s'affiche pas dans le flux ; il passe en infobulle", () => {
@@ -180,47 +204,60 @@ describe("TableauDns", () => {
 // Les signes — trois, pas quatre
 // ---------------------------------------------------------------------
 
-describe("le signe d'une ligne", () => {
-  function signe(verdict: Verdict): string {
+describe("le verdict d'une ligne", () => {
+  function rendu(verdict: Verdict | Enregistrement, arrive: Verdict | null) {
+    const plan = "etat" in verdict ? [verdict] : [verdict]
     const html = renderToStaticMarkup(
-      <TableauDns titre="x" lignes={fusionnerVerdicts([verdict], [verdict])} />
+      <TableauDns
+        titre="x"
+        lignes={fusionnerVerdicts(plan, arrive === null ? null : [arrive])}
+      />
     )
-    return /data-signe="([a-z]+)"/.exec(html)?.[1] ?? ""
+    return html
   }
 
-  test("en place → vert", () => {
-    expect(signe(OK)).toBe("ok")
+  test("lookup qui matche → Connecté, et ça reste", () => {
+    const html = rendu(OK, OK)
+    expect(html).toContain('data-connexion="connecte"')
+    expect(html).toContain('data-signe="ok"')
+    expect(html).toContain("lucide-circle-check")
+    expect(auRepos(html)).toContain("Connecté")
+    expect(auRepos(html)).not.toContain("Non connecté")
+    expect(auRepos(html)).not.toContain("À poser")
+    expect(auRepos(html)).not.toContain("En place")
   })
 
-  test("manquant et différent partagent le rouge : même geste", () => {
-    expect(signe(MANQUANT)).toBe("ko")
-    expect(signe(DIFFERENT)).toBe("ko")
+  test("mismatch, absence, lookup raté, pas encore lu → Non connecté", () => {
+    expect(rendu(MANQUANT, MANQUANT)).toContain('data-connexion="non_connecte"')
+    expect(rendu(DIFFERENT, DIFFERENT)).toContain('data-connexion="non_connecte"')
+    expect(rendu(INDISPONIBLE, INDISPONIBLE)).toContain('data-connexion="non_connecte"')
+    expect(rendu(PLAN_DMARC, null)).toContain('data-connexion="non_connecte"')
+    expect(auRepos(rendu(MANQUANT, MANQUANT))).toContain("Non connecté")
   })
 
-  // Le cœur de la règle : « le résolveur n'a pas répondu » n'est pas
-  // « c'est absent ». Les fondre en rouge fait créer un doublon chez
-  // l'hébergeur pour un enregistrement qu'on n'a simplement pas pu lire.
-  test("indisponible garde un troisième signe, distinct du rouge", () => {
-    expect(signe(INDISPONIBLE)).toBe("inconnu")
-    expect(signe(INDISPONIBLE)).not.toBe(signe(MANQUANT))
+  test("après le check, V vert ou croix rouge — pas le mot seul", () => {
+    expect(rendu(OK, OK)).toContain('data-signe="ok"')
+    expect(rendu(OK, OK)).toContain("lucide-circle-check")
+    expect(rendu(MANQUANT, MANQUANT)).toContain('data-signe="ko"')
+    expect(rendu(MANQUANT, MANQUANT)).toContain("lucide-circle-x")
+    expect(rendu(DIFFERENT, DIFFERENT)).toContain('data-signe="ko"')
   })
 
-  test("pas encore vérifié partage le signe d'indisponible, pas celui du rouge", () => {
-    const html = renderToStaticMarkup(
-      <TableauDns titre="x" lignes={fusionnerVerdicts([PLAN_DMARC], null)} />
-    )
-    const s = /data-signe="([a-z]+)"/.exec(html)?.[1]
-    expect(s).toBe("inconnu")
-    // `data-etat`, lui, garde la distinction : utile pour les tests, pas
-    // pour l'œil — les deux se voient pareil, pour la même raison.
-    expect(html).toContain('data-etat="attente"')
+  test("après le lookup, le verdict change — il n'est pas figé", () => {
+    const avant = rendu(PLAN_SITE, null)
+    expect(avant).toContain('data-etat="attente"')
+    expect(avant).toContain('data-connexion="non_connecte"')
+    const apresOk = rendu(PLAN_SITE, OK)
+    expect(apresOk).toContain('data-etat="ok"')
+    expect(apresOk).toContain('data-connexion="connecte"')
+    const apresKo = rendu(PLAN_SITE, { ...PLAN_SITE, trouve: [], etat: "manquant" })
+    expect(apresKo).toContain('data-etat="manquant"')
+    expect(apresKo).toContain('data-connexion="non_connecte"')
   })
 
-  test("le mot de l'état reste lisible pour un lecteur d'écran", () => {
-    const html = renderToStaticMarkup(
-      <TableauDns titre="x" lignes={fusionnerVerdicts([PLAN_SITE], [OK])} />
-    )
-    expect(html).toContain('aria-label="En place"')
+  test("data-etat sépare encore manquant et indisponible", () => {
+    expect(rendu(MANQUANT, MANQUANT)).toContain('data-etat="manquant"')
+    expect(rendu(INDISPONIBLE, INDISPONIBLE)).toContain('data-etat="indisponible"')
   })
 })
 
@@ -244,15 +281,112 @@ describe("estCopiable", () => {
     ).toBe(false)
   })
 
-  test("le bouton n'apparaît que sur les lignes copiables", () => {
+  test("l'icône de copie est à côté de la valeur, pas un bouton « Copier »", () => {
     const avec = renderToStaticMarkup(
       <TableauDns titre="x" lignes={fusionnerVerdicts([PLAN_DMARC], null)} />
     )
     const sans = renderToStaticMarkup(
       <TableauDns titre="x" lignes={fusionnerVerdicts([PLAN_SITE], null)} />
     )
-    expect(avec).toContain("Copier")
-    expect(sans).not.toContain("Copier")
+    expect(avec).toContain('aria-label="Copier la valeur"')
+    expect(auRepos(avec)).not.toContain("Copier")
+    expect(sans).not.toContain('aria-label="Copier la valeur"')
+    // Collée au texte : pas de `grow` qui pousserait l'icône au bout
+    // de la cellule, loin de la valeur.
+    expect(avec).not.toMatch(/grow basis-32/)
+  })
+
+  test("une IPv4 et un hôte local se copient", () => {
+    expect(estCopiable("203.0.113.7")).toBe(true)
+    expect(estCopiable("localhost:4321")).toBe(true)
+    expect(estCopiable("localhost:3001")).toBe(true)
+  })
+})
+
+describe("valeurAffichee", () => {
+  test("en prod, la valeur est l'attendu — pas le lookup recyclé en vérité", () => {
+    const [ligne] = fusionnerVerdicts(
+      [{ ...PLAN_SITE, attendu: "203.0.113.7" }],
+      [{ ...OK, attendu: "203.0.113.7" }],
+    )
+    expect(valeurAffichee(ligne!, { local: false })).toBe("203.0.113.7")
+    expect(valeurAffichee(ligne!, { local: false })).not.toMatch(/adresse IPv4/i)
+  })
+
+  test("sans lookup, c'est l'attendu — localhost en local, pas une phrase", () => {
+    const local = { ...PLAN_SITE, attendu: "localhost:4321" }
+    const [ligne] = fusionnerVerdicts([local], null)
+    expect(valeurAffichee(ligne!, { local: true })).toBe("localhost:4321")
+  })
+
+  test("DEV + lookup 198.x n'affiche pas cette IP et pas Connecté", () => {
+    const plan = { ...PLAN_SITE, attendu: "localhost:4321" }
+    const verdict: Verdict = {
+      ...plan,
+      trouve: ["198.202.211.1"],
+      etat: "ok",
+    }
+    const [ligne] = fusionnerVerdicts([plan], [verdict])
+    expect(valeurAffichee(ligne!, { local: true })).toBe("localhost:4321")
+    expect(valeurAffichee(ligne!, { local: true })).not.toContain("198.202.211.1")
+
+    const html = renderToStaticMarkup(
+      <TableauDns titre="Le site" lignes={fusionnerVerdicts([plan], [verdict])} local />,
+    )
+    expect(auRepos(html)).toContain("localhost:4321")
+    expect(auRepos(html)).not.toContain("DNS public")
+    expect(auRepos(html)).not.toContain("198.202.211.1")
+    expect(html).toContain('data-connexion="non_connecte"')
+    expect(html).not.toContain('data-signe="ok"')
+    expect(auRepos(html)).toMatch(/\bLocal\b/)
+    expect(auRepos(html)).not.toMatch(/(?<!Non )Connecté/)
+  })
+
+  test("en prod, le lookup différent de l'attendu n'écrit pas « DNS public : »", () => {
+    const plan = { ...PLAN_SITE, attendu: "203.0.113.7" }
+    const verdict: Verdict = {
+      ...plan,
+      trouve: ["104.21.5.9"],
+      etat: "different",
+    }
+    const html = renderToStaticMarkup(
+      <TableauDns
+        titre="Le site"
+        lignes={fusionnerVerdicts([plan], [verdict])}
+        local={false}
+      />,
+    )
+    expect(auRepos(html)).toContain("203.0.113.7")
+    expect(auRepos(html)).not.toContain("DNS public")
+    expect(auRepos(html)).not.toContain("104.21.5.9")
+  })
+
+  test("prod + attendu 198.x + lookup 198.x → Connecté", () => {
+    const plan = { ...PLAN_SITE, attendu: "198.202.211.1" }
+    const verdict: Verdict = {
+      ...plan,
+      trouve: ["198.202.211.1"],
+      etat: "ok",
+    }
+    const [ligne] = fusionnerVerdicts([plan], [verdict])
+    expect(valeurAffichee(ligne!, { local: false })).toBe("198.202.211.1")
+
+    const html = renderToStaticMarkup(
+      <TableauDns
+        titre="Le site"
+        lignes={fusionnerVerdicts([plan], [verdict])}
+        local={false}
+      />,
+    )
+    expect(html).toContain('data-connexion="connecte"')
+    expect(html).toContain('data-signe="ok"')
+    expect(auRepos(html)).toContain("Connecté")
+    expect(auRepos(html)).not.toContain("DNS public")
+  })
+
+  test("un TXT garde sa valeur de plan", () => {
+    const [ligne] = fusionnerVerdicts([PLAN_DMARC], [MANQUANT])
+    expect(valeurAffichee(ligne!)).toBe("v=DMARC1; p=none;")
   })
 })
 
@@ -270,7 +404,7 @@ describe("estCopiable", () => {
 // ---------------------------------------------------------------------
 
 describe("TableauxDns", () => {
-  test("les enregistrements du plan sont visibles avant toute vérification", () => {
+  test("les enregistrements du site sont visibles avant toute vérification", () => {
     const html = renderToStaticMarkup(
       <TableauxDns
         plan={{ site: [PLAN_SITE], email: [PLAN_DMARC, PLAN_SPF] }}
@@ -278,12 +412,10 @@ describe("TableauxDns", () => {
       />
     )
     expect(html).toContain('data-testid="verdict-site"')
-    expect(html).toContain('data-testid="verdict-dmarc"')
-    expect(html).toContain('data-testid="verdict-spf"')
-    // Les valeurs à poser sont là, pas seulement les clés.
-    expect(texte(html)).toContain("v=DMARC1; p=none;")
-    // Et l'état de chaque ligne, faute de verdict, est « attente » — pas
-    // « manquant » : on n'a encore rien vérifié, on ne sait juste pas.
+    // Sans lecture Resend, le tableau emails ne s'affiche pas : en local
+    // la clé est absente, et coller SPF/DKIM n'y change rien.
+    expect(html).not.toContain('data-testid="verdict-dmarc"')
+    expect(html).not.toContain("Les emails")
     expect(html).toContain('data-etat="attente"')
     expect(html).not.toContain('data-etat="manquant"')
   })
@@ -293,11 +425,29 @@ describe("TableauxDns", () => {
       <TableauxDns
         plan={{ site: [PLAN_SITE], email: [PLAN_DMARC] }}
         resultat={{ site: [OK], email: [MANQUANT] }}
+        // `absent` : clé présente, domaine pas encore déclaré — le tableau
+        // emails s'affiche, sans les lignes extra de Resend qui resteraient
+        // en « attente » (checkEmail ne les lit pas).
+        resend={{ etat: "absent" }}
       />
     )
     expect(html).toContain('data-etat="ok"')
     expect(html).toContain('data-etat="manquant"')
     expect(html).not.toContain('data-etat="attente"')
+  })
+
+  test("clé Resend absente : le tableau emails n'existe pas", () => {
+    const html = renderToStaticMarkup(
+      <TableauxDns
+        plan={{ site: [PLAN_SITE], email: [PLAN_DMARC, PLAN_SPF] }}
+        resultat={null}
+        resend={{ etat: "sans_cle" }}
+      />
+    )
+    expect(html).toContain('data-testid="verdict-site"')
+    expect(html).not.toContain("Les emails")
+    expect(html).not.toContain('data-testid="verdict-dmarc"')
+    expect(html).not.toContain('data-testid="verdict-spf"')
   })
 })
 
@@ -316,7 +466,7 @@ describe("la prose ne revient pas", () => {
     const mots = auRepos(html)
       .split(" ")
       .filter((m) => /[\p{L}\p{N}]/u.test(m))
-    expect(mots.length).toBeLessThan(30)
+    expect(mots.length).toBeLessThan(40)
   })
 })
 
@@ -408,7 +558,7 @@ describe("le verrou du bouton d'enregistrement", () => {
     expect(domaineEnregistrable("exemple.fr", "exemple.fr", lecture)).toBe(false)
     expect(etatDesA("exemple.fr", "exemple.fr", lecture)).toEqual({
       signe: "ko",
-      texte: "A à poser",
+      texte: "Non connecté",
     })
   })
 
@@ -473,6 +623,20 @@ describe("l'état affiché à côté du bouton", () => {
     expect(etatDesA("", null, null)).toBeNull()
   })
 
+  test("en local, un lookup 198.x se dit Local, pas Connecté", () => {
+    const lecture = lue([
+      { ...A_SITE_OK, trouve: ["198.202.211.1"] },
+      { ...A_ADMIN_OK, trouve: ["198.202.211.1"] },
+    ])
+    expect(etatDesA("illith.com", "illith.com", lecture, { local: true })).toEqual({
+      signe: "inconnu",
+      texte: "Local",
+    })
+    expect(domaineEnregistrable("illith.com", "illith.com", lecture, { local: true })).toBe(
+      true,
+    )
+  })
+
   test("chaque situation a son état, et il tient en trois mots", () => {
     expect(etatDesA("exemple.f", null, null)).toEqual({
       signe: "inconnu",
@@ -480,15 +644,15 @@ describe("l'état affiché à côté du bouton", () => {
     })
     expect(etatDesA("exemple.fr", "exemple.fr", null)).toEqual({
       signe: "inconnu",
-      texte: "A non lu",
+      texte: "Non connecté",
     })
     expect(etatDesA("exemple.fr", "exemple.fr", lue([A_SITE_OK, A_ADMIN_MANQUANT]))).toEqual({
       signe: "ko",
-      texte: "A à poser",
+      texte: "Non connecté",
     })
     expect(etatDesA("exemple.fr", "exemple.fr", lue([A_SITE_OK, A_ADMIN_OK]))).toEqual({
       signe: "ok",
-      texte: "A en place",
+      texte: "Connecté",
     })
   })
 
@@ -510,37 +674,34 @@ describe("l'état affiché à côté du bouton", () => {
   //     mixte : un A non lu à côté d'un A plausible n'arme rien).
   // ─────────────────────────────────────────────────────────────────
 
-  test("un A vert sans serveur de référence ne se dit pas comme un A comparé", () => {
+  test("un A sans IP connue n'est pas Connecté et n'arme rien", () => {
     const compare = etatDesA("exemple.fr", "exemple.fr", lue([A_SITE_OK, A_ADMIN_OK]))
     const sansReference = etatDesA(
       "exemple.fr",
       "exemple.fr",
       lue([A_SITE_FORME, A_ADMIN_FORME])
     )
-    // Le bouton s'arme des deux côtés — le refuser enfermerait tout
-    // déploiement sans variable Convex —, et c'est précisément pour ça que
-    // le TEXTE est le seul endroit où la différence peut se voir.
-    expect(compare?.signe).toBe("ok")
-    expect(sansReference?.signe).toBe("ok")
-    expect(sansReference?.texte).not.toBe(compare?.texte)
-    // Et il dit la chose qui manque, pas seulement « quelque chose diffère ».
-    expect(sansReference?.texte).toContain("serveur de référence")
+    expect(compare).toEqual({ signe: "ok", texte: "Connecté" })
+    expect(sansReference).toEqual({ signe: "inconnu", texte: "Non connecté" })
+    expect(domaineEnregistrable("exemple.fr", "exemple.fr", lue([A_SITE_FORME, A_ADMIN_FORME]))).toBe(
+      false,
+    )
   })
 
   test("un A plausible à côté d'un A non lu n'arme rien", () => {
     const lecture = lue([A_SITE_FORME, { ...A_ADMIN_FORME, etat: "indisponible" }])
     expect(etatDesA("exemple.fr", "exemple.fr", lecture)).toEqual({
       signe: "inconnu",
-      texte: "A non lu",
+      texte: "Non connecté",
     })
     expect(domaineEnregistrable("exemple.fr", "exemple.fr", lecture)).toBe(false)
   })
 
-  test("un A plausible à côté d'un A manquant reste rouge", () => {
+  test("un A plausible à côté d'un A manquant reste Non connecté", () => {
     const lecture = lue([A_SITE_FORME, A_ADMIN_MANQUANT])
     expect(etatDesA("exemple.fr", "exemple.fr", lecture)).toEqual({
       signe: "ko",
-      texte: "A à poser",
+      texte: "Non connecté",
     })
     expect(domaineEnregistrable("exemple.fr", "exemple.fr", lecture)).toBe(false)
   })
@@ -566,10 +727,36 @@ describe("l'état affiché à côté du bouton", () => {
   })
 
   test("l'étiquette écrit le mot et ne le fait pas annoncer deux fois", () => {
-    const html = renderToStaticMarkup(<Etiquette signe="ko" texte="A à poser" />)
-    expect(texte(html)).toContain("A à poser")
+    const html = renderToStaticMarkup(<Etiquette signe="ko" texte="Non connecté" />)
+    expect(texte(html)).toContain("Non connecté")
     expect(html).toContain('data-signe="ko"')
     expect(html).not.toContain("aria-label")
+  })
+
+  test("après Vérifier, Connecté porte CircleCheck — pas le mot seul", () => {
+    const html = renderToStaticMarkup(
+      <EtatVerification signe="ok" texte="Connecté" />,
+    )
+    expect(texte(html)).toContain("Connecté")
+    expect(html).toContain("lucide-circle-check")
+    expect(html).not.toContain("lucide-circle-x")
+  })
+
+  test("après Vérifier, Non connecté porte CircleX — pas le mot seul", () => {
+    const html = renderToStaticMarkup(
+      <EtatVerification signe="ko" texte="Non connecté" />,
+    )
+    expect(texte(html)).toContain("Non connecté")
+    expect(html).toContain("lucide-circle-x")
+    expect(html).not.toContain("lucide-circle-check")
+  })
+
+  test("Local garde CircleHelp et le mot", () => {
+    const html = renderToStaticMarkup(
+      <EtatVerification signe="inconnu" texte="Local" />,
+    )
+    expect(texte(html)).toContain("Local")
+    expect(html).toContain("lucide-circle-question-mark")
   })
 })
 
@@ -740,7 +927,7 @@ describe("les enregistrements de Resend rejoignent le tableau", () => {
     expect(auRepos(html)).toContain("Resend · en attente")
   })
 
-  test("sans réponse de Resend, le tableau est celui d'avant", () => {
+  test("sans réponse de Resend, le tableau emails n'apparaît pas", () => {
     const html = renderToStaticMarkup(
       <TableauxDns
         plan={{ site: [PLAN_SITE], email: [PLAN_DKIM] }}
@@ -749,7 +936,21 @@ describe("les enregistrements de Resend rejoignent le tableau", () => {
       />
     )
     expect(auRepos(html)).not.toContain("Resend ·")
-    expect(auRepos(html)).toContain(PLAN_DKIM.attendu)
+    expect(auRepos(html)).not.toContain("Les emails")
+    expect(auRepos(html)).not.toContain(PLAN_DKIM.attendu)
+  })
+
+  test("quand Resend répond, une ligne dit de copier chez le registrar", () => {
+    const html = renderToStaticMarkup(
+      <TableauxDns
+        plan={{ site: [PLAN_SITE], email: [PLAN_SPF, PLAN_DKIM, PLAN_DMARC] }}
+        resultat={null}
+        resend={RESEND_OK}
+      />
+    )
+    expect(auRepos(html)).toContain("Les emails")
+    expect(auRepos(html)).toMatch(/Resend les affiche/)
+    expect(auRepos(html)).toMatch(/registrar/)
   })
 
   test("un refus de Resend n'ajoute aucune ligne, seulement son état", () => {

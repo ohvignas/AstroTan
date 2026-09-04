@@ -1,16 +1,17 @@
+"use client"
+
+import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
-import { useAction, useQuery } from "convex/react"
+import { useAction } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
 import type { SeoFinding } from "@astrotan/backend/convex/lib/yoastFindings"
 import { splitEntities } from "@/lib/contentGuards"
+import { findingItems, geoItems } from "@/lib/coachItems"
 import { geoChecklist } from "@/lib/geoChecklist"
-import { factsForPost } from "@/lib/postSeoFacts"
 import { useDebouncedValue } from "@/lib/useDebouncedValue"
-import { usePostAnalytics } from "@/lib/usePostAnalytics"
-import { PostGeoChecklist } from "@/components/post-geo-checklist"
-import { PostSeoFacts } from "@/components/post-seo-facts"
-import { PostSeoFindings } from "@/components/post-seo-findings"
+import { CoachGroup, scoreFromItems, worstTone } from "@/components/coach-buckets"
+import { CoachTabs } from "@/components/coach-tabs"
 
 export type CoachFields = {
   title: string
@@ -26,10 +27,10 @@ export type CoachFields = {
   geoNoai: boolean
 }
 
+type TabId = "seo" | "readability" | "geo"
+
 export function PostCoachPanel({
   fields,
-  postId,
-  path,
   publishedAt,
 }: {
   fields: CoachFields
@@ -40,12 +41,11 @@ export function PostCoachPanel({
   const analyze = useAction(api.seoAnalyze.analyze)
   const debounced = useDebouncedValue(fields)
   const [findings, setFindings] = useState<SeoFinding[]>([])
+  const [yoastScore, setYoastScore] = useState<number | null>(null)
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">(
     "idle",
   )
-  const rank = useQuery(api.seoRanks.forDocument, { kind: "post", postId })
-  const snapshot = useQuery(api.seoRanks.siteSnapshot)
-  const umami = usePostAnalytics(path)
+  const [tab, setTab] = useState<TabId>("seo")
 
   useEffect(() => {
     let cancelled = false
@@ -62,6 +62,12 @@ export function PostCoachPanel({
       .then((out) => {
         if (cancelled) return
         setFindings(out.findings)
+        const raw = "score" in out ? (out as { score?: number }).score : undefined
+        setYoastScore(
+          typeof raw === "number" && raw >= 0 && raw <= 100
+            ? Math.round(raw)
+            : null,
+        )
         setStatus("ready")
       })
       .catch(() => {
@@ -72,33 +78,89 @@ export function PostCoachPanel({
     }
   }, [analyze, debounced])
 
-  const facts = factsForPost({
-    path,
-    targetKeyword: fields.targetKeyword,
-    rank,
-    umami,
-    snapshot,
-  })
-  const geoItems = geoChecklist({
-    summary: fields.geoSummary,
-    entities: splitEntities(fields.geoEntities),
-    faq: fields.geoFaq,
-    noai: fields.geoNoai,
-    publishedAt,
-  })
+  const groups: Record<TabId, ReturnType<typeof findingItems>> = {
+    seo: findingItems(findings, "seo"),
+    readability: findingItems(findings, "readability"),
+    geo: geoItems(
+      geoChecklist({
+        summary: fields.geoSummary,
+        entities: splitEntities(fields.geoEntities),
+        faq: fields.geoFaq,
+        noai: fields.geoNoai,
+        publishedAt,
+      }),
+    ),
+  }
+
+  // Tant que Yoast n'a pas répondu, les deux onglets qui en dépendent
+  // n'ont pas d'état à annoncer — une pastille verte le temps du calcul
+  // dirait « tout va bien » d'un texte qui n'a pas encore été lu.
+  const pending = status === "idle" || status === "loading"
+  const analysisTone = (id: TabId) =>
+    pending && id !== "geo" ? "info" : worstTone(groups[id])
+  const seoScore = pending ? null : (yoastScore ?? scoreFromItems(groups.seo))
 
   return (
     <aside
-      className="flex flex-col gap-4 rounded-lg border border-input bg-muted/30 p-3"
-      aria-label="Aide à la rédaction"
+      className="flex flex-col gap-3 rounded-lg border border-input bg-background p-3"
+      aria-labelledby="coach-title"
     >
-      <p className="text-xs text-muted-foreground">
-        Ce panneau juge, il n’écrit pas. « Générer avec l’IA » remplit les
-        champs SEO/GEO.
-      </p>
-      <PostSeoFacts facts={facts} />
-      <PostSeoFindings findings={findings} status={status} />
-      <PostGeoChecklist items={geoItems} />
+      <h2
+        id="coach-title"
+        className="flex items-baseline justify-between gap-2 text-sm font-semibold"
+      >
+        Analyse SEO
+        <span className="font-medium tabular-nums text-muted-foreground">
+          {seoScore === null ? "—" : seoScore}/100
+        </span>
+      </h2>
+      <CoachTabs
+        tabs={[
+          { id: "seo", label: "SEO", tone: analysisTone("seo") },
+          {
+            id: "readability",
+            label: "Lisibilité",
+            tone: analysisTone("readability"),
+          },
+          { id: "geo", label: "GEO", tone: analysisTone("geo") },
+        ]}
+        active={tab}
+        onSelect={(id) => setTab(id as TabId)}
+      />
+      <div
+        id={`coach-panel-${tab}`}
+        role="tabpanel"
+        aria-labelledby={`coach-tab-${tab}`}
+      >
+        <AnalysisState status={status} tab={tab}>
+          <CoachGroup items={groups[tab]} />
+        </AnalysisState>
+      </div>
     </aside>
   )
+}
+
+function AnalysisState({
+  status,
+  tab,
+  children,
+}: {
+  status: "idle" | "loading" | "ready" | "error"
+  tab: TabId
+  children: ReactNode
+}) {
+  // La checklist GEO se calcule dans le navigateur, sans Yoast : elle
+  // reste lisible même quand l'action d'analyse échoue.
+  if (tab === "geo") return children
+  if (status === "error") {
+    return (
+      <p role="alert" className="text-xs text-destructive">
+        Analyse indisponible.
+      </p>
+    )
+  }
+  if (status === "idle" || status === "loading") {
+    return <p className="text-xs text-muted-foreground">Analyse…</p>
+  }
+  return children
 }

@@ -1,8 +1,17 @@
 import { ConvexError, v } from "convex/values"
-import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server"
-import { internal } from "./_generated/api"
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+} from "./_generated/server"
+import { api, internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
+import { MUTATION_REGISTRY } from "./_registry"
+import { requireRole } from "./lib/authz"
 import { deriverOrigines } from "./lib/origines"
+import { estOrigineLocale, origineCibleRefresh } from "./lib/refreshCible"
 
 // Design spec §6.2 — the outbox drain loop. Convex does not retry
 // scheduled actions, so `publishPage` (`convex/pages.ts`) writes a
@@ -380,4 +389,56 @@ export const drain = internalAction({
       }
     }
   },
+})
+
+/**
+ * Recharger depuis l'accueil : invalide le cache du site public.
+ *
+ * L'origine suit `origineCibleRefresh` — domaine déclaré hors local,
+ * `WEB_SITE_URL` en DEV si le déclaré n'est pas ce poste. Jamais
+ * `localhost:3001`. Ça n'alimente PAS les courbes : l'audience est
+ * `analytics.siteSummary` (Umami), le SEO `seoRanks.refreshSite`
+ * (domaine déclaré, `origineCibleStats`).
+ */
+export const refresh = action({
+  args: {},
+  handler: async (ctx): Promise<{ ok: boolean; origin: string | null }> => {
+    await requireRole(ctx, ["owner", "admin", "editor"])
+
+    const declare = await ctx.runQuery(internal.settings.domaineDeclare, {})
+    const webSiteUrl = process.env.WEB_SITE_URL ?? null
+    const origin = origineCibleRefresh({
+      declaredDomain: declare,
+      webSiteUrl,
+      isDev: estOrigineLocale(webSiteUrl),
+    })
+    if (origin === null) return { ok: false, origin: null }
+
+    let secret: string
+    try {
+      secret = getRevalidateSecret()
+    } catch {
+      return { ok: false, origin }
+    }
+    try {
+      const response = await fetch(`${origin}/api/revalidate`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-revalidate-secret": secret,
+        },
+        body: JSON.stringify({ tags: ["pages", "posts"] }),
+        signal: AbortSignal.timeout(8_000),
+      })
+      return { ok: response.ok, origin }
+    } catch {
+      return { ok: false, origin }
+    }
+  },
+})
+
+MUTATION_REGISTRY.push({
+  name: "revalidate.refresh",
+  allowedRoles: ["owner", "admin", "editor"],
+  invoke: (t) => t.action(api.revalidate.refresh, {}),
 })

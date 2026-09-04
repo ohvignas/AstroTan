@@ -47,7 +47,14 @@ import FeatureGrid from "../components/FeatureGrid.astro"
 import FAQ from "../components/FAQ.astro"
 import CTA from "../components/CTA.astro"
 
-const homeSlug = await getConvexClient().query(api.settings.homePageSlug, {})
+// `homePageSlug` est une lecture d'un champ. Si Convex répond trop tard
+// (budget query 1 s), on ne 500 pas la vitrine : pas de slug, corps 404.
+let homeSlug: string | null = null
+try {
+  homeSlug = await getConvexClient().query(api.settings.homePageSlug, {})
+} catch {
+  homeSlug = null
+}
 
 // Aucune page d'accueil choisie est un état ordinaire pour un template
 // fraîchement cloné, pas une erreur : `loadPage` est sauté et le corps 404

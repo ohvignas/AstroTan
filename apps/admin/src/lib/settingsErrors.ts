@@ -39,7 +39,7 @@ const SETTINGS_ERROR_MESSAGES: Record<string, string> = {
   INVALID_EMAIL_FROM:
     "Ce n'est pas une adresse d'expédition : écrivez « bonjour@exemple.fr » ou « Nom <bonjour@exemple.fr> ».",
   INVALID_PIXEL_ID:
-    "Cet identifiant n'a pas la forme attendue (chiffres pour Meta, G-/AW-/GT-/DC- pour Google).",
+    "Cet identifiant n'a pas la forme attendue (chiffres pour Meta, G-/AW-/GT-/DC- pour Google, ou le label de conversion après AW-XXXX/).",
   INVALID_OPENROUTER_MODEL:
     "Ce modèle n'est pas dans la liste proposée. Choisissez-en un autre.",
   INVALID_OPENROUTER_IMAGE_MODEL:

@@ -1,9 +1,15 @@
-import { authorizationHeader, DATAFORSEO_TIMEOUT_MS } from "./dataforseo"
+import {
+  authorizationHeader,
+  DATAFORSEO_TIMEOUT_MS,
+  isDataForSeoSuccess,
+} from "./dataforseo"
 import {
   DATAFORSEO_BACKLINKS_URL,
+  DATAFORSEO_LABS_TIMEOUT_MS,
   DATAFORSEO_LABS_URL,
   DATAFORSEO_SERP_TIMEOUT_MS,
   DATAFORSEO_SERP_URL,
+  extractLabsEnvelope,
   SERP_DEPTH,
 } from "./dataforseoSerp"
 
@@ -30,7 +36,7 @@ async function postJson(
     } catch {
       // statut HTTP suffit
     }
-    return { ok: reponse.ok, body }
+    return { ok: isDataForSeoSuccess(reponse.ok, body), body }
   } catch {
     return { ok: false, body: null }
   }
@@ -77,7 +83,7 @@ export async function fetchLabs(args: {
   target: string
   locationCode: number
   languageCode: string
-}): Promise<unknown[] | null> {
+}): Promise<{ items: unknown[]; totalCount: number } | null> {
   const { ok, body } = await postJson(
     DATAFORSEO_LABS_URL,
     args.login,
@@ -88,12 +94,13 @@ export async function fetchLabs(args: {
         location_code: args.locationCode,
         language_code: args.languageCode,
         limit: 50,
+        load_rank_absolute: true,
       },
     ],
-    DATAFORSEO_TIMEOUT_MS,
+    DATAFORSEO_LABS_TIMEOUT_MS,
   )
   if (!ok) return null
-  return tasksResult(body)
+  return extractLabsEnvelope(tasksResult(body))
 }
 
 export async function fetchOverview(args: {

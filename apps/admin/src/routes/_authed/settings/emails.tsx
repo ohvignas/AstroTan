@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
-import { useMutation, useQuery } from "convex/react"
+import { useAction, useMutation, useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { CleEmail } from "@astrotan/backend/convex/lib/catalogueEmails"
@@ -14,6 +14,12 @@ import {
   gabaritEnCoursModifie,
   validationLocale,
 } from "@/components/email-templates"
+import {
+  MesNotifications,
+  canauxDeLigne,
+  type PrefAffichee,
+  type PrefChange,
+} from "@/components/mes-notifications"
 import type { ActionLigne, EmailAffiche } from "@/components/email-templates"
 import { useAutoSave } from "@/components/save-bar"
 import { SettingsGroup } from "@/components/settings-nav"
@@ -41,10 +47,13 @@ export const Route = createFileRoute("/_authed/settings/emails")({
 type Settings = FunctionReturnType<typeof api.settings.getPrivate>
 
 // ---------------------------------------------------------------------
-// L'écran qui répond à deux questions, dans cet ordre, et à rien d'autre :
+// L'écran qui répond à ces questions, dans cet ordre, et à rien d'autre :
 //
 //   1. de la part de qui ?            → la clé Resend, l'adresse d'expédition
-//   2. qu'est-ce qui part ?           → l'accordéon des emails
+//   2. qu'est-ce qui part, et comment je le reçois ?
+//      → UNE liste : gabarit + interrupteur site, et Cloche / E-mail
+//        perso sur les deux types qui en ont (`leadNotification`,
+//        `postPublished`). Invitation et reset restent verrouillés.
 //
 // Une bannière répondait autrefois à une troisième question — « est-ce que
 // ça peut partir ? », via `settings.environment` (le mode d'essai) combiné
@@ -53,15 +62,17 @@ type Settings = FunctionReturnType<typeof api.settings.getPrivate>
 // query existe toujours côté Convex, pour `/settings/domaine` et
 // `/settings/mesure`, qui la lisent chacun pour leur propre raison.
 //
-// DEUX SOURCES restantes, et aucune ne dit ce que dit l'autre :
+// TROIS SOURCES, et aucune ne dit ce que dit l'autre :
 //
 //   • `secrets.status` — ce qui est rangé EN BASE, chiffré ;
 //   • `emails.list` — le catalogue des envois, enrichi de ce que l'adoptant
-//     en a changé.
+//     en a changé ;
+//   • `notifications.mesPrefs` — les canaux perso de CE compte.
 //
 // `emails.list` est réservée à owner/admin (le texte d'une invitation
 // décide de ce que lit une personne à qui on ouvre l'administration), d'où
-// le `"skip"` pour un editor — qui garde la page, sans la liste.
+// le `"skip"` pour un editor — qui garde la page, avec ses seuls
+// interrupteurs Cloche / E-mail.
 //
 // CE QUI NE S'ENREGISTRE PAS TOUT SEUL, et pourquoi ce n'est pas une
 // négligence : l'adresse d'expédition suit la règle d'`/settings/webhook`.
@@ -75,8 +86,9 @@ function EmailsRoute() {
   const { loading, canWrite, secrets } = useSecretsAccess()
   const settings = useQuery(api.settings.getPrivate)
   const emails = useQuery(api.emails.list, canWrite ? {} : "skip")
+  const prefs = useQuery(api.notifications.mesPrefs)
 
-  if (loading || settings === undefined) {
+  if (loading || settings === undefined || prefs === undefined) {
     return <SettingsLoading />
   }
   if (canWrite && (secrets === undefined || emails === undefined)) {
@@ -88,6 +100,7 @@ function EmailsRoute() {
       settings={settings}
       secrets={secrets}
       emails={emails ?? []}
+      prefs={prefs}
       canWrite={canWrite}
     />
   )
@@ -97,15 +110,21 @@ function EmailsForm({
   settings,
   secrets,
   emails,
+  prefs,
   canWrite,
 }: {
   settings: Settings
   secrets: ReturnType<typeof useSecretsAccess>["secrets"]
   emails: readonly EmailAffiche[]
+  prefs: readonly PrefAffichee[]
   canWrite: boolean
 }) {
   const updateSettings = useMutation(api.settings.update)
+  const setPrefs = useMutation(api.notifications.setPrefs)
   const [emailFrom, setEmailFrom] = useState(settings?.emailFrom ?? "")
+  const changerPrefs: PrefChange = (cle, next) => {
+    void setPrefs({ cle, ...next })
+  }
 
   // Chaîne vide et non `null` : `settings.update` déclare `emailFrom` en
   // `v.optional(v.string())`, et c'est le trim vide qui fait retomber
@@ -164,14 +183,18 @@ function EmailsForm({
         />
       </SettingsGroup>
 
-      {/* Question 2. */}
-      <SettingsGroup title="Ce que ce site envoie">
+      {/* Une seule liste : gabarits + canaux perso sur les lignes
+          qui en ont. Un editor n'a pas l'accordéon (`emails.list` lui
+          est refusé) — il garde les deux interrupteurs Cloche / E-mail. */}
+      <SettingsGroup title={canWrite ? "Ce que ce site envoie" : "Mes notifications"}>
         {canWrite ? (
-          <ListeEmailsConnectee emails={emails} />
+          <ListeEmailsConnectee
+            emails={emails}
+            prefs={prefs}
+            onPrefChange={changerPrefs}
+          />
         ) : (
-          <p className="text-sm text-muted-foreground">
-            Réservé au propriétaire et aux administrateurs.
-          </p>
+          <MesNotifications prefs={prefs} onChange={changerPrefs} />
         )}
       </SettingsGroup>
     </SettingsFormShell>
@@ -219,16 +242,26 @@ function EmailsForm({
  * état. `useBlocker` accepte plusieurs blocages en parallèle : celui-ci et
  * celui de `SettingsFormShell` coexistent, chacun avec sa phrase.
  */
-function ListeEmailsConnectee({ emails }: { emails: readonly EmailAffiche[] }) {
+function ListeEmailsConnectee({
+  emails,
+  prefs,
+  onPrefChange,
+}: {
+  emails: readonly EmailAffiche[]
+  prefs: readonly PrefAffichee[]
+  onPrefChange: PrefChange
+}) {
   const setActif = useMutation(api.emails.setActif)
   const setTemplate = useMutation(api.emails.setTemplate)
   const resetTemplate = useMutation(api.emails.resetTemplate)
+  const envoyerExemple = useAction(api.emails.envoyerExemple)
 
   const [ouverte, setOuverte] = useState<CleEmail | null>(null)
   const [objet, setObjet] = useState("")
   const [corps, setCorps] = useState("")
   const [enregistrement, setEnregistrement] = useState<"repos" | "envoi">("repos")
   const [erreurServeur, setErreurServeur] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
   const [erreurListe, setErreurListe] = useState<string | null>(null)
   // Le clic mis en attente pendant qu'on demande s'il faut abandonner le
   // texte en cours. `null` : aucune question posée.
@@ -269,6 +302,7 @@ function ListeEmailsConnectee({ emails }: { emails: readonly EmailAffiche[] }) {
     setCorps(email.enregistre?.corps ?? email.corps)
     setEnregistrement("repos")
     setErreurServeur(null)
+    setInfo(null)
   }
 
   function cliquer(cible: CleEmail) {
@@ -305,6 +339,7 @@ function ListeEmailsConnectee({ emails }: { emails: readonly EmailAffiche[] }) {
         cleOuverte={ouverte}
         onToggle={(cle, actif) => void basculer(cle, actif)}
         onModifier={cliquer}
+        canaux={(email) => canauxDeLigne(email.cle, prefs, onPrefChange)}
         editeur={(email) => (
           <EditeurGabarit
             email={email}
@@ -314,6 +349,7 @@ function ListeEmailsConnectee({ emails }: { emails: readonly EmailAffiche[] }) {
             // affiché à côté du champ, pas découvert après le clic.
             erreur={validationLocale(email, objet, corps)}
             erreurServeur={erreurServeur}
+            info={info}
             // `email` ici est toujours l'email déplié : `ListeEmails`
             // n'appelle ce callback que pour la ligne dont
             // `cleOuverte === email.cle`, donc `gabaritModifie` porte
@@ -350,6 +386,33 @@ function ListeEmailsConnectee({ emails }: { emails: readonly EmailAffiche[] }) {
                   // enregistré.
                   setObjet(email.objetParDefaut)
                   setCorps(email.corpsParDefaut)
+                } catch (err) {
+                  setErreurServeur(describeSettingsError(err))
+                } finally {
+                  setEnregistrement("repos")
+                }
+              })()
+            }}
+            onEnvoyerExemple={() => {
+              void (async () => {
+                setEnregistrement("envoi")
+                setErreurServeur(null)
+                setInfo(null)
+                try {
+                  const resultat = await envoyerExemple({ cle: email.cle })
+                  if (!resultat.ok) {
+                    setErreurServeur(
+                      resultat.raison === "sans_cle"
+                        ? "Aucune clé Resend : rien n'est parti."
+                        : "Cet envoi est coupé : l'exemple n'est pas parti.",
+                    )
+                    return
+                  }
+                  setInfo(
+                    resultat.testMode
+                      ? `Exemple accepté par Resend (mode d'essai : pas de livraison réelle) vers ${resultat.to}.`
+                      : `Exemple envoyé vers ${resultat.to}.`,
+                  )
                 } catch (err) {
                   setErreurServeur(describeSettingsError(err))
                 } finally {

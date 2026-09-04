@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server"
 import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
 import { isCurrentlyBanned, requireRole } from "./lib/authz"
-import { rendreHtml, rendreTexte, singleLine } from "./lib/gabarit"
+import { composerMessage, identiteAvecLogoJoignable } from "./lib/emailLayout"
 import { deriverOrigines } from "./lib/origines"
 import { resolvePostAuthors } from "./lib/postAuthor"
 import { makeResend } from "./lib/resend"
@@ -177,27 +177,26 @@ export const notifyPublished = internalAction({
       await ctx.runQuery(internal.settings.domaineDeclare, {}),
     )
     if (!siteUrl) throw new Error("SITE_URL is not set on this Convex deployment")
-    const settings = await ctx.runQuery(api.settings.get, {})
+    const identite = await identiteAvecLogoJoignable(
+      await ctx.runQuery(internal.settings.identiteEmail, {}),
+    )
     const auteur = await ctx.runQuery(internal.notifications.auteurDePost, {
       auteurId: args.auteurId,
     })
     const valeurs = {
-      nom_du_site: settings?.siteName || "AstroTan",
+      nom_du_site: identite.siteName,
       url: `${siteUrl}/posts/${args.postId}`,
       titre: args.titre,
       auteur,
     }
     const resend = await makeResend(ctx)
     const expediteur = await resoudreExpediteur(ctx)
-    const html = `<p style="white-space:pre-wrap">${rendreHtml(gabarit.corps, valeurs, "postPublished")}</p>`
-    const text = rendreTexte(gabarit.corps, valeurs)
+    const message = composerMessage(gabarit, valeurs, "postPublished", identite)
     for (const dest of recipients) {
       await resend.sendEmail(ctx, {
         from: expediteur,
         to: dest.email,
-        subject: singleLine(rendreTexte(gabarit.objet, valeurs)),
-        html,
-        text,
+        ...message,
       })
     }
     return null

@@ -13,10 +13,22 @@ import {
 } from "@/components/settings-page"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { ApiTokenCard } from "@/components/api-token-card"
 
 export const Route = createFileRoute("/_authed/settings/webhook")({
   component: WebhookRoute,
 })
+
+export function shouldShowLastDelivery(
+  lastStatus: string | undefined,
+  lastAt: number | undefined,
+): boolean {
+  if (!lastStatus || lastAt == null) return false
+  const match = /^Envoyé \((\d{3})\)$/.exec(lastStatus)
+  if (match === null) return false
+  const code = Number(match[1])
+  return code >= 200 && code < 300
+}
 
 type Settings = FunctionReturnType<typeof api.settings.getPrivate>
 
@@ -108,20 +120,9 @@ function WebhookForm({
       autoSave={autoSave}
       unsavedLabel="L'adresse ou le secret du webhook"
     >
-      <SettingsGroup>
-        {canWrite && (
-          // La seule phrase de cette page qui prévienne un défaut réel :
-          // sans elle, personne ne comprend pourquoi ce champ-ci ne
-          // s'enregistre pas tout seul comme les autres écrans.
-          <p className="rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-            <strong>Rien ne part avant le clic sur « Enregistrer ».</strong>{" "}
-            <code className="text-xs">https://exemple.co</code> est une
-            adresse valide en route vers{" "}
-            <code className="text-xs">https://exemple.com</code>, et les
-            leads reçus entre-temps partiraient chez l'inconnu de passage.
-          </p>
-        )}
+      <ApiTokenCard canWrite={canWrite} />
 
+      <SettingsGroup>
         <Field>
           <FieldLabel htmlFor="webhook-url">Adresse du webhook</FieldLabel>
           <Input
@@ -156,7 +157,10 @@ function WebhookForm({
           </FieldDescription>
         </Field>
 
-        {settings?.leadWebhookLastStatus && (
+        {shouldShowLastDelivery(
+          settings?.leadWebhookLastStatus,
+          settings?.leadWebhookLastAt,
+        ) && (
           <p className="text-sm text-muted-foreground">
             {/* L'état du dernier envoi, visible ici plutôt que dans des
                 journaux : un webhook muet depuis trois semaines est le

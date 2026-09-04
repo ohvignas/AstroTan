@@ -19,11 +19,12 @@ import {
   wrapToolExecutes,
 } from "./lib/streamTools"
 import { makeVisitorAgent } from "./lib/visitorAgent"
+import { emptyVisitorFacts, loadVisitorStreamFacts } from "./lib/visitorContext"
 import { lireSecret } from "./secrets"
 
 export const getAgentConfig = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+  args: { threadId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
     const settings = await ctx.db.query("settings").first()
     const files = await ctx.db.query("agentKnowledgeFiles").collect()
     return {
@@ -35,10 +36,14 @@ export const getAgentConfig = internalQuery({
         settings?.agentKnowledge,
       ),
       openRouterModel: settings?.openRouterModel ?? null,
+      openRouterAgentModel: settings?.openRouterAgentModel ?? null,
       agentEnabled: settings?.agentEnabled === true,
       siteName: settings?.siteName ?? null,
       agentDisplayName: settings?.agentDisplayName ?? null,
       agentInstructions: settings?.agentInstructions ?? null,
+      visitor: args.threadId
+        ? await loadVisitorStreamFacts(ctx, args.threadId)
+        : emptyVisitorFacts(),
     }
   },
 })
@@ -161,7 +166,11 @@ async function streamOnce(
   preview: boolean,
   timeoutMs: number,
 ) {
-  const agent = await makeVisitorAgent(ctx, tools, { preview })
+  const agent = await makeVisitorAgent(ctx, tools, {
+    preview,
+    threadId: args.threadId,
+    calendarConnected: "calendarFreeBusy" in tools,
+  })
   const controller = new AbortController()
   const work = agent.streamText(
     ctx,

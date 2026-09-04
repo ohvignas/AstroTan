@@ -17,9 +17,10 @@ export interface Props {
   publishedAt?: number
   coverUrl?: string | null
   coverAlt?: string
+  coverTitle?: string
 }
 
-const { title, excerpt, body, publishedAt, coverUrl, coverAlt } =
+const { title, excerpt, body, publishedAt, coverUrl, coverAlt, coverTitle } =
   Astro.props as Props
 
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
@@ -42,7 +43,13 @@ const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" })
   </div>
 
   <figure class="article-hero__media">
-    <PostCover coverUrl={coverUrl} coverAlt={coverAlt} title={title} eager />
+    <PostCover
+      coverUrl={coverUrl}
+      coverAlt={coverAlt}
+      coverTitle={coverTitle}
+      title={title}
+      eager
+    />
   </figure>
 </header>
 

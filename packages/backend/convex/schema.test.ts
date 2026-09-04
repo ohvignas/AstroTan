@@ -41,6 +41,9 @@ test("pages et posts déclarent targetKeyword ; settings déclare le lieu SERP",
     "openRouterModel",
   )
   expect(Object.keys(schema.tables.settings.validator.fields)).toContain(
+    "openRouterAgentModel",
+  )
+  expect(Object.keys(schema.tables.settings.validator.fields)).toContain(
     "openRouterImageModel",
   )
   expect(Object.keys(schema.tables.settings.validator.fields)).toContain(

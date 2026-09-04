@@ -1,7 +1,7 @@
 import { useState } from "react"
 import type { ReactNode } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { useMutation, useQuery } from "convex/react"
+import { useAction, useMutation, useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { publicPath, publicUrl } from "@astrotan/backend/convex/lib/publicPath"
@@ -23,6 +23,8 @@ import {
 import { describePageError } from "@/lib/pageErrors"
 import { describeContentProblem, splitEntities } from "@/lib/contentGuards"
 import { buildSeo } from "@/lib/buildSeo"
+import type { SeoGeoDraft } from "@astrotan/backend/convex/lib/seoGeoDraft"
+import { GenerateSeoGeoButton } from "@/components/generate-seo-geo-button"
 import { OgImageField } from "@/components/OgImageField"
 import { PageAnalytics } from "@/components/analytics-panel"
 import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
@@ -31,7 +33,7 @@ import { PublicationStatusBadge } from "@/components/PublicationStatusBadge"
 import { RepeatableItems } from "@/components/repeatable-items"
 import { SaveBar, useAutoSave } from "@/components/save-bar"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -91,11 +93,14 @@ function PageEditorPage() {
 }
 
 function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
+  const generateSeoGeo = useAction(api.ai.generateSeoGeo)
+  const generatePageOg = useAction(api.aiImage.generatePageOg)
   const updatePage = useMutation(api.pages.update)
   const removePage = useMutation(api.pages.remove)
   const publishPage = useMutation(api.pages.publishPage)
   const unpublish = useMutation(api.pages.unpublish)
   const mintPreviewToken = useMutation(api.pages.mintPreviewToken)
+  const retryPropagation = useMutation(api.pages.retryPropagation)
   const publicationStatus = useQuery(api.pages.publicationStatus, {
     id: page._id,
   })
@@ -131,6 +136,8 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   const [geoNoai, setGeoNoai] = useState(page.geo?.noai ?? false)
 
   const [busy, setBusy] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [generatingCover, setGeneratingCover] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
@@ -149,6 +156,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   // correct either way; this is only the courtesy that used to mislead.
   const canWrite = profile.role !== "editor" || (isOwn && page.status !== "published")
   const canPublish = profile.role === "owner" || profile.role === "admin"
+  const canRetryPropagation = canPublish || isOwn
 
 
   // Tout ce qui peut être réécrit sans effet de bord hors de cette ligne.
@@ -253,6 +261,51 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
     }
   }
 
+  function applyDraft(draft: SeoGeoDraft) {
+    setSeoTitle(draft.seo.title)
+    setSeoDescription(draft.seo.description)
+    setGeoSummary(draft.geo.summary)
+    setGeoFaq(draft.geo.faq)
+    setGeoEntities(draft.geo.entities.join(", "))
+    setGeoNoai(draft.geo.noai)
+  }
+
+  async function handleGenerate(extraInstructions?: string) {
+    setError(null)
+    setGenerating(true)
+    try {
+      applyDraft(await generateSeoGeo({ pageId: page._id, extraInstructions }))
+    } catch (err) {
+      setError(describePageError(err))
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function handleGenerateCover(extraInstructions?: string) {
+    setError(null)
+    setGeneratingCover(true)
+    try {
+      const result = await generatePageOg({
+        pageId: page._id,
+        extraInstructions,
+      })
+      setSeoOgImageId(result.storageId)
+    } catch (err) {
+      setError(describePageError(err))
+    } finally {
+      setGeneratingCover(false)
+    }
+  }
+
+  const generateButton = (
+    <GenerateSeoGeoButton
+      disabled={!canWrite}
+      busy={generating}
+      onGenerate={(extra) => void handleGenerate(extra)}
+    />
+  )
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -282,6 +335,11 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
               <PublicationStatusBadge
                 status={publicationStatus}
                 pageStatus={page.status}
+                onRetry={
+                  canRetryPropagation
+                    ? () => retryPropagation({ id: page._id })
+                    : undefined
+                }
               />
             </div>
           </div>
@@ -423,7 +481,10 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         </Field>
       </Section>
 
-      <Section title="Dans les résultats de recherche">
+      <Section
+        title="Dans les résultats de recherche"
+        action={canWrite ? generateButton : undefined}
+      >
         <Field>
           <FieldLabel htmlFor="target-keyword">Mot-clé cible</FieldLabel>
           <Input
@@ -480,11 +541,16 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         <OgImageField
           value={seoOgImageId}
           disabled={!canWrite}
+          generating={generatingCover}
           onChange={setSeoOgImageId}
+          onGenerate={(extra) => void handleGenerateCover(extra)}
         />
       </Section>
 
-      <Section title="Dans les moteurs de réponse">
+      <Section
+        title="Dans les moteurs de réponse"
+        action={canWrite ? generateButton : undefined}
+      >
         <Field>
           {/* Ce que l'étiquette dit maintenant, dix-huit mots l'expliquaient
               en dessous. « Extractible » ne se lisait pas ; « cité tel
@@ -614,13 +680,22 @@ function Compteur({
   )
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  action,
+  children,
+}: {
+  title: string
+  action?: ReactNode
+  children: ReactNode
+}) {
   return (
     <Card>
       <CardHeader>
         <h2 className="font-heading text-base leading-snug font-medium">
           {title}
         </h2>
+        {action ? <CardAction>{action}</CardAction> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">{children}</CardContent>
     </Card>

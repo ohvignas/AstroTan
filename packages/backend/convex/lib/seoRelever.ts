@@ -5,6 +5,7 @@ import type { Id } from "../_generated/dataModel"
 import { requireOwnDocument, requireRole } from "./authz"
 import { lireSecret } from "../secrets"
 import { publicPath, publicUrl } from "./publicPath"
+import { origineCibleStats } from "./refreshCible"
 import { resolveSerpLocale } from "./serpLocale"
 import { interpretOrganic, matchValue } from "./dataforseoSerp"
 import { fetchSerp } from "./dataforseoFetch"
@@ -52,9 +53,10 @@ export async function executerRelever(
   }
 
   const settings = await ctx.runQuery(api.settings.getPrivate, {})
-  const origin =
-    process.env.WEB_SITE_URL ||
-    (settings?.declaredDomain ? `https://${settings.declaredDomain}` : "")
+  const origin = origineCibleStats({
+    declaredDomain: settings?.declaredDomain,
+    webSiteUrl: process.env.WEB_SITE_URL,
+  })
   if (!origin) return { ok: false, reason: "unreachable" }
 
   const path =
@@ -94,6 +96,9 @@ export async function executerRelever(
     keyword,
     url,
     ...verdict,
+  })
+  await ctx.runMutation(internal.seoRanks.recordPositionHistory, {
+    fetchedAt: Date.now(),
   })
   return { ok: true }
 }

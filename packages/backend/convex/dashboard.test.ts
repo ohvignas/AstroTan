@@ -163,6 +163,35 @@ test("les cinq colonnes de leads sont toujours présentes, même vides", async (
   expect(o.leads.byStatus.won.count).toBe(1)
   expect(o.leads.byStatus.lost.count).toBe(0)
   expect(o.leads.total.count).toBe(3)
+  // Les trois n'ont pas de seenAt : « nouveau » = pas encore ouvert.
+  expect(o.leads.unseen.count).toBe(3)
+})
+
+test("le compteur unseen ignore les fiches déjà ouvertes", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await t.run(async (ctx) => {
+    await ctx.db.insert("leads", {
+      name: "lu",
+      email: "lu@x.test",
+      status: "new",
+      lastMessageAt: 1,
+      messageCount: 1,
+      seenAt: 99,
+    })
+    await ctx.db.insert("leads", {
+      name: "pas-lu",
+      email: "pas-lu@x.test",
+      status: "contacted",
+      lastMessageAt: 2,
+      messageCount: 1,
+    })
+  })
+
+  const o = await owner.identity.query(api.dashboard.overview, {})
+  expect(o.leads.total.count).toBe(2)
+  expect(o.leads.unseen.count).toBe(1)
+  expect(o.leads.byStatus.new.count).toBe(1)
 })
 
 test("la médiathèque rend un nombre de fichiers et un poids total", async () => {

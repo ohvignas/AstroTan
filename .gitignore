@@ -16,3 +16,14 @@ dist/
 
 # Débris d'agents (journaux et captures Playwright)
 .playwright-mcp/
+
+# Accès admin local des agents : lien d'invitation et storage Playwright.
+# `pnpm admin:dev-link` écrit ici ; le jeton n'est jamais commité.
+.local/
+
+# Store pnpm local (centaines de Mo). Un `git add .` sans cette ligne le
+# publierait ; il n'a rien à faire dans le dépôt.
+.pnpm-store/
+
+# État IDE / journaux de debug Cursor. Pas du template.
+.cursor/

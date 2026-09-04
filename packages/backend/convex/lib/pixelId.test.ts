@@ -53,3 +53,20 @@ test("les préfixes Google acceptés passent", () => {
 test("un tag Google hors préfixe est refusé", () => {
   expect(codeDe(() => normaliserPixelId("googleTagId", "UA-123")).code).toBe("INVALID_PIXEL_ID")
 })
+
+test("un label de conversion Ads passe, seul ou après AW-XXX/", () => {
+  expect(normaliserPixelId("googleConversionLabel", " AbC-D_efG ")).toBe("AbC-D_efG")
+  expect(normaliserPixelId("googleConversionLabel", "AW-123456789/AbC-D_efG")).toBe("AbC-D_efG")
+  expect(normaliserPixelId("googleConversionLabel", null)).toBe("")
+})
+
+test("un label de conversion hors forme est refusé", () => {
+  expect(codeDe(() => normaliserPixelId("googleConversionLabel", "ab"))).toEqual({
+    code: "INVALID_PIXEL_ID",
+    field: "googleConversionLabel",
+  })
+  expect(codeDe(() => normaliserPixelId("googleConversionLabel", "pas un label!"))).toEqual({
+    code: "INVALID_PIXEL_ID",
+    field: "googleConversionLabel",
+  })
+})

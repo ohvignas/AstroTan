@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values"
 import { expect, test } from "vitest"
-import { assertSerpLocale } from "./serpLocale"
+import { assertSerpLocale, SERP_LIEUX } from "./serpLocale"
 
 function codeDe(fn: () => unknown) {
   try {
@@ -45,4 +45,26 @@ test("fr et 2250 passent ; null efface", () => {
     serpLocationCode: undefined,
     serpLanguageCode: undefined,
   })
+})
+
+test("un location_code hors liste lève INVALID_SERP_LOCALE", () => {
+  expect(codeDe(() => assertSerpLocale({ serpLocationCode: 2840 })).code).toBe(
+    "INVALID_SERP_LOCALE",
+  )
+})
+
+test("Belgique et Paris passent", () => {
+  expect(assertSerpLocale({ serpLocationCode: 2056 })).toEqual({
+    serpLocationCode: 2056,
+  })
+  expect(assertSerpLocale({ serpLocationCode: 1006094 })).toEqual({
+    serpLocationCode: 1006094,
+  })
+})
+
+test("le catalogue SERP est la liste curated officielle", () => {
+  expect(SERP_LIEUX.map((lieu) => lieu.locationCode)).toEqual([
+    2250, 2056, 2756, 2442, 2124, 1006094, 1006410, 1006356, 1006219, 1005811,
+    1006235, 1006285, 1006359,
+  ])
 })

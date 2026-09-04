@@ -2,7 +2,14 @@ import type { AnalyticsResult } from "@astrotan/backend/convex/analytics"
 import type { DocumentRank } from "@astrotan/backend/convex/lib/seoRankState"
 import type { SiteSnapshot } from "@astrotan/backend/convex/lib/seoSnapshot"
 
-export type FactLine = { id: "rank" | "umami" | "labs"; text: string }
+export type FactTone = "bad" | "ok" | "good" | "info"
+
+export type FactLine = {
+  id: "rank" | "umami" | "labs"
+  title: string
+  text: string
+  tone: FactTone
+}
 
 export function factsForPost(input: {
   path: string
@@ -12,13 +19,50 @@ export function factsForPost(input: {
   snapshot: SiteSnapshot | undefined
 }): FactLine[] {
   return [
-    { id: "rank", text: rankFact(input.rank) },
-    { id: "umami", text: umamiFact(input.umami) },
+    {
+      id: "rank",
+      title: "Rang",
+      text: rankFact(input.rank),
+      tone: rankTone(input.rank),
+    },
+    {
+      id: "umami",
+      title: "Audience",
+      text: umamiFact(input.umami),
+      tone: umamiTone(input.umami),
+    },
     {
       id: "labs",
+      title: "Labs",
       text: labsFact(input.snapshot, input.targetKeyword, input.path),
+      tone: labsTone(input.snapshot, input.targetKeyword, input.path),
     },
   ]
+}
+
+function rankTone(rank: DocumentRank | undefined): FactTone {
+  if (rank === undefined) return "info"
+  if (rank.state === "ranked") return "good"
+  return "ok"
+}
+
+function umamiTone(umami: AnalyticsResult | undefined): FactTone {
+  if (umami === undefined) return "info"
+  if (umami.status === "ok" && umami.last7 !== null) return "good"
+  return "ok"
+}
+
+function labsTone(
+  snapshot: SiteSnapshot | undefined,
+  keyword: string,
+  path: string,
+): FactTone {
+  if (snapshot === undefined) return "info"
+  if (!snapshot.configured) return "ok"
+  const key = keyword.trim().toLowerCase()
+  if (snapshot.keywords.some((k) => k.keyword.toLowerCase() === key)) return "good"
+  if (snapshot.rankingPages.some((p) => p.path === path)) return "good"
+  return "ok"
 }
 
 function rankFact(rank: DocumentRank | undefined): string {

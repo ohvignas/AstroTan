@@ -347,6 +347,33 @@ describe("ListeEmails", () => {
     expect(html.match(/aria-expanded="true"/g)?.length).toBe(1)
     expect(html.match(/panneau ouvert/g)?.length).toBe(1)
   })
+
+  test("Cloche et E-mail sont sur la même ligne que l'interrupteur site", () => {
+    const html = renderToStaticMarkup(
+      <ListeEmails
+        emails={[NOTIFICATION]}
+        onToggle={() => {}}
+        canaux={() => <span>Cloche</span>}
+      />
+    )
+    expect(html).toMatch(/actif/i)
+    expect(html).toContain("Cloche")
+    expect(html.match(/<li[\s>]/g)?.length).toBe(1)
+  })
+
+  test("invitation n'affiche pas de canaux perso", () => {
+    const html = renderToStaticMarkup(
+      <ListeEmails
+        emails={[INVITATION]}
+        onToggle={() => {}}
+        canaux={(email) =>
+          email.cle === "leadNotification" ? <span>Cloche</span> : null
+        }
+      />
+    )
+    expect(html).toMatch(/toujours actif/i)
+    expect(html).not.toContain("Cloche")
+  })
 })
 
 // ---------------------------------------------------------------------
@@ -518,6 +545,19 @@ describe("EditeurGabarit", () => {
       />
     )
     expect(html).toMatch(/texte par défaut/i)
+  })
+
+  test("on peut envoyer un exemple du texte enregistré", () => {
+    const html = renderToStaticMarkup(
+      <EditeurGabarit
+        email={NOTIFICATION}
+        objet="o"
+        corps="c"
+        erreur={null}
+        onEnvoyerExemple={() => {}}
+      />
+    )
+    expect(html).toMatch(/Envoyer un exemple/)
   })
 
   test("le corps se tape dans un textarea, l'objet dans un champ d'une ligne", () => {

@@ -480,6 +480,41 @@ test("I1 (contrôle) : un owner peut retirer un admin", async () => {
   expect(rows.find((r) => r.email === "target-admin@example.com")).toBeUndefined()
 })
 
+test("users.remove efface prefs et cloches de ce compte", async () => {
+  const t = makeTestConvex()
+  const { identity: asOwner } = await seedActor(
+    t,
+    "owner",
+    "owner-notif@example.com",
+    "correct horse battery staple notif-owner",
+    "Owner",
+  )
+  const { user: editor, identity: asEditor } = await seedActor(
+    t,
+    "editor",
+    "editor-notif@example.com",
+    "correct horse battery staple notif-editor",
+    "Editor",
+  )
+  await asEditor.mutation(api.notifications.setPrefs, {
+    cle: "leadNotification",
+    cloche: false,
+    email: true,
+  })
+  await t.run((ctx) =>
+    ctx.db.insert("notifications", {
+      authUserId: editor.id,
+      cle: "leadNotification",
+      titre: "Nouveau message de contact",
+    }),
+  )
+  await asOwner.mutation(api.users.remove, { userId: editor.id })
+  await t.run(async (ctx) => {
+    expect(await ctx.db.query("notificationPrefs").collect()).toEqual([])
+    expect(await ctx.db.query("notifications").collect()).toEqual([])
+  })
+})
+
 test("remove refuse une cible inconnue (NOT_FOUND)", async () => {
   const t = makeTestConvex()
   const { identity: asOwner } = await seedActor(

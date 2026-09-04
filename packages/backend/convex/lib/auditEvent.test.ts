@@ -35,9 +35,11 @@ describe("decrireAction", () => {
   // sorte du déploiement — une ressource créée chez Resend, sur le compte
   // de l'adoptant, avec sa clé. Rien dans cette base n'en garde trace
   // autrement.
-  test("la liste couvre exactement les dix-huit gestes instrumentés", () => {
+  test("la liste couvre exactement les vingt gestes instrumentés", () => {
     expect([...AUDIT_ACTIONS].sort()).toEqual(
       [
+        "apiToken.generate",
+        "apiToken.revoke",
         "emailDomain.declare",
         "password.reset",
         "emailTemplate.reset",

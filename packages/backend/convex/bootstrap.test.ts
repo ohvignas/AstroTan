@@ -89,3 +89,74 @@ test("le piège : un premier compte `admin` ne peut pas en inviter un second, do
   // conséquence à l'échelle du déploiement.
   expect(await t.query(internal.bootstrap.owners, {})).toEqual([])
 })
+
+// `devAccessLink` est le chemin des agents locaux (`pnpm admin:dev-link`) :
+// un lien `/accept-invite` frais, jamais un second owner, jamais un mot de
+// passe. `createInvitation` refuse un second lien vivant pour la même
+// adresse (ALREADY_INVITED) et n'est donc pas rejouable ; celui-ci remplace
+// l'invitation en attente pour que la commande puisse l'être.
+
+test("`devAccessLink` émet une invitation owner quand le déploiement n'en a pas", async () => {
+  const t = makeTestConvex()
+  const link = await t.mutation(internal.bootstrap.devAccessLink, {
+    email: "premier@example.com",
+  })
+  expect(link).toEqual({
+    kind: "accept-invite",
+    email: "premier@example.com",
+    role: "owner",
+    token: expect.any(String),
+  })
+  expect(link.token.length).toBeGreaterThan(16)
+})
+
+test("`devAccessLink` n'émet jamais un second owner : editor si un owner existe déjà", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "proprietaire@example.com",
+    password: "correct horse battery staple 1",
+    name: "Propriétaire",
+    role: "owner",
+  })
+
+  const link = await t.mutation(internal.bootstrap.devAccessLink, {
+    email: "agent@example.com",
+  })
+  expect(link.role).toBe("editor")
+  expect(link.email).toBe("agent@example.com")
+  expect(link.kind).toBe("accept-invite")
+})
+
+test("`devAccessLink` remplace l'invitation en attente, donc la commande est rejouable", async () => {
+  const t = makeTestConvex()
+  const premier = await t.mutation(internal.bootstrap.devAccessLink, {
+    email: "agent@example.com",
+  })
+  const second = await t.mutation(internal.bootstrap.devAccessLink, {
+    email: "agent@example.com",
+  })
+  expect(second.token).not.toBe(premier.token)
+
+  await expect(
+    t.query(api.invitations.preview, { token: premier.token }),
+  ).rejects.toThrow()
+
+  const apercu = await t.query(api.invitations.preview, { token: second.token })
+  expect(apercu.email).toBe("agent@example.com")
+})
+
+test("`devAccessLink` refuse une adresse qui a déjà un compte — le jeton d'invitation ne sert plus", async () => {
+  const t = makeTestConvex()
+  await seedUser(t, {
+    email: "proprietaire@example.com",
+    password: "correct horse battery staple 1",
+    name: "Propriétaire",
+    role: "owner",
+  })
+
+  await expect(
+    t.mutation(internal.bootstrap.devAccessLink, {
+      email: "proprietaire@example.com",
+    }),
+  ).rejects.toThrow(/ACCOUNT_ALREADY_EXISTS/)
+})

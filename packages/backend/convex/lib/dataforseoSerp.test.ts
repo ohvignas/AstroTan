@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest"
 import {
+  DATAFORSEO_BACKLINKS_URL,
+  DATAFORSEO_LABS_TIMEOUT_MS,
+  DATAFORSEO_LABS_URL,
+  DATAFORSEO_SERP_URL,
+  extractLabsEnvelope,
+  extractLabsItems,
   interpretLabs,
   interpretOrganic,
   interpretOverview,
@@ -78,6 +84,51 @@ describe("interpretOrganic", () => {
       }),
     ).toEqual({ status: "other_url", rankedUrl: "https://exemple.fr/autre" })
   })
+})
+
+describe("extractLabsItems", () => {
+  const row = {
+    keyword_data: { keyword: "n8n gratuit" },
+    ranked_serp_element: {
+      serp_item: { rank_absolute: 5, url: "https://exemple.fr/videos/n8n" },
+    },
+  }
+
+  test("lit result[0].items — l'enveloppe réelle de Labs", () => {
+    expect(extractLabsItems([{ items: [row], total_count: 5 }])).toEqual([row])
+  })
+
+  test("une enveloppe passée telle quelle à interpretLabs rend 0", () => {
+    expect(interpretLabs([{ items: [row], total_count: 5 }])).toEqual([])
+    expect(interpretLabs(extractLabsItems([{ items: [row], total_count: 5 }]))).toEqual([
+      { keyword: "n8n gratuit", position: 5, url: "https://exemple.fr/videos/n8n" },
+    ])
+  })
+
+  test("items null (doc : aucun mot-clé) : tableau vide, pas une erreur", () => {
+    expect(extractLabsItems([{ items: null, total_count: 0 }])).toEqual([])
+  })
+
+  test("total_count > 0 et items vides : parse raté, pas un vrai zéro", () => {
+    expect(extractLabsEnvelope([{ items: null, total_count: 5 }])).toEqual({
+      items: [],
+      totalCount: 5,
+    })
+  })
+})
+
+test("chemins officiels : Labs ranked_keywords, SERP advanced, backlinks summary", () => {
+  expect(DATAFORSEO_LABS_URL).toBe(
+    "https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live",
+  )
+  expect(DATAFORSEO_SERP_URL).toBe(
+    "https://api.dataforseo.com/v3/serp/google/organic/live/advanced",
+  )
+  expect(DATAFORSEO_BACKLINKS_URL).toBe(
+    "https://api.dataforseo.com/v3/backlinks/summary/live",
+  )
+  expect(DATAFORSEO_BACKLINKS_URL).not.toContain("/overview/")
+  expect(DATAFORSEO_LABS_TIMEOUT_MS).toBe(30_000)
 })
 
 describe("interpretLabs", () => {

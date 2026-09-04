@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
 // UNE SEULE LISTE, à plat. Le deuxième essai rangeait ces pages en deux
 // groupes nommés — « Le site » et « Le déploiement » — parce que trois
 // d'entre elles ne faisaient que rendre compte de l'environnement sans
-// rien pouvoir enregistrer. Ce n'est plus vrai : Domaine, Mesure et IA
+// rien pouvoir enregistrer. Ce n'est plus vrai : Domaine, Mesure et Agent IA
 // portent maintenant les champs de saisie des jetons (`settings-secrets`).
 // Le critère qui justifiait la séparation ayant disparu, les intitulés de
 // groupe ne classaient plus rien — ils ajoutaient deux lignes à lire pour
@@ -28,13 +28,10 @@ import { cn } from "@/lib/utils"
 
 export type SettingsPath =
   | "/settings/identite"
-  | "/settings/referencement"
-  | "/settings/reseaux"
   | "/settings/webhook"
   | "/settings/domaine"
   | "/settings/emails"
   | "/settings/mesure"
-  | "/settings/ia"
   | "/settings/agent"
 
 export interface SettingsPageDef {
@@ -68,24 +65,11 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
       "Le nom, le logo et l'icône repris sur chaque page du site public, et la page qu'il sert à la racine.",
   },
   {
-    to: "/settings/referencement",
-    label: "Référencement",
-    title: "Référencement par défaut",
-    description:
-      "Ce sur quoi une page retombe quand elle ne définit aucune valeur qui lui soit propre. Une page qui remplit son propre champ l'emporte toujours sur celle-ci.",
-  },
-  {
-    to: "/settings/reseaux",
-    label: "Réseaux sociaux",
-    title: "Réseaux sociaux",
-    description: "Les liens repris dans le pied de page du site public.",
-  },
-  {
     to: "/settings/webhook",
-    label: "Webhook",
-    title: "Webhook des leads",
+    label: "API & webhook",
+    title: "API et webhook",
     description:
-      "Chaque message reçu par le formulaire de contact déclenche un appel vers cette adresse — un scénario n8n, Make, ou tout service qui écoute une URL.",
+      "Le jeton Bearer de l'API REST, et l'appel HMAC vers n8n ou Make à l'arrivée d'un message.",
   },
   {
     to: "/settings/domaine",
@@ -105,8 +89,8 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
   },
   {
     to: "/settings/emails",
-    label: "Envoi des emails",
-    title: "Envoi des emails",
+    label: "Email & notifications",
+    title: "Email & notifications",
     // Voisine de « Domaine & DNS », et la frontière tient en un mot :
     // là-bas les enregistrements DNS qui autorisent le domaine à écrire,
     // ici la clé, l'adresse et le TEXTE de chaque message.
@@ -124,18 +108,10 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
     description: "",
   },
   {
-    to: "/settings/ia",
-    label: "IA",
-    title: "IA : la clé OpenRouter",
-    description:
-      "La clé d'un fournisseur de modèles. Posée ici, elle est chiffrée avant d'entrer en base ; posée dans l'environnement Convex, elle n'y entre pas du tout — et c'est celle-là qui gagne.",
-  },
-  {
     to: "/settings/agent",
-    label: "Agent",
-    title: "Agent",
-    description:
-      "Le nom, les consignes et la base de savoir de la bulle sur le site public.",
+    label: "Agent IA & Modèle IA",
+    title: "Agent IA & Modèle IA",
+    description: "",
   },
 ]
 
@@ -143,7 +119,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
  * Correspondance EXACTE, pas un préfixe.
  *
  * `startsWith` aurait marché aujourd'hui et cassé au premier chemin
- * imbriqué : `/settings/reseaux` est un préfixe de `/settings/reseaux-x`,
+ * imbriqué : `/settings/webhook` est un préfixe de `/settings/webhook-x`,
  * et deux entrées se seraient allumées ensemble. La barre finale est
  * tolérée parce que le navigateur peut l'ajouter.
  */
@@ -170,6 +146,12 @@ export function findSettingsPage(pathname: string): SettingsPageDef | undefined 
  * pastilles qui défile horizontalement. Pas de `sticky` en dessous de
  * `lg` : chaque page est courte, et une bande collée y mangerait de la
  * hauteur sans jamais servir.
+ *
+ * Sur grand écran, la colonne s'étire (`self-stretch`) pour que le
+ * `border-r` aille du header au bas de la zone — miroir du filet de
+ * la sidebar. Le `sticky` est donc sur la LISTE, pas sur le `<nav>` :
+ * un nav étiré n'a plus de course pour coller. `-my-4` / `py-4`
+ * compensent le `p-4` de l'inset, sans décaler les libellés.
  */
 export function SettingsNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -177,9 +159,9 @@ export function SettingsNav() {
   return (
     <nav
       aria-label="Sections des réglages"
-      className="lg:sticky lg:top-4 lg:w-56 lg:shrink-0 lg:self-start"
+      className="lg:w-56 lg:shrink-0 lg:self-stretch lg:-my-4 lg:border-r lg:border-border lg:py-4 lg:pr-4"
     >
-      <ul className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+      <ul className="flex gap-1 overflow-x-auto pb-1 lg:sticky lg:top-4 lg:flex-col lg:overflow-visible lg:pb-0">
         {SETTINGS_PAGES.map((page) => {
           const active = isSettingsPathActive(pathname, page.to)
           return (
@@ -264,22 +246,29 @@ export function SettingsPageHeader({
 export function SettingsGroup({
   title,
   description,
+  action,
   children,
 }: {
   title?: string
   description?: ReactNode
+  action?: ReactNode
   children: ReactNode
 }) {
   return (
     <section className="flex flex-col gap-4 rounded-xl bg-card p-4 text-sm ring-1 ring-foreground/10">
-      {title ? (
-        <div className="flex flex-col gap-1">
-          <h2 className="font-heading text-base leading-snug font-medium">
-            {title}
-          </h2>
-          {description ? (
-            <p className="text-sm text-muted-foreground">{description}</p>
-          ) : null}
+      {title || action ? (
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            {title ? (
+              <h2 className="font-heading text-base leading-snug font-medium">
+                {title}
+              </h2>
+            ) : null}
+            {description ? (
+              <p className="text-sm text-muted-foreground">{description}</p>
+            ) : null}
+          </div>
+          {action}
         </div>
       ) : null}
       {children}

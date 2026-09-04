@@ -14,6 +14,7 @@ import {
   MAX_LEAD_BODY_LENGTH,
   MAX_LEAD_EMAIL_LENGTH,
   MAX_LEAD_NAME_LENGTH,
+  MAX_LEAD_PHONE_LENGTH,
   MAX_LEAD_SUBJECT_LENGTH,
 } from "@astrotan/backend/convex/content"
 
@@ -77,6 +78,12 @@ const MESSAGES_ERREUR: Record<string, string> = {
               Message reçu. Nous répondons sous un jour ouvré.
             </p>
           )}
+          {envoye && (
+            <script>
+              import { programmerSuiviLead } from "../lib/trackLeadConversion"
+              programmerSuiviLead()
+            </script>
+          )}
           {erreur && (
             <p class="contact__flash contact__flash--ko" role="alert">
               {MESSAGES_ERREUR[erreur] ??
@@ -94,6 +101,11 @@ const MESSAGES_ERREUR: Record<string, string> = {
               <input type="email" name="email" required maxlength={MAX_LEAD_EMAIL_LENGTH} autocomplete="email" />
             </label>
           </div>
+
+          <label class="contact__field">
+            <span>Téléphone <em>(facultatif)</em></span>
+            <input type="tel" name="phone" maxlength={MAX_LEAD_PHONE_LENGTH} autocomplete="tel" />
+          </label>
 
           <label class="contact__field">
             <span>Sujet <em>(facultatif)</em></span>
@@ -126,10 +138,11 @@ const MESSAGES_ERREUR: Record<string, string> = {
               le reste. Plus long, personne ne le lit ; absent, c'est le
               manquement le plus souvent relevé sur un formulaire public. */}
           <p class="contact__legal">
-            Votre nom, votre adresse email et votre message ne servent qu'à
-            vous répondre : ni prospection, ni revente. Ils restent dans notre
-            base jusqu'à ce que nous les supprimions — ce qui est conservé, et
-            comment nous demander de l'effacer, sont dans la{" "}
+            Votre nom, votre adresse email, votre téléphone et votre message
+            ne servent qu'à vous répondre : ni prospection, ni revente. Ils
+            restent dans notre base jusqu'à ce que nous les supprimions — ce
+            qui est conservé, et comment nous demander de l'effacer, sont dans
+            la{" "}
             <a href="/confidentialite">politique de confidentialité</a>.
           </p>
         </form>

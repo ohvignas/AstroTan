@@ -5,6 +5,7 @@ import type { FunctionReturnType } from "convex/server"
 import { ConvexError } from "convex/values"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
+import { CopyButton } from "@/components/copy-button"
 import { RowActionsMenu } from "@/components/row-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -595,17 +596,13 @@ function InviteDialog({ actorRole }: { actorRole: Role }) {
                 >
                   {inviteLink}
                 </div>
-                <Button
-                  type="button"
+                <CopyButton
+                  value={inviteLink ?? ""}
+                  label="Copier le lien"
+                  text="Copier"
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    if (inviteLink)
-                      void navigator.clipboard.writeText(inviteLink)
-                  }}
-                >
-                  Copier
-                </Button>
+                />
               </div>
             </Field>
           </div>

@@ -6,34 +6,55 @@ import { components, internal } from "../_generated/api"
 import type { ActionCtx } from "../_generated/server"
 import { lireSecret } from "../secrets"
 import { MINIMAL_AGENT_INSTRUCTIONS } from "./defaultAgentInstructions"
-import { resolveOpenRouterModel } from "./openRouterModels"
+import { resolveOpenRouterAgentModel } from "./openRouterModels"
+import {
+  emptyVisitorFacts,
+  formatVisitorContextBlock,
+  type VisitorStreamFacts,
+} from "./visitorContext"
 
 export type AgentConfig = {
   agentKnowledge: string | null
   openRouterModel: string | null
+  openRouterAgentModel: string | null
   agentEnabled: boolean
   siteName: string | null
   agentDisplayName: string | null
   agentInstructions: string | null
+  visitor?: VisitorStreamFacts | null
 }
 
-export function buildInstructions(privee: AgentConfig): string {
+export function buildInstructions(
+  privee: AgentConfig,
+  extras?: { nowMs: number; calendarConnected?: boolean },
+): string {
   const authored = privee.agentInstructions?.trim() ?? ""
   const brief = authored.length > 0 ? authored : MINIMAL_AGENT_INSTRUCTIONS
   const knowledge = privee.agentKnowledge?.trim()
     ? `Base de connaissances:\n${privee.agentKnowledge.trim()}`
     : ""
-  return [brief, knowledge].filter((block) => block.length > 0).join("\n\n")
+  const context =
+    extras === undefined
+      ? ""
+      : formatVisitorContextBlock({
+          ...(privee.visitor ?? emptyVisitorFacts()),
+          siteName: privee.visitor?.siteName ?? privee.siteName,
+          nowMs: extras.nowMs,
+          calendarConnected: extras.calendarConnected === true,
+        })
+  return [brief, knowledge, context].filter((block) => block.length > 0).join("\n\n")
 }
 
 export async function makeVisitorAgent(
   ctx: ActionCtx,
   tools: ToolSet,
-  options?: { preview?: boolean },
+  options?: { preview?: boolean; threadId?: string; calendarConnected?: boolean },
 ) {
   const apiKey = await lireSecret(ctx, "OPENROUTER_API_KEY")
   if (!apiKey) throw new ConvexError({ code: "AGENT_UNCONFIGURED" })
-  const privee: AgentConfig = await ctx.runQuery(internal.chatStream.getAgentConfig, {})
+  const privee: AgentConfig = await ctx.runQuery(internal.chatStream.getAgentConfig, {
+    threadId: options?.threadId,
+  })
   if (privee.agentEnabled === false && options?.preview !== true) {
     throw new ConvexError({ code: "AGENT_DISABLED" })
   }
@@ -44,8 +65,13 @@ export async function makeVisitorAgent(
   })
   return new Agent(components.agent, {
     name: privee.agentDisplayName ?? "Assistant",
-    languageModel: openrouter.chat(resolveOpenRouterModel(privee.openRouterModel)),
-    instructions: buildInstructions(privee),
+    languageModel: openrouter.chat(
+      resolveOpenRouterAgentModel(privee.openRouterAgentModel, privee.openRouterModel),
+    ),
+    instructions: buildInstructions(privee, {
+      nowMs: Date.now(),
+      calendarConnected: options?.calendarConnected === true,
+    }),
     tools,
     stopWhen: stepCountIs(8),
   })

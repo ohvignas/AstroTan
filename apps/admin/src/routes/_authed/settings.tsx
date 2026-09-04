@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router"
 import { SettingsNav } from "@/components/settings-nav"
 
-// La mise en page commune aux sept pages de réglages : le menu à gauche,
+// La mise en page commune aux six pages de réglages : le menu à gauche,
 // la page à droite.
 //
 // Une route de mise en page (`settings.tsx` + le dossier `settings/`), et
@@ -15,17 +15,15 @@ export const Route = createFileRoute("/_authed/settings")({
 
 function SettingsLayout() {
   return (
-    // Pas de `lg:items-start` ici, et c'est délibéré : il étirait sa
+    // Pas de `lg:items-start` ici, et c'est délibéré : il étirerait sa
     // portée à TOUTE la rangée, colonne de droite comprise. Or c'est elle
     // qui contient la barre d'enregistrement, et une colonne qui s'arrête
     // à la fin de son contenu prive cette barre de toute course pour
     // coller en bas (voir `save-bar.tsx` et `app-shell.tsx`).
     //
-    // Le menu, lui, a toujours besoin de ne PAS être étiré — étiré sur
-    // toute la hauteur, son propre `sticky` n'a plus de course non plus.
-    // Il porte donc son `lg:self-start` lui-même, dans `SettingsNav` : la
-    // contrainte est déclarée sur l'élément qu'elle concerne, et n'atteint
-    // plus son voisin par ricochet.
+    // Le menu, lui, S'ÉTARE : son filet droit doit aller du header au
+    // bas de la zone. La liste, à l'intérieur, reste `sticky` — c'est
+    // elle qui a besoin de course, plus le `<nav>`.
     <div className="flex flex-col gap-4 lg:flex-row lg:gap-8">
       <SettingsNav />
       {/* `min-w-0` : sans lui, un bloc de commande large (les `<pre>` des

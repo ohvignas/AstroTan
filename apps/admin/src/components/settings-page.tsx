@@ -15,7 +15,7 @@ import type { SettingsPath } from "@/components/settings-nav"
 import { useUnsavedChangesGuard } from "@/components/unsaved-changes-guard"
 
 // ---------------------------------------------------------------------
-// Ce que les sept pages de réglages ont en commun.
+// Ce que les six pages de réglages ont en commun.
 //
 // Avec un seul écran, ce fichier n'aurait pas lieu d'être. Avec sept
 // routes, chacune redemanderait le profil, referait le calcul du rôle,

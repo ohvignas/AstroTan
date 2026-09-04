@@ -192,11 +192,10 @@ export function CleMaitresseBandeau({ etat }: { etat: CleMaitresseEtat }) {
  * n'apprendre qu'une chose.
  */
 const BADGE: Record<
-  Exclude<SecretSource, "base">,
-  { texte: string; variant: "secondary" | "destructive" | "outline" }
+  Exclude<SecretSource, "base" | "aucune">,
+  { texte: string; variant: "secondary" }
 > = {
   environnement: { texte: "Environnement", variant: "secondary" },
-  aucune: { texte: "Absent", variant: "destructive" },
 }
 
 /**
@@ -261,12 +260,14 @@ export function ActionsDuChamp({
   geste,
   enCours,
   fait,
+  connecte = false,
   onEnregistrer,
   onSupprimer,
 }: {
   geste: Geste
   enCours: boolean
   fait: Fait
+  connecte?: boolean
   onEnregistrer: () => void
   onSupprimer: () => void
 }) {
@@ -284,11 +285,15 @@ export function ActionsDuChamp({
       >
         {geste === "supprimer" ? "Supprimer" : "Vérifier et enregistrer"}
       </Button>
-      {fait !== null && (
+      {fait === "supprime" ? (
         <span role="status" className="text-sm text-muted-foreground">
-          {fait === "supprime" ? "Supprimé." : "Enregistré."}
+          Supprimé.
         </span>
-      )}
+      ) : connecte || fait === "enregistre" ? (
+        <span className="text-sm text-emerald-600 dark:text-emerald-400">
+          Connecté
+        </span>
+      ) : null}
     </>
   )
 }
@@ -406,7 +411,8 @@ export function SecretField({
   const [fait, setFait] = useState<Fait>(null)
   const [confirmation, setConfirmation] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
-  const badge = etat.source === "base" ? null : BADGE[etat.source]
+  const badge =
+    etat.source === "environnement" ? BADGE.environnement : null
   const champId = `secret-${etat.nom}`
   const gesteBrut = gesteDuChamp(valeur, etat.base)
   const geste = sansRetrait && gesteBrut === "supprimer" ? "aucun" : gesteBrut
@@ -497,6 +503,7 @@ export function SecretField({
                 geste={geste}
                 enCours={enCours}
                 fait={fait}
+                connecte={etat.source !== "aucune" && !etat.illisible}
                 // Un jeton vient d'être rangé : le champ revient au
                 // masque, et non à vide, qui laisserait croire qu'il n'y a
                 // rien — et qui ferait du clic suivant une suppression.

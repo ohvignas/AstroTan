@@ -194,6 +194,19 @@ describe("rendreHtml — mise en lien", () => {
     ])
   })
 
+  test("postPublished met url en ancre, pas titre", () => {
+    const html = rendreHtml(
+      "{{url}} {{titre}}",
+      { url: "https://admin.exemple.fr/posts/x", titre: "https://evil.example/x" },
+      "postPublished",
+    )
+    expect([...html.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual([
+      "https://admin.exemple.fr/posts/x",
+    ])
+    expect(html).toContain("https://evil.example/x")
+    expect(html).not.toMatch(/<a[^>]*evil\.example/)
+  })
+
   test("les quatre champs du visiteur sont hors confiance, un par un", () => {
     // Le test précédent les met tous dans le même rendu : celui-ci
     // échouerait encore si un seul d'entre eux passait de confiance.
@@ -207,10 +220,10 @@ describe("rendreHtml — mise en lien", () => {
     }
   })
 
-  test("le lien légitime est cliquable dans les trois emails", () => {
+  test("le lien légitime est cliquable dans les emails du catalogue", () => {
     // `${SITE_URL}/accept-invite?token=…`, `${SITE_URL}/leads` et l'URL de
-    // réinitialisation : trois valeurs construites par le serveur, dans les
-    // trois gabarits livrés.
+    // réinitialisation : valeurs construites par le serveur. `postPublished`
+    // n'a que `{{url}}` — même chaîne, autre nom.
     for (const email of CATALOGUE) {
       const html = rendreHtml(
         email.corpsParDefaut,
@@ -220,6 +233,10 @@ describe("rendreHtml — mise en lien", () => {
           sujet: "Bonjour",
           message: "Bonjour",
           lien: "https://admin.exemple.fr/x",
+          url: "https://admin.exemple.fr/x",
+          nom_du_site: "AstroTan",
+          titre: "Un article",
+          auteur: "Ada",
         },
         email.cle,
       )

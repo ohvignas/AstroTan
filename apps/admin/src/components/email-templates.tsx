@@ -412,6 +412,8 @@ export function ListeEmails({
   cleOuverte = null,
   /** L'éditeur du gabarit déplié, rendu dans sa propre ligne. */
   editeur,
+  /** Cloche / E-mail perso, sur la même rangée que l'interrupteur site. */
+  canaux,
 }: {
   emails: readonly EmailAffiche[]
   onToggle: (cle: CleEmail, actif: boolean) => void
@@ -419,6 +421,7 @@ export function ListeEmails({
   canWrite?: boolean
   cleOuverte?: CleEmail | null
   editeur?: (email: EmailAffiche) => ReactNode
+  canaux?: (email: EmailAffiche) => ReactNode
 }) {
   return (
     <ul className="divide-y divide-foreground/10">
@@ -431,6 +434,7 @@ export function ListeEmails({
           canWrite={canWrite}
           ouvert={cleOuverte === email.cle}
           editeur={editeur}
+          canaux={canaux}
         />
       ))}
     </ul>
@@ -444,6 +448,7 @@ function LigneEmailAffichee({
   canWrite,
   ouvert,
   editeur,
+  canaux,
 }: {
   email: EmailAffiche
   onToggle: (cle: CleEmail, actif: boolean) => void
@@ -451,6 +456,7 @@ function LigneEmailAffichee({
   canWrite: boolean
   ouvert: boolean
   editeur?: (email: EmailAffiche) => ReactNode
+  canaux?: (email: EmailAffiche) => ReactNode
 }) {
   const panneauId = `gabarit-${email.cle}`
   const interrupteurId = `email-actif-${email.cle}`
@@ -484,7 +490,7 @@ function LigneEmailAffichee({
           </span>
         </button>
 
-        <div className="flex w-full items-center gap-3 pl-6 sm:w-auto sm:pl-0">
+        <div className="flex w-full flex-wrap items-center gap-3 pl-6 sm:w-auto sm:pl-0">
           {/* Rien quand le texte est celui du code : c'est l'état de tout
               déploiement neuf, et une pastille par ligne pour dire « il ne
               s'est rien passé » se lit trois fois avant de ne rien
@@ -534,6 +540,7 @@ function LigneEmailAffichee({
               <Switch id={interrupteurId} checked disabled />
             </label>
           )}
+          {canaux?.(email)}
         </div>
       </div>
 
@@ -592,6 +599,7 @@ export function EditeurGabarit({
   corps,
   erreur,
   erreurServeur = null,
+  info = null,
   modifie = false,
   enregistrement = "repos",
   canWrite = true,
@@ -599,6 +607,7 @@ export function EditeurGabarit({
   onCorps,
   onEnregistrer,
   onReinitialiser,
+  onEnvoyerExemple,
 }: {
   email: EmailAffiche
   objet: string
@@ -607,6 +616,7 @@ export function EditeurGabarit({
   erreur: string | null
   /** Le refus renvoyé par le serveur, quand il y en a eu un. */
   erreurServeur?: string | null
+  info?: string | null
   modifie?: boolean
   enregistrement?: "repos" | "envoi"
   canWrite?: boolean
@@ -614,6 +624,7 @@ export function EditeurGabarit({
   onCorps?: (valeur: string) => void
   onEnregistrer?: () => void
   onReinitialiser?: () => void
+  onEnvoyerExemple?: () => void
 }) {
   const corpsRef = useRef<HTMLTextAreaElement>(null)
   // Où replacer le curseur après une insertion. Un état plutôt qu'un appel
@@ -730,6 +741,12 @@ export function EditeurGabarit({
         </p>
       )}
 
+      {info === null ? null : (
+        <p role="status" className="text-sm text-muted-foreground">
+          {info}
+        </p>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
@@ -754,6 +771,16 @@ export function EditeurGabarit({
           onClick={() => onReinitialiser?.()}
         >
           Revenir au texte par défaut
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="cursor-pointer"
+          disabled={!canWrite || enregistrement === "envoi"}
+          onClick={() => onEnvoyerExemple?.()}
+        >
+          {enregistrement === "envoi" ? "Envoi…" : "Envoyer un exemple"}
         </Button>
         {modifie && erreur === null ? (
           <span role="status" className="text-sm text-muted-foreground">

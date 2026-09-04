@@ -21,9 +21,11 @@ describe("enTetesSecurite", () => {
 
   test("le domaine Convex est autorisé en connexion, et lui seul", () => {
     // Le site lit ses pages depuis Convex : sans cette ligne, la CSP casse
-    // le site au lieu de le protéger.
+    // le site au lieu de le protéger. Le widget chat s'abonne en WebSocket
+    // (`wss:`) — `https:` ne suffit pas partout.
     const csp = enTetesSecurite("abc123", ENV)["Content-Security-Policy"]
     expect(csp).toContain("connect-src 'self' https://exemple.convex.cloud")
+    expect(csp).toContain("wss://exemple.convex.cloud")
   })
 
   test("les polices inlinées au build sont autorisées", () => {
@@ -77,7 +79,9 @@ describe("la mesure d'audience survit à la CSP", () => {
     // `script.js` envoie chaque vue par `fetch` : sans cette origine dans
     // `connect-src`, le script se charge, s'exécute, et ne compte rien.
     const csp = enTetesSecurite("abc123", AVEC_UMAMI)["Content-Security-Policy"]
-    expect(csp).toContain("connect-src 'self' https://exemple.convex.cloud https://umami.exemple.fr")
+    expect(csp).toContain(
+      "connect-src 'self' https://exemple.convex.cloud wss://exemple.convex.cloud https://umami.exemple.fr",
+    )
   })
 
   test("l'origine Umami est autorisée en script", () => {
@@ -100,7 +104,9 @@ describe("la mesure d'audience survit à la CSP", () => {
       PUBLIC_UMAMI_URL: "https://umami.exemple.fr/",
     })["Content-Security-Policy"]
     expect(csp).not.toContain("https://umami.exemple.fr/ ")
-    expect(csp).toContain("connect-src 'self' https://exemple.convex.cloud https://umami.exemple.fr")
+    expect(csp).toContain(
+      "connect-src 'self' https://exemple.convex.cloud wss://exemple.convex.cloud https://umami.exemple.fr",
+    )
   })
 
   test("sans Umami configuré, rien n'est ajouté", () => {
@@ -108,7 +114,7 @@ describe("la mesure d'audience survit à la CSP", () => {
     // `analyticsScripts` : une CSP qui autoriserait une origine vide
     // autoriserait n'importe quoi.
     const csp = enTetesSecurite("a", ENV)["Content-Security-Policy"]
-    expect(csp).toContain("connect-src 'self' https://exemple.convex.cloud;")
+    expect(csp).toContain("connect-src 'self' https://exemple.convex.cloud wss://exemple.convex.cloud;")
   })
 })
 
@@ -142,7 +148,7 @@ describe("les médias servis par Convex", () => {
       PUBLIC_CONVEX_URL: "https://exemple.convex.cloud/",
     })["Content-Security-Policy"]!
     expect(csp).not.toContain("https://exemple.convex.cloud/ ")
-    expect(csp).toContain("connect-src 'self' https://exemple.convex.cloud;")
+    expect(csp).toContain("connect-src 'self' https://exemple.convex.cloud wss://exemple.convex.cloud;")
     expect(csp).toContain("img-src 'self' data: blob: https://exemple.convex.cloud;")
   })
 
@@ -254,5 +260,59 @@ describe("la CSP et les traceurs soumis à consentement", () => {
     })["Content-Security-Policy"]!
     expect(csp).not.toContain("google")
     expect(csp).not.toContain("facebook")
+  })
+})
+
+// ---------------------------------------------------------------------
+// Heatmaps Umami — le fond de carte est un iframe du site
+// ---------------------------------------------------------------------
+// Umami ne stocke aucune capture : il recharge la page dans un iframe et
+// pose les points par-dessus. La doc (docs.umami.is/docs/heatmaps) exige
+// `frame-ancestors` qui cite l'origine du tableau de bord, et le retrait
+// de `X-Frame-Options: DENY` — cet en-tête écrase `frame-ancestors` dans
+// certains navigateurs. Sans ça, Replays collectent, Heatmaps ont des
+// points, et l'écran reste un canevas blanc.
+//
+// L'ouverture n'existe QUE si `PUBLIC_UMAMI_RECORDER=true` : le comptage
+// seul n'a pas besoin d'être encadré, et un site sans enregistreur garde
+// le refus d'iframe.
+describe("la CSP laisse Umami encadrer le site pour les heatmaps", () => {
+  const RECORDER = {
+    ...ENV,
+    PUBLIC_UMAMI_URL: "https://umami.exemple.fr",
+    PUBLIC_UMAMI_RECORDER: "true",
+  }
+
+  const directive = (env: Record<string, string>, nom: string) =>
+    enTetesSecurite("abc123", env)["Content-Security-Policy"]!
+      .split("; ")
+      .find((d) => d.startsWith(`${nom} `) || d === nom)
+
+  test("sans enregistreur, le site refuse toujours d'être encadré", () => {
+    const env = { ...ENV, PUBLIC_UMAMI_URL: "https://umami.exemple.fr" }
+    expect(directive(env, "frame-ancestors")).toBe("frame-ancestors 'none'")
+    expect(enTetesSecurite("abc123", env)["X-Frame-Options"]).toBe("DENY")
+  })
+
+  test("avec l'enregistreur, Umami peut encadrer et X-Frame-Options disparaît", () => {
+    expect(directive(RECORDER, "frame-ancestors")).toBe(
+      "frame-ancestors 'self' https://umami.exemple.fr",
+    )
+    expect(enTetesSecurite("abc123", RECORDER)["X-Frame-Options"]).toBeUndefined()
+  })
+
+  test("un enregistreur sans URL Umami n'ouvre pas le cadrage", () => {
+    const env = { ...ENV, PUBLIC_UMAMI_RECORDER: "true" }
+    expect(directive(env, "frame-ancestors")).toBe("frame-ancestors 'none'")
+    expect(enTetesSecurite("abc123", env)["X-Frame-Options"]).toBe("DENY")
+  })
+
+  test("une valeur autre que true n'ouvre rien", () => {
+    const env = {
+      ...ENV,
+      PUBLIC_UMAMI_URL: "https://umami.exemple.fr",
+      PUBLIC_UMAMI_RECORDER: "1",
+    }
+    expect(directive(env, "frame-ancestors")).toBe("frame-ancestors 'none'")
   })
 })

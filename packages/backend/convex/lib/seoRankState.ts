@@ -18,7 +18,11 @@ export type RankUiState =
   | { state: "out_of_top_100" }
   | { state: "other_url"; rankedUrl: string }
 
-export type DocumentRank = RankUiState & { canRelever: boolean }
+export type DocumentRank = RankUiState & {
+  canRelever: boolean
+  /** `seoRanks.fetchedAt` — absent s'il n'y a jamais eu de relevé. */
+  fetchedAt?: number
+}
 
 export function gapRang(position: number, previous?: number): number | undefined {
   if (previous === undefined) return undefined
@@ -85,5 +89,6 @@ export function documentRank(input: {
       fetchedAt: input.row?.fetchedAt,
       now: input.now,
     }),
+    fetchedAt: input.row?.fetchedAt,
   }
 }
