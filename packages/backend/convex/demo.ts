@@ -1,10 +1,19 @@
 import { ConvexError, v } from "convex/values"
 import { action, internalMutation, query } from "./_generated/server"
-import { api, components, internal } from "./_generated/api"
+import { api, internal } from "./_generated/api"
 import { MUTATION_REGISTRY } from "./_registry"
-import { authComponent, createAuth } from "./auth"
+import { authComponent } from "./auth"
 import { demoSandboxActif, estCompteDemo } from "./lib/demoSandbox"
 import { assertDemoEnterBudget } from "./lib/demoEnterRateLimit"
+import {
+  assurerCompteDemo,
+  compteDemoPret,
+  creerEditorDemo,
+  revoquerSessionsDuCompte,
+  supprimerArticlesDuCompte,
+  supprimerMediasDuCompte,
+  trouverCompteDemo,
+} from "./lib/demoRestore"
 import { deriverOrigines } from "./lib/origines"
 import { assertSharedSecret } from "./lib/sharedSecret"
 
@@ -15,10 +24,6 @@ function credentialsPrets(env: Record<string, string | undefined>): boolean {
       env.DEMO_ACCOUNT_PASSWORD &&
       env.DEMO_OPENROUTER_MODEL,
   )
-}
-
-function comptePret(env: Record<string, string | undefined>): boolean {
-  return Boolean(env.DEMO_ACCOUNT_EMAIL && env.DEMO_ACCOUNT_PASSWORD)
 }
 
 async function assertDemoEnterSecret(
@@ -85,20 +90,28 @@ export const seedSandbox = internalMutation({
   handler: async (ctx) => {
     const env = process.env
     if (!demoSandboxActif(env)) return { skipped: true }
-    if (!comptePret(env)) throw new ConvexError({ code: "DEMO_NOT_CONFIGURED" })
+    if (!compteDemoPret(env)) throw new ConvexError({ code: "DEMO_NOT_CONFIGURED" })
 
     const email = env.DEMO_ACCOUNT_EMAIL!.trim().toLowerCase()
-    const password = env.DEMO_ACCOUNT_PASSWORD!
-    const existing = await ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: "user" as const,
-      where: [{ field: "email" as const, operator: "eq" as const, value: email }],
-    })
+    const existing = await trouverCompteDemo(ctx, email)
     if (existing) return { skipped: true }
 
-    const auth = createAuth(ctx)
-    await auth.api.createUser({
-      body: { email, password, name: "Démo", role: "editor" },
-    })
+    await creerEditorDemo(ctx, email, env.DEMO_ACCOUNT_PASSWORD!)
+    return { skipped: false }
+  },
+})
+
+export const restaurer = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const env = process.env
+    if (!demoSandboxActif(env)) return { skipped: true }
+
+    const demoUserId = await assurerCompteDemo(ctx, env)
+    await supprimerArticlesDuCompte(ctx, demoUserId)
+    await supprimerMediasDuCompte(ctx, demoUserId)
+    await ctx.runMutation(internal.seed.demoContent, {})
+    await revoquerSessionsDuCompte(ctx, demoUserId)
     return { skipped: false }
   },
 })
