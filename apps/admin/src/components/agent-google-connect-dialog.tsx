@@ -56,7 +56,6 @@ export function AgentGoogleConnectDialog({
     setAdminOrigin(
       resolveAdminOrigin({
         windowOrigin: window.location.origin,
-        siteUrl: import.meta.env.VITE_SITE_URL as string | undefined,
       }),
     )
   }, [])
