@@ -69,6 +69,8 @@ export const SECRET_NOMS = [
   "DATAFORSEO_PASSWORD",
   "GOOGLE_CALENDAR_CLIENT_SECRET",
   "GOOGLE_CALENDAR_REFRESH_TOKEN",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
 ] as const
 
 export type SecretNom = (typeof SECRET_NOMS)[number]
@@ -91,6 +93,8 @@ const nomValidator = v.union(
   v.literal("DATAFORSEO_PASSWORD"),
   v.literal("GOOGLE_CALENDAR_CLIENT_SECRET"),
   v.literal("GOOGLE_CALENDAR_REFRESH_TOKEN"),
+  v.literal("STRIPE_SECRET_KEY"),
+  v.literal("STRIPE_WEBHOOK_SECRET"),
 )
 
 // Les deux listes disent la même chose, et `tsc` échoue si l'une prend un

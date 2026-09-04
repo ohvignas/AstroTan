@@ -56,6 +56,10 @@ const SETTINGS_ERROR_MESSAGES: Record<string, string> = {
     "Chaque lien de réseau doit commencer par http:// ou https://.",
   INVALID_AGENT_CHAT_COLOR:
     "La couleur du chat s'écrit en hexadécimal, par exemple #171717 ou #f60.",
+  STRIPE_NOT_CONFIGURED:
+    "Aucune clé Stripe n'est configurée. Saisissez-la dans Réglages → Paiement.",
+  STRIPE_UNAVAILABLE:
+    "Stripe n'a pas pu ouvrir le paiement. Réessayez dans un instant.",
 }
 
 // ---------------------------------------------------------------------

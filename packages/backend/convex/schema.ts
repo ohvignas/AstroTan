@@ -825,4 +825,16 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_thread", ["threadId"]),
+
+  // Paiement unique de l'offre Complet. Expand-only : une ligne par
+  // session Stripe, jamais un secret. L'e-mail vient de Stripe, pas d'un
+  // champ libre du visiteur.
+  purchases: defineTable({
+    stripeSessionId: v.string(),
+    email: v.optional(v.string()),
+    amountCents: v.number(),
+    currency: v.string(),
+    status: v.literal("paid"),
+    createdAt: v.number(),
+  }).index("by_session", ["stripeSessionId"]),
 })

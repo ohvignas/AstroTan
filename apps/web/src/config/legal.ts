@@ -265,6 +265,22 @@ export const processings: Processing[] = [
       "services que le responsable a connectés depuis l'administration " +
       "(agenda, serveurs d'assistance)",
   },
+  // Table : `purchases`.
+  {
+    purpose: "Encaisser le paiement unique de l'offre Complet",
+    data:
+      "Identifiant de session Stripe, montant et devise figés côté serveur " +
+      "(9,99 €), statut du paiement, date, et l'adresse électronique que " +
+      "Stripe renvoie après encaissement — jamais un champ libre du site",
+    basis: "Exécution du contrat — fournir l'offre payée",
+    retention:
+      "Conservé le temps de la relation commerciale et des obligations " +
+      "comptables. Une suppression depuis l'administration l'efface de la " +
+      "base ; la pièce chez Stripe suit leurs propres durées.",
+    recipients:
+      "Convex, Inc. (hébergement de la base, États-Unis) et Stripe, Inc. " +
+      "(encaissement, États-Unis / Irlande)",
+  },
   // Table : `leadEvents`.
   {
     purpose: "Suivre, dans l'administration, le traitement d'une demande",

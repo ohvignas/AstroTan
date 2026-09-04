@@ -51,6 +51,7 @@ export const TABLE_COVERAGE: Record<string, TableCoverage> = {
   chatPresence: { declaredAs: "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande" },
   chatFiles: { declaredAs: "Répondre, dans le chat du site, aux questions d'un visiteur et qualifier sa demande" },
   consentRecords: { declaredAs: "Enregistrer le choix exprimé sur les cookies" },
+  purchases: { declaredAs: "Encaisser le paiement unique de l'offre Complet" },
 
   // ── Les comptes d'administration ─────────────────────────────────────
   // `user` et `account` viennent du schéma Better Auth, `profiles` du nôtre :

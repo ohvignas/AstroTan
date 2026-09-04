@@ -120,9 +120,20 @@ async function essayerResend(valeur: string): Promise<Issue> {
  * les essayer ensemble supposerait un formulaire qui les enregistre
  * ensemble, ce que cet écran ne fait pas.
  */
+async function essayerStripe(valeur: string): Promise<Issue> {
+  const reponse = await fetch("https://api.stripe.com/v1/balance", {
+    headers: { authorization: `Bearer ${valeur}` },
+    signal: AbortSignal.timeout(DELAI_MS),
+  })
+  if (reponse.ok) return "valide"
+  if (reponse.status === 429 || reponse.status >= 500) return "injoignable"
+  return "refuse"
+}
+
 const VERIFICATEURS: Record<string, Verificateur> = {
   RESEND_API_KEY: { service: "Resend", essayer: essayerResend },
   OPENROUTER_API_KEY: { service: "OpenRouter", essayer: pingOpenRouter },
+  STRIPE_SECRET_KEY: { service: "Stripe", essayer: essayerStripe },
 }
 
 /**
