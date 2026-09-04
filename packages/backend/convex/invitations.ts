@@ -14,6 +14,7 @@ import { resoudreExpediteur } from "./lib/expediteur"
 import { composerMessage, identiteAvecLogoJoignable } from "./lib/emailLayout"
 import { journaliser } from "./lib/auditEvent"
 import { deriverOrigines } from "./lib/origines"
+import { exigerPasDemo } from "./lib/demoSandbox"
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -37,6 +38,8 @@ export const create = mutation({
   args: { email: v.string(), role: roleValidator },
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, ["owner", "admin"])
+    const env = process.env
+    exigerPasDemo(actor, env)
     // Un owner ne fabrique pas non plus un second owner par ce chemin :
     // l'unicité de l'owner est déjà garantie ailleurs (bootstrap +
     // `databaseHooks`, Task 6) — il n'existe aucun scénario légitime où

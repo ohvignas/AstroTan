@@ -41,6 +41,7 @@ const MESSAGES: Record<string, string> = {
 
 function ComptePage() {
   const profile = useQuery(api.profiles.me)
+  const jeSuisDemo = useQuery(api.demo.jeSuisDemo)
 
   const [actuel, setActuel] = useState("")
   const [nouveau, setNouveau] = useState("")
@@ -95,67 +96,73 @@ function ComptePage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form className="flex flex-col gap-4" onSubmit={(e) => void soumettre(e)}>
-          <Field>
-            <FieldLabel htmlFor="mdp-actuel">Mot de passe actuel</FieldLabel>
-            <Input
-              id="mdp-actuel"
-              type="password"
-              autoComplete="current-password"
-              value={actuel}
-              onChange={(event) => setActuel(event.target.value)}
-            />
-            <FieldDescription>
-              Demandé pour que voler une session ne suffise pas à voler le compte.
-            </FieldDescription>
-          </Field>
+        {jeSuisDemo ? (
+          <p className="text-sm text-muted-foreground">
+            Le compte de démonstration ne peut pas changer de mot de passe.
+          </p>
+        ) : (
+          <form className="flex flex-col gap-4" onSubmit={(e) => void soumettre(e)}>
+            <Field>
+              <FieldLabel htmlFor="mdp-actuel">Mot de passe actuel</FieldLabel>
+              <Input
+                id="mdp-actuel"
+                type="password"
+                autoComplete="current-password"
+                value={actuel}
+                onChange={(event) => setActuel(event.target.value)}
+              />
+              <FieldDescription>
+                Demandé pour que voler une session ne suffise pas à voler le compte.
+              </FieldDescription>
+            </Field>
 
-          <Field>
-            <FieldLabel htmlFor="mdp-nouveau">Nouveau mot de passe</FieldLabel>
-            <Input
-              id="mdp-nouveau"
-              type="password"
-              autoComplete="new-password"
-              maxLength={MAX_PASSWORD_LENGTH}
-              aria-describedby="mdp-force"
-              value={nouveau}
-              onChange={(event) => setNouveau(event.target.value)}
-            />
-            <PasswordStrengthMeter id="mdp-force" strength={strength} />
-          </Field>
+            <Field>
+              <FieldLabel htmlFor="mdp-nouveau">Nouveau mot de passe</FieldLabel>
+              <Input
+                id="mdp-nouveau"
+                type="password"
+                autoComplete="new-password"
+                maxLength={MAX_PASSWORD_LENGTH}
+                aria-describedby="mdp-force"
+                value={nouveau}
+                onChange={(event) => setNouveau(event.target.value)}
+              />
+              <PasswordStrengthMeter id="mdp-force" strength={strength} />
+            </Field>
 
-          <Field>
-            <FieldLabel htmlFor="mdp-confirmation">Confirmer</FieldLabel>
-            <Input
-              id="mdp-confirmation"
-              type="password"
-              autoComplete="new-password"
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.target.value)}
-            />
-            {/* L'écart ne se signale qu'une fois la confirmation commencée :
+            <Field>
+              <FieldLabel htmlFor="mdp-confirmation">Confirmer</FieldLabel>
+              <Input
+                id="mdp-confirmation"
+                type="password"
+                autoComplete="new-password"
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.target.value)}
+              />
+              {/* L'écart ne se signale qu'une fois la confirmation commencée :
                 l'annoncer dès le premier caractère reviendrait à dire
                 « faux » à quelqu'un qui n'a pas fini d'écrire. */}
-            {confirmation.length > 0 && !identiques && (
-              <FieldDescription>Les deux saisies diffèrent.</FieldDescription>
+              {confirmation.length > 0 && !identiques && (
+                <FieldDescription>Les deux saisies diffèrent.</FieldDescription>
+              )}
+            </Field>
+
+            {erreur && (
+              <p role="alert" className="text-sm text-destructive">
+                {erreur}
+              </p>
             )}
-          </Field>
+            {fait && (
+              <p role="status" className="text-sm text-muted-foreground">
+                Mot de passe changé. Les autres sessions ont été déconnectées.
+              </p>
+            )}
 
-          {erreur && (
-            <p role="alert" className="text-sm text-destructive">
-              {erreur}
-            </p>
-          )}
-          {fait && (
-            <p role="status" className="text-sm text-muted-foreground">
-              Mot de passe changé. Les autres sessions ont été déconnectées.
-            </p>
-          )}
-
-          <Button type="submit" disabled={!utilisable} className="self-start">
-            {envoi ? "Changement…" : "Changer le mot de passe"}
-          </Button>
-        </form>
+            <Button type="submit" disabled={!utilisable} className="self-start">
+              {envoi ? "Changement…" : "Changer le mot de passe"}
+            </Button>
+          </form>
+        )}
       </CardContent>
     </Card>
   )

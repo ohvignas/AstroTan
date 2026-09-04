@@ -24,6 +24,7 @@ import { publicPath } from "./lib/publicPath"
 import { REQUIRED_PAGE_REASON, isRequiredPage } from "./lib/requiredPages"
 import { MUTATION_REGISTRY } from "./_registry"
 import { journaliser } from "./lib/auditEvent"
+import { exigerPasDemo } from "./lib/demoSandbox"
 
 // This task's own brief, verbatim: "the security-critical task of the
 // whole lot — the boundary between what the public internet can read and
@@ -719,6 +720,8 @@ export const publishPage = mutation({
   args: { id: v.id("pages") },
   handler: async (ctx, args) => {
     const acteur = await requireRole(ctx, ["owner", "admin"])
+    const env = process.env
+    exigerPasDemo(acteur, env)
     const page = await ctx.db.get(args.id)
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
 

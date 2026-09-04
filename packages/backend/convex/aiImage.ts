@@ -13,6 +13,7 @@ import {
   appendExtraInstructions,
   normalizeExtraInstructions,
 } from "./lib/extraInstructions"
+import { exigerPasDemo } from "./lib/demoSandbox"
 
 export const generatePostCover = action({
   args: {
@@ -21,6 +22,8 @@ export const generatePostCover = action({
   },
   handler: async (ctx, args): Promise<{ storageId: Id<"_storage"> }> => {
     const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
+    const env = process.env
+    exigerPasDemo(authUser, env)
     const post = await ctx.runQuery(api.posts.get, { id: args.postId })
     if (post === null) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, post)
@@ -57,6 +60,8 @@ export const generatePageOg = action({
   },
   handler: async (ctx, args): Promise<{ storageId: Id<"_storage"> }> => {
     const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
+    const env = process.env
+    exigerPasDemo(authUser, env)
     const page = await ctx.runQuery(api.pages.get, { id: args.pageId })
     if (page === null) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, page)

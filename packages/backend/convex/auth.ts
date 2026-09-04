@@ -33,6 +33,7 @@ import {
   buildSignInRateLimitKey,
 } from "./lib/signInRateLimit"
 import { deriverOrigines } from "./lib/origines"
+import { estCompteDemo } from "./lib/demoSandbox"
 
 // La synchronisation `profiles` <-> utilisateur Better Auth passe par les
 // `triggers` du composant, pas par une mutation `ensure` appelée à la
@@ -259,6 +260,8 @@ async function guardSignInRateLimit(
 // merging the two sets would make a future edit to one silently affect the
 // other's matching.
 const SIGN_IN_PATHS = new Set(["/sign-in/email"])
+
+const CHANGE_PASSWORD_PATHS = new Set(["/change-password"])
 
 // La consommation d'un jeton de réinitialisation. Son propre `Set`, pour
 // la même raison que `SIGN_IN_PATHS` ci-dessus : une autre préoccupation,
@@ -1421,6 +1424,16 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         }
         if (RESET_PASSWORD_PATHS.has(ctx.path)) {
           await guardPasswordReset(convexCtx, ctx)
+        }
+        if (CHANGE_PASSWORD_PATHS.has(ctx.path)) {
+          const env = process.env
+          const session = await getSessionFromCtx(ctx).catch(() => null)
+          if (session?.user && estCompteDemo(session.user, env)) {
+            throw APIError.from("FORBIDDEN", {
+              code: "DEMO_FORBIDDEN",
+              message: "DEMO_FORBIDDEN: le compte de démonstration ne peut pas changer de mot de passe",
+            })
+          }
         }
 
         const isRevokeSingle = ctx.path === "/admin/revoke-user-session"
