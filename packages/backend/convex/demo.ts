@@ -57,8 +57,8 @@ export const credentials = action({
     const env = process.env
     if (!demoSandboxActif(env)) throw new ConvexError({ code: "DEMO_OFF" })
     if (!credentialsPrets(env)) throw new ConvexError({ code: "DEMO_NOT_CONFIGURED" })
-    await assertDemoEnterSecret(args.secret, env.DEMO_ENTER_SECRET)
     await ctx.runMutation(internal.demo.assertEnterBudget, { ip: args.ip })
+    await assertDemoEnterSecret(args.secret, env.DEMO_ENTER_SECRET)
     return { email: env.DEMO_ACCOUNT_EMAIL, password: env.DEMO_ACCOUNT_PASSWORD }
   },
 })

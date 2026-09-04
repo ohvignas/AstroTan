@@ -126,6 +126,20 @@ test("credentials refuse le 11ᵉ appel de la même IP", async () => {
   })
 })
 
+test("credentials plafonne aussi un secret faux : le 11ᵉ appel est RATE_LIMITED", async () => {
+  const t = makeTestConvex()
+  activerSandbox()
+  const args = { secret: "ce-secret-est-faux", ip: "203.0.113.12" }
+  for (let n = 0; n < 10; n++) {
+    await expect(t.action(api.demo.credentials, args)).rejects.toMatchObject({
+      data: { code: "DEMO_FORBIDDEN" },
+    })
+  }
+  await expect(t.action(api.demo.credentials, args)).rejects.toMatchObject({
+    data: { code: "DEMO_RATE_LIMITED" },
+  })
+})
+
 test("jeSuisDemo rend false sans session", async () => {
   const t = makeTestConvex()
   activerSandbox()
