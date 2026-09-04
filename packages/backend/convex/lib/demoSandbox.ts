@@ -2,13 +2,13 @@ import { ConvexError } from "convex/values"
 
 export type DemoSandboxEnv = Record<string, string | undefined>
 
-export function demoSandboxActif(env: DemoSandboxEnv): boolean {
+export function demoSandboxActif(env: Record<string, string | undefined>): boolean {
   return env.DEMO_SANDBOX === "true"
 }
 
 export function estCompteDemo(
   authUser: { email: string },
-  env: DemoSandboxEnv,
+  env: Record<string, string | undefined>,
 ): boolean {
   if (!demoSandboxActif(env)) return false
   const demoEmail = env.DEMO_ACCOUNT_EMAIL
@@ -20,7 +20,7 @@ export function estCompteDemo(
 
 export function exigerPasDemo(
   authUser: { email: string },
-  env: DemoSandboxEnv,
+  env: Record<string, string | undefined>,
 ): void {
   if (estCompteDemo(authUser, env)) {
     throw new ConvexError({ code: "DEMO_FORBIDDEN" })
@@ -29,7 +29,7 @@ export function exigerPasDemo(
 
 export function modeleSandbox(
   _settings: { openRouterModel?: string | null },
-  env: DemoSandboxEnv,
+  env: Record<string, string | undefined>,
 ): string | null {
   if (!demoSandboxActif(env)) return null
   const model = env.DEMO_OPENROUTER_MODEL?.trim()
@@ -38,9 +38,8 @@ export function modeleSandbox(
 
 export function modeleEffectif(
   settingsModel: string | null | undefined,
-  env: DemoSandboxEnv,
+  env: Record<string, string | undefined>,
 ): string | null | undefined {
   if (!demoSandboxActif(env)) return settingsModel
-  const model = env.DEMO_OPENROUTER_MODEL?.trim()
-  return model || null
+  return modeleSandbox({}, env)
 }
