@@ -120,6 +120,9 @@ test("l'editor démo est refusé sur les sorties IA encore ouvertes à l'editor"
   await expect(
     demo.identity.action(api.aiImage.generatePageOg, { pageId }),
   ).rejects.toMatchObject({ data: { code: "DEMO_FORBIDDEN" } })
+  await expect(demo.identity.action(api.seoRanks.refreshSite, {})).rejects.toMatchObject({
+    data: { code: "DEMO_FORBIDDEN" },
+  })
 })
 
 test("owner + flag on : settings.update refuse les modèles OpenRouter", async () => {

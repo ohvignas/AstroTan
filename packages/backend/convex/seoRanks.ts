@@ -8,6 +8,7 @@ import {
 } from "./_generated/server"
 import { api } from "./_generated/api"
 import { requireRole } from "./lib/authz"
+import { exigerPasDemo } from "./lib/demoSandbox"
 import { MUTATION_REGISTRY } from "./_registry"
 import { fenetreFor, PERIODES } from "./analytics"
 import {
@@ -195,7 +196,9 @@ export const relever = action({
 export const refreshSite = action({
   args: {},
   handler: async (ctx) => {
-    await requireRole(ctx, ["owner", "admin", "editor"])
+    const acteur = await requireRole(ctx, ["owner", "admin", "editor"])
+    const env = process.env
+    exigerPasDemo(acteur, env)
     return executerRefreshSiteSnapshot(ctx)
   },
 })
