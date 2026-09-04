@@ -5,6 +5,7 @@ import schema from "./schema"
 import { api, internal } from "./_generated/api"
 import { getFunctionName } from "convex/server"
 import { MAX_EXCERPT_LENGTH, MAX_POST_BODY_LENGTH } from "./posts"
+import { isResolvableAuthUserId } from "./lib/postAuthor"
 import {
   ORIGIN,
   identityFor,
@@ -392,6 +393,31 @@ test("list replie l'auteur sur l'email Better Auth si le profil manque", async (
     displayName: owner.email,
     email: owner.email,
   })
+})
+
+test("isResolvableAuthUserId refuse le marqueur du seed, accepte un id Convex", () => {
+  expect(isResolvableAuthUserId("seed-script")).toBe(false)
+  expect(isResolvableAuthUserId("j57c4k2m9x0q1w3e5r7t9y")).toBe(true)
+})
+
+test("list ne plante pas quand createdBy est le marqueur du seed", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  await t.run(async (ctx) => {
+    await ctx.db.insert("posts", {
+      slug: "seeded",
+      title: "Article seed",
+      status: "draft",
+      body: "",
+      tagIds: [],
+      createdBy: "seed-script",
+      updatedBy: "seed-script",
+    })
+  })
+
+  const rows = await owner.identity.query(api.posts.list, {})
+  expect(rows).toHaveLength(1)
+  expect(rows[0]?.author).toEqual({ displayName: "—", email: "" })
 })
 
 test("list conserve le tri du plus récent au plus ancien", async () => {
