@@ -15,6 +15,10 @@ const AUTRE_PASSWORD = "correct horse battery staple autre"
 const OWNER_EMAIL = "owner@exemple.fr"
 const OWNER_PASSWORD = "correct horse battery staple owner"
 
+const REFUS = {
+  data: { code: expect.stringMatching(/^(FORBIDDEN|DEMO_FORBIDDEN)$/) },
+}
+
 let originalEnv: NodeJS.ProcessEnv
 
 beforeEach(() => {
@@ -37,146 +41,142 @@ function activerSandbox() {
   process.env.DEMO_ACCOUNT_EMAIL = DEMO_EMAIL
 }
 
-async function seedDemoEditor(t: ReturnType<typeof makeTestConvex>) {
-  const user = await seedUser(t, {
-    email: DEMO_EMAIL,
-    password: DEMO_PASSWORD,
-    name: "Démo",
-    role: "editor",
-  })
-  await signIn(t, DEMO_EMAIL, DEMO_PASSWORD)
+async function seedActeur(
+  t: ReturnType<typeof makeTestConvex>,
+  email: string,
+  password: string,
+  role: "owner" | "editor",
+) {
+  const user = await seedUser(t, { email, password, name: role, role })
+  await signIn(t, email, password)
   return { user, identity: await identityFor(t, user.id) }
 }
 
-async function seedOwner(t: ReturnType<typeof makeTestConvex>) {
-  const user = await seedUser(t, {
-    email: OWNER_EMAIL,
-    password: OWNER_PASSWORD,
-    name: "Owner",
-    role: "owner",
-  })
-  await signIn(t, OWNER_EMAIL, OWNER_PASSWORD)
-  return { user, identity: await identityFor(t, user.id) }
+function insertDraft(
+  t: ReturnType<typeof makeTestConvex>,
+  table: "pages" | "posts",
+  createdBy: string,
+  slug: string,
+) {
+  return t.run((ctx) =>
+    table === "pages"
+      ? ctx.db.insert("pages", {
+          slug,
+          title: "Interdit",
+          status: "draft",
+          createdBy,
+          updatedBy: createdBy,
+        })
+      : ctx.db.insert("posts", {
+          slug,
+          title: "Interdit",
+          excerpt: "Chapô.",
+          body: "<p>Corps.</p>",
+          status: "draft",
+          tagIds: [],
+          createdBy,
+          updatedBy: createdBy,
+        }),
+  )
 }
 
-test("l'editor démo ne publie pas une page (rôle) et generatePostCover lève DEMO_FORBIDDEN", async () => {
+test("l'editor démo est refusé sur les sorties owner/admin", async () => {
   const t = makeTestConvex()
   activerSandbox()
-  const demo = await seedDemoEditor(t)
+  const demo = await seedActeur(t, DEMO_EMAIL, DEMO_PASSWORD, "editor")
+  const pageId = await insertDraft(t, "pages", demo.user.id, "page-interdit")
+  const postId = await insertDraft(t, "posts", demo.user.id, "post-interdit")
 
-  const pageId = await t.run((ctx) =>
-    ctx.db.insert("pages", {
-      slug: "interdit",
-      title: "Interdit",
-      status: "draft",
-      createdBy: demo.user.id,
-      updatedBy: demo.user.id,
-    }),
+  await expect(demo.identity.mutation(api.pages.publishPage, { id: pageId })).rejects.toMatchObject(
+    REFUS,
   )
-  await expect(demo.identity.mutation(api.pages.publishPage, { id: pageId })).rejects.toMatchObject({
-    data: { code: "FORBIDDEN" },
-  })
+  await expect(demo.identity.mutation(api.posts.publishPost, { id: postId })).rejects.toMatchObject(
+    REFUS,
+  )
+  await expect(
+    demo.identity.mutation(api.invitations.create, { email: "invite@exemple.fr", role: "editor" }),
+  ).rejects.toMatchObject(REFUS)
+  await expect(
+    demo.identity.action(api.secrets.set, { nom: "OPENROUTER_API_KEY", valeur: "sk-or-demo" }),
+  ).rejects.toMatchObject(REFUS)
+  await expect(
+    demo.identity.action(api.emails.envoyerExemple, { cle: "leadNotification" }),
+  ).rejects.toMatchObject(REFUS)
+  await expect(
+    demo.identity.action(api.dataforseo.enregistrer, { login: "demo", password: "demo" }),
+  ).rejects.toMatchObject(REFUS)
+})
 
-  const postId = await t.run((ctx) =>
-    ctx.db.insert("posts", {
-      slug: "couverture-interdite",
-      title: "Couverture",
-      excerpt: "Chapô.",
-      body: "<p>Corps.</p>",
-      status: "draft",
-      tagIds: [],
-      createdBy: demo.user.id,
-      updatedBy: demo.user.id,
-    }),
-  )
+test("l'editor démo est refusé sur les sorties IA encore ouvertes à l'editor", async () => {
+  const t = makeTestConvex()
+  activerSandbox()
+  const demo = await seedActeur(t, DEMO_EMAIL, DEMO_PASSWORD, "editor")
+  const postId = await insertDraft(t, "posts", demo.user.id, "couverture-interdite")
+  const pageId = await insertDraft(t, "pages", demo.user.id, "og-interdit")
+
   await expect(
     demo.identity.action(api.aiImage.generatePostCover, { postId }),
   ).rejects.toMatchObject({ data: { code: "DEMO_FORBIDDEN" } })
-})
-
-test("l'editor démo ne peut pas inviter", async () => {
-  const t = makeTestConvex()
-  activerSandbox()
-  const demo = await seedDemoEditor(t)
   await expect(
-    demo.identity.mutation(api.invitations.create, {
-      email: "invite@exemple.fr",
-      role: "editor",
-    }),
-  ).rejects.toMatchObject({
-    data: { code: expect.stringMatching(/^(FORBIDDEN|DEMO_FORBIDDEN)$/) },
-  })
+    demo.identity.action(api.aiImage.generatePageOg, { pageId }),
+  ).rejects.toMatchObject({ data: { code: "DEMO_FORBIDDEN" } })
 })
 
-test("owner + flag on : settings.update refuse un modèle OpenRouter", async () => {
+test("owner + flag on : settings.update refuse les modèles OpenRouter", async () => {
   const t = makeTestConvex()
   activerSandbox()
-  const owner = await seedOwner(t)
+  const owner = await seedActeur(t, OWNER_EMAIL, OWNER_PASSWORD, "owner")
   await expect(
     owner.identity.mutation(api.settings.update, { openRouterModel: "x-ai/grok-4.6" }),
+  ).rejects.toMatchObject({ data: { code: "DEMO_MODEL_LOCKED" } })
+  await expect(
+    owner.identity.mutation(api.settings.update, { openRouterAgentModel: "x-ai/grok-4.6" }),
   ).rejects.toMatchObject({ data: { code: "DEMO_MODEL_LOCKED" } })
 })
 
 test("owner + flag on : settings.update accepte un champ hors OpenRouter", async () => {
   const t = makeTestConvex()
   activerSandbox()
-  const owner = await seedOwner(t)
+  const owner = await seedActeur(t, OWNER_EMAIL, OWNER_PASSWORD, "owner")
   await owner.identity.mutation(api.settings.update, { siteName: "Ok" })
-  const settings = await owner.identity.query(api.settings.getPrivate, {})
-  expect(settings?.siteName).toBe("Ok")
+  expect((await owner.identity.query(api.settings.getPrivate, {}))?.siteName).toBe("Ok")
 })
 
 test("owner + flag off : settings.update accepte un modèle OpenRouter", async () => {
   const t = makeTestConvex()
-  const owner = await seedOwner(t)
+  const owner = await seedActeur(t, OWNER_EMAIL, OWNER_PASSWORD, "owner")
   await owner.identity.mutation(api.settings.update, { openRouterModel: "x-ai/grok-4.6" })
-  const settings = await owner.identity.query(api.settings.getPrivate, {})
-  expect(settings?.openRouterModel).toBe("x-ai/grok-4.6")
+  expect((await owner.identity.query(api.settings.getPrivate, {}))?.openRouterModel).toBe(
+    "x-ai/grok-4.6",
+  )
 })
 
 test("un autre editor n'est pas bloqué par estCompteDemo", async () => {
   const t = makeTestConvex()
   activerSandbox()
-  const user = await seedUser(t, {
-    email: AUTRE_EMAIL,
-    password: AUTRE_PASSWORD,
-    name: "Autre",
-    role: "editor",
-  })
-  await signIn(t, AUTRE_EMAIL, AUTRE_PASSWORD)
-  const identity = await identityFor(t, user.id)
-  const id = await identity.mutation(api.posts.create, {
+  const autre = await seedActeur(t, AUTRE_EMAIL, AUTRE_PASSWORD, "editor")
+  const id = await autre.identity.mutation(api.posts.create, {
     title: "Brouillon libre",
     slug: "brouillon-libre",
   })
   const post = await t.run((ctx) => ctx.db.get(id))
   expect(post?.status).toBe("draft")
-  expect(post?.createdBy).toBe(user.id)
+  expect(post?.createdBy).toBe(autre.user.id)
 })
 
 test("le compte démo ne peut pas changer de mot de passe", async () => {
   const t = makeTestConvex()
   activerSandbox()
-  await seedUser(t, {
-    email: DEMO_EMAIL,
-    password: DEMO_PASSWORD,
-    name: "Démo",
-    role: "editor",
-  })
+  await seedActeur(t, DEMO_EMAIL, DEMO_PASSWORD, "editor")
   const cookie = await signIn(t, DEMO_EMAIL, DEMO_PASSWORD)
   const res = await t.fetch("/api/auth/change-password", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      origin: ORIGIN,
-      cookie,
-    },
+    headers: { "content-type": "application/json", origin: ORIGIN, cookie },
     body: JSON.stringify({
       currentPassword: DEMO_PASSWORD,
       newPassword: "correct horse battery staple nouveau",
     }),
   })
   expect(res.status).toBe(403)
-  const body = (await res.json()) as { code?: string }
-  expect(body.code).toBe("DEMO_FORBIDDEN")
+  expect(((await res.json()) as { code?: string }).code).toBe("DEMO_FORBIDDEN")
 })
