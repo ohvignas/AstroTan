@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values"
-import { action } from "./_generated/server"
-import { api } from "./_generated/api"
+import { action, internalMutation } from "./_generated/server"
+import { api, internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { requireOwnDocument, requirePublishedPageWritable, requireRole } from "./lib/authz"
 import { authComponent } from "./auth"
@@ -21,6 +21,15 @@ import {
   appendExtraInstructions,
   normalizeExtraInstructions,
 } from "./lib/extraInstructions"
+import { demoSandboxActif, estCompteDemo, modeleSandbox } from "./lib/demoSandbox"
+import { assertDemoAiBudget as consumeDemoAiBudget } from "./lib/demoAiQuota"
+
+export const assertDemoAiBudget = internalMutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    await consumeDemoAiBudget(ctx, args.userId)
+  },
+})
 
 export const generateSeoGeo = action({
   args: {
@@ -32,6 +41,10 @@ export const generateSeoGeo = action({
     const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
     if ((args.pageId === undefined) === (args.postId === undefined)) {
       throw new ConvexError({ code: "INVALID_TARGET" })
+    }
+    const env = process.env
+    if (estCompteDemo(authUser, env)) {
+      await ctx.runMutation(internal.ai.assertDemoAiBudget, { userId: authUser._id })
     }
 
     const site = await contexteSite(ctx)
@@ -103,9 +116,17 @@ export const generateSeoGeo = action({
     }
 
     const privee = await ctx.runQuery(api.settings.getPrivate, {})
+    let model: string
+    if (demoSandboxActif(env)) {
+      const slug = modeleSandbox({}, env)
+      if (!slug) throw new ConvexError({ code: "DEMO_NOT_CONFIGURED" })
+      model = slug
+    } else {
+      model = resolveOpenRouterModel(privee?.openRouterModel)
+    }
     const raw = await completerJson({
       apiKey,
-      model: resolveOpenRouterModel(privee?.openRouterModel),
+      model,
       system: systemPrompt(source),
       user: appendExtraInstructions(userPrompt(source), extra),
       referer: site.webOrigin,

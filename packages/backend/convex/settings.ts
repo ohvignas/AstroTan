@@ -314,6 +314,10 @@ export const environment = query({
       adminUrl: origines.admin,
       /** L'origine du site public — celle qu'on appelle pour invalider son cache. */
       webUrl: origines.web,
+      // Booléen seulement : jamais l'e-mail, le mot de passe ni le slug
+      // du modèle imposé — `settings.environment.test.ts` refuse toute
+      // valeur DEMO_* dans le JSON.
+      demoSandbox: demoSandboxActif(env),
     }
   },
 })

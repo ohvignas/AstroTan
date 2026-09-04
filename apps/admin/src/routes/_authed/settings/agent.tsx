@@ -43,8 +43,14 @@ type Secrets = NonNullable<ReturnType<typeof useSecretsAccess>["secrets"]>
 function AgentRoute() {
   const { loading, canWrite, secrets } = useSecretsAccess()
   const settings = useQuery(api.settings.getPrivate)
+  const environment = useQuery(api.settings.environment)
   const calendar = Route.useSearch().calendar
-  if (loading || secrets === undefined || settings === undefined) {
+  if (
+    loading ||
+    secrets === undefined ||
+    settings === undefined ||
+    environment === undefined
+  ) {
     return <SettingsLoading />
   }
   return (
@@ -53,6 +59,7 @@ function AgentRoute() {
       secrets={secrets}
       settings={settings}
       calendar={calendar}
+      demoSandbox={environment.demoSandbox}
     />
   )
 }
@@ -62,11 +69,13 @@ function AgentForm({
   secrets,
   settings,
   calendar,
+  demoSandbox,
 }: {
   canWrite: boolean
   secrets: Secrets
   settings: Settings
   calendar?: "ok" | "erreur"
+  demoSandbox: boolean
 }) {
   const updateAgent = useMutation(api.settings.updateAgent)
   const update = useMutation(api.settings.update)
@@ -145,14 +154,20 @@ function AgentForm({
             </Button>
           }
         >
-          <AiModelSelect
-            canWrite={canWrite}
-            openRouterModel={settings?.openRouterAgentModel ?? null}
-            onSave={(id) => update({ openRouterAgentModel: id })}
-            fieldId="agent-model"
-            fieldLabel="Modèle de l'agent"
-            description="Le modèle utilisé par le chat de l'agent sur le site."
-          />
+          {demoSandbox ? (
+            <p className="text-sm text-muted-foreground">
+              Modèle imposé par le bac à sable.
+            </p>
+          ) : (
+            <AiModelSelect
+              canWrite={canWrite}
+              openRouterModel={settings?.openRouterAgentModel ?? null}
+              onSave={(id) => update({ openRouterAgentModel: id })}
+              fieldId="agent-model"
+              fieldLabel="Modèle de l'agent"
+              description="Le modèle utilisé par le chat de l'agent sur le site."
+            />
+          )}
           <AgentIdentityFields
             canWrite={canWrite}
             agentEnabled={agentEnabled}
@@ -190,12 +205,19 @@ function AgentForm({
           onSaveModel={(id) => update({ openRouterModel: id })}
           openRouterImageModel={settings?.openRouterImageModel ?? null}
           onSaveImageModel={(id) => update({ openRouterImageModel: id })}
+          hideModelPickers={demoSandbox}
         >
-          <OcrModelSelect
-            canWrite={canWrite}
-            openRouterOcrModel={settings?.openRouterOcrModel ?? null}
-            onSave={(id) => update({ openRouterOcrModel: id })}
-          />
+          {demoSandbox ? (
+            <p className="text-sm text-muted-foreground">
+              Modèle imposé par le bac à sable.
+            </p>
+          ) : (
+            <OcrModelSelect
+              canWrite={canWrite}
+              openRouterOcrModel={settings?.openRouterOcrModel ?? null}
+              onSave={(id) => update({ openRouterOcrModel: id })}
+            />
+          )}
         </AiPage>
       </SettingsFormShell>
       <AgentPreviewBubble

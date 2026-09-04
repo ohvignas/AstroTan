@@ -43,6 +43,8 @@ describe("settings/agent — chrome des réglages", () => {
     expect(source).not.toContain("GOOGLE_CALENDAR_CLIENT_SECRET")
     expect(source).not.toMatch(/SettingsGroup[\s\S]*title="Applications"/)
     expect(source).not.toMatch(/SettingsGroup[\s\S]*title="Base de savoir"/)
+    expect(source).toContain("demoSandbox")
+    expect(source).toContain("Modèle imposé par le bac à sable.")
   })
 
   test("l'ordre est modèle de l'agent, identité, savoir, applications, modèle IA", () => {
