@@ -1,6 +1,7 @@
 import { createFileRoute, Navigate, Outlet } from "@tanstack/react-router"
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react"
 import { AppShell } from "@/components/app-shell"
+import { DemoBanner } from "@/components/demo-banner"
 
 // This layout is a UI convenience, not a security boundary: every Convex
 // query and mutation behind it re-checks the caller's role itself
@@ -47,6 +48,7 @@ function AuthedLayout() {
           Convex has verified the token, and a query issued in that window
           would fail. */}
       <Authenticated>
+        <DemoBanner />
         <AppShell>
           <Outlet />
         </AppShell>

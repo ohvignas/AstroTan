@@ -21,6 +21,7 @@ import { lireSecret } from "./secrets"
 import { listUsersWithRole } from "./users"
 import { isCurrentlyBanned } from "./lib/authz"
 import { choisirDestinataireInterne } from "./lib/destinataireInterne"
+import { exigerPasDemo } from "./lib/demoSandbox"
 
 // ---------------------------------------------------------------------
 // L'écran « envoi des emails » : ce que le site écrit, à qui, et ce que
@@ -473,6 +474,8 @@ export const envoyerExemple = action({
   args: { cle: cleValidator },
   handler: async (ctx, args): Promise<ResultatExemple> => {
     const acteur = await requireRole(ctx, ["owner", "admin"])
+    const env = process.env
+    exigerPasDemo(acteur, env)
     return expedierExemple(ctx, args.cle, acteur.email)
   },
 })

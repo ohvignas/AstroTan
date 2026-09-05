@@ -38,6 +38,7 @@ import {
 import { assertSocials } from "./lib/socialNetworks"
 import { insertOutboxRow } from "./revalidate"
 import { MUTATION_REGISTRY } from "./_registry"
+import { demoSandboxActif } from "./lib/demoSandbox"
 
 // Site-wide settings: one row, or none.
 //
@@ -313,6 +314,10 @@ export const environment = query({
       adminUrl: origines.admin,
       /** L'origine du site public — celle qu'on appelle pour invalider son cache. */
       webUrl: origines.web,
+      // Booléen seulement : jamais l'e-mail, le mot de passe ni le slug
+      // du modèle imposé — `settings.environment.test.ts` refuse toute
+      // valeur DEMO_* dans le JSON.
+      demoSandbox: demoSandboxActif(env),
     }
   },
 })
@@ -519,6 +524,15 @@ export const update = mutation({
     // Site-wide settings are not an editor's call: the name, the logo and
     // the SEO defaults apply to every page at once.
     const acteur = await requireRole(ctx, ["owner", "admin"])
+    const env = process.env
+    if (demoSandboxActif(env)) {
+      const locked =
+        args.openRouterModel !== undefined ||
+        args.openRouterAgentModel !== undefined ||
+        args.openRouterImageModel !== undefined ||
+        args.openRouterOcrModel !== undefined
+      if (locked) throw new ConvexError({ code: "DEMO_MODEL_LOCKED" })
+    }
 
     if (args.siteName !== undefined) {
       const siteName = args.siteName.trim()

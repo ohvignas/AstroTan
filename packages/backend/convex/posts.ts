@@ -27,6 +27,7 @@ import { enqueuePropagationRetry, insertOutboxRow } from "./revalidate"
 import { mintRenameRedirect } from "./redirects"
 import { MUTATION_REGISTRY } from "./_registry"
 import { journaliser } from "./lib/auditEvent"
+import { exigerPasDemo } from "./lib/demoSandbox"
 import {
   applyWorkingPatch,
   applyWorkingToLive,
@@ -559,6 +560,8 @@ export const publishPost = mutation({
     // Publishing is owner/admin, never the editor who wrote the post —
     // enforced here, not by the dashboard hiding a button.
     const acteur = await requireRole(ctx, ["owner", "admin"])
+    const env = process.env
+    exigerPasDemo(acteur, env)
     const post = await ctx.db.get(args.id)
     if (!post) throw new ConvexError({ code: "NOT_FOUND" })
     const etaitPublie = post.status === "published"

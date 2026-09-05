@@ -121,10 +121,17 @@ type AiPageProps = {
   onSaveModel: (id: string) => Promise<unknown>
   openRouterImageModel: string | null
   onSaveImageModel: (id: string) => Promise<unknown>
+  hideModelPickers?: boolean
   children?: ReactNode
 }
 
-export function AiPage({ secrets, canWrite, children, ...models }: AiPageProps) {
+export function AiPage({
+  secrets,
+  canWrite,
+  children,
+  hideModelPickers,
+  ...models
+}: AiPageProps) {
   return (
     <SettingsGroup title="Modèle IA">
       {secrets.cleMaitresse === null ? (
@@ -156,7 +163,7 @@ export function AiPage({ secrets, canWrite, children, ...models }: AiPageProps) 
           </Field>
         </>
       )}
-      <AiModelFields canWrite={canWrite} {...models} />
+      {hideModelPickers ? null : <AiModelFields canWrite={canWrite} {...models} />}
       {children}
     </SettingsGroup>
   )

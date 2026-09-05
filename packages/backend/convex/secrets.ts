@@ -12,6 +12,7 @@ import { api, internal } from "./_generated/api"
 import { requireRole } from "./lib/authz"
 import { MUTATION_REGISTRY } from "./_registry"
 import { journaliser } from "./lib/auditEvent"
+import { exigerPasDemo } from "./lib/demoSandbox"
 import {
   SECRETS_KEY_COMMANDE,
   chiffrer,
@@ -269,6 +270,8 @@ export const set = action({
     // Pas `editor` : classer des leads et détenir la clé de facturation
     // d'un fournisseur d'IA ne sont pas le même pouvoir.
     const acteur = await requireRole(ctx, ["owner", "admin"])
+    const env = process.env
+    exigerPasDemo(acteur, env)
 
     const valeur = args.valeur.trim()
     // Vide veut dire « ne change rien » dans le formulaire, qui n'envoie
@@ -315,6 +318,8 @@ export const clear = mutation({
   args: { nom: nomValidator },
   handler: async (ctx, args) => {
     const acteur = await requireRole(ctx, ["owner", "admin"])
+    const env = process.env
+    exigerPasDemo(acteur, env)
     const row = await ctx.db
       .query("secrets")
       .withIndex("by_nom", (q) => q.eq("nom", args.nom))

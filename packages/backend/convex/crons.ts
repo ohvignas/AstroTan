@@ -17,6 +17,8 @@ const crons = cronJobs()
 
 crons.interval("revalidate-sweep", { seconds: 60 }, internal.revalidate.drain)
 
+crons.interval("demo-restore", { hours: 1 }, internal.demo.restaurer)
+
 // La purge des données arrivées au terme de leur conservation — le seul
 // endroit du dépôt qui APPLIQUE une durée. Les durées elles-mêmes, et le
 // raisonnement qui les fixe, sont dans `retention.ts` ; ici il n'y a que le

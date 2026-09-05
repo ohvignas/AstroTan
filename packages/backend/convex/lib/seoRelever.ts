@@ -3,6 +3,7 @@ import type { ActionCtx } from "../_generated/server"
 import { api, internal } from "../_generated/api"
 import type { Id } from "../_generated/dataModel"
 import { requireOwnDocument, requireRole } from "./authz"
+import { exigerPasDemo } from "./demoSandbox"
 import { lireSecret } from "../secrets"
 import { publicPath, publicUrl } from "./publicPath"
 import { origineCibleStats } from "./refreshCible"
@@ -21,6 +22,8 @@ export async function executerRelever(
   opts: { throttle: boolean },
 ): Promise<ReleverResult> {
   const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
+  const env = process.env
+  exigerPasDemo(authUser, env)
   const doc =
     args.kind === "page" && args.pageId
       ? await ctx.runQuery(api.pages.get, { id: args.pageId })

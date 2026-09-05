@@ -264,6 +264,10 @@ Read these before running anything.
 - **`tsc` and vitest do not see what the Convex runtime rejects.** After
   changing anything under `convex/`, a real `npx convex dev --once` is the
   only proof the change deploys.
+- **Demo sandbox is off unless `DEMO_SANDBOX=true` on the Convex
+  deployment.** A clone never shows the « Tester » button. Do not turn
+  the flag on for an adopter VPS — it is only for the public tryout
+  instance. The model is locked by `DEMO_OPENROUTER_MODEL`.
 - **Do not write API calls for this stack from memory.** Astro 7, TanStack
   Start 1 and `@convex-dev/better-auth` move fast; check the MCP servers
   listed in `CLAUDE.md` (`astro-docs`, `convex-docs`, `better-auth`).

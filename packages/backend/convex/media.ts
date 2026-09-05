@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server"
 import { api } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
 import { requireRole, requireOwnDocument } from "./lib/authz"
+import { assertDemoMediaQuota } from "./lib/demoMediaQuota"
 import { MUTATION_REGISTRY } from "./_registry"
 
 // The media library: metadata for files held in Convex storage.
@@ -129,6 +130,7 @@ export const register = mutation({
 
     const filename = assertFilename(args.filename)
     assertMimeAndSize(args.mime, args.size)
+    await assertDemoMediaQuota(ctx, authUser, args.size, process.env)
 
     // One row per file. Without this, `by_storage` stops being a one-to-one
     // mapping and resolving an `alt` from a `storageId` becomes ambiguous —

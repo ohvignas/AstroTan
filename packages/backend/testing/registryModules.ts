@@ -104,3 +104,8 @@ import "../convex/mcpOAuth"
 import "../convex/agentKnowledge"
 import "../convex/rag"
 import "../convex/seoAnalyze"
+// `demo.ts` n'est importé par aucun module de production — c'est
+// `/demo-enter` qui appelle son action. Sans cette ligne, la matrice de
+// `lib/authz.test.ts` (qui lit le registre à la COLLECTE) n'exercerait
+// pas `demo.credentials`.
+import "../convex/demo"

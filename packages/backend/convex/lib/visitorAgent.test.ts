@@ -63,6 +63,8 @@ test("makeVisitorAgent lit le modèle agent, pas seulement le modèle texte", as
   expect(source).toContain("resolveOpenRouterAgentModel")
   expect(source).toContain("privee.openRouterAgentModel")
   expect(source).toContain("privee.openRouterModel")
+  expect(source).toContain("modeleSandbox")
+  expect(source).toContain("demoSandboxActif")
   expect(source).not.toMatch(
     /languageModel:\s*openrouter\.chat\(resolveOpenRouterModel\(privee\.openRouterModel\)\)/,
   )

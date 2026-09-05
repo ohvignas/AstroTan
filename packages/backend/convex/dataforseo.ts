@@ -11,6 +11,7 @@ import {
   lireCleMaitresse,
 } from "./lib/secretsCrypto"
 import { MAX_SECRET_LENGTH, lireSecret } from "./secrets"
+import { exigerPasDemo } from "./lib/demoSandbox"
 
 export type { DataForSeoIssue }
 
@@ -89,6 +90,8 @@ export const enregistrer = action({
   args: { login: v.string(), password: v.string() },
   handler: async (ctx, args): Promise<{ verdict: DataForSeoIssue }> => {
     const acteur = await requireRole(ctx, ["owner", "admin"])
+    const env = process.env
+    exigerPasDemo(acteur, env)
     const login = args.login.trim()
     const saisi = args.password.trim()
     if (

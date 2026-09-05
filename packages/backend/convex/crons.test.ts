@@ -47,8 +47,16 @@ test("un cron hebdomadaire 'seo-weekly' appelle internal.seoRanks.refreshWeekly"
   expect(job!.name).toBe(getFunctionName(internal.seoRanks.refreshWeekly))
 })
 
-test("le planning contient exactement ces trois tâches", () => {
+test("un cron horaire 'demo-restore' appelle internal.demo.restaurer", () => {
+  const job = crons.crons["demo-restore"]
+  expect(job).toBeDefined()
+  expect(job!.schedule).toEqual({ type: "interval", hours: 1 })
+  expect(job!.name).toBe(getFunctionName(internal.demo.restaurer))
+})
+
+test("le planning contient exactement ces quatre tâches", () => {
   expect(Object.keys(crons.crons).sort()).toEqual([
+    "demo-restore",
     "retention-purge",
     "revalidate-sweep",
     "seo-weekly",

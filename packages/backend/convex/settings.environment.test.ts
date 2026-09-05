@@ -155,3 +155,21 @@ test("un editor peut lire l'état sans pouvoir rien changer", async () => {
   // fragments de jeton, eux, sont dans `secrets.status` — owner/admin.
   await expect(identity.query(api.settings.environment, {})).resolves.toBeTruthy()
 })
+
+test("environment rend demoSandbox, jamais l'e-mail ni le modèle imposés", async () => {
+  const { identity } = await seedActor("owner")
+  delete process.env.DEMO_SANDBOX
+  expect((await identity.query(api.settings.environment, {})).demoSandbox).toBe(false)
+
+  process.env.DEMO_SANDBOX = "true"
+  process.env.DEMO_ACCOUNT_EMAIL = "demo@astrotan.invalid"
+  process.env.DEMO_ACCOUNT_PASSWORD = "mot-de-passe-demo-qui-ne-doit-jamais-sortir"
+  process.env.DEMO_OPENROUTER_MODEL = "google/gemini-2.5-flash-lite"
+
+  const state = await identity.query(api.settings.environment, {})
+  expect(state.demoSandbox).toBe(true)
+  const rendu = JSON.stringify(state)
+  expect(rendu).not.toContain("demo@astrotan.invalid")
+  expect(rendu).not.toContain("mot-de-passe-demo-qui-ne-doit-jamais-sortir")
+  expect(rendu).not.toContain("google/gemini-2.5-flash-lite")
+})

@@ -7,6 +7,7 @@ import type { ActionCtx } from "../_generated/server"
 import { lireSecret } from "../secrets"
 import { MINIMAL_AGENT_INSTRUCTIONS } from "./defaultAgentInstructions"
 import { resolveOpenRouterAgentModel } from "./openRouterModels"
+import { demoSandboxActif, modeleSandbox } from "./demoSandbox"
 import {
   emptyVisitorFacts,
   formatVisitorContextBlock,
@@ -63,11 +64,18 @@ export async function makeVisitorAgent(
     appName: "AstroTan",
     appUrl: process.env.WEB_SITE_URL,
   })
+  const env = process.env
+  let model: string
+  if (demoSandboxActif(env)) {
+    const slug = modeleSandbox({}, env)
+    if (!slug) throw new ConvexError({ code: "DEMO_NOT_CONFIGURED" })
+    model = slug
+  } else {
+    model = resolveOpenRouterAgentModel(privee.openRouterAgentModel, privee.openRouterModel)
+  }
   return new Agent(components.agent, {
     name: privee.agentDisplayName ?? "Assistant",
-    languageModel: openrouter.chat(
-      resolveOpenRouterAgentModel(privee.openRouterAgentModel, privee.openRouterModel),
-    ),
+    languageModel: openrouter.chat(model),
     instructions: buildInstructions(privee, {
       nowMs: Date.now(),
       calendarConnected: options?.calendarConnected === true,
