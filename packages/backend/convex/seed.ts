@@ -4,6 +4,7 @@ import {
   DEFAULT_AGENT_INSTRUCTIONS,
   hasAuthoredAgentInstructions,
 } from "./lib/defaultAgentInstructions"
+import { demoSandboxActif } from "./lib/demoSandbox"
 import { hotePublicDepuisEnv } from "./lib/hoteNu"
 
 // Demo content for a fresh install.
@@ -245,6 +246,7 @@ export const demoContent = internalMutation({
     // bootstrap a posé `WEB_DOMAIN`, les A existent, et l'écran Domaine
     // lisait une ligne vide. On ne remplace jamais un domaine saisi.
     const hoteEnv = hotePublicDepuisEnv(process.env)
+    const allumerAgent = demoSandboxActif(process.env)
     const settings = await ctx.db.query("settings").first()
     if (settings === null) {
       await ctx.db.insert("settings", {
@@ -252,12 +254,14 @@ export const demoContent = internalMutation({
         homePageSlug: "accueil",
         agentInstructions: DEFAULT_AGENT_INSTRUCTIONS,
         ...(hoteEnv ? { declaredDomain: hoteEnv } : {}),
+        ...(allumerAgent ? { agentEnabled: true } : {}),
       })
     } else {
       const patch: {
         homePageSlug?: string
         agentInstructions?: string
         declaredDomain?: string
+        agentEnabled?: boolean
       } = {}
       if (!settings.homePageSlug) patch.homePageSlug = "accueil"
       if (!hasAuthoredAgentInstructions(settings.agentInstructions)) {
@@ -265,6 +269,11 @@ export const demoContent = internalMutation({
       }
       if (!settings.declaredDomain?.trim() && hoteEnv) {
         patch.declaredDomain = hoteEnv
+      }
+      // Bac à sable public : la bulle doit rester allumée. Inerte si le
+      // flag est éteint — un clone n'hérite pas de l'agent allumé.
+      if (allumerAgent && settings.agentEnabled !== true) {
+        patch.agentEnabled = true
       }
       if (Object.keys(patch).length > 0) await ctx.db.patch(settings._id, patch)
     }
