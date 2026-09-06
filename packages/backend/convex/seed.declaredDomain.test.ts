@@ -64,3 +64,49 @@ test("un repli localhost ne devient pas un domaine déclaré", async () => {
   const ligne = await t.run(async (ctx) => ctx.db.query("settings").first())
   expect(ligne?.declaredDomain).toBeUndefined()
 })
+
+test("le seed n'allume pas l'agent hors bac à sable", async () => {
+  delete process.env.DEMO_SANDBOX
+  const t = makeTestConvex()
+  await t.mutation(internal.seed.demoContent, {})
+  const ligne = await t.run(async (ctx) => ctx.db.query("settings").first())
+  expect(ligne?.agentEnabled).not.toBe(true)
+})
+
+test("le seed allume l'agent quand DEMO_SANDBOX est actif", async () => {
+  process.env.DEMO_SANDBOX = "true"
+  const t = makeTestConvex()
+  await t.mutation(internal.seed.demoContent, {})
+  const ligne = await t.run(async (ctx) => ctx.db.query("settings").first())
+  expect(ligne?.agentEnabled).toBe(true)
+})
+
+test("le seed rallume l'agent du bac à sable s'il a été éteint", async () => {
+  process.env.DEMO_SANDBOX = "true"
+  const t = makeTestConvex()
+  await t.run(async (ctx) => {
+    await ctx.db.insert("settings", {
+      siteName: "AstroTan",
+      homePageSlug: "accueil",
+      agentEnabled: false,
+    })
+  })
+  await t.mutation(internal.seed.demoContent, {})
+  const ligne = await t.run(async (ctx) => ctx.db.query("settings").first())
+  expect(ligne?.agentEnabled).toBe(true)
+})
+
+test("hors bac à sable le seed ne coupe pas un agent déjà allumé", async () => {
+  delete process.env.DEMO_SANDBOX
+  const t = makeTestConvex()
+  await t.run(async (ctx) => {
+    await ctx.db.insert("settings", {
+      siteName: "AstroTan",
+      homePageSlug: "accueil",
+      agentEnabled: true,
+    })
+  })
+  await t.mutation(internal.seed.demoContent, {})
+  const ligne = await t.run(async (ctx) => ctx.db.query("settings").first())
+  expect(ligne?.agentEnabled).toBe(true)
+})
