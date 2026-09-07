@@ -82,3 +82,57 @@ export async function proxifierPartage(
     return { href: url }
   }
 }
+
+/**
+ * True quand l'URL de couverture est déjà sur l'origine du site.
+ *
+ * Sur la démo (et chez un adoptant qui proxifie Convex derrière le même
+ * hôte), `storage.getUrl` rend `https://<site>/api/storage/<uuid>`. Ce
+ * n'est plus une image *distante* : `astro:assets` la refuse
+ * (`RemoteImageNotAllowed`, hors `remotePatterns`) et le blog entier
+ * répondait 500, 0 octet. On la sert telle quelle, sous `'self'`.
+ */
+export function estImageMemeOrigine(src: string, origin: string): boolean {
+  try {
+    return new URL(src, origin).origin === new URL(origin).origin
+  } catch {
+    return false
+  }
+}
+
+export type CouvertureOptimisee = {
+  src: string
+  srcSet?: string
+  width?: number
+  height?: number
+}
+
+/**
+ * Optimise une couverture d'article, ou rend l'URL brute.
+ *
+ * Même contrat que `proxifierPartage` : un domaine hors `remotePatterns`,
+ * ou un `inferSize` qui échoue, ne doit jamais faire tomber la page.
+ */
+export async function optimiserCouverture(
+  src: string,
+  origin: string,
+): Promise<CouvertureOptimisee> {
+  if (estImageMemeOrigine(src, origin)) return { src }
+
+  try {
+    const image = await getImage({
+      src,
+      inferSize: true,
+      format: "webp",
+      widths: [640, 960, 1280],
+    })
+    return {
+      src: image.src,
+      srcSet: image.srcSet?.attribute,
+      width: entierPositif(image.attributes.width),
+      height: entierPositif(image.attributes.height),
+    }
+  } catch {
+    return { src }
+  }
+}
