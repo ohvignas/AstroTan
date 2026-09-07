@@ -436,6 +436,38 @@ test("le partage change où l'on consulte, jamais où l'on administre", async ()
   })
 })
 
+test("une URL de share se suffit à elle-même, même sans UMAMI_API_URL", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  delete process.env.UMAMI_API_URL
+  process.env.UMAMI_API_SHARE_ID =
+    "https://exemple.test/umami/share/astrotan-live"
+
+  const links = await editor.identity.query(api.analytics.umamiLinks, {})
+  expect(links).toEqual({
+    dashboard: "https://exemple.test/umami/share/astrotan-live",
+    shared: true,
+  })
+})
+
+test("un UMAMI_API_SHARE_ID déjà absolu n'est pas recollé à l'URL interne", async () => {
+  const t = makeTestConvex()
+  const editor = await seedActor(t, "editor")
+  configure()
+  // Sur le VPS démo, `UMAMI_API_URL` est `http://umami:3000` — inouvrable
+  // depuis un navigateur. L'URL publique du share se pose alors telle
+  // quelle, plutôt qu'un slug collé à une origine Docker.
+  process.env.UMAMI_API_URL = "http://umami:3000"
+  process.env.UMAMI_API_SHARE_ID =
+    "https://exemple.test/umami/share/astrotan-live"
+
+  const links = await editor.identity.query(api.analytics.umamiLinks, {})
+  expect(links).toEqual({
+    dashboard: "https://exemple.test/umami/share/astrotan-live",
+    shared: true,
+  })
+})
+
 test("sans partage activé, consulter passe aussi par la connexion", async () => {
   const t = makeTestConvex()
   const editor = await seedActor(t, "editor")
