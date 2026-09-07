@@ -109,3 +109,4 @@ import "../convex/seoAnalyze"
 // `lib/authz.test.ts` (qui lit le registre à la COLLECTE) n'exercerait
 // pas `demo.credentials`.
 import "../convex/demo"
+import "../convex/payments"

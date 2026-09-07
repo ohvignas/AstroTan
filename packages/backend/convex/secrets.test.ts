@@ -135,6 +135,27 @@ test("GOOGLE_CALENDAR_* sont des noms autorisés et status ne rend pas la valeur
   expect(JSON.stringify(etat)).not.toContain("chiffre")
 })
 
+test("STRIPE_SECRET_KEY et STRIPE_WEBHOOK_SECRET sont des noms autorisés", async () => {
+  const { identity } = await seedActor("owner")
+  delete process.env.STRIPE_SECRET_KEY
+  delete process.env.STRIPE_WEBHOOK_SECRET
+  await identity.action(api.secrets.set, {
+    nom: "STRIPE_SECRET_KEY",
+    valeur: "sk_test_sentinelle-ne-doit-pas-ressortir",
+  })
+  await identity.action(api.secrets.set, {
+    nom: "STRIPE_WEBHOOK_SECRET",
+    valeur: "whsec_sentinelle-ne-doit-pas-ressortir",
+  })
+  const etat = await identity.query(api.secrets.status, {})
+  expect(etat.secrets.find((s) => s.nom === "STRIPE_SECRET_KEY")?.source).toBe("base")
+  expect(etat.secrets.find((s) => s.nom === "STRIPE_WEBHOOK_SECRET")?.source).toBe(
+    "base",
+  )
+  expect(JSON.stringify(etat)).not.toContain("sk_test_sentinelle")
+  expect(JSON.stringify(etat)).not.toContain("whsec_sentinelle")
+})
+
 test("DATAFORSEO_LOGIN et DATAFORSEO_PASSWORD sont des noms autorisés", async () => {
   const { identity } = await seedActor("owner")
   delete process.env.DATAFORSEO_LOGIN

@@ -8,6 +8,7 @@
 // disparaît avec l'i18n, et les deux sont fusionnés.
 import Button from "./ui/form/Button/Button.astro"
 import Section from "./ui/layout/Section/Section.astro"
+import { umamiEventForHref } from "../lib/umamiEvent"
 
 export interface Props {
   eyebrow?: string
@@ -42,10 +43,10 @@ const {
       {(primaryText || secondaryText) && (
         <div class="ui-cta__actions">
           {primaryText && primaryHref && (
-            <Button href={primaryHref} variant="primary">{primaryText}</Button>
+            <Button href={primaryHref} variant="primary" umamiEvent={umamiEventForHref(primaryHref)}>{primaryText}</Button>
           )}
           {secondaryText && secondaryHref && (
-            <Button href={secondaryHref} variant="secondary">{secondaryText}</Button>
+            <Button href={secondaryHref} variant="secondary" umamiEvent={umamiEventForHref(secondaryHref)}>{secondaryText}</Button>
           )}
         </div>
       )}

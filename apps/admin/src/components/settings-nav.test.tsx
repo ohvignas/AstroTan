@@ -31,11 +31,19 @@ describe("SETTINGS_PAGES", () => {
       "/settings/emails",
       "/settings/mesure",
       "/settings/agent",
+      "/settings/paiement",
     ])
     expect(SETTINGS_PAGES.map((page) => page.to as string)).not.toContain(
       "/settings/ia",
     )
     expect(SETTINGS_PAGES.map((page) => page.to)).not.toContain("/settings/reseaux")
+  })
+
+  test("la page paiement s'appelle Paiement", () => {
+    expect(SETTINGS_PAGES.find((p) => p.to === "/settings/paiement")).toMatchObject({
+      label: "Paiement",
+      title: "Paiement Stripe",
+    })
   })
 
   test("la page agent s'appelle Agent IA & Modèle IA", () => {

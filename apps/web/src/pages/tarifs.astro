@@ -1,23 +1,22 @@
 ---
-// Portée de `src/pages/pricing.astro` d'`astro-emdash`, avec SES trois
-// paliers de démonstration — en anglais, tel quel. Inventer des tarifs pour
-// AstroTan aurait été écrire du faux ; cette page montre la mise en page,
-// pas une offre. Elle est faite pour être supprimée ou réécrite.
-//
-// Le fichier s'appelle `tarifs.astro` et non `pricing.astro` : le site est en
-// français, et le chemin servi fait partie de ce qu'un visiteur lit.
-//
-// Sa ligne doit exister dans le dashboard avec le slug `tarifs`, et être
-// publiée — sinon cette route répond 404, délibérément.
 export const prerender = false
 
+import { api } from "@astrotan/backend/convex/_generated/api"
 import { loadPage } from "../lib/loadPage"
+import { getConvexClient } from "../lib/convexClient"
 import BaseLayout from "../layouts/BaseLayout.astro"
 import Hero from "../components/hero/Hero.astro"
 import Pricing from "../components/sections/Pricing.astro"
 import CTA from "../components/CTA.astro"
 
 const { page } = await loadPage(Astro)
+const erreur = Astro.url.searchParams.get("erreur")
+let paiement = { ready: false, livemode: false }
+try {
+  paiement = await getConvexClient().query(api.payments.publicStatus, {})
+} catch {
+  paiement = { ready: false, livemode: false }
+}
 
 const plans = [
   {
@@ -35,11 +34,7 @@ const plans = [
   },
   {
     name: "Complet",
-    price: "9,99 €",
-    // Paiement unique, pas un abonnement. Le composant affiche `period`
-    // juste après le prix : y écrire « une fois » évite la lecture par
-    // défaut, qui est mensuelle dès qu'un tarif est affiché à côté d'une
-    // offre gratuite.
+    price: "29,99 €",
     period: "une fois",
     description:
       "Le site, plus l'administration qui va avec — et de quoi savoir ce qu'elle produit.",
@@ -49,12 +44,9 @@ const plans = [
       "Le tableau de bord : pages, articles, médias, redirections",
       "Les statistiques d'audience, par page",
       "Le suivi des messages reçus",
-      "L'agent IA — un assistant sur votre site (à venir)",
+      "L'agent IA — un assistant sur votre site",
     ],
-    cta: { label: "Commencer", href: "/contact" },
-    // Mise en avant : c'est l'offre qui répond à la question que se pose
-    // quelqu'un qui compare, et la laisser au milieu sans marque obligerait
-    // à lire les trois colonnes pour s'en apercevoir.
+    cta: { label: "Payer 29,99 €", action: "/acheter", method: "POST" },
     featured: true,
   },
   {
@@ -73,55 +65,58 @@ const plans = [
 ]
 ---
 
-<BaseLayout page={page} fallbackTitle="Page introuvable">
-  {page === null ? (
-    <section class="container empty-state">
-      <h1>404</h1>
-      <p>Cette page n'existe pas.</p>
-    </section>
-  ) : (
-    <>
-      <Hero
-        variant="centered"
-        size="md"
-        eyebrow="Tarifs"
-        headline="Le site est gratuit. Le reste est à 9,99 €, une fois"
-        subheadline="Trois offres, aucune ligne cachée, aucun abonnement. Le site vitrine ne coûte rien et n'expire pas ; l'administration qui va avec se paie une seule fois."
-      />
+<BaseLayout page={page} fallbackTitle="Tarifs">
+  <Hero
+    variant="centered"
+    size="md"
+    eyebrow="Tarifs"
+    headline="Le site est gratuit. Le reste est à 29,99 €, une fois"
+    subheadline="Trois offres, aucune ligne cachée, aucun abonnement. Le site vitrine ne coûte rien et n'expire pas ; l'administration qui va avec se paie une seule fois."
+  />
 
-      <div data-animate>
-        <Pricing plans={plans} />
-      </div>
-
-      <CTA
-        eyebrow="Une question ?"
-        title="Pas sûr de l'offre qu'il vous faut ?"
-        content="Écrivez-nous, on vous répond avec ce qui correspond à votre cas — et on vous dira si l'offre gratuite suffit."
-        primaryText="Nous écrire"
-        primaryHref="/contact"
-      />
-    </>
+  {erreur === "indisponible" && (
+    <p class="tarifs-erreur" role="alert">
+      Le paiement est momentanément indisponible. Réessayez, ou écrivez-nous.
+    </p>
   )}
+
+  {paiement.ready && !paiement.livemode && (
+    <p class="tarifs-test" role="status">
+      Paiement en mode test — aucune carte réelle ne sera débitée.
+    </p>
+  )}
+
+  <div data-animate>
+    <Pricing plans={plans} />
+  </div>
+
+  <CTA
+    eyebrow="Une question ?"
+    title="Pas sûr de l'offre qu'il vous faut ?"
+    content="Écrivez-nous, on vous répond avec ce qui correspond à votre cas — et on vous dira si l'offre gratuite suffit."
+    primaryText="Nous écrire"
+    primaryHref="/contact"
+  />
 </BaseLayout>
 
 <style>
-  .empty-state {
-    display: flex;
-    min-height: 60svh;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
+  .tarifs-erreur {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 0.75rem 1rem;
     text-align: center;
+    color: var(--destructive);
+    background: color-mix(in oklab, var(--destructive) 8%, transparent);
+    border-radius: var(--radius-lg);
   }
 
-  .empty-state h1 {
-    font-size: 2rem;
-    margin: 0;
-  }
-
-  .empty-state p {
-    margin: 0;
+  .tarifs-test {
+    max-width: 40rem;
+    margin: 0 auto 1rem;
+    padding: 0.75rem 1rem;
+    text-align: center;
     color: var(--muted-foreground);
+    background: color-mix(in oklab, var(--muted) 60%, transparent);
+    border-radius: var(--radius-lg);
   }
 </style>

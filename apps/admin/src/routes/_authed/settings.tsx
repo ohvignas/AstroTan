@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router"
 import { SettingsNav } from "@/components/settings-nav"
 
-// La mise en page commune aux six pages de réglages : le menu à gauche,
+// La mise en page commune aux pages de réglages : le menu à gauche,
 // la page à droite.
 //
 // Une route de mise en page (`settings.tsx` + le dossier `settings/`), et
