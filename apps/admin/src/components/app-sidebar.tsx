@@ -92,12 +92,22 @@ const USERS_ITEM = {
   icon: <UsersIcon />,
 }
 
-// Route interne : les chiffres Umami se lisent dans l'admin, jamais en
-// ouvrant le dashboard Umami (SSO ou lien de partage).
-const STATS_ITEM = {
+// Repli : `/statistiques` redirige vers le share dès qu'il est connu.
+// Sans partage configuré, la route garde la carte in-app — un adoptant
+// n'est pas envoyé sur le login Umami.
+const STATS_FALLBACK = {
   title: "Statistiques",
   url: "/statistiques",
   icon: <ChartNoAxesColumnIcon />,
+}
+
+function statsShareItem(url: string) {
+  return {
+    title: "Statistiques",
+    url,
+    icon: <ChartNoAxesColumnIcon />,
+    external: true,
+  }
 }
 
 export function AppSidebar({
@@ -106,6 +116,7 @@ export function AppSidebar({
 }: React.ComponentProps<typeof Sidebar> & {
   profile: FunctionReturnType<typeof api.profiles.me> | undefined
 }) {
+  const umami = useQuery(api.analytics.umamiLinks)
   const newLeads = useQuery(api.leads.newCount)
   const leadsItem = {
     ...LEADS_ITEM,
@@ -126,7 +137,12 @@ export function AppSidebar({
           REDIRECTS_ITEM,
         ]
       : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, leadsItem]
-  const navMain = [...base, STATS_ITEM]
+  // Même URL share pour la démo et le owner : vue lecture, jamais le
+  // login ni le SSO qui prête un compte. Tant que la query n'a pas
+  // répondu, le repli `/statistiques` redirige dès que l'adresse existe.
+  const statsItem =
+    umami?.shared === true ? statsShareItem(umami.dashboard) : STATS_FALLBACK
+  const navMain = [...base, statsItem]
 
   return (
     <Sidebar collapsible="icon" {...props}>

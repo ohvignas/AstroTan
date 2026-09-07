@@ -412,12 +412,25 @@ export const umamiLinks = query({
     // Umami. Les identifiants de CONNEXION, eux, ne passent que par les
     // actions.
     const url = readUmamiConfig(process.env)?.url ?? null
-    if (url === null) return null
-
     // Optionnelle, et elle doit le rester : un lien de partage est un
     // secret porteur, qui le détient voit les chiffres. L'activer est une
     // décision d'opérateur, pas un défaut qu'on impose.
+    //
+    // Un slug (`astrotan-live`) se compose sur l'origine de l'API. Une
+    // URL déjà absolue se rend telle quelle : sur un déploiement où
+    // `UMAMI_API_URL` est une origine Docker (`http://umami:3000`), coller
+    // le slug y produirait une adresse inouvrable depuis un navigateur.
+    // L'URL absolue suffit à elle seule — les identifiants de lecture
+    // peuvent vivre uniquement en base chiffrée.
     const shareId = process.env.UMAMI_API_SHARE_ID
+    const absolute =
+      shareId !== undefined && /^https?:\/\//i.test(shareId)
+        ? shareId.replace(/\/$/, "")
+        : null
+    if (absolute !== null) {
+      return { dashboard: absolute, shared: true }
+    }
+    if (url === null) return null
     return {
       dashboard: shareId ? `${url}/share/${shareId}` : url,
       shared: Boolean(shareId),

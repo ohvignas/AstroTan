@@ -46,11 +46,13 @@ savait déjà (`canWrite === false`). On ne recache plus le menu.
 
 ## 3. Stats Umami
 
-`/statistiques` n'est plus un relais SSO vers Umami. C'est la même carte
-d'audience que l'accueil (`SiteDashboardPanel`), sans tuiles de contenu.
-La barre pointe une route interne, jamais `umami.dashboard` ni
-`analytics.ssoLink`. L'action SSO reste côté serveur (opérateur / debug)
-mais n'a plus de lien.
+Le menu **Statistiques** ouvre le **share Umami** (vue lecture : pages,
+visiteurs), jamais le login ni le SSO qui prête un compte. Démo et owner
+voient la même URL. `/statistiques` (vieux favoris) redirige vers ce
+share dès que `UMAMI_API_SHARE_ID` est posé. Sans partage, la route
+garde la carte in-app — un adoptant n'est pas envoyé sur `/login`.
+L'accueil peut garder `SiteDashboardPanel` comme résumé. L'action SSO
+reste côté serveur (opérateur / debug) mais n'a plus de lien.
 
 ## 4. DataForSEO
 
@@ -66,7 +68,8 @@ documenté).
 
 - `secrets.status` lisible par editor ; `set` / `clear` toujours refusés.
 - `identifiants` : editor sans login.
-- Barre : Réglages toujours, Statistiques interne, aucun `external` Umami.
+- Barre : Réglages toujours ; Statistiques = lien externe vers le share
+  (`umami.dashboard`), jamais `ssoLink` ni le login.
 - Dashboard : aucun « Ouvrir Umami » / « Tout le détail ».
 - Formulaires jetons : `canWrite === false` → « Configuré » / « Non
   configuré », pas de champ.
