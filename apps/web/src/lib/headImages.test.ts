@@ -102,3 +102,55 @@ test("si getImage refuse, on garde l'URL Convex plutôt que rien", async () => {
   )
   expect(result).toEqual({ href: "https://x.convex.cloud/a.png" })
 })
+
+test("une couverture déjà sur l'origine du site n'est pas une image distante", async () => {
+  const { estImageMemeOrigine } = await import("./headImages")
+  expect(
+    estImageMemeOrigine(
+      "https://astrotan.illith.com/api/storage/8f4b8b7f-3b63-44df-b9ca-0de07c8d8c13",
+      "https://astrotan.illith.com",
+    ),
+  ).toBe(true)
+  expect(
+    estImageMemeOrigine("/api/storage/8f4b8b7f-3b63-44df-b9ca-0de07c8d8c13", "https://astrotan.illith.com"),
+  ).toBe(true)
+  expect(
+    estImageMemeOrigine("https://happy-animal.convex.cloud/api/storage/kg", "https://astrotan.illith.com"),
+  ).toBe(false)
+})
+
+test("optimiser une couverture same-origin ne passe pas par getImage", async () => {
+  const { optimiserCouverture } = await import("./headImages")
+  const src = "https://astrotan.illith.com/api/storage/8f4b8b7f-3b63-44df-b9ca-0de07c8d8c13"
+  const result = await optimiserCouverture(src, "https://astrotan.illith.com")
+  expect(getImage).not.toHaveBeenCalled()
+  expect(result).toEqual({ src })
+})
+
+test("si getImage refuse une couverture Convex, on sert l'URL brute", async () => {
+  getImage.mockRejectedValue(new Error("RemoteImageNotAllowed"))
+  const { optimiserCouverture } = await import("./headImages")
+  const src = "https://happy-animal.convex.cloud/api/storage/kg"
+  const result = await optimiserCouverture(src, "https://exemple.fr")
+  expect(result).toEqual({ src })
+})
+
+test("une couverture Convex distante passe par getImage en WebP", async () => {
+  getImage.mockResolvedValue({
+    src: "/_image?href=kg&w=1280&f=webp",
+    srcSet: { attribute: "/_image?href=kg&w=640&f=webp 640w, /_image?href=kg&w=960&f=webp 960w" },
+    attributes: { width: 1280, height: 672 },
+  })
+  const { optimiserCouverture } = await import("./headImages")
+  const src = "https://happy-animal.convex.cloud/api/storage/kg"
+  const result = await optimiserCouverture(src, "https://exemple.fr")
+  expect(getImage).toHaveBeenCalledWith({
+    src,
+    inferSize: true,
+    format: "webp",
+    widths: [640, 960, 1280],
+  })
+  expect(result.src).toBe("/_image?href=kg&w=1280&f=webp")
+  expect(result.width).toBe(1280)
+  expect(result.height).toBe(672)
+})
