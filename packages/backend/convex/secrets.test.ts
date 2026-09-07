@@ -75,13 +75,13 @@ test("sans session, on ne lit ni n'écrit rien", async () => {
   ).rejects.toThrow()
 })
 
-test("un editor est refusé — classer des leads n'est pas détenir une clé de facturation", async () => {
+test("un editor lit l'état, jamais la valeur, et n'écrit pas", async () => {
   const { identity } = await seedActor("editor")
-  // Volontairement plus strict que `settings.environment`, qui laisse un
-  // editor lire des booléens : savoir quelles clés sont posées, lesquelles
-  // manquent et laquelle est illisible dessine l'état de sécurité du
-  // déploiement.
-  await expect(identity.query(api.secrets.status, {})).rejects.toThrow()
+  // La démo (editor) doit voir « configuré / non » sans jamais obtenir
+  // le jeton. L'écriture reste owner/admin — et `exigerPasDemo` en plus.
+  const etat = await identity.query(api.secrets.status, {})
+  expect(etat.secrets.length).toBeGreaterThan(0)
+  expect(JSON.stringify(etat)).not.toContain(SENTINELLE)
   await expect(
     identity.action(api.secrets.set, {
       nom: "OPENROUTER_API_KEY",

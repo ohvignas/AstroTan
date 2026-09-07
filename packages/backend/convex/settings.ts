@@ -273,7 +273,7 @@ export const webhookSecret = query({
  * Mêmes rôles que `getPrivate` : des booléens et deux origines publiques,
  * rien qu'un editor ne puisse déjà lire ailleurs. Le fragment de valeur —
  * les quatre derniers caractères d'un jeton — est ailleurs
- * (`secrets.status`), et celui-là est réservé à owner/admin.
+ * (`secrets.status`), lisible par tous les rôles, sans jamais une valeur.
  */
 export const environment = query({
   args: {},

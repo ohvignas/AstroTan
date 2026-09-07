@@ -20,8 +20,6 @@ export const Route = createFileRoute("/_authed/")({
 // dans la barre latérale, et les répéter occupait la première place de
 // l'écran sans rien apprendre.
 function DashboardPage() {
-  // `undefined` pendant le chargement, `null` si Umami n'est pas configuré.
-  const umami = useQuery(api.analytics.umamiLinks)
   // Une query, donc réactive : un lead qui arrive fait bouger la tuile sans
   // rechargement. Un tableau de bord dont les compteurs ne bougent pas est
   // un tableau de bord qui ment jusqu'à la prochaine touche F5.
@@ -29,7 +27,7 @@ function DashboardPage() {
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <SiteDashboardPanel umami={umami} />
+      <SiteDashboardPanel />
       <TuilesContenu overview={overview} />
     </div>
   )

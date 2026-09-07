@@ -3,7 +3,7 @@
 // courbe à l'envers, un « +100 % » calculé depuis rien.
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import type { SiteSummary, UmamiLinks } from "@astrotan/backend/convex/analytics"
+import type { SiteSummary } from "@astrotan/backend/convex/analytics"
 import type { SiteSnapshot } from "@astrotan/backend/convex/lib/seoSnapshot"
 import type { SiteSeries } from "@astrotan/backend/convex/lib/seoSiteHistory"
 import type { SerieGraphe } from "@/lib/seoChartSeries"
@@ -28,11 +28,6 @@ const OK: SiteSummary = {
   fetchedAt: 1_787_000_000_000,
 }
 
-const SHARED: UmamiLinks = {
-  dashboard: "https://umami.exemple.test/share/demo",
-  shared: true,
-}
-
 const SNAPSHOT: SiteSnapshot = {
   configured: true,
   declaredDomain: "exemple.fr",
@@ -48,7 +43,6 @@ const SNAPSHOT: SiteSnapshot = {
 
 function render(
   summary: SiteSummary | undefined,
-  umami: UmamiLinks | null = null,
   snapshot: SiteSnapshot | null = null,
   extras: {
     onRefresh?: () => void
@@ -62,7 +56,6 @@ function render(
   return renderToStaticMarkup(
     <SiteDashboard
       summary={summary}
-      umami={umami}
       periode="mois"
       onPeriode={() => {}}
       snapshot={snapshot}
@@ -189,35 +182,19 @@ describe("le cadre du graphique", () => {
 
 describe("SiteDashboard", () => {
   test("affiche chiffres, tendances et palmarès", () => {
-    const html = render(OK, SHARED)
+    const html = render(OK)
     expect(html).toContain("44")
     expect(html).toContain("13 % vs")
     expect(html).toContain("/blog/bienvenue")
     expect(html).toContain("Accès direct")
   })
 
-  test("avec un partage, un seul lien, vers le partage", () => {
-    const html = render(OK, SHARED)
-    expect(html).toContain("/share/demo")
-    expect(html).toContain("Tout le détail")
-    // Le second lien « Administrer Umami » a été retiré : régler Umami se
-    // fait depuis Umami, et il occupait une place à côté du seul lien qui
-    // rend un service.
-    expect(html).not.toContain("Administrer")
-  })
-
-  test("sans partage, le lien mène à la racine et le dit", () => {
-    const html = render(OK, {
-      dashboard: "https://umami.exemple.test",
-      shared: false,
-    })
-    expect(html).toContain("Ouvrir Umami")
-    expect(html).not.toContain("Administrer")
-  })
-
-  test("sans Umami configuré, aucun lien mort", () => {
-    const html = render(OK, null)
-    expect(html).not.toContain("umami.exemple.test")
+  test("aucun lien vers le dashboard Umami", () => {
+    const html = render(OK)
+    expect(html).not.toContain("Ouvrir Umami")
+    expect(html).not.toContain("Tout le détail")
+    expect(html).not.toContain("/share/")
+    expect(html).not.toContain("umami.")
   })
 
   test.each([
@@ -240,7 +217,7 @@ describe("SiteDashboard", () => {
   })
 
   test("sans DataForSEO : pas de pastille, deux listes Umami", () => {
-    const html = render(OK, null, { ...SNAPSHOT, configured: false })
+    const html = render(OK, { ...SNAPSHOT, configured: false })
     expect(html).not.toContain("Position moyenne")
     expect(html).not.toContain("Mots-clés qui amènent")
     expect(html).toContain("Pages les plus visitées")
@@ -252,7 +229,7 @@ describe("SiteDashboard", () => {
   })
 
   test("avec DataForSEO : pastilles et trois listes, aucun axe de rang", () => {
-    const html = render(OK, null, SNAPSHOT)
+    const html = render(OK, SNAPSHOT)
     expect(html).toContain("Position moyenne")
     expect(html).toContain("Backlinks")
     expect(html).toContain("Mots-clés")
@@ -268,7 +245,7 @@ describe("SiteDashboard", () => {
   })
 
   test("clic Position moyenne : la courbe de rang remplace les visites", () => {
-    const html = render(OK, null, SNAPSHOT, {
+    const html = render(OK, SNAPSHOT, {
       serie: "position",
       history: {
         position: [
@@ -285,10 +262,10 @@ describe("SiteDashboard", () => {
   })
 
   test("le même bouton de relance que les fiches, pour l'audience", () => {
-    const html = render(OK, null, null, { onRefresh: () => {} })
+    const html = render(OK, null, { onRefresh: () => {} })
     expect(html).toContain("Recharger")
     expect(html).not.toMatch(/>Relever</)
-    const busy = render(OK, null, null, { onRefresh: () => {}, refreshBusy: true })
+    const busy = render(OK, null, { onRefresh: () => {}, refreshBusy: true })
     expect(busy).toContain("animate-spin")
     expect(busy).toContain("Actualisation…")
     expect(busy).not.toContain("sr-only")
@@ -296,13 +273,13 @@ describe("SiteDashboard", () => {
 
   test("la date du jeu affiché reste à côté de la roue, sans flash", () => {
     const at = Date.UTC(2026, 7, 20, 9, 0, 0)
-    const html = render(OK, null, null, {
+    const html = render(OK, null, {
       onRefresh: () => {},
       lastRefreshedAt: at,
     })
     expect(html).toMatch(/20/)
     expect(html).not.toContain("Actualisé à")
-    const busy = render(OK, null, null, {
+    const busy = render(OK, null, {
       onRefresh: () => {},
       refreshBusy: true,
       lastRefreshedAt: at,
@@ -312,14 +289,14 @@ describe("SiteDashboard", () => {
   })
 
   test("roue cliquable pendant le chargement Umami", () => {
-    const html = render(undefined, null, null, { onRefresh: () => {} })
+    const html = render(undefined, null, { onRefresh: () => {} })
     const wheel = html.match(/<button[^>]*aria-label="Recharger"[^>]*>/)
     expect(wheel?.[0]).toBeDefined()
     expect(wheel?.[0]).not.toContain('disabled=""')
   })
 
   test("un échec de Recharger s'écrit à côté, pas un bouton mort", () => {
-    const html = render(OK, null, null, {
+    const html = render(OK, null, {
       onRefresh: () => {},
       refreshError: "Le service d'audience n'a pas répondu.",
     })
@@ -331,7 +308,7 @@ describe("SiteDashboard", () => {
   })
 
   test("sans relevé backlinks : tiret, pas un faux zéro ; les mots-clés restent", () => {
-    const html = render(OK, null, {
+    const html = render(OK, {
       ...SNAPSHOT,
       backlinks: null,
       referringDomains: null,

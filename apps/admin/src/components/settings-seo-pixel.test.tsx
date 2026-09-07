@@ -81,16 +81,39 @@ test("posé, Connecté à côté d'Enregistrer — pas de pastille, pas configur
   expect(html).not.toContain("configuré")
 })
 
-test("un editor voit l'ID et aucun bouton d'écriture", () => {
+test("un editor voit l'état et l'ID, aucun bouton d'écriture", () => {
   const html = renderToStaticMarkup(
     <SeoPixelPage
       {...inerte}
       canWrite={false}
-      secrets={{ cleMaitresse: null, etats: {}, canWrite: false, onSave: async () => {}, onClear: async () => {} }}
+      secrets={{
+        cleMaitresse: "posee",
+        etats: {
+          DATAFORSEO_LOGIN: {
+            nom: "DATAFORSEO_LOGIN",
+            environnement: false,
+            base: true,
+            illisible: false,
+            source: "base",
+          },
+          DATAFORSEO_PASSWORD: {
+            nom: "DATAFORSEO_PASSWORD",
+            environnement: false,
+            base: true,
+            illisible: false,
+            source: "base",
+          },
+        },
+        canWrite: false,
+        onSave: async () => {},
+        onClear: async () => {},
+      }}
+      dataForSeo={{ login: null, passwordPose: true }}
       metaPixelId="123"
     />,
   )
-  expect(html).toMatch(/réservé/i)
+  expect(html).not.toMatch(/réservé/i)
+  expect(html).toContain("Connecté")
   expect(html).toContain("123")
   expect(html).not.toContain("Enregistrer")
   expect(html).not.toContain("Supprimer")

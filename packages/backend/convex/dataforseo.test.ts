@@ -127,11 +127,32 @@ test("panne réseau : injoignable, rien n'est enregistré", async () => {
 // `identifiants` — ce que l'écran relit pour rouvrir le formulaire.
 // ---------------------------------------------------------------------
 
-test("identifiants est réservée à owner et admin", async () => {
+test("identifiants : editor voit la présence, jamais le login", async () => {
   const t = makeTestConvex()
   await expect(t.query(api.dataforseo.identifiants, {})).rejects.toThrow()
-  const { identity } = await seedActor("editor")
-  await expect(identity.query(api.dataforseo.identifiants, {})).rejects.toThrow(/FORBIDDEN/)
+  const ownerUser = await seedUser(t, {
+    email: "dfs-owner-ids@example.com",
+    password: "correct horse battery staple dataforseo",
+    name: "Owner",
+    role: "owner",
+  })
+  await signIn(t, "dfs-owner-ids@example.com", "correct horse battery staple dataforseo")
+  const owner = await identityFor(t, ownerUser.id)
+  fetchMock.mockResolvedValue(reponse(200, { status_code: 20000 }))
+  await owner.action(api.dataforseo.enregistrer, { login: LOGIN, password: PASSWORD })
+
+  const editorUser = await seedUser(t, {
+    email: "dfs-editor-ids@example.com",
+    password: "correct horse battery staple dataforseo",
+    name: "Editor",
+    role: "editor",
+  })
+  await signIn(t, "dfs-editor-ids@example.com", "correct horse battery staple dataforseo")
+  const editor = await identityFor(t, editorUser.id)
+  const rendu = await editor.query(api.dataforseo.identifiants, {})
+  expect(rendu).toEqual({ login: null, passwordPose: true })
+  expect(JSON.stringify(rendu)).not.toContain(LOGIN)
+  expect(JSON.stringify(rendu)).not.toContain(PASSWORD)
 })
 
 test("rien de posé : login null, passwordPose faux", async () => {

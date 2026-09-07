@@ -30,14 +30,16 @@ export type { DataForSeoIssue }
  * `passwordPose` dit qu'il y en a un, ce qui suffit à l'écran pour savoir
  * que le bouton peut essayer sans le redemander.
  *
- * `owner`/`admin`, la même population que `secrets.status`.
+ * Owner/admin relisent le login. Un editor (dont le compte démo) ne
+ * reçoit que `passwordPose` : l'adresse du compte API n'a pas à sortir
+ * sur une session publique.
  */
 export const identifiants = query({
   args: {},
   handler: async (
     ctx,
   ): Promise<{ login: string | null; passwordPose: boolean }> => {
-    await requireRole(ctx, ["owner", "admin"])
+    const acteur = await requireRole(ctx, ["owner", "admin", "editor"])
     const cle = lireCleMaitresse(process.env)
     const ligne = (nom: "DATAFORSEO_LOGIN" | "DATAFORSEO_PASSWORD") =>
       ctx.db
@@ -57,6 +59,7 @@ export const identifiants = query({
     // peut pas appeler `internal.secrets.brut`, `runQuery` n'existant que
     // dans une action. Toute évolution de la règle touche les deux.
     const depuisEnv = process.env.DATAFORSEO_LOGIN
+    if (acteur.role === "editor") return { login: null, passwordPose }
     if (depuisEnv) return { login: depuisEnv, passwordPose }
     if (!cle.ok) return { login: null, passwordPose }
     const row = await ligne("DATAFORSEO_LOGIN")

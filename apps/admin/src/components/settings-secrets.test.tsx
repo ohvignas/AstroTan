@@ -216,8 +216,15 @@ describe("SecretField", () => {
     const html = champ({ base: true, source: "base" }, true)
     expect(html).not.toContain("<input")
     expect(html).not.toContain("Vérifier et enregistrer")
-    // L'état, lui, reste lisible.
     expect(html).toContain("OPENROUTER_API_KEY")
+    expect(html).toContain("Configuré")
+    expect(html).not.toContain("Non configuré")
+  })
+
+  test("désactivé et absent : Non configuré, pas un cadre vide", () => {
+    const html = champ({ source: "aucune" }, true)
+    expect(html).toContain("Non configuré")
+    expect(html).not.toContain("<input")
   })
 
   test("le navigateur ne doit ni retenir ni compléter une clé d'API", () => {

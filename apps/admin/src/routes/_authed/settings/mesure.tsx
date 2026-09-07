@@ -22,18 +22,12 @@ type Secrets = NonNullable<ReturnType<typeof useSecretsAccess>["secrets"]>
 function MesureRoute() {
   const { loading, canWrite, secrets } = useSecretsAccess()
   const settings = useQuery(api.settings.getPrivate)
-  // Réservée à owner/admin, comme `secrets.status` : `"skip"` pour un
-  // editor, sans quoi la query refuserait et ferait échouer la page.
-  const dataForSeo = useQuery(api.dataforseo.identifiants, canWrite ? {} : "skip")
+  const dataForSeo = useQuery(api.dataforseo.identifiants)
 
-  // `dataForSeo` est attendu comme `secrets`, et seulement quand il va
-  // vraiment arriver : le formulaire lit son état initial dans ses props,
-  // et se monter avant la query l'aurait fait naître vide puis remonter.
-  // Un editor est en `"skip"` — l'attendre bloquerait sa page pour de bon.
   if (loading || settings === undefined || secrets === undefined) {
     return <SettingsLoading />
   }
-  if (canWrite && dataForSeo === undefined) return <SettingsLoading />
+  if (dataForSeo === undefined) return <SettingsLoading />
 
   return (
     <MesureForm

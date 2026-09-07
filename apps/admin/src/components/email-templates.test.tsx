@@ -735,14 +735,26 @@ describe("SectionCleResend", () => {
     expect(html).toMatch(/pas disponible/i)
   })
 
-  test("un editor lit une phrase, pas un cadre vide", () => {
+  test("un editor lit Configuré, pas un cadre vide", () => {
     const html = renderToStaticMarkup(
       <SectionCleResend
-        secrets={bloc({ cleMaitresse: null, canWrite: false })}
+        secrets={bloc({
+          canWrite: false,
+          etats: {
+            RESEND_API_KEY: {
+              nom: "RESEND_API_KEY",
+              environnement: false,
+              base: true,
+              illisible: false,
+              source: "base",
+            },
+          },
+        })}
       />
     )
     expect(html).not.toContain("<input")
-    expect(html).toMatch(/propriétaire et aux administrateurs/i)
+    expect(html).toContain("Configuré")
+    expect(html).not.toMatch(/propriétaire et aux administrateurs/i)
   })
 })
 

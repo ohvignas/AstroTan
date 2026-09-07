@@ -213,12 +213,26 @@ describe("AiPage", () => {
     expect(html).toContain("Modèle")
   })
 
-  test("un editor voit pourquoi la clé est masquée, et le modèle en lecture", () => {
+  test("un editor voit Configuré, pas la clé, et le modèle en lecture", () => {
     const html = render(
-      pageIa(bloc({ cleMaitresse: null, canWrite: false })),
+      pageIa(
+        bloc({
+          canWrite: false,
+          etats: {
+            OPENROUTER_API_KEY: {
+              nom: "OPENROUTER_API_KEY",
+              environnement: false,
+              base: true,
+              illisible: false,
+              source: "base",
+            },
+          },
+        }),
+      ),
     )
-    expect(html).toMatch(/Réservée au\s+propriétaire/)
-    expect(html).not.toContain("secret-OPENROUTER_API_KEY")
+    expect(html).not.toMatch(/Réservée au\s+propriétaire/)
+    expect(html).toContain("Configuré")
+    expect(html).not.toMatch(/type="password"/)
     expect(html).toContain("Modèle")
   })
 

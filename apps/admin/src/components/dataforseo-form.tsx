@@ -91,7 +91,18 @@ export function DataForSeoForm({
     }
   }
 
-  if (!canWrite) return null
+  if (!canWrite) {
+    const pose = branche || (loginRange !== null && passwordPose) || passwordPose
+    return (
+      <p className="text-sm">
+        {pose ? (
+          <span className="text-emerald-600 dark:text-emerald-400">Connecté</span>
+        ) : (
+          <span className="text-muted-foreground">Non configuré</span>
+        )}
+      </p>
+    )
+  }
 
   // `gap-4`, le rythme d'un groupe de réglages — celui qui sépare deux
   // `Field` sur Identité. C'était `gap-6`, plus large que les 16 px qui

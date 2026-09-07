@@ -2,6 +2,7 @@ import { useCallback } from "react"
 import type { ReactNode } from "react"
 import { useAction, useMutation, useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
+import { canWriteSettings } from "@/lib/accesReglages"
 import { describeSettingsError } from "@/lib/settingsErrors"
 import type { SecretsBloc } from "@/components/settings-environment"
 import { refusDuVerdict } from "@/components/settings-secrets"
@@ -38,18 +39,18 @@ function pageFor(to: SettingsPath) {
  * l'abonnement, comme `routes/_authed/pages/index.tsx`.
  *
  * `canWrite` ne décide RIEN côté serveur — `settings.update` et
- * `settings.setHomePage` appellent tous deux
- * `requireRole(["owner","admin"])` et refusent un editor quoi qu'il
- * arrive. Il décide seulement de ce qui s'affiche : des valeurs en
- * lecture et une phrase qui dit pourquoi, plutôt qu'un formulaire dont
- * chaque contrôle revient refusé.
+ * `secrets.set` revérifient le rôle et `exigerPasDemo`. Il décide
+ * seulement de ce qui s'affiche.
  */
 export function useSettingsAccess(): { loading: boolean; canWrite: boolean } {
   const profile = useQuery(api.profiles.me)
-  if (profile === undefined) return { loading: true, canWrite: false }
+  const isDemo = useQuery(api.demo.jeSuisDemo)
+  if (profile === undefined || isDemo === undefined) {
+    return { loading: true, canWrite: false }
+  }
   return {
     loading: false,
-    canWrite: profile.role === "owner" || profile.role === "admin",
+    canWrite: canWriteSettings({ role: profile.role, isDemo: isDemo === true }),
   }
 }
 
@@ -142,11 +143,8 @@ export function SettingsFormShell({
  * portent — un seul appel plutôt que deux, parce qu'aucune de ces pages
  * n'a de raison de connaître l'un sans l'autre.
  *
- * `secrets.status` est réservée à owner/admin — savoir quelles clés sont
- * posées, lesquelles manquent et laquelle est illisible dessine l'état de
- * sécurité du déploiement — d'où le `"skip"` pour un editor et le
- * `cleMaitresse: null` qui en découle : les pages affichent alors une
- * phrase à la place des champs, plutôt qu'un cadre vide.
+ * `secrets.status` est lisible par tous les rôles (configuré / non, jamais
+ * la valeur). L'écriture reste owner/admin hors démo.
  *
  * Elle rend encore `quatreDerniers` et `majAt`, que plus personne
  * n'affiche : `SecretEtat` ne les déclare plus, et les quatre derniers
@@ -170,7 +168,7 @@ export function useSecretsAccess(): {
   secrets: SecretsBloc | undefined
 } {
   const { loading, canWrite } = useSettingsAccess()
-  const status = useQuery(api.secrets.status, canWrite ? {} : "skip")
+  const status = useQuery(api.secrets.status)
   const setSecret = useAction(api.secrets.set)
   const verifierSecret = useAction(api.secretCheck.essayer)
   const clearSecret = useMutation(api.secrets.clear)
@@ -222,14 +220,13 @@ export function useSecretsAccess(): {
     [clearSecret]
   )
 
-  const secrets: SecretsBloc | undefined = !canWrite
-    ? { cleMaitresse: null, etats: {}, canWrite: false, onSave, onClear }
-    : status === undefined
+  const secrets: SecretsBloc | undefined =
+    status === undefined
       ? undefined
       : {
           cleMaitresse: status.cleMaitresse,
           etats: Object.fromEntries(status.secrets.map((s) => [s.nom, s])),
-          canWrite: true,
+          canWrite,
           onSave,
           onClear,
         }
