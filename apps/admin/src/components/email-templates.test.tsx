@@ -38,6 +38,7 @@ import type { CleEmail } from "@astrotan/backend/convex/lib/catalogueEmails"
 import {
   ChampAdresseExpedition,
   EditeurGabarit,
+  FormulaireEmailTest,
   ListeEmails,
   SectionCleResend,
   actionSurLigne,
@@ -793,5 +794,43 @@ describe("ChampAdresseExpedition", () => {
     )
     expect(html).toMatch(/adresse/i)
     expect(html).toContain('role="alert"')
+  })
+})
+
+describe("FormulaireEmailTest", () => {
+  test("le champ email et le bouton d'envoi sont visibles", () => {
+    const html = renderToStaticMarkup(
+      <FormulaireEmailTest configured onEnvoyer={() => {}} />,
+    )
+    expect(html).toMatch(/type="email"/)
+    expect(html).toMatch(/Envoyer un e-mail de test/)
+  })
+
+  test("Configuré quand la clé est posée, sans champ de clé", () => {
+    const html = renderToStaticMarkup(
+      <FormulaireEmailTest configured onEnvoyer={() => {}} />,
+    )
+    expect(html).toContain("Configuré")
+    expect(html).not.toContain("secret-RESEND_API_KEY")
+    expect(html).not.toMatch(/type="password"/)
+  })
+
+  test("Non configuré quand la clé manque", () => {
+    const html = renderToStaticMarkup(
+      <FormulaireEmailTest configured={false} onEnvoyer={() => {}} />,
+    )
+    expect(html).toContain("Non configuré")
+  })
+
+  test("une adresse mal formée est signalée avant l'envoi", () => {
+    const html = renderToStaticMarkup(
+      <FormulaireEmailTest
+        configured
+        valeur="pas une adresse"
+        onEnvoyer={() => {}}
+      />,
+    )
+    expect(html).toContain('role="alert"')
+    expect(html).toMatch(/adresse/i)
   })
 })

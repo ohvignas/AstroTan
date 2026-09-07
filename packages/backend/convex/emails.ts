@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values"
 import {
   action,
   internalAction,
+  internalMutation,
   internalQuery,
   mutation,
   query,
@@ -15,13 +16,14 @@ import { CATALOGUE, type CleEmail, type DescriptionEmail } from "./lib/catalogue
 import { validerGabarit } from "./lib/gabarit"
 import { composerMessage, identiteAvecLogoJoignable, valeursExemple } from "./lib/emailLayout"
 import { makeResend } from "./lib/resend"
-import { resoudreExpediteur } from "./lib/expediteur"
+import { estAdresseValide, resoudreExpediteur } from "./lib/expediteur"
 import { deriverOrigines } from "./lib/origines"
 import { lireSecret } from "./secrets"
 import { listUsersWithRole } from "./users"
 import { isCurrentlyBanned } from "./lib/authz"
 import { choisirDestinataireInterne } from "./lib/destinataireInterne"
-import { exigerPasDemo } from "./lib/demoSandbox"
+import { estCompteDemo, exigerPasDemo } from "./lib/demoSandbox"
+import { consommerQuotaEmailTest } from "./lib/emailTestQuota"
 
 // ---------------------------------------------------------------------
 // L'écran « envoi des emails » : ce que le site écrit, à qui, et ce que
@@ -396,6 +398,13 @@ export type ResultatExemple =
   | { ok: true; to: string; testMode: boolean }
   | { ok: false; raison: "sans_cle" | "inactif" | "sans_owner" }
 
+export type ResultatTest =
+  | { ok: true; to: string; testMode: boolean }
+  | { ok: false; raison: "sans_cle" }
+
+/** RFC 5321 : une adresse tient en 254 octets. */
+export const MAX_EMAIL_TEST = 254
+
 const ADRESSE_TEST_RESEND = "delivered@resend.dev"
 
 function destinataireExemple(to: string, testMode: boolean): string {
@@ -494,6 +503,62 @@ export const envoyerExempleInterne = internalAction({
   },
 })
 
+export const consommerQuotaTest = internalMutation({
+  args: {
+    userId: v.string(),
+    seau: v.union(v.literal("demo"), v.literal("staff")),
+  },
+  handler: async (ctx, args) => {
+    await consommerQuotaEmailTest(ctx, args.userId, args.seau)
+  },
+})
+
+/**
+ * Envoie un e-mail de test vers l'adresse saisie.
+ *
+ * Distinct de `envoyerExemple` : le destinataire est choisi, l'essai est
+ * autorisé en démo (rate-limité), et un editor peut cliquer. La clé
+ * Resend se lit côté serveur et ne sort jamais.
+ */
+export const envoyerTest = action({
+  args: { to: v.string() },
+  handler: async (ctx, args): Promise<ResultatTest> => {
+    const acteur = await requireRole(ctx, ["owner", "admin", "editor"])
+    const to = args.to.trim()
+    if (to.length > MAX_EMAIL_TEST) {
+      throw new ConvexError({ code: "FIELD_TOO_LONG", field: "to", max: MAX_EMAIL_TEST })
+    }
+    if (!estAdresseValide(to)) {
+      throw new ConvexError({ code: "INVALID_EMAIL" })
+    }
+
+    const seau = estCompteDemo(acteur, process.env) ? "demo" : "staff"
+    await ctx.runMutation(internal.emails.consommerQuotaTest, {
+      userId: acteur._id,
+      seau,
+    })
+
+    const cleResend = await lireSecret(ctx, "RESEND_API_KEY")
+    if (!cleResend) return { ok: false, raison: "sans_cle" }
+
+    const identite = await identiteAvecLogoJoignable(
+      await ctx.runQuery(internal.settings.identiteEmail, {}),
+    )
+    const testMode = process.env.RESEND_TEST_MODE !== "false"
+    const dest = destinataireExemple(to, testMode)
+    const resend = await makeResend(ctx)
+    const nom = identite.siteName.trim() || "ce site"
+    await resend.sendEmail(ctx, {
+      from: await resoudreExpediteur(ctx),
+      to: dest,
+      subject: `E-mail de test — ${nom}`,
+      text: `Ceci est un e-mail de test envoyé depuis l'administration de ${nom}. Si vous le lisez, l'envoi fonctionne.`,
+      html: `<p>Ceci est un e-mail de test envoyé depuis l'administration de ${nom}. Si vous le lisez, l'envoi fonctionne.</p>`,
+    })
+    return { ok: true, to: dest, testMode }
+  },
+})
+
 // Les trois mutations publiques de ce module, déclarées comme chaque
 // module le fait lui-même à l'import. `_registry.test.ts` exige l'égalité
 // stricte dans les deux sens : une entrée manquante ET une entrée
@@ -528,6 +593,11 @@ MUTATION_REGISTRY.push(
     name: "emails.envoyerExemple",
     allowedRoles: ["owner", "admin"],
     invoke: (t) => t.action(api.emails.envoyerExemple, { cle: "leadNotification" }),
+  },
+  {
+    name: "emails.envoyerTest",
+    allowedRoles: ["owner", "admin", "editor"],
+    invoke: (t) => t.action(api.emails.envoyerTest, { to: "test@exemple.fr" }),
   },
 )
 

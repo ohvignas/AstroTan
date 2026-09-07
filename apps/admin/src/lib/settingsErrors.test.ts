@@ -37,3 +37,25 @@ test("INVALID_AGENT_CHAT_COLOR a une phrase", () => {
     describeSettingsError(new ConvexError({ code: "INVALID_AGENT_CHAT_COLOR" })),
   ).toMatch(/hex|couleur|#/i)
 })
+
+test("DEMO_FORBIDDEN dit le bac à sable, pas une erreur inattendue", () => {
+  expect(describeSettingsError(new ConvexError({ code: "DEMO_FORBIDDEN" }))).toMatch(
+    /bac à sable/i,
+  )
+  expect(describeSettingsError(new ConvexError({ code: "DEMO_FORBIDDEN" }))).not.toMatch(
+    /inattendue|injoignable/i,
+  )
+})
+
+test("RATE_LIMITED dit trop d'essais, pas injoignable", () => {
+  expect(describeSettingsError(new ConvexError({ code: "RATE_LIMITED" }))).toMatch(
+    /trop|réessay/i,
+  )
+  expect(describeSettingsError(new ConvexError({ code: "RATE_LIMITED" }))).not.toMatch(
+    /inattendue|injoignable/i,
+  )
+})
+
+test("INVALID_EMAIL a une phrase", () => {
+  expect(describeSettingsError(new ConvexError({ code: "INVALID_EMAIL" }))).toMatch(/adresse/i)
+})

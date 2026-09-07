@@ -56,6 +56,10 @@ const SETTINGS_ERROR_MESSAGES: Record<string, string> = {
     "Chaque lien de réseau doit commencer par http:// ou https://.",
   INVALID_AGENT_CHAT_COLOR:
     "La couleur du chat s'écrit en hexadécimal, par exemple #171717 ou #f60.",
+  DEMO_FORBIDDEN: "Le bac à sable ne lance pas cette action payante.",
+  RATE_LIMITED: "Trop d'e-mails de test. Réessayez dans une heure.",
+  DEMO_RATE_LIMITED: "Trop d'e-mails de test. Réessayez dans une heure.",
+  INVALID_EMAIL: "Ce n'est pas une adresse e-mail.",
 }
 
 // ---------------------------------------------------------------------

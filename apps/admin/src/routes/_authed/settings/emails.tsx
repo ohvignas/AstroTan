@@ -8,6 +8,7 @@ import { describeSettingsError } from "@/lib/settingsErrors"
 import {
   ChampAdresseExpedition,
   EditeurGabarit,
+  FormulaireEmailTest,
   ListeEmails,
   SectionCleResend,
   actionSurLigne,
@@ -88,10 +89,10 @@ function EmailsRoute() {
   const emails = useQuery(api.emails.list, canWrite ? {} : "skip")
   const prefs = useQuery(api.notifications.mesPrefs)
 
-  if (loading || settings === undefined || prefs === undefined) {
+  if (loading || settings === undefined || prefs === undefined || secrets === undefined) {
     return <SettingsLoading />
   }
-  if (canWrite && (secrets === undefined || emails === undefined)) {
+  if (canWrite && emails === undefined) {
     return <SettingsLoading />
   }
 
@@ -121,10 +122,18 @@ function EmailsForm({
 }) {
   const updateSettings = useMutation(api.settings.update)
   const setPrefs = useMutation(api.notifications.setPrefs)
+  const envoyerTest = useAction(api.emails.envoyerTest)
   const [emailFrom, setEmailFrom] = useState(settings?.emailFrom ?? "")
+  const [testTo, setTestTo] = useState("")
+  const [testEnvoi, setTestEnvoi] = useState(false)
+  const [testInfo, setTestInfo] = useState<string | null>(null)
+  const [testErreur, setTestErreur] = useState<string | null>(null)
   const changerPrefs: PrefChange = (cle, next) => {
     void setPrefs({ cle, ...next })
   }
+  const resend = secrets?.etats.RESEND_API_KEY
+  const resendConfigure =
+    resend !== undefined && resend.source !== "aucune" && !resend.illisible
 
   // Chaîne vide et non `null` : `settings.update` déclare `emailFrom` en
   // `v.optional(v.string())`, et c'est le trim vide qui fait retomber
@@ -162,7 +171,43 @@ function EmailsForm({
     >
       {/* Question 1 : de la part de qui. La clé d'abord, l'adresse
           ensuite — l'ordre dans lequel un envoi les utilise. */}
-      {secrets === undefined ? null : <SectionCleResend secrets={secrets} />}
+      {canWrite && secrets !== undefined ? <SectionCleResend secrets={secrets} /> : null}
+
+      <FormulaireEmailTest
+        configured={resendConfigure}
+        valeur={testTo}
+        onChange={setTestTo}
+        envoi={testEnvoi}
+        info={testInfo}
+        erreur={testErreur}
+        onEnvoyer={(to) => {
+          void (async () => {
+            setTestEnvoi(true)
+            setTestErreur(null)
+            setTestInfo(null)
+            try {
+              const resultat = await envoyerTest({ to })
+              if (!resultat.ok) {
+                setTestErreur(
+                  resultat.raison === "sans_cle"
+                    ? "Aucune clé Resend : rien n'est parti."
+                    : "L'e-mail de test n'est pas parti.",
+                )
+                return
+              }
+              setTestInfo(
+                resultat.testMode
+                  ? `Test accepté par Resend (mode d'essai : pas de livraison réelle) vers ${resultat.to}.`
+                  : `E-mail de test envoyé vers ${resultat.to}.`,
+              )
+            } catch (err) {
+              setTestErreur(describeSettingsError(err))
+            } finally {
+              setTestEnvoi(false)
+            }
+          })()
+        }}
+      />
 
       {/* Sans titre de groupe : le libellé du champ le porte déjà, et
           l'écrire deux fois à trois lignes d'intervalle est exactement le
