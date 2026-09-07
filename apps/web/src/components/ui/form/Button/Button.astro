@@ -29,6 +29,7 @@ export interface Props {
   variant?: ButtonVariant;
   size?: ButtonSize;
   class?: string;
+  umamiEvent?: string;
 }
 
 const {
@@ -38,6 +39,7 @@ const {
   variant,
   size,
   class: className,
+  umamiEvent,
 } = Astro.props as Props;
 const classes = cn(
   "inline-flex items-center justify-center gap-2 rounded-full font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[color:var(--color-brand-primary)] disabled:opacity-50 disabled:pointer-events-none",
@@ -49,11 +51,16 @@ const classes = cn(
 
 {
   href ? (
-    <a href={href} class={classes} aria-busy={loading ? "true" : undefined}>
+    <a
+      href={href}
+      class={classes}
+      aria-busy={loading ? "true" : undefined}
+      data-umami-event={umamiEvent}
+    >
       <slot />
     </a>
   ) : (
-    <button type={type} class={classes} disabled={loading}>
+    <button type={type} class={classes} disabled={loading} data-umami-event={umamiEvent}>
       <slot />
     </button>
   )

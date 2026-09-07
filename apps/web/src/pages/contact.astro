@@ -81,7 +81,9 @@ const MESSAGES_ERREUR: Record<string, string> = {
           {envoye && (
             <script>
               import { programmerSuiviLead } from "../lib/trackLeadConversion"
+              import { trackUmamiEvent } from "../lib/umamiEvent"
               programmerSuiviLead()
+              trackUmamiEvent("contact-submit")
             </script>
           )}
           {erreur && (
