@@ -17,6 +17,27 @@ import { responseFromClientFile } from "./serve-static.mjs"
 
 const clientDir = fileURLToPath(new URL("./dist/client/", import.meta.url))
 
+function withForwardedOrigin(request) {
+  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()
+  const host =
+    request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ??
+    request.headers.get("host")
+  if (!proto || !host) return request
+  const current = new URL(request.url)
+  const next = `${proto}://${host}${current.pathname}${current.search}`
+  if (next === request.url) return request
+  const init = {
+    method: request.method,
+    headers: request.headers,
+    redirect: request.redirect,
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    init.body = request.body
+    init.duplex = "half"
+  }
+  return new Request(next, init)
+}
+
 // `hostname: "0.0.0.0"` et non le défaut : dans un conteneur, écouter sur
 // la loopback rend le service injoignable depuis Traefik comme depuis le
 // healthcheck, sans le moindre message d'erreur.
@@ -26,6 +47,7 @@ const clientDir = fileURLToPath(new URL("./dist/client/", import.meta.url))
 // sur « Chargement… ».
 serve({
   fetch: async (request) => {
+    request = withForwardedOrigin(request)
     const pathname = new URL(request.url).pathname
     if (pathname !== "/" && !pathname.startsWith("/api/")) {
       const file = await responseFromClientFile(clientDir, pathname)

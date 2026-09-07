@@ -54,8 +54,10 @@ export const generateSeoGeo = action({
     if (args.pageId !== undefined) {
       const page = await ctx.runQuery(api.pages.get, { id: args.pageId })
       if (page === null) throw new ConvexError({ code: "NOT_FOUND" })
-      requireOwnDocument(authUser, page)
-      requirePublishedPageWritable(authUser, page)
+      if (!estCompteDemo(authUser, env)) {
+        requireOwnDocument(authUser, page)
+        requirePublishedPageWritable(authUser, page)
+      }
       existingNoai = page.geo?.noai === true
       source = {
         kind: "page",
@@ -81,8 +83,10 @@ export const generateSeoGeo = action({
     } else {
       const post = await ctx.runQuery(api.posts.get, { id: args.postId as Id<"posts"> })
       if (post === null) throw new ConvexError({ code: "NOT_FOUND" })
-      requireOwnDocument(authUser, post)
-      requirePublishedPageWritable(authUser, post)
+      if (!estCompteDemo(authUser, env)) {
+        requireOwnDocument(authUser, post)
+        requirePublishedPageWritable(authUser, post)
+      }
       existingNoai = post.geo?.noai === true
       source = {
         kind: "post",

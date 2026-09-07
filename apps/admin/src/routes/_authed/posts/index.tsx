@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
+import { accesFicheDemo } from "@/lib/accesFicheDemo"
 import { describePageError } from "@/lib/pageErrors"
 import { ETAT_SLUG_INITIAL, saisirSlug, saisirTitre } from "@/lib/slugSync"
 import { RowActionButton, RowActionsMenu } from "@/components/row-actions"
@@ -87,7 +88,9 @@ function PostsListPage() {
   // regardless of this flag — it only decides whether the button renders
   // at all. Hiding a control is a courtesy to the operator, never the
   // enforcement.
-  const canPublish = profile.role === "owner" || profile.role === "admin"
+  const isDemo = useQuery(api.demo.jeSuisDemo) === true
+  const canPublish =
+    !isDemo && (profile.role === "owner" || profile.role === "admin")
 
   return (
     <div className="flex flex-col gap-4">
@@ -112,6 +115,8 @@ function PostsListPage() {
             posts={posts}
             selfAuthUserId={profile.authUserId}
             canPublish={canPublish}
+            isDemo={isDemo}
+            role={profile.role}
           />
         </CardContent>
       </Card>
@@ -123,10 +128,14 @@ function PostsTable({
   posts,
   selfAuthUserId,
   canPublish,
+  isDemo,
+  role,
 }: {
   posts: PostRow[]
   selfAuthUserId: string
   canPublish: boolean
+  isDemo: boolean
+  role: string
 }) {
   const removePost = useMutation(api.posts.remove)
   const publishPost = useMutation(api.posts.publishPost)
@@ -216,7 +225,14 @@ function PostsTable({
                   <PostRowActions
                     post={post}
                     canPublish={canPublish}
-                    isOwn={isOwn}
+                    canDelete={
+                      accesFicheDemo({
+                        role,
+                        isOwn,
+                        published: post.status === "published",
+                        isDemo,
+                      }).canDelete
+                    }
                     pending={pending}
                     onPublish={() =>
                       withPending(post._id, () => publishPost({ id: post._id }))
@@ -254,7 +270,7 @@ function PostsTable({
 function PostRowActions({
   post,
   canPublish,
-  isOwn,
+  canDelete,
   pending,
   onPublish,
   onUnpublish,
@@ -262,7 +278,7 @@ function PostRowActions({
 }: {
   post: PostRow
   canPublish: boolean
-  isOwn: boolean
+  canDelete: boolean
   pending: boolean
   onPublish: () => void
   onUnpublish: () => void
@@ -272,9 +288,7 @@ function PostRowActions({
 
   // Un éditeur qui ne possède pas l'article n'a aucune entrée à voir : le
   // bouton trois points ne se rend alors pas du tout, plutôt que d'ouvrir
-  // un menu vide. `canPublish` implique `canDelete`, d'où la seule
-  // condition.
-  const canDelete = canPublish || isOwn
+  // un menu vide.
 
   return (
     <div className="flex items-center justify-end gap-1">

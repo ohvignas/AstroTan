@@ -231,6 +231,7 @@ export const update = mutation({
     const post = await ctx.db.get(args.id)
     if (!post) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, post)
+    if (post.status === "published") exigerPasDemo(authUser, process.env)
     // `requireOwnDocument` alone composes into a public-content bypass, and
     // pages closed this exact hole before posts reopened it: publishing
     // gates on role, not ownership, so once an owner or admin has published
@@ -329,6 +330,7 @@ export const remove = mutation({
     const post = await ctx.db.get(args.id)
     if (!post) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, post)
+    if (post.status === "published") exigerPasDemo(authUser, process.env)
     requirePublishedPageWritable(authUser, post)
 
     await supprimerPourPost(ctx, args.id)
@@ -639,6 +641,7 @@ export const unpublishPost = mutation({
   args: { id: v.id("posts") },
   handler: async (ctx, args) => {
     const acteur = await requireRole(ctx, ["owner", "admin"])
+    exigerPasDemo(acteur, process.env)
     const post = await ctx.db.get(args.id)
     if (!post) throw new ConvexError({ code: "NOT_FOUND" })
     // Rien n'a changé, donc rien à journaliser — même raisonnement que

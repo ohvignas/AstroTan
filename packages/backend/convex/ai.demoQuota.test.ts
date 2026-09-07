@@ -126,6 +126,28 @@ test("le compte démo consomme le seau et s'arrête avant OpenRouter", async () 
   expect(fetchMock).toHaveBeenCalledTimes(1)
 })
 
+test("le compte démo génère le SEO d'une page publiée qu'il ne possède pas", async () => {
+  const t = makeTestConvex()
+  const owner = await seedActor(t, "owner")
+  const pageId = await t.run((ctx) =>
+    ctx.db.insert("pages", {
+      slug: "accueil-public",
+      title: "Accueil",
+      status: "published",
+      createdBy: owner.id,
+      updatedBy: owner.id,
+    }),
+  )
+  const editor = await seedActor(t, "editor", DEMO_EMAIL)
+  activerSandbox(editor.email)
+  process.env.OPENROUTER_API_KEY = "sk-or-ok"
+  fetchMock.mockResolvedValue(reponseOk())
+  const draft = await editor.identity.action(api.ai.generateSeoGeo, { pageId })
+  expect(draft.seo.title).toBe("Titre généré")
+  const page = await t.run((ctx) => ctx.db.get(pageId))
+  expect(page?.seo).toBeUndefined()
+})
+
 test("un owner hors compte démo n'est pas plafonné par ce seau", async () => {
   const t = makeTestConvex()
   const owner = await seedActor(t, "owner")
