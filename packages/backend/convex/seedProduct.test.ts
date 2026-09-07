@@ -24,20 +24,30 @@ test("hors bac à sable, productArticles ne crée rien", async () => {
   expect(posts).toHaveLength(0)
 })
 
-test("sur le bac à sable, crée les deux articles publiés et dépublie les seed", async () => {
+test("sur le bac à sable, crée les cinq articles publiés et dépublie les seed", async () => {
   process.env.DEMO_SANDBOX = "true"
   const t = makeTestConvex()
   await t.mutation(internal.seed.demoContent, {})
   const out = await t.mutation(internal.seedProduct.productArticles, {})
-  expect(out).toMatchObject({ skipped: false, created: 2 })
+  expect(out).toMatchObject({ skipped: false, created: 5 })
 
   const posts = await t.run(async (ctx) => ctx.db.query("posts").collect())
   const bySlug = Object.fromEntries(posts.map((p) => [p.slug, p]))
   expect(bySlug["astrotan-site-vitrine-cms"]?.status).toBe("published")
   expect(bySlug["site-vitrine-sans-wordpress"]?.status).toBe("published")
+  expect(bySlug["vibecoding-site-vitrine"]?.status).toBe("published")
+  expect(bySlug["site-seo-geo"]?.status).toBe("published")
+  expect(bySlug["installer-site-vitrine-vps"]?.status).toBe("published")
   expect(bySlug["astrotan-site-vitrine-cms"]?.targetKeyword).toBe("AstroTan CMS")
   expect(bySlug["site-vitrine-sans-wordpress"]?.targetKeyword).toBe(
     "site vitrine sans WordPress",
+  )
+  expect(bySlug["vibecoding-site-vitrine"]?.targetKeyword).toBe(
+    "vibecoding site vitrine",
+  )
+  expect(bySlug["site-seo-geo"]?.targetKeyword).toBe("site SEO GEO")
+  expect(bySlug["installer-site-vitrine-vps"]?.targetKeyword).toBe(
+    "installer site vitrine VPS",
   )
   expect(bySlug.bienvenue?.status).toBe("draft")
   expect(bySlug["markdown-et-mise-en-forme"]?.status).toBe("draft")
@@ -61,5 +71,5 @@ test("productArticles est idempotent par slug", async () => {
       .withIndex("by_status_published", (q) => q.eq("status", "published"))
       .collect(),
   )
-  expect(posts).toHaveLength(2)
+  expect(posts).toHaveLength(5)
 })

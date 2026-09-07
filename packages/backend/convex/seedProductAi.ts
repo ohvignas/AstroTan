@@ -3,7 +3,8 @@ import { internalAction, internalMutation, internalQuery } from "./_generated/se
 import { internal } from "./_generated/api"
 import { lireSecret } from "./secrets"
 import { completerJson } from "./lib/openrouter"
-import { contexteSite, siteBits } from "./lib/aiSiteContext"
+import { api } from "./_generated/api"
+import { siteBits, type SiteContexte } from "./lib/aiSiteContext"
 import { systemPrompt, userPrompt } from "./lib/seoGeoPrompt"
 import { draftFromModel, isEmptyDraft, type GenerationSource } from "./lib/seoGeoDraft"
 import { demoSandboxActif, modeleSandbox } from "./lib/demoSandbox"
@@ -12,6 +13,9 @@ import { geoValidator, seoValidator } from "./content"
 const PRODUCT_SLUGS = [
   "astrotan-site-vitrine-cms",
   "site-vitrine-sans-wordpress",
+  "vibecoding-site-vitrine",
+  "site-seo-geo",
+  "installer-site-vitrine-vps",
 ] as const
 
 const EXTRA =
@@ -53,18 +57,29 @@ export const appliquerSeo = internalMutation({
  * sans session : un `npx convex run` n'en a pas. Réservé au bac à sable.
  */
 export const genererSeo = internalAction({
-  args: {},
-  handler: async (ctx) => {
+  args: { slugs: v.optional(v.array(v.string())) },
+  handler: async (ctx, args) => {
     if (!demoSandboxActif(process.env)) return { skipped: true as const, results: [] }
     const apiKey = await lireSecret(ctx, "OPENROUTER_API_KEY")
     if (apiKey === null) return { skipped: true as const, reason: "no-key", results: [] }
     const model = modeleSandbox({}, process.env)
     if (!model) return { skipped: true as const, reason: "no-model", results: [] }
 
-    const site = await contexteSite(ctx)
+    // `contexteSite` lit `settings.getPrivate` (session). Un `convex run`
+    // n'en a pas. La query publique suffit pour le prompt.
+    const publique = await ctx.runQuery(api.settings.get, {})
+    const webOrigin = process.env.WEB_SITE_URL
+    const site: SiteContexte = {
+      siteName: publique?.siteName,
+      homePageSlug: publique?.homePageSlug,
+      webOrigin: webOrigin && webOrigin.length > 0 ? webOrigin : undefined,
+      defaultSeoTitle: publique?.defaultSeo?.title,
+      defaultSeoDescription: publique?.defaultSeo?.description,
+    }
     const results: { slug: string; ok: boolean; reason?: string }[] = []
 
-    for (const slug of PRODUCT_SLUGS) {
+    const slugs = args.slugs ?? [...PRODUCT_SLUGS]
+    for (const slug of slugs) {
       const post = await ctx.runQuery(internal.seedProductAi.articleParSlug, { slug })
       if (post === null) {
         results.push({ slug, ok: false, reason: "missing" })
