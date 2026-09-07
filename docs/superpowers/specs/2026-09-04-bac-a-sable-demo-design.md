@@ -117,10 +117,10 @@ Rate limit (composant déjà là) : 10 entrées / heure / IP
 - Médias qu’il uploade (plafond : 10 fichiers ou 20 Mo par reset —
   `demo.quota`).
 - **Prévisualiser** sur l’URL réelle (`?t=`).
-- `ai.generateSeoGeo` sur **ses** brouillons, modèle imposé, quota
-  **15 appels / heure pour le compte démo** (clé = userId, pas l’IP :
-  `useAction` n’a pas l’IP du navigateur ; le compte est partagé, c’est
-  le vrai plafond de coût).
+- `ai.generateSeoGeo` sur **n’importe quelle** page ou article (y compris
+  les pages de base publiées), modèle imposé, quota **15 appels / heure**.
+  Le brouillon reste dans le formulaire : `pages.update` / `posts.update`
+  refusent d’écrire une ligne déjà `published`.
 - Voir les écrans (SEO, identité) en lecture : l’UI les montre, les
   mutations owner/admin refusent déjà.
 
@@ -128,7 +128,7 @@ Rate limit (composant déjà là) : 10 entrées / heure / IP
 
 | Famille | Exemples | Comment |
 |---|---|---|
-| Publier | `pages.publishPage`, `posts.publishPost` | `exigerPasDemo` en plus du rôle. |
+| Publier / dépublier / supprimer du public | `pages.publishPage`, `pages.unpublish`, `pages.remove` (publié), idem posts | `exigerPasDemo` en plus du rôle. Les pages de base restent en ligne. |
 | Identité du déploiement | `settings.update` (champs `openRouter*`), domaine, DNS | déjà owner/admin ; + refus `openRouter*` dès que le flag est on. |
 | Sorties | `emails.*` envoi, webhook, `apiTokens`, connecteurs, MCP, DataForSEO | `exigerPasDemo`. |
 | Compte | invitations, `users.*`, secrets | déjà owner/admin. Mot de passe : hook Better Auth `/change-password` refuse le compte démo. |

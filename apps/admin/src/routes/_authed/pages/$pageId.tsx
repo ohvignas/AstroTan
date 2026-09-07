@@ -20,6 +20,7 @@ import {
   MAX_SLUG_LENGTH,
   MAX_TARGET_KEYWORD_LENGTH,
 } from "@astrotan/backend/convex/content"
+import { accesFicheDemo } from "@/lib/accesFicheDemo"
 import { describePageError } from "@/lib/pageErrors"
 import { describeContentProblem, splitEntities } from "@/lib/contentGuards"
 import { buildSeo } from "@/lib/buildSeo"
@@ -107,6 +108,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   // Publique et sans session : `apps/web` la lit aussi pour savoir quelle
   // page rendre sur `/`.
   const homePageSlug = useQuery(api.settings.homePageSlug)
+  const isDemo = useQuery(api.demo.jeSuisDemo) === true
 
   const [title, setTitle] = useState(page.title)
   const [slug, setSlug] = useState(page.slug)
@@ -148,14 +150,15 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
   // (`requireRole(["owner","admin"])`) re-check the exact same boundary
   // themselves, unconditionally, on the server.
   const isOwn = page.createdBy === profile.authUserId
-  // Closing-fixes review: `pages.update`/`pages.remove` now also refuse an
-  // editor once the page is `published` (`requirePublishedPageWritable`,
-  // `lib/authz.ts`) — this flag has to know that rule too, or an editor
-  // opening their own published page sees an enabled form and only
-  // discovers the refusal on save. The server enforcement is what's
-  // correct either way; this is only the courtesy that used to mislead.
-  const canWrite = profile.role !== "editor" || (isOwn && page.status !== "published")
-  const canPublish = profile.role === "owner" || profile.role === "admin"
+  const acces = accesFicheDemo({
+    role: profile.role,
+    isOwn,
+    published: page.status === "published",
+    isDemo,
+  })
+  const canWrite = acces.canPersist
+  const canTry = acces.canTry
+  const canPublish = acces.canPublish
   const canRetryPropagation = canPublish || isOwn
 
 
@@ -300,7 +303,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
 
   const generateButton = (
     <GenerateSeoGeoButton
-      disabled={!canWrite}
+      disabled={!canTry}
       busy={generating}
       onGenerate={(extra) => void handleGenerate(extra)}
     />
@@ -370,7 +373,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
               {page.status === "published" ? "Dépublier" : "Publier"}
             </Button>
           )}
-          {(canPublish || isOwn) && (
+          {acces.canDelete && (
             <DeletePageButton
               title={page.title}
               published={page.status === "published"}
@@ -390,7 +393,14 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         </div>
       </div>
 
-      {!canWrite && (
+      {isDemo && !canWrite && (
+        <p className="rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          Bac à sable : vous pouvez essayer le SEO. Rien n'est enregistré
+          sur le site public — cette page ne se dépublie pas et ne se
+          supprime pas.
+        </p>
+      )}
+      {!isDemo && !canWrite && (
         <p className="rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
           {isOwn
             ? "Publiée : un editor ne la modifie plus. Dépubliez-la pour reprendre."
@@ -461,7 +471,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
             id="edit-title"
             value={title}
             maxLength={MAX_PAGE_TITLE_LENGTH}
-            disabled={!canWrite}
+            disabled={!canTry}
             onChange={(event) => setTitle(event.target.value)}
           />
         </Field>
@@ -471,7 +481,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
             id="edit-slug"
             value={slug}
             maxLength={MAX_SLUG_LENGTH}
-            disabled={!canWrite}
+            disabled={!canTry}
             onChange={(event) => setSlug(event.target.value)}
           />
           {/* « Chemin public — sans slash de tête ni de fin. » est parti :
@@ -483,7 +493,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
 
       <Section
         title="Dans les résultats de recherche"
-        action={canWrite ? generateButton : undefined}
+        action={canTry ? generateButton : undefined}
       >
         <Field>
           <FieldLabel htmlFor="target-keyword">Mot-clé cible</FieldLabel>
@@ -491,7 +501,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
             id="target-keyword"
             value={targetKeyword}
             maxLength={MAX_TARGET_KEYWORD_LENGTH}
-            disabled={!canWrite}
+            disabled={!canTry}
             onChange={(event) => setTargetKeyword(event.target.value)}
           />
         </Field>
@@ -501,7 +511,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
             id="seo-title"
             value={seoTitle}
             maxLength={MAX_SEO_TITLE_LENGTH}
-            disabled={!canWrite}
+            disabled={!canTry}
             placeholder={page.title}
             onChange={(event) => setSeoTitle(event.target.value)}
           />
@@ -512,7 +522,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
             id="seo-description"
             value={seoDescription}
             maxLength={MAX_SEO_DESCRIPTION_LENGTH}
-            disabled={!canWrite}
+            disabled={!canTry}
             onChange={(event) => setSeoDescription(event.target.value)}
           />
         </Field>
@@ -522,7 +532,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
             id="seo-canonical"
             value={seoCanonicalUrl}
             maxLength={MAX_CANONICAL_URL_LENGTH}
-            disabled={!canWrite}
+            disabled={!canTry}
             placeholder="https://…"
             onChange={(event) => setSeoCanonicalUrl(event.target.value)}
           />
@@ -531,7 +541,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
           <Switch
             id="seo-noindex"
             checked={seoNoindex}
-            disabled={!canWrite}
+            disabled={!canTry}
             onCheckedChange={(checked) => setSeoNoindex(checked === true)}
           />
           <FieldLabel htmlFor="seo-noindex">
@@ -540,16 +550,16 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
         </Field>
         <OgImageField
           value={seoOgImageId}
-          disabled={!canWrite}
+          disabled={!canTry}
           generating={generatingCover}
           onChange={setSeoOgImageId}
-          onGenerate={(extra) => void handleGenerateCover(extra)}
+          onGenerate={isDemo ? undefined : (extra) => void handleGenerateCover(extra)}
         />
       </Section>
 
       <Section
         title="Dans les moteurs de réponse"
-        action={canWrite ? generateButton : undefined}
+        action={canTry ? generateButton : undefined}
       >
         <Field>
           {/* Ce que l'étiquette dit maintenant, dix-huit mots l'expliquaient
@@ -560,7 +570,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
             id="geo-summary"
             value={geoSummary}
             maxLength={MAX_GEO_SUMMARY_LENGTH}
-            disabled={!canWrite}
+            disabled={!canTry}
             onChange={(event) => setGeoSummary(event.target.value)}
           />
         </Field>
@@ -578,7 +588,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
           <Input
             id="geo-entities"
             value={geoEntities}
-            disabled={!canWrite}
+            disabled={!canTry}
             maxLength={(MAX_GEO_ENTITY_LENGTH + 2) * MAX_GEO_ENTITIES}
             placeholder="AstroTan, Convex, Astro"
             onChange={(event) => setGeoEntities(event.target.value)}
@@ -593,7 +603,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
           />
           <RepeatableItems
             items={geoFaq}
-            disabled={!canWrite || geoFaq.length >= MAX_GEO_FAQ_ITEMS}
+            disabled={!canTry || geoFaq.length >= MAX_GEO_FAQ_ITEMS}
             addLabel="Ajouter une question"
             emptyItem={{ question: "", answer: "" }}
             fields={[
@@ -618,7 +628,7 @@ function PageEditor({ page, profile }: { page: PageDoc; profile: Profile }) {
           <Switch
             id="geo-noai"
             checked={geoNoai}
-            disabled={!canWrite}
+            disabled={!canTry}
             onCheckedChange={(checked) => setGeoNoai(checked === true)}
           />
           <FieldLabel htmlFor="geo-noai">

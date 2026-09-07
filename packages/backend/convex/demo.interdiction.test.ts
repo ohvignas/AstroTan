@@ -154,6 +154,38 @@ test("owner + flag off : settings.update accepte un modèle OpenRouter", async (
   )
 })
 
+test("le compte démo ne dépublie ni ne supprime une page publiée", async () => {
+  const t = makeTestConvex()
+  activerSandbox()
+  const demo = await seedActeur(t, DEMO_EMAIL, DEMO_PASSWORD, "editor")
+  const pageId = await t.run((ctx) =>
+    ctx.db.insert("pages", {
+      slug: "accueil-gel",
+      title: "Accueil",
+      status: "published",
+      createdBy: demo.user.id,
+      updatedBy: demo.user.id,
+    }),
+  )
+
+  await expect(demo.identity.mutation(api.pages.unpublish, { id: pageId })).rejects.toMatchObject(
+    REFUS,
+  )
+  await expect(demo.identity.mutation(api.pages.remove, { id: pageId })).rejects.toMatchObject(REFUS)
+  await expect(
+    demo.identity.mutation(api.pages.update, { id: pageId, title: "Hack" }),
+  ).rejects.toMatchObject(REFUS)
+})
+
+test("le compte démo peut supprimer son brouillon", async () => {
+  const t = makeTestConvex()
+  activerSandbox()
+  const demo = await seedActeur(t, DEMO_EMAIL, DEMO_PASSWORD, "editor")
+  const pageId = await insertDraft(t, "pages", demo.user.id, "brouillon-ok")
+  await demo.identity.mutation(api.pages.remove, { id: pageId })
+  expect(await t.run((ctx) => ctx.db.get(pageId))).toBeNull()
+})
+
 test("un autre editor n'est pas bloqué par estCompteDemo", async () => {
   const t = makeTestConvex()
   activerSandbox()

@@ -11,6 +11,7 @@ import {
   type PostFormValues,
   type Profile,
 } from "@/lib/postForm"
+import { accesFicheDemo } from "@/lib/accesFicheDemo"
 import { postEditorActions } from "@/lib/postEditorActions"
 
 export function usePostEditor(post: PostDoc, profile: Profile) {
@@ -49,9 +50,17 @@ export function usePostEditor(post: PostDoc, profile: Profile) {
     defaultValues: initialValues(post),
   })
 
+  const isDemo = useQuery(api.demo.jeSuisDemo) === true
   const isOwn = post.createdBy === profile.authUserId
-  const canWrite = profile.role !== "editor" || isOwn
-  const canPublish = profile.role === "owner" || profile.role === "admin"
+  const acces = accesFicheDemo({
+    role: profile.role,
+    isOwn,
+    published: post.status === "published",
+    isDemo,
+  })
+  const canWrite = acces.canPersist
+  const canTry = acces.canTry
+  const canPublish = acces.canPublish
   const canRetryPropagation = canPublish || isOwn
   const actions = postEditorActions({
     status: post.status,
@@ -95,7 +104,10 @@ export function usePostEditor(post: PostDoc, profile: Profile) {
     error,
     previewUrl,
     isOwn,
+    isDemo,
     canWrite,
+    canTry,
+    canDelete: acces.canDelete,
     canPublish,
     canRetryPropagation,
     actions,

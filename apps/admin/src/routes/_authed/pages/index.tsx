@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react"
 import type { FunctionReturnType } from "convex/server"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import type { Id } from "@astrotan/backend/convex/_generated/dataModel"
+import { accesFicheDemo } from "@/lib/accesFicheDemo"
 import { describePageError } from "@/lib/pageErrors"
 import { RowActionButton, RowActionsMenu } from "@/components/row-actions"
 import { Badge } from "@/components/ui/badge"
@@ -54,6 +55,7 @@ function PagesListPage() {
   // in `/settings` and nowhere else: it is a statement about the site, not
   // about a page, and two pages could otherwise both claim it.
   const homePageSlug = useQuery(api.settings.homePageSlug)
+  const isDemo = useQuery(api.demo.jeSuisDemo) === true
 
   if (
     profile === undefined ||
@@ -68,7 +70,8 @@ function PagesListPage() {
   // renders at all, the courtesy this task's own property statement
   // describes: "hiding a button is a courtesy to the operator, never the
   // enforcement."
-  const canPublish = profile.role === "owner" || profile.role === "admin"
+  const canPublish =
+    !isDemo && (profile.role === "owner" || profile.role === "admin")
 
   return (
     <div className="flex flex-col gap-4">
@@ -90,6 +93,8 @@ function PagesListPage() {
             pages={pages}
             selfAuthUserId={profile.authUserId}
             canPublish={canPublish}
+            isDemo={isDemo}
+            role={profile.role}
             homePageSlug={homePageSlug}
           />
         </CardContent>
@@ -102,11 +107,15 @@ function PagesTable({
   pages,
   selfAuthUserId,
   canPublish,
+  isDemo,
+  role,
   homePageSlug,
 }: {
   pages: PageRow[]
   selfAuthUserId: string
   canPublish: boolean
+  isDemo: boolean
+  role: string
   homePageSlug: string | null
 }) {
   const removePage = useMutation(api.pages.remove)
@@ -218,7 +227,14 @@ function PagesTable({
                   <PageRowActions
                     page={page}
                     canPublish={canPublish}
-                    isOwn={isOwn}
+                    canDelete={
+                      accesFicheDemo({
+                        role,
+                        isOwn,
+                        published: page.status === "published",
+                        isDemo,
+                      }).canDelete
+                    }
                     pending={pending}
                     onPublish={() =>
                       withPending(page._id!, () => publishPage({ id: page._id! }))
@@ -257,7 +273,7 @@ function PagesTable({
 function PageRowActions({
   page,
   canPublish,
-  isOwn,
+  canDelete,
   pending,
   onPublish,
   onUnpublish,
@@ -265,7 +281,7 @@ function PageRowActions({
 }: {
   page: PageRow & { _id: NonNullable<PageRow["_id"]> }
   canPublish: boolean
-  isOwn: boolean
+  canDelete: boolean
   pending: boolean
   onPublish: () => void
   onUnpublish: () => void
@@ -277,8 +293,6 @@ function PageRowActions({
   // bouton trois points ne se rend alors pas du tout, plutôt que d'ouvrir
   // un menu vide. `canPublish` implique `canDelete`, d'où la seule
   // condition.
-  const canDelete = canPublish || isOwn
-
   return (
     <div className="flex items-center justify-end gap-1">
       <RowActionButton

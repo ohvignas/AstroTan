@@ -450,6 +450,7 @@ export const update = mutation({
     const page = await ctx.db.get(args.id)
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, page)
+    if (page.status === "published") exigerPasDemo(authUser, process.env)
 
     // H1 (whole-lot review): `requireOwnDocument` alone lets this
     // mutation compose into a public-content bypass. `publishPage` gates
@@ -606,6 +607,7 @@ export const remove = mutation({
     const page = await ctx.db.get(args.id)
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
     requireOwnDocument(authUser, page)
+    if (page.status === "published") exigerPasDemo(authUser, process.env)
     requirePublishedPageWritable(authUser, page)
     // Les pages réglementaires ne se suppriment pas : le pied de page et le
     // bandeau de cookies pointent vers elles depuis TOUTES les pages du
@@ -645,6 +647,8 @@ export const unpublish = mutation({
   args: { id: v.id("pages") },
   handler: async (ctx, args) => {
     const acteur = await requireRole(ctx, ["owner", "admin"])
+    const env = process.env
+    exigerPasDemo(acteur, env)
     const page = await ctx.db.get(args.id)
     if (!page) throw new ConvexError({ code: "NOT_FOUND" })
     // Rien n'a changé, donc rien à journaliser : une ligne « a dépublié »

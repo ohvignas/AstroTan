@@ -59,7 +59,7 @@ function PostEditor({ post, profile }: { post: PostDoc; profile: Profile }) {
         publicationStatus={editor.publicationStatus}
         actions={editor.actions}
         busy={editor.busy}
-        canDelete={editor.canPublish || editor.isOwn}
+        canDelete={editor.canDelete}
         canRetryPropagation={editor.canRetryPropagation}
         onPreview={() => void editor.handlePreview()}
         onPublish={() => void editor.handlePublish()}
@@ -69,7 +69,14 @@ function PostEditor({ post, profile }: { post: PostDoc; profile: Profile }) {
         onDelete={() => void editor.handleDelete()}
       />
 
-      {!editor.canWrite && (
+      {editor.isDemo && !editor.canWrite && (
+        <p className="rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          Bac à sable : vous pouvez essayer le SEO. Rien n'est enregistré
+          sur le site public — cet article ne se dépublie pas et ne se
+          supprime pas.
+        </p>
+      )}
+      {!editor.isDemo && !editor.canWrite && (
         <p className="rounded-lg border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
           Cet article appartient à un autre utilisateur : vous pouvez le
           consulter, pas le modifier.
@@ -102,13 +109,13 @@ function PostEditor({ post, profile }: { post: PostDoc; profile: Profile }) {
 
       <PostIdentityCard
         form={editor.form}
-        canWrite={editor.canWrite}
+        canWrite={editor.canTry}
         generatingCover={editor.generatingCover}
         titlePlaceholder={post.title}
         generateAction={
-          editor.canWrite ? (
+          editor.canTry ? (
             <GenerateSeoGeoButton
-              disabled={!editor.canWrite}
+              disabled={!editor.canTry}
               busy={editor.generating}
               onGenerate={(extra) => void editor.handleGenerate(extra)}
             />
@@ -120,7 +127,7 @@ function PostEditor({ post, profile }: { post: PostDoc; profile: Profile }) {
       <PostBodyCard
         form={editor.form}
         post={post}
-        canWrite={editor.canWrite}
+        canWrite={editor.canTry}
       />
 
       {editor.canWrite && (
