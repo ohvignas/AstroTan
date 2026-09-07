@@ -52,6 +52,7 @@ test("toute mutation ET action publique exportée est déclarée dans le registr
     // CJS yoastseo (~5 Mo) : le glob `load()` tourne en edge-runtime et
     // casserait toute la suite. Aucune mutation publique ici.
     "lib/yoastRun.ts",
+    "lib/yoastEngine.ts",
   ])
   const all = import.meta.glob("./**/*.ts")
   // Collected as `{file}.{name}` candidates first, *not* filtered against

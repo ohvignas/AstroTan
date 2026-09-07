@@ -1,6 +1,6 @@
 // yoastseo (GPL-3.0) — backend / action Node uniquement.
 // Ne jamais importer ce module depuis apps/admin ou apps/web.
-// Les constructeurs sont injectés (createRequire dans seoAnalyze) : un
+// Les constructeurs sont injectés (`import("yoastseo")` dans seoAnalyze) : un
 // import ESM de yoastseo ici ferait de ce fichier un point d'entrée V8
 // qui casse le push, et `new Paper()` y recevrait le namespace CJS
 // (« y is not a constructor »).

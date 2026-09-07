@@ -9,7 +9,12 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { Indicateur } from "@/components/indicateur"
 import { RefreshReleve } from "@/components/refresh-releve"
 import { sensPourVolume } from "@/components/fleche-tendance"
-import { phraseRelever, RangIndicateurs } from "@/components/rang-indicateur"
+import {
+  phraseRelever,
+  phraseReleverErreur,
+  RangIndicateurs,
+} from "@/components/rang-indicateur"
+import { PHRASE_SANDBOX_RELEVE } from "@/lib/refreshReleve"
 import { LIBELLES_ETAT } from "@/lib/dashboardFormat"
 import { estThrottleReleve, raisonReleveInactif } from "@/lib/refreshReleve"
 
@@ -22,13 +27,16 @@ export function AnalyticsPanel({
   onRelever,
   releverBusy,
   releverError,
+  isDemo,
 }: {
   result: AnalyticsResult | undefined
   rank: DocumentRank | undefined
   onRelever?: () => void
   releverBusy?: boolean
   releverError?: string | null
+  isDemo?: boolean
 }) {
+  const sandbox = isDemo === true
   return (
     <Card>
       <CardHeader>
@@ -36,8 +44,10 @@ export function AnalyticsPanel({
         <CardAction>
           <RefreshReleve
             busy={Boolean(releverBusy)}
-            disabled={estThrottleReleve(rank)}
-            disabledReason={raisonReleveInactif(rank)}
+            disabled={sandbox || estThrottleReleve(rank)}
+            disabledReason={
+              sandbox ? PHRASE_SANDBOX_RELEVE : raisonReleveInactif(rank)
+            }
             lastRefreshedAt={rank?.fetchedAt}
             onClick={() => onRelever?.()}
           />
@@ -95,6 +105,7 @@ export function PageAnalytics({
   postId?: Id<"posts">
 }) {
   const relever = useAction(api.seoRanks.relever)
+  const isDemo = useQuery(api.demo.jeSuisDemo) === true
   const rankArgs =
     kind === "page" && pageId
       ? { kind, pageId }
@@ -114,8 +125,8 @@ export function PageAnalytics({
       if (!out.ok) {
         setReleverError(phraseRelever(out.reason))
       }
-    } catch {
-      setReleverError(phraseRelever("unreachable"))
+    } catch (error) {
+      setReleverError(phraseReleverErreur(error))
     } finally {
       setReleverBusy(false)
     }
@@ -128,6 +139,7 @@ export function PageAnalytics({
       onRelever={() => void handleRelever()}
       releverBusy={releverBusy}
       releverError={releverError}
+      isDemo={isDemo}
     />
   )
 }

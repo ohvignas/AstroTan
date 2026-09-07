@@ -1,4 +1,8 @@
 import { RELEVER_THROTTLE_MS } from "@astrotan/backend/convex/lib/seoRankState"
+import { codeErreurConvex } from "@/lib/convexErrorCode"
+
+export const PHRASE_SANDBOX_RELEVE =
+  "Le bac à sable ne lance pas de relevé payant."
 import type { DocumentRank } from "@astrotan/backend/convex/lib/seoRankState"
 import type { Periode, SiteSummary } from "@astrotan/backend/convex/analytics"
 
@@ -77,10 +81,11 @@ export function dateDonneesAffichees(input: {
 }
 
 export function messageRefreshEchec(
-  kind: "umami" | "seo" | "seo-keywords" | "seo-backlinks" | "site" | "reseau",
+  kind: "umami" | "seo" | "seo-keywords" | "seo-backlinks" | "site" | "reseau" | "demo",
   origin?: string | null,
 ): string {
   if (kind === "umami") return "Le service d'audience n'a pas répondu."
+  if (kind === "demo") return PHRASE_SANDBOX_RELEVE
   if (kind === "seo") return "Le relevé des positions n'a pas abouti."
   if (kind === "seo-keywords") return "Le relevé des mots-clés n'a pas abouti."
   if (kind === "seo-backlinks") return "Le relevé des backlinks n'a pas abouti."
@@ -108,7 +113,7 @@ export function summaryInjoignable(periode: Periode): SiteSummary {
 
 export type RefreshSiteOutcome =
   | { ok: true; fetchedAt?: number; skipped?: "dfs_absent" | "no_domain" }
-  | { ok: false; reason: "unreachable" | "keywords" | "backlinks" }
+  | { ok: false; reason: "unreachable" | "keywords" | "backlinks" | "demo" }
 
 /**
  * Recharger : vrai appel Umami, relevé DataForSEO du snapshot site
@@ -124,9 +129,12 @@ export async function executerRefresh(input: {
     input.invaliderSite?.().catch(() => ({ ok: false as const, origin: null })) ??
     Promise.resolve({ ok: true as const })
   const seoP =
-    input.releverSite?.().catch(() => ({
+    input.releverSite?.().catch((error: unknown) => ({
       ok: false as const,
-      reason: "unreachable" as const,
+      reason:
+        codeErreurConvex(error) === "DEMO_FORBIDDEN"
+          ? ("demo" as const)
+          : ("unreachable" as const),
     })) ?? Promise.resolve({ ok: true as const, skipped: "dfs_absent" as const })
   try {
     const [summary, seo, site] = await Promise.all([
@@ -138,6 +146,9 @@ export async function executerRefresh(input: {
       return { summary, error: messageRefreshEchec("umami") }
     }
     if (seo.ok === false) {
+      if (seo.reason === "demo") {
+        return { summary, error: messageRefreshEchec("demo") }
+      }
       if (seo.reason === "keywords") {
         return { summary, error: messageRefreshEchec("seo-keywords") }
       }
