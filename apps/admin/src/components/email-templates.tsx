@@ -244,6 +244,80 @@ export function actionSurLigne({
  * Son texte est l'URL elle-même : c'est la forme la plus courte qui dise
  * déjà où l'on va.
  */
+/**
+ * Champ + bouton pour envoyer un e-mail de test vers une adresse saisie.
+ *
+ * Visible en démo : pas de champ de clé, seulement la pastille et l'envoi.
+ * L'écriture de la clé reste `SectionCleResend` / `secrets.set`.
+ */
+export function FormulaireEmailTest({
+  configured,
+  valeur = "",
+  onChange,
+  onEnvoyer,
+  envoi = false,
+  info = null,
+  erreur = null,
+}: {
+  configured: boolean
+  valeur?: string
+  onChange?: (valeur: string) => void
+  onEnvoyer: (to: string) => void
+  envoi?: boolean
+  info?: string | null
+  erreur?: string | null
+}) {
+  const saisie = valeur.trim()
+  const invalide = saisie.length > 0 && !estAdresseValide(saisie)
+
+  return (
+    <SettingsGroup title="E-mail de test">
+      <p className="text-sm">
+        {configured ? (
+          <span className="text-emerald-600 dark:text-emerald-400">Configuré</span>
+        ) : (
+          <span className="text-muted-foreground">Non configuré</span>
+        )}
+      </p>
+      <Field>
+        <FieldLabel htmlFor="email-test-to">Adresse de test</FieldLabel>
+        <Input
+          id="email-test-to"
+          type="email"
+          placeholder="vous@exemple.fr"
+          value={valeur}
+          maxLength={254}
+          onChange={(event) => onChange?.(event.target.value)}
+        />
+      </Field>
+      {invalide ? (
+        <p role="alert" className="text-sm text-destructive">
+          Ce n&apos;est pas une adresse.
+        </p>
+      ) : null}
+      {erreur === null ? null : (
+        <p role="alert" className="text-sm text-destructive">
+          {erreur}
+        </p>
+      )}
+      {info === null ? null : (
+        <p role="status" className="text-sm text-muted-foreground">
+          {info}
+        </p>
+      )}
+      <Button
+        type="button"
+        size="sm"
+        className="cursor-pointer"
+        disabled={!configured || envoi || invalide || saisie.length === 0}
+        onClick={() => onEnvoyer(saisie)}
+      >
+        {envoi ? "Envoi…" : "Envoyer un e-mail de test"}
+      </Button>
+    </SettingsGroup>
+  )
+}
+
 export function SectionCleResend({
   secrets,
 }: {
