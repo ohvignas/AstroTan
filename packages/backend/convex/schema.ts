@@ -826,9 +826,9 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_thread", ["threadId"]),
 
-  // Restée après le retrait du checkout Stripe du template (expand /
-  // contract). Aucun code du template n'écrit plus ici. La contracture —
-  // drop de la table — est un déploiement à part.
+  // Checkout Stripe : une ligne par session payée. Expand only — ne pas
+  // dropper dans le même déploiement. Index `by_session` pour l'idempotence
+  // du webhook `checkout.session.completed`.
   purchases: defineTable({
     stripeSessionId: v.string(),
     email: v.optional(v.string()),

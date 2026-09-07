@@ -67,6 +67,8 @@ beforeEach(() => {
   // qui n'a rien à voir avec le rôle appelant.
   process.env.CONSENT_LOG_SECRET = "test-consent-secret-please-do-not-use-in-prod-x"
   process.env.SEO_ANALYZE_STUB = "1"
+  process.env.STRIPE_SECRET_KEY = "sk_test_registre-ne-pas-utiliser"
+  process.env.WEB_SITE_URL = "https://exemple.fr"
 })
 
 afterEach(() => {
@@ -403,6 +405,15 @@ describe("matrice de permissions", () => {
             status: 200,
             headers: { "content-type": "application/json" },
           })
+        }
+        if (url.includes("api.stripe.com/v1/checkout/sessions")) {
+          return new Response(
+            JSON.stringify({
+              id: "cs_test_registre",
+              url: "https://checkout.stripe.com/c/pay/cs_test_registre",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          )
         }
         if (url.includes("openrouter.ai")) {
           return new Response(

@@ -33,6 +33,7 @@ export type SettingsPath =
   | "/settings/emails"
   | "/settings/mesure"
   | "/settings/agent"
+  | "/settings/paiement"
 
 export interface SettingsPageDef {
   to: SettingsPath
@@ -112,6 +113,13 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
     label: "Agent IA & Modèle IA",
     title: "Agent IA & Modèle IA",
     description: "",
+  },
+  {
+    to: "/settings/paiement",
+    label: "Paiement",
+    title: "Paiement Stripe",
+    description:
+      "La clé secrète et le secret du webhook. L'environnement l'emporte toujours sur une saisie ici. La démo ne change pas la clé.",
   },
 ]
 
