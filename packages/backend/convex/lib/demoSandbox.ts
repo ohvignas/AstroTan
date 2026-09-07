@@ -2,7 +2,9 @@ import { ConvexError } from "convex/values"
 
 export type DemoSandboxEnv = Record<string, string | undefined>
 
-export function demoSandboxActif(env: Record<string, string | undefined>): boolean {
+export function demoSandboxActif(
+  env: Record<string, string | undefined>,
+): boolean {
   return env.DEMO_SANDBOX === "true"
 }
 
