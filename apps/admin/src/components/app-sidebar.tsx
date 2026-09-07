@@ -57,10 +57,8 @@ const MEDIA_ITEM = {
   icon: <ImageIcon />,
 }
 
-// Owner/admin only, like "Utilisateurs": the site's name, logo and home
-// page apply to every page at once, so `settings.update` and
-// `settings.setHomePage` both refuse an editor server-side. Hiding the link
-// is the courtesy, never the enforcement.
+// Visible pour tous les rôles (la démo doit voir le produit). L'écriture
+// reste refusée côté serveur : `settings.update` / `secrets.set`.
 const SETTINGS_ITEM = {
   title: "Réglages",
   url: "/settings",
@@ -94,28 +92,12 @@ const USERS_ITEM = {
   icon: <UsersIcon />,
 }
 
-// Rendu seulement quand Umami répond une adresse : un bouton qui ouvre un
-// onglet vide est pire que pas de bouton.
-function statsItem(url: string) {
-  return {
-    title: "Statistiques",
-    url,
-    icon: <ChartNoAxesColumnIcon />,
-    external: true,
-  }
-}
-
-// Une ancre vers un relais de l'administration, pas un bouton : l'adresse
-// d'Umami n'est connue qu'après un appel réseau, et ouvrir un onglet au clic
-// pour le remplir ensuite se fait bloquer — essayé, le bouton ne faisait
-// rien. Le relais `/statistiques` frappe le jeton puis redirige.
-function statsSsoItem() {
-  return {
-    title: "Statistiques",
-    url: "/statistiques",
-    icon: <ChartNoAxesColumnIcon />,
-    external: true,
-  }
+// Route interne : les chiffres Umami se lisent dans l'admin, jamais en
+// ouvrant le dashboard Umami (SSO ou lien de partage).
+const STATS_ITEM = {
+  title: "Statistiques",
+  url: "/statistiques",
+  icon: <ChartNoAxesColumnIcon />,
 }
 
 export function AppSidebar({
@@ -124,8 +106,6 @@ export function AppSidebar({
 }: React.ComponentProps<typeof Sidebar> & {
   profile: FunctionReturnType<typeof api.profiles.me> | undefined
 }) {
-  // `undefined` pendant le chargement, `null` si Umami n'est pas configuré.
-  const umami = useQuery(api.analytics.umamiLinks)
   const newLeads = useQuery(api.leads.newCount)
   const leadsItem = {
     ...LEADS_ITEM,
@@ -146,18 +126,7 @@ export function AppSidebar({
           REDIRECTS_ITEM,
         ]
       : [DASHBOARD_ITEM, PAGES_ITEM, POSTS_ITEM, MEDIA_ITEM, leadsItem]
-  const canSso = profile?.role === "owner" || profile?.role === "admin"
-  // Même périmètre que l'ancienne place des réglages dans la liste : un
-  // éditeur ne les voyait pas, et déplacer l'entrée ne doit pas les lui
-  // ouvrir.
-  const canWriteSettings = canSso
-
-  // Un owner ou un admin arrive connecté, avec les réglages d'Umami. Un
-  // éditeur suit le lien de consultation : le SSO prête un compte partagé,
-  // et le lui confier lui donnerait tout ce que ce compte peut faire.
-  const navMain = umami
-    ? [...base, canSso ? statsSsoItem() : statsItem(umami.dashboard)]
-    : base
+  const navMain = [...base, STATS_ITEM]
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -200,7 +169,7 @@ export function AppSidebar({
             quotidiennes se traverse vingt fois par jour pour rien. Le bas
             de la barre est l'endroit conventionnel de ce qui configure
             plutôt que de ce qui produit. */}
-        {canWriteSettings && <NavMain items={[SETTINGS_ITEM]} label={null} />}
+        <NavMain items={[SETTINGS_ITEM]} label={null} />
         <NavUser profile={profile} />
       </SidebarFooter>
       <SidebarRail />

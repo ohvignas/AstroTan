@@ -473,7 +473,15 @@ export function SecretField({
         </p>
       ) : null}
 
-      {!disabled && (
+      {disabled ? (
+        <p className="text-sm">
+          {etat.source !== "aucune" && !etat.illisible ? (
+            <span className="text-emerald-600 dark:text-emerald-400">Configuré</span>
+          ) : (
+            <span className="text-muted-foreground">Non configuré</span>
+          )}
+        </p>
+      ) : (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <Input
@@ -575,10 +583,8 @@ export function SecretHorsPortee({
 /**
  * Ce qu'un editor voit à la place des champs.
  *
- * `secrets.status` est réservée à owner/admin : savoir quelles clés sont
- * posées, lesquelles manquent et laquelle est illisible dessine l'état de
- * sécurité du déploiement, et l'écriture est de toute façon réservée aux
- * deux mêmes rôles. Plutôt qu'une carte vide, une phrase qui dit pourquoi.
+ * Ancien filet : les écrans montrent maintenant l'état configuré / non.
+ * Conservé pour ne pas casser les tests qui le rendent encore.
  */
 export function SecretsReserves() {
   return (

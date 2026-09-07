@@ -1,19 +1,13 @@
 import { useEffect, useState } from "react"
 import { useAction, useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
-import type {
-  Metric,
-  Periode,
-  SiteSummary,
-  UmamiLinks,
-} from "@astrotan/backend/convex/analytics"
+import type { Metric, Periode, SiteSummary } from "@astrotan/backend/convex/analytics"
 import type { SiteSnapshot } from "@astrotan/backend/convex/lib/seoSnapshot"
 import type { SiteSeries } from "@astrotan/backend/convex/lib/seoSiteHistory"
 import { listesSeo } from "@/components/pastille-seo"
 import { DashboardGraphe } from "@/components/dashboard-graphe"
 import { RefreshReleve } from "@/components/refresh-releve"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ExternalLinkIcon } from "lucide-react"
 import {
   dateDonneesAffichees,
   executerRefresh,
@@ -121,7 +115,6 @@ function Ranking({
 
 export function SiteDashboard({
   summary,
-  umami,
   periode,
   onPeriode,
   snapshot,
@@ -135,7 +128,6 @@ export function SiteDashboard({
 }: {
   /** `undefined` tant que l'action est en vol. */
   summary: SiteSummary | undefined
-  umami: UmamiLinks | null | undefined
   periode: Periode
   onPeriode: (p: Periode) => void
   snapshot?: SiteSnapshot | null
@@ -236,34 +228,12 @@ export function SiteDashboard({
           </>
         )}
 
-        {umami && (
-          <div className="flex flex-wrap gap-4">
-            {/* Un seul lien : regarder les chiffres. Régler Umami — ajouter
-                un site, créer un compte, activer un partage — se fait depuis
-                Umami lui-même, et n'a pas à occuper une place ici. Le lien
-                change d'intitulé selon ce qu'il ouvre vraiment : un partage
-                en lecture seule, ou la racine qui demandera une connexion. */}
-            <a
-              href={umami.dashboard}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 text-sm underline"
-            >
-              {umami.shared ? "Tout le détail" : "Ouvrir Umami"}
-              <ExternalLinkIcon className="size-3" />
-            </a>
-          </div>
-        )}
       </CardContent>
     </Card>
   )
 }
 
-export function SiteDashboardPanel({
-  umami,
-}: {
-  umami: UmamiLinks | null | undefined
-}) {
+export function SiteDashboardPanel() {
   const siteSummary = useAction(api.analytics.siteSummary)
   const refreshSite = useAction(api.revalidate.refresh)
   const releverSite = useAction(api.seoRanks.refreshSite)
@@ -319,7 +289,6 @@ export function SiteDashboardPanel({
   return (
     <SiteDashboard
       summary={summary}
-      umami={umami}
       periode={periode}
       onPeriode={setPeriode}
       snapshot={snapshot ?? null}

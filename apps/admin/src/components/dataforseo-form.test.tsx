@@ -107,13 +107,22 @@ test("Effacer n'apparaît que si un identifiant existe, en lien et pas en CTA", 
   expect(pose).toMatch(/text-xs text-muted-foreground underline/)
 })
 
-test("un editor n'a ni bouton ni champ", () => {
-  const html = renderToStaticMarkup(
-    <DataForSeoForm {...inerte} canWrite={false} login="compte@exemple.fr" />,
+test("un editor n'a ni bouton ni champ, seulement l'état", () => {
+  const pose = renderToStaticMarkup(
+    <DataForSeoForm
+      {...inerte}
+      canWrite={false}
+      passwordPose
+    />,
   )
-  expect(html).not.toContain("Enregistrer")
-  expect(html).not.toContain("Effacer")
-  expect(html).not.toMatch(/<input/)
+  expect(pose).toContain("Connecté")
+  expect(pose).not.toContain("Enregistrer")
+  expect(pose).not.toContain("Effacer")
+  expect(pose).not.toMatch(/<input/)
+  const vide = renderToStaticMarkup(
+    <DataForSeoForm {...inerte} canWrite={false} />,
+  )
+  expect(vide).toContain("Non configuré")
 })
 
 test("Connecté à droite d'Enregistrer si déjà branché, sans pastille", () => {

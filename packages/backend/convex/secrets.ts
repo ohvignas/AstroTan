@@ -112,17 +112,16 @@ export type SecretSource = "environnement" | "base" | "aucune"
 /**
  * L'état de chaque jeton — jamais sa valeur, ni un fragment de celle-ci.
  *
- * `owner`/`admin` seulement, à la différence de `settings.environment` qui
- * laisse aussi passer un editor : savoir quelles clés sont posées,
- * lesquelles manquent et laquelle est illisible dessine l'état de sécurité
- * du déploiement, et l'écriture est de toute façon réservée aux deux mêmes
- * rôles. Un editor garde l'écran, avec les booléens que `settings.environment`
- * lui donne déjà.
+ * Tous les rôles authentifiés : l'écran de la démo doit dire « configuré /
+ * non » sans jamais rendre une valeur. L'écriture (`set` / `clear`) reste
+ * owner/admin, plus `exigerPasDemo`. `settings.environment` ne voit que
+ * l'environnement : ici on voit aussi la base chiffrée, toujours sans
+ * fragment de jeton.
  */
 export const status = query({
   args: {},
   handler: async (ctx) => {
-    await requireRole(ctx, ["owner", "admin"])
+    await requireRole(ctx, ["owner", "admin", "editor"])
     const cle = lireCleMaitresse(process.env)
     const rangees = await ctx.db.query("secrets").collect()
     const parNom = new Map(rangees.map((row) => [row.nom, row]))

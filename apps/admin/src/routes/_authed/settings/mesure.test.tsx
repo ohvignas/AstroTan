@@ -27,4 +27,9 @@ describe("settings/mesure — chrome des réglages", () => {
     expect(source).toContain("onSavePixel")
     expect(source).toContain("onSaveSerp")
   })
+
+  test("DataForSEO identifiants se lisent pour tous les rôles", () => {
+    expect(source).toContain("api.dataforseo.identifiants")
+    expect(source).not.toMatch(/identifiants,\s*canWrite \? \{\} : "skip"/)
+  })
 })
