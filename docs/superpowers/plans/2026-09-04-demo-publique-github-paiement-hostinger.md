@@ -20,6 +20,8 @@ et les exemples. L’instance porte les **secrets** et les **données**.
 
 La Phase B (checkout dans le template) a été **retirée** : encaisser l’offre Complet n’est pas un geste d’adoptant.
 
+Référence tenue à jour : [`docs/organisation.md`](../../organisation.md).
+
 ---
 
 ## Contrôle — ce qui est déjà vrai, ce qui manque

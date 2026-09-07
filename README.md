@@ -11,6 +11,9 @@ moteurs de recherche en comprennent — jamais ce qu'elle contient. Ce choix est
 délibéré : trois modèles de contenu en base ont été essayés puis retirés
 (`CLAUDE.md`, invariant 5).
 
+Ce dépôt officiel a deux branches longues : `main` (le template) et `demo`
+(l'essai public). Qui va où : [`docs/organisation.md`](docs/organisation.md).
+
 | | Site public | Dashboard |
 |---|---|---|
 | Framework | Astro 7 · `@astrojs/node` standalone | TanStack Start 1 · React 19 |
@@ -117,6 +120,7 @@ docker/            images, compose Traefik, runbook d'exploitation
 
 | Fichier | Contenu |
 |---|---|
+| [`docs/organisation.md`](docs/organisation.md) | **où vit quoi** : `main` / `demo`, instance, app de vente |
 | [`AGENTS.md`](AGENTS.md) | point d'entrée des agents de code : commandes, amorçage, invariants |
 | [`CLAUDE.md`](CLAUDE.md) | conventions, invariants détaillés, règles Convex apprises à la dure |
 | [`.env.deploy.example`](.env.deploy.example) | le seul fichier à remplir ; `pnpm bootstrap` en distribue les valeurs |
