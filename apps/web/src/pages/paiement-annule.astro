@@ -1,0 +1,28 @@
+---
+export const prerender = false
+
+import { loadPage } from "../lib/loadPage"
+import BaseLayout from "../layouts/BaseLayout.astro"
+import Hero from "../components/hero/Hero.astro"
+import CTA from "../components/CTA.astro"
+
+const { page } = await loadPage(Astro)
+---
+
+<BaseLayout page={page} fallbackTitle="Paiement annulé">
+  <Hero
+    variant="centered"
+    size="md"
+    eyebrow="Paiement"
+    headline="Paiement annulé"
+    subheadline="Aucun montant n'a été débité. Vous pouvez reprendre l'offre Complet quand vous voulez, depuis la page des tarifs."
+  />
+
+  <CTA
+    eyebrow="Reprendre"
+    title="L'offre Complet est toujours à 29,99 €, une fois"
+    content="Pas d'abonnement. Vous ne payez que si vous confirmez sur la page Stripe."
+    primaryText="Voir les tarifs"
+    primaryHref="/tarifs"
+  />
+</BaseLayout>

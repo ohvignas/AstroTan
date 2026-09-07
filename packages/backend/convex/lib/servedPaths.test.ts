@@ -61,6 +61,8 @@ describe("les chemins qu'un fichier de route sert déjà", () => {
     const slugs = cmsSlugsFromServedPaths()
     expect(slugs).toContain("contact")
     expect(slugs).toContain("tarifs")
+    expect(slugs).toContain("paiement-ok")
+    expect(slugs).toContain("paiement-annule")
     expect(slugs).not.toContain("")
     expect(slugs).not.toContain("404")
     expect(slugs).not.toContain("blog")

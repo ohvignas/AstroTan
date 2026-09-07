@@ -62,7 +62,20 @@ const DEMO_TAGS = [
   { name: "Convex", slug: "convex" },
 ]
 
-const DEMO_PAGES = [
+type DemoPage = {
+  slug: string
+  title: string
+  publish: boolean
+  seo?: { title?: string; description: string; noindex: boolean }
+  geo?: {
+    summary: string
+    faq: { question: string; answer: string }[]
+    entities: string[]
+    noai: boolean
+  }
+}
+
+const DEMO_PAGES: DemoPage[] = [
   { slug: "accueil", title: "Accueil", publish: true },
   { slug: "contact", title: "Contact", publish: true },
   // Une page est un couple : le fichier `.astro` ET sa ligne. Ces trois-là
@@ -70,6 +83,40 @@ const DEMO_PAGES = [
   // répondent 404 — ce qui est l'invariant, pas une panne.
   { slug: "fonctionnalites", title: "Fonctionnalités", publish: true },
   { slug: "tarifs", title: "Tarifs", publish: true },
+  {
+    slug: "paiement-ok",
+    title: "Paiement confirmé",
+    publish: true,
+    seo: {
+      title: "Paiement confirmé",
+      description:
+        "Votre paiement de l'offre Complet AstroTan a bien été reçu.",
+      noindex: true,
+    },
+    geo: {
+      summary: "Page de confirmation après un paiement Stripe réussi.",
+      faq: [],
+      entities: ["AstroTan", "Stripe"],
+      noai: false,
+    },
+  },
+  {
+    slug: "paiement-annule",
+    title: "Paiement annulé",
+    publish: true,
+    seo: {
+      title: "Paiement annulé",
+      description:
+        "Le paiement a été annulé. Vous pouvez reprendre l'offre Complet depuis la page tarifs.",
+      noindex: true,
+    },
+    geo: {
+      summary: "Page affichée quand un paiement Stripe est annulé.",
+      faq: [],
+      entities: ["AstroTan", "Stripe"],
+      noai: false,
+    },
+  },
   // Les pages réglementaires. Publiées comme les autres : une page légale
   // en brouillon est un lien mort dans le pied de page de tout le site, et
   // c'est exactement le genre de manque qu'on ne remarque jamais soi-même.
@@ -158,11 +205,12 @@ export const demoContent = internalMutation({
         title: page.title,
         status: page.publish ? "published" : "draft",
         publishedAt: page.publish ? now : undefined,
-        seo: {
+        seo: page.seo ?? {
           description:
             "Page de démonstration livrée avec AstroTan — à remplacer par la vôtre.",
           noindex: false,
         },
+        geo: page.geo,
         createdBy: author,
         updatedBy: author,
       })
