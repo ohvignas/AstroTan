@@ -3,6 +3,7 @@ import { useQuery } from "convex/react"
 import { api } from "@astrotan/backend/convex/_generated/api"
 import { AppSidebar } from "@/components/app-sidebar"
 import { NotificationsClocheConnectee } from "@/components/notifications-cloche"
+import { WarmNavQueries } from "@/components/warm-nav-queries"
 import { ProfileErrorBoundary } from "@/components/profile-error-boundary"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
@@ -13,6 +14,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <ProfileErrorBoundary>
+      <WarmNavQueries />
       <AppShellContent>{children}</AppShellContent>
     </ProfileErrorBoundary>
   )
