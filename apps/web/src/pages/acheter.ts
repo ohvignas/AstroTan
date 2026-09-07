@@ -1,3 +1,3 @@
 export const prerender = false
 
-export { POST } from "./api/checkout"
+export { GET, POST } from "./api/checkout"
