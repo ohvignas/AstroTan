@@ -231,6 +231,8 @@ describe("messageRefreshEchec", () => {
     expect(messageRefreshEchec("seo-backlinks")).toMatch(/backlinks/i)
     expect(messageRefreshEchec("site", "https://exemple.fr")).toContain("exemple.fr")
     expect(messageRefreshEchec("reseau")).toMatch(/Réessayez/)
+    expect(messageRefreshEchec("demo")).toMatch(/bac à sable/i)
+    expect(messageRefreshEchec("demo")).not.toMatch(/injoignable|abouti/i)
   })
 })
 
@@ -322,6 +324,27 @@ describe("executerRefresh", () => {
       invaliderSite: async () => ({ ok: false, origin: "https://exemple.fr" }),
     })
     expect(error).toContain("exemple.fr")
+  })
+
+  test("DEMO_FORBIDDEN du relevé site : phrase bac à sable, pas injoignable", async () => {
+    const { error } = await executerRefresh({
+      periode: "mois",
+      chargerAudience: async () => ok,
+      releverSite: async () => {
+        throw new Error('Uncaught ConvexError: {"code":"DEMO_FORBIDDEN"}')
+      },
+    })
+    expect(error).toMatch(/bac à sable/i)
+    expect(error).not.toMatch(/injoignable|abouti/i)
+  })
+
+  test("relevé SEO refusé pour le bac à sable : phrase honnête", async () => {
+    const { error } = await executerRefresh({
+      periode: "mois",
+      chargerAudience: async () => ok,
+      releverSite: async () => ({ ok: false, reason: "demo" }),
+    })
+    expect(error).toMatch(/bac à sable/i)
   })
 
   test("un plantage du site garde l'audience déjà lue", async () => {

@@ -42,6 +42,7 @@ export const PAGE_ERROR_MESSAGES: Record<string, string> = {
   INVALID_TARGET: "Indiquez une page ou un article, pas les deux.",
   NOTHING_TO_RETRY:
     "Aucune propagation en échec à relancer — réessayez depuis le badge d'erreur.",
+  DEMO_FORBIDDEN: "Le bac à sable ne lance pas cette action payante.",
 }
 
 // `FIELD_TOO_LONG` carries a `field`/`max` payload (`content.ts`'s

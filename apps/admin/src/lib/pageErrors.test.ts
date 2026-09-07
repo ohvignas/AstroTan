@@ -38,6 +38,14 @@ describe("les codes déjà connus", () => {
       "Une erreur inattendue est survenue.",
     )
   })
+
+  test("DEMO_FORBIDDEN dit le bac à sable, pas une erreur inattendue", () => {
+    const message = describePageError(
+      new ConvexError({ code: "DEMO_FORBIDDEN" }),
+    )
+    expect(message).toMatch(/bac à sable/i)
+    expect(message).not.toBe("Une erreur inattendue est survenue.")
+  })
 })
 
 describe("les refus OpenRouter", () => {

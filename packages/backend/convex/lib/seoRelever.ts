@@ -3,7 +3,7 @@ import type { ActionCtx } from "../_generated/server"
 import { api, internal } from "../_generated/api"
 import type { Id } from "../_generated/dataModel"
 import { requireOwnDocument, requireRole } from "./authz"
-import { exigerPasDemo } from "./demoSandbox"
+import { estCompteDemo } from "./demoSandbox"
 import { lireSecret } from "../secrets"
 import { publicPath, publicUrl } from "./publicPath"
 import { origineCibleStats } from "./refreshCible"
@@ -14,7 +14,7 @@ import { RELEVER_THROTTLE_MS } from "./seoRankState"
 
 export type ReleverResult =
   | { ok: true }
-  | { ok: false; reason: "not_found" | "draft" | "no_keyword" | "dfs_absent" | "throttled" | "unreachable" | "refuse" }
+  | { ok: false; reason: "not_found" | "draft" | "no_keyword" | "dfs_absent" | "throttled" | "unreachable" | "refuse" | "demo" }
 
 export async function executerRelever(
   ctx: ActionCtx,
@@ -23,7 +23,7 @@ export async function executerRelever(
 ): Promise<ReleverResult> {
   const authUser = await requireRole(ctx, ["owner", "admin", "editor"])
   const env = process.env
-  exigerPasDemo(authUser, env)
+  if (estCompteDemo(authUser, env)) return { ok: false, reason: "demo" }
   const doc =
     args.kind === "page" && args.pageId
       ? await ctx.runQuery(api.pages.get, { id: args.pageId })

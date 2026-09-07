@@ -1,6 +1,8 @@
 import type { DocumentRank } from "@astrotan/backend/convex/lib/seoRankState"
 import { Indicateur } from "@/components/indicateur"
 import { sensPourRang } from "@/components/fleche-tendance"
+import { codeErreurConvex } from "@/lib/convexErrorCode"
+import { PHRASE_SANDBOX_RELEVE } from "@/lib/refreshReleve"
 
 function tronquer(url: string) {
   return url.length > 48 ? `${url.slice(0, 45)}…` : url
@@ -79,6 +81,7 @@ const LIBELLES_RELEVER = {
   throttled: "Déjà relevé il y a moins d'une heure.",
   unreachable: "DataForSEO injoignable.",
   refuse: "Identifiants DataForSEO refusés.",
+  demo: PHRASE_SANDBOX_RELEVE,
 } as const
 
 export function phraseRelever(reason: string | undefined): string {
@@ -86,4 +89,9 @@ export function phraseRelever(reason: string | undefined): string {
     return LIBELLES_RELEVER[reason as keyof typeof LIBELLES_RELEVER]
   }
   return LIBELLES_RELEVER.unreachable
+}
+
+export function phraseReleverErreur(error: unknown): string {
+  if (codeErreurConvex(error) === "DEMO_FORBIDDEN") return phraseRelever("demo")
+  return phraseRelever("unreachable")
 }

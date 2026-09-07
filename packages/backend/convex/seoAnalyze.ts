@@ -14,36 +14,7 @@ import {
   MAX_SLUG_LENGTH,
   MAX_TARGET_KEYWORD_LENGTH,
 } from "./content"
-import { asCtor } from "./lib/yoastCtor"
 import type { SeoFinding } from "./lib/yoastFindings"
-import type { YoastEngine } from "./lib/yoastRun"
-
-async function loadYoastEngine(): Promise<YoastEngine> {
-  // createRequire ici (pas en tête de module) : le glob authz charge ce fichier en edge-runtime.
-  const { createRequire } = await import("node:module")
-  const req = createRequire(import.meta.url)
-  const yoast = req("yoastseo") as {
-    Paper: unknown
-    SeoAssessor: unknown
-    ContentAssessor: unknown
-    interpreters: YoastEngine["interpreters"]
-  }
-  const fr = req("yoastseo/build/languageProcessing/languages/fr/Researcher.js")
-  const interpreters =
-    yoast.interpreters ??
-    (yoast as { default?: { interpreters?: YoastEngine["interpreters"] } }).default
-      ?.interpreters
-  if (typeof interpreters?.scoreToRating !== "function") {
-    throw new TypeError("yoastseo interpreters.scoreToRating missing")
-  }
-  return {
-    Paper: asCtor(yoast.Paper),
-    SeoAssessor: asCtor(yoast.SeoAssessor),
-    ContentAssessor: asCtor(yoast.ContentAssessor),
-    interpreters,
-    FrenchResearcher: asCtor(fr),
-  }
-}
 
 function assertLen(value: string, max: number, field: string) {
   if (value.length > max) {
@@ -77,7 +48,12 @@ export const analyze = action({
       return { findings: [] }
     }
 
-    const { runYoastAnalysis } = await import("./lib/yoastRun.js")
+    // @vite-ignore : le glob edge-runtime ne doit pas résoudre yoastseo.
+    // Le bundler Convex suit quand même la chaîne littérale et l'inclut.
+    const [{ runYoastAnalysis }, { loadYoastEngine }] = await Promise.all([
+      import("./lib/yoastRun.js"),
+      import(/* @vite-ignore */ "./lib/yoastEngine.js"),
+    ])
     const webOrigin = process.env.WEB_SITE_URL
     return runYoastAnalysis({
       title: args.title,

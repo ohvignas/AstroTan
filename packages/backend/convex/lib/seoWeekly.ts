@@ -10,7 +10,7 @@ import { cibleApex, doitEssayerJumeau, hoteJumeauWww, origineCibleStats } from "
 export type RefreshSiteResult =
   | { ok: true; fetchedAt: number }
   | { ok: true; skipped: "dfs_absent" | "no_domain" }
-  | { ok: false; reason: "unreachable" | "keywords" | "backlinks" }
+  | { ok: false; reason: "unreachable" | "keywords" | "backlinks" | "demo" }
 
 export async function executerRefreshSiteSnapshot(
   ctx: ActionCtx,

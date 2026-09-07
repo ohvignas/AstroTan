@@ -8,7 +8,7 @@ import {
 } from "./_generated/server"
 import { api } from "./_generated/api"
 import { requireRole } from "./lib/authz"
-import { exigerPasDemo } from "./lib/demoSandbox"
+import { estCompteDemo } from "./lib/demoSandbox"
 import { MUTATION_REGISTRY } from "./_registry"
 import { fenetreFor, PERIODES } from "./analytics"
 import {
@@ -197,8 +197,7 @@ export const refreshSite = action({
   args: {},
   handler: async (ctx) => {
     const acteur = await requireRole(ctx, ["owner", "admin", "editor"])
-    const env = process.env
-    exigerPasDemo(acteur, env)
+    if (estCompteDemo(acteur, process.env)) return { ok: false, reason: "demo" }
     return executerRefreshSiteSnapshot(ctx)
   },
 })

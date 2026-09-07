@@ -131,6 +131,15 @@ describe("AnalyticsPanel", () => {
     expect(html).toContain("une heure")
   })
 
+  test("bac à sable : Relever inactif avec la phrase honnête", () => {
+    const html = renderToStaticMarkup(
+      <AnalyticsPanel result={OK} rank={RANKED} isDemo />,
+    )
+    expect(html).toMatch(/disabled=""/)
+    expect(html).toMatch(/bac à sable/i)
+    expect(html).not.toMatch(/injoignable/)
+  })
+
   test("Relever est actif quand canRelever", () => {
     const html = render(OK, RANKED)
     expect(html).toContain("aria-label=\"Relever\"")

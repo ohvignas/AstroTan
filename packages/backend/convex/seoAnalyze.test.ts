@@ -83,6 +83,14 @@ test("un titre trop long lève FIELD_TOO_LONG avant Yoast", async () => {
   }
 })
 
+test("yoastseo n'est pas externalPackages : le self-host n'installe pas ce champ", async () => {
+  const { readFileSync } = await import("node:fs")
+  const json = JSON.parse(
+    readFileSync(new URL("../convex.json", import.meta.url), "utf8"),
+  ) as { node?: { externalPackages?: string[] } }
+  expect(json.node?.externalPackages ?? []).not.toContain("yoastseo")
+})
+
 test("les plafonds documentés restent ceux de content.ts", () => {
   expect(MAX_POST_BODY_LENGTH).toBe(200_000)
   expect(MAX_EXCERPT_LENGTH).toBe(300)
