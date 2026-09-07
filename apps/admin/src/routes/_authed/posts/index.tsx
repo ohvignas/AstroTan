@@ -79,6 +79,10 @@ function PostsListPage() {
   // convention as the pages list.
   const profile = useQuery(api.profiles.me)
   const posts = useQuery(api.posts.list)
+  // Avant le return de chargement : un hook après ferait React #310
+  // (plus de hooks qu'au rendu précédent) dès que profile/posts arrivent.
+  // `"skip"` conditionnerait la query, pas le hook — l'appeler après
+  // `return` change le nombre de hooks d'un rendu à l'autre.
   const isDemo = useQuery(api.demo.jeSuisDemo) === true
 
   if (profile === undefined || posts === undefined) {
