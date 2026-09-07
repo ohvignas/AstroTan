@@ -7,7 +7,8 @@ import {
   verifyStripeSignature,
 } from "./stripe"
 
-export const STRIPE_WEBHOOK_PATH = "/stripe/webhook"
+/** Sous `/api` : sur la démo le split apex envoie le reste de `/api/*` à Convex. */
+export const STRIPE_WEBHOOK_PATH = "/api/stripe"
 
 function json(body: Record<string, unknown>, status: number): Response {
   return new Response(JSON.stringify(body), {

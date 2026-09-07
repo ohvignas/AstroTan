@@ -46,6 +46,10 @@ test("publicStatus dit ready/livemode sans jamais rendre la clé", async () => {
   })
 })
 
+test("le webhook est sous /api/stripe, pas sur une route web", () => {
+  expect(STRIPE_WEBHOOK_PATH).toBe("/api/stripe")
+})
+
 test("sans clé Stripe, createCheckout refuse", async () => {
   const t = makeTestConvex()
   await expect(t.action(api.payments.createCheckout, {})).rejects.toMatchObject({

@@ -4,14 +4,15 @@ import { SettingsGroup } from "@/components/settings-nav"
 import { ChampSecret, type SecretsBloc } from "@/components/settings-environment"
 import { CleMaitresseBandeau } from "@/components/settings-secrets"
 
-export const STRIPE_WEBHOOK_PATH = "/stripe/webhook"
+export const STRIPE_WEBHOOK_PATH = "/api/stripe"
 
 export function webhookUrlDepuisConvexCloud(convexUrl: string | undefined): string | null {
   if (!convexUrl) return null
   try {
     const url = new URL(convexUrl)
-    if (!url.hostname.endsWith(".convex.cloud")) return null
-    url.hostname = url.hostname.replace(/\.convex\.cloud$/, ".convex.site")
+    if (url.hostname.endsWith(".convex.cloud")) {
+      url.hostname = url.hostname.replace(/\.convex\.cloud$/, ".convex.site")
+    }
     url.pathname = STRIPE_WEBHOOK_PATH
     url.search = ""
     url.hash = ""
@@ -88,7 +89,7 @@ export function SectionPaiementStripe({
       ) : (
         <p className="text-sm text-muted-foreground">
           Endpoint :{" "}
-          <code className="text-xs">https://&lt;déploiement&gt;.convex.site/stripe/webhook</code>
+          <code className="text-xs">https://&lt;déploiement&gt;.convex.site/api/stripe</code>
           , événement <code className="text-xs">checkout.session.completed</code>.
         </p>
       )}

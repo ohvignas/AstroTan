@@ -29,11 +29,17 @@ describe("webhookUrlDepuisConvexCloud", () => {
   test("dérive l'URL site Convex, jamais un secret", () => {
     expect(
       webhookUrlDepuisConvexCloud("https://happy-animal-123.convex.cloud"),
-    ).toBe("https://happy-animal-123.convex.site/stripe/webhook")
+    ).toBe("https://happy-animal-123.convex.site/api/stripe")
   })
 
-  test("refuse une URL qui n'est pas Convex Cloud", () => {
-    expect(webhookUrlDepuisConvexCloud("https://exemple.fr")).toBeNull()
+  test("sur un Convex auto-hébergé, garde l'origine publique", () => {
+    expect(webhookUrlDepuisConvexCloud("https://astrotan.illith.com")).toBe(
+      "https://astrotan.illith.com/api/stripe",
+    )
+  })
+
+  test("refuse une URL mal formée", () => {
+    expect(webhookUrlDepuisConvexCloud("pas-une-url")).toBeNull()
   })
 })
 
@@ -42,7 +48,7 @@ describe("SectionPaiementStripe", () => {
     const html = renderToStaticMarkup(
       <SectionPaiementStripe
         secrets={bloc()}
-        webhookUrl="https://x.convex.site/stripe/webhook"
+        webhookUrl="https://x.convex.site/api/stripe"
       />,
     )
     expect(html).toContain("Connecté")
@@ -50,7 +56,7 @@ describe("SectionPaiementStripe", () => {
     expect(html).not.toContain("sk_live")
     expect(html).not.toContain("sk_test")
     expect(html).not.toContain("whsec")
-    expect(html).toContain("https://x.convex.site/stripe/webhook")
+    expect(html).toContain("https://x.convex.site/api/stripe")
   })
 
   test("un editor sans clé maîtresse ne voit pas les champs", () => {
