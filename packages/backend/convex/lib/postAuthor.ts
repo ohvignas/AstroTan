@@ -28,20 +28,24 @@ export async function resolvePostAuthors(
   const profiles = await ctx.db.query("profiles").collect()
   const byAuthId = new Map(profiles.map((profile) => [profile.authUserId, profile]))
 
-  const authors = new Map<string, PostAuthor>()
-  for (const id of unique) {
-    const profile = byAuthId.get(id)
-    let user: { email?: unknown } | null = null
-    if (isResolvableAuthUserId(id)) {
+  const users = await Promise.all(
+    unique.map(async (id) => {
+      if (!isResolvableAuthUserId(id)) return [id, null] as const
       try {
-        user = await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        const user = await ctx.runQuery(components.betterAuth.adapter.findOne, {
           model: "user" as const,
           where: [{ field: "_id", value: id }],
         })
+        return [id, user] as const
       } catch {
-        user = null
+        return [id, null] as const
       }
-    }
+    }),
+  )
+
+  const authors = new Map<string, PostAuthor>()
+  for (const [id, user] of users) {
+    const profile = byAuthId.get(id)
     const email = typeof user?.email === "string" ? user.email : ""
     authors.set(id, {
       displayName: profile?.displayName || email || "—",

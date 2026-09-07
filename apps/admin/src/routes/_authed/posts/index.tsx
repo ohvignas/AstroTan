@@ -75,8 +75,8 @@ const DATE_FORMAT = new Intl.DateTimeFormat("fr-FR", {
 })
 
 function PostsListPage() {
-  // Already subscribed by `AppShell` — reuses that subscription, same
-  // convention as the pages list.
+  // Already subscribed by `AppShell` / `WarmNavQueries` — reuses those
+  // subscriptions, same convention as the pages list.
   const profile = useQuery(api.profiles.me)
   const posts = useQuery(api.posts.list)
   // Avant le return de chargement : un hook après ferait React #310
@@ -85,7 +85,10 @@ function PostsListPage() {
   // `return` change le nombre de hooks d'un rendu à l'autre.
   const isDemo = useQuery(api.demo.jeSuisDemo) === true
 
-  if (profile === undefined || posts === undefined) {
+  // Le tableau s'affiche dès que `posts.list` répond. `profile` et
+  // `jeSuisDemo` sont déjà souscrits par le shell : les attendre ici
+  // faisait gouverner l'écran par la plus lente des trois.
+  if (posts === undefined) {
     return <p className="text-sm text-muted-foreground">Chargement…</p>
   }
 
@@ -94,7 +97,7 @@ function PostsListPage() {
   // at all. Hiding a control is a courtesy to the operator, never the
   // enforcement.
   const canPublish =
-    !isDemo && (profile.role === "owner" || profile.role === "admin")
+    !isDemo && (profile?.role === "owner" || profile?.role === "admin")
 
   return (
     <div className="flex flex-col gap-4">
@@ -102,7 +105,7 @@ function PostsListPage() {
         <div>
           <h1 className="text-lg font-medium">Articles</h1>
           <p className="text-sm text-muted-foreground">
-            {profile.role === "editor"
+            {profile?.role === "editor"
               ? "Vous voyez tous les articles, mais ne modifiez ou supprimez que les vôtres."
               : "Rédiger, prévisualiser et publier les articles du blog."}
           </p>
@@ -117,10 +120,10 @@ function PostsListPage() {
         <CardContent>
           <PostsTable
             posts={posts}
-            selfAuthUserId={profile.authUserId}
+            selfAuthUserId={profile?.authUserId ?? ""}
             canPublish={canPublish}
             isDemo={isDemo}
-            role={profile.role}
+            role={profile?.role ?? ""}
           />
         </CardContent>
       </Card>

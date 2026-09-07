@@ -7,12 +7,21 @@ describe("ordre des hooks — React #310", () => {
     const end = source.indexOf("function PostsTable")
     const body = source.slice(start, end)
     const hookAt = body.indexOf("useQuery(api.demo.jeSuisDemo)")
-    const returnAt = body.indexOf(
-      "if (profile === undefined || posts === undefined)",
-    )
+    const returnAt = body.indexOf("if (posts === undefined)")
     expect(hookAt).toBeGreaterThan(-1)
     expect(returnAt).toBeGreaterThan(-1)
     expect(hookAt).toBeLessThan(returnAt)
+  })
+})
+
+describe("écran Chargement", () => {
+  test("n'attend que posts.list — profile et jeSuisDemo sont déjà chauds", () => {
+    const start = source.indexOf("function PostsListPage")
+    const end = source.indexOf("function PostsTable")
+    const body = source.slice(start, end)
+    expect(body).toMatch(/if \(posts === undefined\)/)
+    expect(body).not.toMatch(/profile === undefined/)
+    expect(body).not.toMatch(/isDemo === undefined/)
   })
 })
 

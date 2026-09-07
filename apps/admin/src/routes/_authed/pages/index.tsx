@@ -47,8 +47,8 @@ export const Route = createFileRoute("/_authed/pages/")({
 type PageRow = FunctionReturnType<typeof api.pages.list>[number]
 
 function PagesListPage() {
-  // Already subscribed by `AppShell` — reuses that subscription, same
-  // convention as `routes/_authed/users.tsx`.
+  // Already subscribed by `AppShell` / `WarmNavQueries` — reuses those
+  // subscriptions, same convention as `routes/_authed/users.tsx`.
   const profile = useQuery(api.profiles.me)
   const pages = useQuery(api.pages.list)
   // Read here only to *mark* the home page in the list. Choosing one lives
@@ -57,11 +57,10 @@ function PagesListPage() {
   const homePageSlug = useQuery(api.settings.homePageSlug)
   const isDemo = useQuery(api.demo.jeSuisDemo) === true
 
-  if (
-    profile === undefined ||
-    pages === undefined ||
-    homePageSlug === undefined
-  ) {
+  // Le tableau dès que `pages.list` répond. L'icône d'accueil attend
+  // `homePageSlug` sans masquer la liste — c'était la plus lente des
+  // quatre queries qui gouvernait l'écran.
+  if (pages === undefined) {
     return <p className="text-sm text-muted-foreground">Chargement…</p>
   }
 
@@ -71,14 +70,14 @@ function PagesListPage() {
   // describes: "hiding a button is a courtesy to the operator, never the
   // enforcement."
   const canPublish =
-    !isDemo && (profile.role === "owner" || profile.role === "admin")
+    !isDemo && (profile?.role === "owner" || profile?.role === "admin")
 
   return (
     <div className="flex flex-col gap-4">
       <div>
         <h1 className="text-lg font-medium">Pages</h1>
         <p className="text-sm text-muted-foreground">
-          {profile.role === "editor"
+          {profile?.role === "editor"
             ? "Vous voyez toutes les pages du site, mais ne modifiez ou supprimez que les vôtres."
             : "Toutes les pages du site. Un agent écrit le fichier ; ici on publie et on règle le SEO."}
         </p>
@@ -91,11 +90,11 @@ function PagesListPage() {
         <CardContent>
           <PagesTable
             pages={pages}
-            selfAuthUserId={profile.authUserId}
+            selfAuthUserId={profile?.authUserId ?? ""}
             canPublish={canPublish}
             isDemo={isDemo}
-            role={profile.role}
-            homePageSlug={homePageSlug}
+            role={profile?.role ?? ""}
+            homePageSlug={homePageSlug ?? null}
           />
         </CardContent>
       </Card>
