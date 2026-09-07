@@ -17,11 +17,11 @@ function originePublique(): string {
   return brut.replace(/\/+$/, "")
 }
 
-/** Prêt / live — jamais un fragment de clé. Pour le bandeau « mode test » des tarifs. */
+/** Prêt / live — jamais un fragment de clé. `lireSecret` est une action ; ici l'env gagne. */
 export const publicStatus = query({
   args: {},
-  handler: async (ctx): Promise<{ ready: boolean; livemode: boolean }> => {
-    const cle = await lireSecret(ctx, "STRIPE_SECRET_KEY")
+  handler: async (): Promise<{ ready: boolean; livemode: boolean }> => {
+    const cle = process.env.STRIPE_SECRET_KEY
     if (!cle) return { ready: false, livemode: false }
     return { ready: true, livemode: cle.startsWith("sk_live_") }
   },
