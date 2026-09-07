@@ -79,6 +79,7 @@ function PostsListPage() {
   // convention as the pages list.
   const profile = useQuery(api.profiles.me)
   const posts = useQuery(api.posts.list)
+  const isDemo = useQuery(api.demo.jeSuisDemo) === true
 
   if (profile === undefined || posts === undefined) {
     return <p className="text-sm text-muted-foreground">Chargement…</p>
@@ -88,7 +89,6 @@ function PostsListPage() {
   // regardless of this flag — it only decides whether the button renders
   // at all. Hiding a control is a courtesy to the operator, never the
   // enforcement.
-  const isDemo = useQuery(api.demo.jeSuisDemo) === true
   const canPublish =
     !isDemo && (profile.role === "owner" || profile.role === "admin")
 
