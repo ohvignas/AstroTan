@@ -22,7 +22,7 @@ export function CoverField({
   generating: boolean
   compact?: boolean
   onChange: (value: Id<"_storage"> | null) => void
-  onGenerate: (extraInstructions?: string) => void
+  onGenerate?: (extraInstructions?: string) => void
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const media = useQuery(api.media.list, value === null ? "skip" : {})
@@ -98,11 +98,13 @@ export function CoverField({
       )}
       {!disabled && (
         <div className="flex items-stretch gap-2 max-sm:flex-wrap sm:flex-nowrap">
-          <GenerateCoverButton
-            disabled={disabled}
-            busy={generating}
-            onGenerate={onGenerate}
-          />
+          {onGenerate ? (
+            <GenerateCoverButton
+              disabled={disabled}
+              busy={generating}
+              onGenerate={onGenerate}
+            />
+          ) : null}
           <Button
             type="button"
             variant="outline"

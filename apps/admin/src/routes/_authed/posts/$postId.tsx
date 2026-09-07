@@ -121,7 +121,11 @@ function PostEditor({ post, profile }: { post: PostDoc; profile: Profile }) {
             />
           ) : undefined
         }
-        onGenerateCover={(extra) => void editor.handleGenerateCover(extra)}
+        onGenerateCover={
+          editor.isDemo
+            ? undefined
+            : (extra) => void editor.handleGenerateCover(extra)
+        }
       />
 
       <PostBodyCard

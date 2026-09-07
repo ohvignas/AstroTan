@@ -19,7 +19,7 @@ export function PostIdentityCard({
   generatingCover: boolean
   titlePlaceholder: string
   generateAction?: ReactNode
-  onGenerateCover: (extraInstructions?: string) => void
+  onGenerateCover?: (extraInstructions?: string) => void
 }) {
   return (
     <Card>
