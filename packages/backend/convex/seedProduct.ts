@@ -1,6 +1,12 @@
 import { internalMutation } from "./_generated/server"
 import { demoSandboxActif } from "./lib/demoSandbox"
-import { COMPARE_BODY, PILLAR_BODY } from "./lib/productArticleBodies"
+import {
+  COMPARE_BODY,
+  GEO_BODY,
+  PILLAR_BODY,
+  VIBE_BODY,
+  VPS_BODY,
+} from "./lib/productArticleBodies"
 
 const SEED_SLUGS = ["bienvenue", "markdown-et-mise-en-forme"] as const
 
@@ -8,6 +14,7 @@ const TAGS = [
   { name: "AstroTan", slug: "astrotan" },
   { name: "CMS", slug: "cms" },
   { name: "SEO", slug: "seo" },
+  { name: "GEO", slug: "geo" },
 ] as const
 
 type ProductArticle = {
@@ -100,6 +107,120 @@ const ARTICLES: ProductArticle[] = [
         },
       ],
       entities: ["WordPress", "AstroTan", "SEO", "consentement", "Traefik"],
+      noai: false,
+    },
+  },
+  {
+    slug: "vibecoding-site-vitrine",
+    title: "Vibecoding : un site vitrine qu'on peut classer",
+    excerpt:
+      "Cursor livre un proto. AstroTan pose SEO, GEO, consentement et rollback pour un site vitrine publiable.",
+    body: VIBE_BODY,
+    targetKeyword: "vibecoding site vitrine",
+    tagSlugs: ["astrotan", "seo"],
+    seo: {
+      title: "Vibecoding : un site vitrine qu'on peut classer",
+      description:
+        "Cursor livre un proto. AstroTan pose SEO, GEO, consentement et rollback pour un site vitrine publiable.",
+      noindex: false,
+    },
+    geo: {
+      summary:
+        "Le vibecoding produit un proto localhost. AstroTan ajoute publication, SEO, GEO, consentement et rollback VPS pour en faire un site vitrine qu'on montre et qu'on classe.",
+      faq: [
+        {
+          question: "Le vibecoding suffit-il à mettre un site en ligne ?",
+          answer:
+            "Il produit les fichiers. Il manque title, sitemap, consentement, rôles et un déploiement qu'on sait annuler. AstroTan pose cette pile ; tu gardes l'IA pour les pages .astro.",
+        },
+        {
+          question: "Cursor peut-il publier à ta place ?",
+          answer:
+            "Non. Owner ou admin publie depuis l'administration. Le site public n'a ni session ni clé admin. Un brouillon reste invisible.",
+        },
+        {
+          question: "Faut-il recoder SEO et cookies à chaque projet ?",
+          answer:
+            "Non. Tu clones AstroTan. Les pages restent du code que Cursor peut écrire. Publication, SEO, GEO et consentement vivent dans l'admin.",
+        },
+      ],
+      entities: ["vibecoding", "AstroTan", "Cursor", "SEO", "GEO"],
+      noai: false,
+    },
+  },
+  {
+    slug: "site-seo-geo",
+    title: "Site SEO et GEO : pages en Astro, champs dans l'admin",
+    excerpt:
+      "Title, llms.txt et FAQ depuis la fiche. Le HTML reste dans le fichier .astro. Aucun pixel avant une réponse.",
+    body: GEO_BODY,
+    targetKeyword: "site SEO GEO",
+    tagSlugs: ["astrotan", "seo", "geo"],
+    seo: {
+      title: "Site SEO GEO : llms.txt, FAQ, champs admin",
+      description:
+        "Pages en .astro, SEO et GEO dans l'admin. Sitemap, JSON-LD et llms.txt sortent des mêmes champs.",
+      noindex: false,
+    },
+    geo: {
+      summary:
+        "Un site SEO GEO AstroTan sépare le HTML (.astro) des champs admin : title, description, résumé, FAQ. sitemap.xml et llms.txt listent uniquement le publié. Consentement déclaré, aucun tag avant une réponse.",
+      faq: [
+        {
+          question: "Où se règlent title et description ?",
+          answer:
+            "Sur la fiche, dans l'administration. Le head les rend. Le sitemap ne liste que les pages et articles publiés.",
+        },
+        {
+          question: "À quoi sert le GEO dans AstroTan ?",
+          answer:
+            "Résumé, entités et FAQ que recopient les moteurs de réponse. llms.txt expose ces résumés. « Ne pas indexer » et « ne pas faire citer » sont deux interrupteurs.",
+        },
+        {
+          question: "Faut-il coller un pixel dans le HTML ?",
+          answer:
+            "Non. Umami, Meta et Google sont déclarés. Aucun tag n'est écrit avant que le visiteur réponde. Ajouter un tiers incrémente la version de consentement.",
+        },
+      ],
+      entities: ["SEO", "GEO", "llms.txt", "AstroTan", "JSON-LD"],
+      noai: false,
+    },
+  },
+  {
+    slug: "installer-site-vitrine-vps",
+    title: "Installer un site vitrine sur un VPS",
+    excerpt:
+      "Convex, bootstrap, DNS, Traefik. Staging Let's Encrypt d'abord. Le rollback rejoue le pipeline sur un sha.",
+    body: VPS_BODY,
+    targetKeyword: "installer site vitrine VPS",
+    tagSlugs: ["astrotan", "cms"],
+    seo: {
+      title: "Installer un site vitrine sur un VPS",
+      description:
+        "Clone, Convex, domaines, Traefik. Staging Let's Encrypt d'abord. Le rollback rejoue le pipeline sur un sha.",
+      noindex: false,
+    },
+    geo: {
+      summary:
+        "Installer AstroTan sur un VPS suit un ordre : Convex, variables, DNS, Compose derrière Traefik. Bootstrap pose la config. Let's Encrypt en staging d'abord. Le rollback rejoue le pipeline entier sur un sha.",
+      faq: [
+        {
+          question: "Que faut-il avant le premier déploiement ?",
+          answer:
+            "Un déploiement Convex, un dépôt GitHub, les domaines site et admin, un VPS Docker avec 80/443, une clé SSH. Décider public ou docker login pour GHCR avant le premier pull.",
+        },
+        {
+          question: "Pourquoi relancer bootstrap après convex deploy ?",
+          answer:
+            "Les functions doivent exister. Le second passage crée les lignes pages (sinon chaque URL répond 404) et le premier compte, rôle owner.",
+        },
+        {
+          question: "Pourquoi le rollback rejoue tout le pipeline ?",
+          answer:
+            "convex deploy a déjà remplacé functions et schéma. Remettre les images seules laisse le schéma d'aujourd'hui face au frontend d'hier.",
+        },
+      ],
+      entities: ["VPS", "AstroTan", "Traefik", "Let's Encrypt", "Convex"],
       noai: false,
     },
   },

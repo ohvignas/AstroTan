@@ -13,6 +13,9 @@ import { geoValidator, seoValidator } from "./content"
 const PRODUCT_SLUGS = [
   "astrotan-site-vitrine-cms",
   "site-vitrine-sans-wordpress",
+  "vibecoding-site-vitrine",
+  "site-seo-geo",
+  "installer-site-vitrine-vps",
 ] as const
 
 const EXTRA =
@@ -54,8 +57,8 @@ export const appliquerSeo = internalMutation({
  * sans session : un `npx convex run` n'en a pas. Réservé au bac à sable.
  */
 export const genererSeo = internalAction({
-  args: {},
-  handler: async (ctx) => {
+  args: { slugs: v.optional(v.array(v.string())) },
+  handler: async (ctx, args) => {
     if (!demoSandboxActif(process.env)) return { skipped: true as const, results: [] }
     const apiKey = await lireSecret(ctx, "OPENROUTER_API_KEY")
     if (apiKey === null) return { skipped: true as const, reason: "no-key", results: [] }
@@ -75,7 +78,8 @@ export const genererSeo = internalAction({
     }
     const results: { slug: string; ok: boolean; reason?: string }[] = []
 
-    for (const slug of PRODUCT_SLUGS) {
+    const slugs = args.slugs ?? [...PRODUCT_SLUGS]
+    for (const slug of slugs) {
       const post = await ctx.runQuery(internal.seedProductAi.articleParSlug, { slug })
       if (post === null) {
         results.push({ slug, ok: false, reason: "missing" })
